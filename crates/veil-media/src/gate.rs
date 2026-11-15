@@ -107,7 +107,12 @@ mod tests {
     use super::*;
     use crate::payload::Codec;
 
-    fn frame(spatial: u8, temporal: u8, picture: u64, reference: Option<u64>) -> (Layer, VideoHeader) {
+    fn frame(
+        spatial: u8,
+        temporal: u8,
+        picture: u64,
+        reference: Option<u64>,
+    ) -> (Layer, VideoHeader) {
         let layer = Layer::new(spatial, temporal, reference.is_none()).unwrap();
         let header = VideoHeader {
             codec: Codec::H264,
@@ -149,17 +154,30 @@ mod tests {
         let mut gate = Gate::default();
         admit(&mut gate, frame(0, 0, 0, None));
         // Picture 4 is lost.
-        assert_eq!(admit(&mut gate, frame(0, 0, 8, Some(4))), Verdict::DropAndRequestKeyframe);
-        assert_eq!(admit(&mut gate, frame(0, 0, 12, Some(8))), Verdict::Drop, "asked already");
+        assert_eq!(
+            admit(&mut gate, frame(0, 0, 8, Some(4))),
+            Verdict::DropAndRequestKeyframe
+        );
+        assert_eq!(
+            admit(&mut gate, frame(0, 0, 12, Some(8))),
+            Verdict::Drop,
+            "asked already"
+        );
         assert_eq!(admit(&mut gate, frame(0, 0, 13, None)), Verdict::Decode);
-        assert_eq!(admit(&mut gate, frame(0, 0, 21, Some(17))), Verdict::DropAndRequestKeyframe);
+        assert_eq!(
+            admit(&mut gate, frame(0, 0, 21, Some(17))),
+            Verdict::DropAndRequestKeyframe
+        );
     }
 
     #[test]
     fn joining_mid_stream_asks_for_a_keyframe() {
         let mut gate = Gate::default();
         assert_eq!(admit(&mut gate, frame(1, 2, 41, Some(40))), Verdict::Drop);
-        assert_eq!(admit(&mut gate, frame(1, 0, 44, Some(40))), Verdict::DropAndRequestKeyframe);
+        assert_eq!(
+            admit(&mut gate, frame(1, 0, 44, Some(40))),
+            Verdict::DropAndRequestKeyframe
+        );
     }
 
     #[test]
@@ -186,9 +204,17 @@ mod tests {
         let mut gate = Gate::default();
         let (layer, mut header) = frame(0, 0, 0, None);
         header.reference = Some(0);
-        assert_eq!(gate.admit(layer, &header), Verdict::Drop, "keyframe with a reference");
+        assert_eq!(
+            gate.admit(layer, &header),
+            Verdict::Drop,
+            "keyframe with a reference"
+        );
         let (layer, mut header) = frame(0, 0, 0, None);
         header.needs_lower = true;
-        assert_eq!(gate.admit(layer, &header), Verdict::Drop, "nothing below spatial 0");
+        assert_eq!(
+            gate.admit(layer, &header),
+            Verdict::Drop,
+            "nothing below spatial 0"
+        );
     }
 }

@@ -111,8 +111,17 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   from `MediaSession::recv` and calls `Schedule::request_keyframe`, which limits keyframes to
   one per 500 ms. Requests are never queued behind video: a full queue drops them.
   `ForwarderClient::recv` reads the forwarder's messages after joining.
+- Windows camera capture (`veil-media`). `cameras()` lists capture devices (name, id).
+  `MfCamera::open(id, CameraMode)` picks a native mode with `capture::rank_modes` (frame rate
+  first, then the smallest size that covers the wanted one, then the cheapest format: NV12,
+  YUY2, MJPEG), and the source reader's advanced video processing converts it to NV12.
+  `MfCamera::read()` blocks for the next picture and gives a tightly packed `RawPicture`
+  (`capture::pack_nv12` copies it out of the locked buffer within the bounds Windows reports).
+  `ffi/windows/camera.rs`. Test: `tests/camera.rs`; listing runs always (finds the OBSBOT Tiny
+  2 Lite here), live capture is `#[ignore]` because it turns the camera on:
+  `cargo test -j 8 -p veil-media --test camera -- --ignored --nocapture`. Not yet run.
 
-Tests: `cargo test -j 8 --workspace` (179 tests; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
+Tests: `cargo test -j 8 --workspace` (186 tests, one ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -159,6 +168,9 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 - A paused rung's encoder is reopened on resume, a stall of tens of milliseconds
   (`veil-media/src/ffi/windows/mod.rs`).
 - The async (hardware) encoder is polled every 0.2 ms for events (`ffi/windows/mod.rs`).
+- Each camera picture is copied once on the CPU (`ffi/windows/camera.rs`). A camera slower
+  than the ladder's capture rate (say 4K at 30 only) is used at 1080p60 if it offers that;
+  the app must still fit the ladder to the mode it gets (`Ladder::up_to`).
 
 ## Not yet tested
 
@@ -186,9 +198,9 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 
 1. Two-machine test over the real internet with `veil-probe` (steps above). Needs Jeremy's
    machines and a public box.
-2. `veil-media`, continued: the core, keyframe requests and the Windows H.264 encoder are done
-   (see above). Next, in order: camera capture on Windows (Media Foundation source reader to
-   NV12, into `RawPicture`); Opus; then the H.264 decoder. Decided
+2. `veil-media`, continued: the core, keyframe requests, the Windows H.264 encoder and
+   Windows camera capture are done (see above). First run the ignored live camera test once.
+   Next, in order: Opus; then the H.264 decoder. Decided
    15/11/2026: `unsafe` FFI and libopus are allowed in `veil-media` only, under the rules in
    `docs/TRANSPARENCY.md` section 5 (one `ffi` module per OS, `// SAFETY:` on every block,
    `clippy::undocumented_unsafe_blocks` denied, each module listed in that table).

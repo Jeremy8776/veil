@@ -39,7 +39,9 @@ impl<'a> RawPicture<'a> {
             return Err(MediaError::Malformed("picture size"));
         }
         let rows = usize::from(height) + usize::from(height) / 2;
-        let needed = stride.checked_mul(rows).ok_or(MediaError::Malformed("picture size"))?;
+        let needed = stride
+            .checked_mul(rows)
+            .ok_or(MediaError::Malformed("picture size"))?;
         if data.len() < needed {
             return Err(MediaError::Malformed("picture buffer"));
         }
@@ -68,14 +70,25 @@ pub trait VideoEncoder {
     fn codec(&self) -> Codec;
 
     /// Encodes `picture` into the layers `plan` lists. Not called for a plan with no layers.
-    fn encode(&mut self, picture: &RawPicture<'_>, plan: &PicturePlan) -> Result<Vec<EncodedLayer>, MediaError>;
+    fn encode(
+        &mut self,
+        picture: &RawPicture<'_>,
+        plan: &PicturePlan,
+    ) -> Result<Vec<EncodedLayer>, MediaError>;
 }
 
 /// Refuses encoder output that does not match the plan layer for layer.
 pub fn check_output(plan: &PicturePlan, output: &[EncodedLayer]) -> Result<(), MediaError> {
     let matches = output.len() == plan.layers.len()
-        && output.iter().zip(&plan.layers).all(|(out, planned)| out.layer == *planned);
-    if matches { Ok(()) } else { Err(MediaError::Encoder("output does not match the plan")) }
+        && output
+            .iter()
+            .zip(&plan.layers)
+            .all(|(out, planned)| out.layer == *planned);
+    if matches {
+        Ok(())
+    } else {
+        Err(MediaError::Encoder("output does not match the plan"))
+    }
 }
 
 #[cfg(test)]
@@ -97,7 +110,11 @@ mod tests {
             Codec::H264
         }
 
-        fn encode(&mut self, picture: &RawPicture<'_>, plan: &PicturePlan) -> Result<Vec<EncodedLayer>, MediaError> {
+        fn encode(
+            &mut self,
+            picture: &RawPicture<'_>,
+            plan: &PicturePlan,
+        ) -> Result<Vec<EncodedLayer>, MediaError> {
             Ok(plan
                 .layers
                 .iter()

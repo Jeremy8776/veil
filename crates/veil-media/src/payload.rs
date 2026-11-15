@@ -141,7 +141,11 @@ impl VideoHeader {
 
 fn check_size(width: u16, height: u16) -> Result<(), MediaError> {
     let fits = (1..=MAX_DIMENSION).contains(&width) && (1..=MAX_DIMENSION).contains(&height);
-    if fits { Ok(()) } else { Err(MediaError::Malformed("picture size")) }
+    if fits {
+        Ok(())
+    } else {
+        Err(MediaError::Malformed("picture size"))
+    }
 }
 
 fn array<const N: usize>(bytes: &[u8]) -> Result<[u8; N], MediaError> {
@@ -173,7 +177,11 @@ mod tests {
         assert_eq!(read, header());
         assert_eq!(bitstream, b"obu");
 
-        let key = VideoHeader { reference: None, needs_lower: false, ..header() };
+        let key = VideoHeader {
+            reference: None,
+            needs_lower: false,
+            ..header()
+        };
         assert_eq!(VideoHeader::read(&key.write(&[]).unwrap()).unwrap().0, key);
     }
 
@@ -194,15 +202,27 @@ mod tests {
         assert!(VideoHeader::read(&bad).is_err(), "zero width");
         let mut bad = good.clone();
         bad[11..15].copy_from_slice(&2_000u32.to_be_bytes());
-        assert!(VideoHeader::read(&bad).is_err(), "reference before picture 0");
-        assert!(VideoHeader::read(&good[..VIDEO_HEADER_LEN - 1]).is_err(), "short");
+        assert!(
+            VideoHeader::read(&bad).is_err(),
+            "reference before picture 0"
+        );
+        assert!(
+            VideoHeader::read(&good[..VIDEO_HEADER_LEN - 1]).is_err(),
+            "short"
+        );
     }
 
     #[test]
     fn writing_refuses_impossible_headers() {
-        let ahead = VideoHeader { reference: Some(1_000), ..header() };
+        let ahead = VideoHeader {
+            reference: Some(1_000),
+            ..header()
+        };
         assert!(ahead.write(&[]).is_err());
-        let huge = VideoHeader { width: MAX_DIMENSION + 2, ..header() };
+        let huge = VideoHeader {
+            width: MAX_DIMENSION + 2,
+            ..header()
+        };
         assert!(huge.write(&[]).is_err());
     }
 }

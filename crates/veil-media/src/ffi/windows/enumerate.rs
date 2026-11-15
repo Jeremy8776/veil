@@ -2,13 +2,13 @@
 //! software encoder. Part of the Windows `ffi` module; the same rules apply (see `mod.rs`).
 
 use windows::Win32::Media::MediaFoundation::{
-    CLSID_MSH264EncoderMFT, IMFActivate, IMFTransform, MFMediaType_Video,
+    CLSID_MSH264EncoderMFT, IMFActivate, IMFAttributes, IMFTransform, MFMediaType_Video,
     MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG, MFT_ENUM_FLAG_HARDWARE, MFT_ENUM_FLAG_SORTANDFILTER,
     MFT_FRIENDLY_NAME_Attribute, MFT_REGISTER_TYPE_INFO, MFTEnumEx, MFVideoFormat_H264,
     MFVideoFormat_NV12,
 };
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree};
-use windows::core::PWSTR;
+use windows::core::{GUID, PWSTR};
 
 /// Every hardware H.264 encoder that takes NV12, best first, activated.
 pub(super) fn hardware_transforms() -> Vec<(IMFTransform, String, bool)> {
@@ -55,21 +55,25 @@ pub(super) fn hardware_transforms() -> Vec<(IMFTransform, String, bool)> {
 }
 
 fn friendly_name(activate: &IMFActivate) -> String {
+    allocated_string(activate, &MFT_FRIENDLY_NAME_Attribute)
+        .unwrap_or_else(|| String::from("hardware H.264 encoder"))
+}
+
+/// A string attribute, copied out and freed. `None` if it is missing.
+pub(super) fn allocated_string(attributes: &IMFAttributes, key: &GUID) -> Option<String> {
     let mut text = PWSTR::null();
     let mut len = 0u32;
-    // SAFETY: `text` and `len` are valid out values. On success `text` is a CoTaskMemAlloc
-    // string we own.
-    if unsafe { activate.GetAllocatedString(&MFT_FRIENDLY_NAME_Attribute, &mut text, &mut len) }
-        .is_err()
-        || text.is_null()
+    // SAFETY: `key` is a static GUID, `text` and `len` are valid out values. On success `text`
+    // is a CoTaskMemAlloc string we own.
+    if unsafe { attributes.GetAllocatedString(key, &mut text, &mut len) }.is_err() || text.is_null()
     {
-        return String::from("hardware H.264 encoder");
+        return None;
     }
     // SAFETY: `text` is a valid nul-terminated wide string until freed just after.
-    let name = unsafe { text.to_string() }.unwrap_or_default();
+    let value = unsafe { text.to_string() }.ok();
     // SAFETY: frees the string GetAllocatedString allocated, exactly once.
     unsafe { CoTaskMemFree(Some(text.0 as *const _)) };
-    name
+    value
 }
 
 /// Microsoft's software H.264 encoder, which ships with Windows.

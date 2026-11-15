@@ -15,6 +15,7 @@
 //! - Time is passed in, so keyframe timing is tested without sleeping.
 
 pub mod annexb;
+pub mod capture;
 pub mod encoder;
 pub mod error;
 pub mod ffi;
@@ -26,6 +27,7 @@ pub mod schedule;
 pub mod simulcast;
 pub mod temporal;
 
+pub use capture::{CameraMode, NativeMode, PixelFormat};
 pub use encoder::{EncodedLayer, RawPicture, VideoEncoder};
 pub use error::MediaError;
 pub use gate::{Gate, Verdict};
@@ -35,4 +37,6 @@ pub use schedule::{PicturePlan, Schedule};
 pub use simulcast::{RungEncoder, Simulcast};
 
 #[cfg(windows)]
-pub use ffi::windows::{MediaFoundationEncoder, MfRung, media_foundation};
+pub use ffi::windows::{
+    CameraInfo, MediaFoundationEncoder, MfCamera, MfRung, cameras, media_foundation,
+};

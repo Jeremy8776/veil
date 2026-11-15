@@ -110,8 +110,12 @@ impl Schedule {
             return skip(picture, temporal_id(self.phase - 1, self.ladder.levels()));
         }
 
-        let gap_ok = self.last_key.is_none_or(|at| now.duration_since(at) >= MIN_KEY_GAP);
-        let stale = self.last_key.is_some_and(|at| now.duration_since(at) >= KEYFRAME_EVERY);
+        let gap_ok = self
+            .last_key
+            .is_none_or(|at| now.duration_since(at) >= MIN_KEY_GAP);
+        let stale = self
+            .last_key
+            .is_some_and(|at| now.duration_since(at) >= KEYFRAME_EVERY);
         let aligned = self.phase % period(self.ladder.levels()) == 0;
         let keyframe = ((self.key_due && gap_ok) || stale) && aligned;
         if keyframe {
@@ -122,7 +126,11 @@ impl Schedule {
         let temporal = temporal_id(self.phase, self.ladder.levels());
         self.phase += 1;
 
-        let reference = if keyframe { None } else { self.reference(temporal) };
+        let reference = if keyframe {
+            None
+        } else {
+            self.reference(temporal)
+        };
         let Some(wanted) = self.encoding.filter(|_| keyframe || reference.is_some()) else {
             // Resuming, and the keyframe is waiting for its gap.
             return skip(picture, temporal);
@@ -156,7 +164,11 @@ impl Schedule {
 
     /// The latest encoded picture this temporal layer may be predicted from.
     fn reference(&self, temporal: u8) -> Option<u64> {
-        let below = if temporal == 0 { 1 } else { usize::from(temporal) };
+        let below = if temporal == 0 {
+            1
+        } else {
+            usize::from(temporal)
+        };
         self.latest.iter().take(below).flatten().copied().max()
     }
 }
@@ -205,15 +217,29 @@ mod tests {
 
         assert!(plans[0].keyframe && plans[0].reference.is_none());
         assert_eq!(spatial(&plans[0]), [0, 1, 2]);
-        assert!(plans[0].layers.iter().all(|l| l.keyframe && l.temporal == 0));
+        assert!(
+            plans[0]
+                .layers
+                .iter()
+                .all(|l| l.keyframe && l.temporal == 0)
+        );
         // Phase 1: temporal 2, Uhd only, from picture 0.
-        assert_eq!((plans[1].temporal, plans[1].reference, spatial(&plans[1])), (2, Some(0), vec![2]));
+        assert_eq!(
+            (plans[1].temporal, plans[1].reference, spatial(&plans[1])),
+            (2, Some(0), vec![2])
+        );
         // Phase 2: temporal 1, Hd and Uhd, from picture 0.
-        assert_eq!((plans[2].temporal, plans[2].reference, spatial(&plans[2])), (1, Some(0), vec![1, 2]));
+        assert_eq!(
+            (plans[2].temporal, plans[2].reference, spatial(&plans[2])),
+            (1, Some(0), vec![1, 2])
+        );
         // Phase 3: temporal 2, from the temporal 1 picture.
         assert_eq!((plans[3].temporal, plans[3].reference), (2, Some(2)));
         // Phase 4: temporal 0 again, every rung, from the last temporal 0 picture.
-        assert_eq!((plans[4].temporal, plans[4].reference, spatial(&plans[4])), (0, Some(0), vec![0, 1, 2]));
+        assert_eq!(
+            (plans[4].temporal, plans[4].reference, spatial(&plans[4])),
+            (0, Some(0), vec![0, 1, 2])
+        );
         assert!(!plans[4].keyframe);
     }
 
@@ -226,7 +252,10 @@ mod tests {
         assert!(!s.next(start + MIN_KEY_GAP / 2).keyframe, "too soon");
         let served = keyframe_by(&mut s, start + MIN_KEY_GAP);
         assert_eq!(served.picture % 4, 0, "on a pattern boundary");
-        assert!(!s.next(start + MIN_KEY_GAP * 3).keyframe, "request served once");
+        assert!(
+            !s.next(start + MIN_KEY_GAP * 3).keyframe,
+            "request served once"
+        );
     }
 
     #[test]
@@ -243,12 +272,21 @@ mod tests {
         let now = Instant::now();
         let mut s = Schedule::new(Ladder::camera());
         s.next(now);
-        s.set_wanted(wanted_by([Wanted::THUMB, Wanted { spatial: 1, temporal: 1 }]));
+        s.set_wanted(wanted_by([
+            Wanted::THUMB,
+            Wanted {
+                spatial: 1,
+                temporal: 1,
+            },
+        ]));
         let plans: Vec<PicturePlan> = (0..4).map(|_| s.next(now)).collect();
         assert!(plans[0].layers.is_empty(), "temporal 2 is not wanted");
         assert_eq!(spatial(&plans[1]), [1], "temporal 1: Hd only");
         assert_eq!(spatial(&plans[3]), [0, 1], "temporal 0: no Uhd");
-        assert!(plans.iter().all(|p| !p.keyframe), "lowering needs no keyframe");
+        assert!(
+            plans.iter().all(|p| !p.keyframe),
+            "lowering needs no keyframe"
+        );
     }
 
     #[test]

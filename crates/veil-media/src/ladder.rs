@@ -166,8 +166,14 @@ mod tests {
         let thumb = rung(Tier::Thumb, 640, 360, 0, 1);
         let hd = rung(Tier::Hd, 1_920, 1_080, 1, 1);
         assert!(Ladder::new(60, 3, vec![hd]).is_err(), "gap at spatial 0");
-        assert!(Ladder::new(60, 3, vec![thumb, thumb]).is_err(), "repeated tier");
-        assert!(Ladder::new(60, 1, vec![thumb, hd]).is_err(), "temporal above levels");
+        assert!(
+            Ladder::new(60, 3, vec![thumb, thumb]).is_err(),
+            "repeated tier"
+        );
+        assert!(
+            Ladder::new(60, 1, vec![thumb, hd]).is_err(),
+            "temporal above levels"
+        );
         assert!(Ladder::new(60, 3, vec![rung(Tier::Thumb, 641, 360, 0, 1)]).is_err());
         assert!(Ladder::new(60, 3, vec![thumb, rung(Tier::Hd, 320, 180, 1, 1)]).is_err());
         assert!(Ladder::new(0, 3, vec![thumb]).is_err());

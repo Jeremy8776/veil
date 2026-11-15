@@ -87,6 +87,7 @@ in C and assembly. It is licensed Apache-2.0 and ISC.
 | Module | Calls | Why |
 |---|---|---|
 | `veil-media/src/ffi/windows` (`mod.rs`, `enumerate.rs`, `sample.rs`) | COM start-up (`CoInitializeEx`, `CoCreateInstance`, `CoTaskMemFree`); Media Foundation (`MFStartup`, `MFTEnumEx`, the H.264 encoder transform `IMFTransform` and its `ICodecAPI` settings, media types, samples and buffers) | Hardware H.264 encoding on Windows, one encoder per simulcast rung, with Microsoft's software encoder as the fallback. Both ship with Windows |
+| `veil-media/src/ffi/windows/camera.rs` | Media Foundation capture (`MFEnumDeviceSources`, the camera's `IMFMediaSource`, `MFCreateSourceReaderFromMediaSource`, `IMFSourceReader::ReadSample`, `IMF2DBuffer2::Lock2DSize`) | Camera pictures on Windows, converted to NV12 by Windows' own video processing. Each picture is copied out of the locked buffer, within the bounds Windows reports, before it is used. The camera's name stays on the device; nothing about it is sent |
 
 ## 6. Known shortcuts
 
@@ -106,6 +107,8 @@ grep -rn "shortcut:" crates
 - A forged MLS commit from a member who is not the host. The check exists; there is no test,
   because the MLS library gives no easy way to build such a commit.
 - Any test on macOS or Linux. Development so far is on Windows.
+- Live camera capture runs only on request (`cargo test -p veil-media --test camera --
+  --ignored`), because it turns the camera on. Listing cameras runs in every test pass.
 
 ## 8. Reporting a security problem
 
