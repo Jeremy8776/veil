@@ -100,7 +100,8 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 ## Running the two-machine test
 
 1. Public box: `veil-node` with rendezvous, relay and forwarder on (see the example TOML).
-   It prints `rendezvous KEY@IP:PORT` and `forwarder KEY@IP:PORT`.
+   It prints `rendezvous KEY@IP:PORT` and `forwarder KEY@IP:PORT`. It prints the listen address
+   (`0.0.0.0`), so replace that with the box's public IP. Open 4433/udp and 4434/udp.
 2. Home network A: `veil-probe host --rendezvous KEY@IP:PORT`. Add `--advertise PUBLIC_IP:7710`
    if port 7710/udp is forwarded to this machine. It prints an invite link.
 3. Home network B: `veil-probe join LINK`. Check the safety numbers match on both sides.
