@@ -91,7 +91,10 @@ def main():
         *rows,
         "",
     ])
-    stale = not OUT.exists() or OUT.read_text(encoding="utf-8") != text
+    # Git may check the file out with CRLF line endings on Windows; compare the text only.
+    stale = not OUT.exists() or OUT.read_text(encoding="utf-8").replace("
+", "
+") != text
     if "--check" in sys.argv:
         if stale:
             print("docs/DEPENDENCIES.md is stale: run python tools/licences.py")
