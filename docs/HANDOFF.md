@@ -63,7 +63,7 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   whose marker does not parse is dropped. `ForwarderClient::subscribe` and
   `MediaSession::subscribe` send it. `Wanted` now lives in `veil-security::layer` (re-exported
   by `veil-forward`) so `veil-media` can use it without the network stack.
-- `veil-media` core, OS-independent, no `unsafe` yet:
+- `veil-media` core, OS-independent, safe Rust:
   - `ladder.rs`: the bitrate ladder. `Ladder::camera()` is Thumb 640x360 at 15 fps, Hd
     1920x1080 at 30 fps, Uhd 3840x2160 at 60 fps, from 60 fps capture with 3 temporal levels.
   - `temporal.rs`: the dyadic temporal pattern (3 levels: 0, 2, 1, 2).
@@ -78,6 +78,31 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
     cannot decode, once per break.
   - `encoder.rs`: `VideoEncoder` trait (NV12 `RawPicture` plus `PicturePlan` in, one
     `EncodedLayer` per planned layer out), and `check_output`.
+- Windows H.264 encoder (`veil-media`), simulcast: `media_foundation(&ladder, hardware)` gives a
+  `Simulcast<MfRung>`, one Media Foundation encoder per rung. It tries the GPU encoders from
+  `MFTEnumEx` first (on this machine: NVIDIA H.264 Encoder MFT) and falls back to Microsoft's
+  software encoder. Low latency, CBR, no B pictures, no encoder-chosen IDR, one access unit out
+  per picture in; an encoder that holds pictures back is refused.
+  - `simulcast.rs` (safe, OS-independent): feeds each rung every picture with
+    `temporal <= top_temporal`, even when the plan lowered its temporal layers (the output is
+    dropped), because each encoder runs its own temporal pattern
+    (`CODECAPI_AVEncVideoTemporalLayerCount`, which must be set before the media types). A rung omitted from a temporal 0
+    picture is paused and is reopened (`RungEncoder::restart`) at the next keyframe. Every
+    output is checked: a planned keyframe must contain an IDR, and the prefix unit's temporal
+    id must match the plan.
+  - Found on real encoders (15/11/2026): both encoders honour a forced IDR only at the start of
+    their temporal pattern, and an IDR does not restart the pattern. So `Schedule` now places
+    keyframes only where `phase % period == 0`, up to 4 pictures (67 ms at 60 fps) late.
+  - `scale.rs`: CPU box filter from the captured picture to each rung's size. `annexb.rs`: reads
+    NAL unit types, `nal_ref_idc` and prefix temporal ids.
+  - `ffi/windows/` is the only `unsafe` code in Veil (`mod.rs`, `enumerate.rs`, `sample.rs`).
+    `veil-media` sets `unsafe_code = "deny"` and `clippy::undocumented_unsafe_blocks = "deny"`
+    in its own lint table (it copies the workspace's clippy lints; keep them in step).
+  - Test: `tests/media_foundation.rs` encodes 72 synthetic 1080p NV12 pictures through the
+    Thumb and Hd rungs on hardware and software, with a requested keyframe and an Hd pause and
+    resume. It checks IDRs, P slices, sizes and that Hd temporal 1 slices are non-reference.
+    It skips with a note when no encoder exists. The Uhd rung (3 temporal levels) is covered
+    only by the fake encoder and the prefix temporal id check, not by a real 4K run.
 - Keyframe requests end to end. `MediaSession::request_keyframe(sender)` sends
   `Control::KeyframeRequest` on that member's media link in a mesh, or
   `ClientMsg::KeyframeRequest(sender)` to the forwarder, which passes `ServerMsg::KeyframeRequest`
@@ -87,7 +112,7 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   one per 500 ms. Requests are never queued behind video: a full queue drops them.
   `ForwarderClient::recv` reads the forwarder's messages after joining.
 
-Tests: `cargo test -j 8 --workspace` (168 tests), `cargo clippy -j 8 --workspace --all-targets`.
+Tests: `cargo test -j 8 --workspace` (179 tests; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -129,6 +154,11 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
   simulcast (`subscribe.rs`).
 - A layer that arrives before its reference is dropped, not reordered (`veil-media/src/gate.rs`).
 - The 4 s periodic keyframe is the fallback for lost requests (`veil-media/src/schedule.rs`).
+- Scaling to each rung is a CPU box filter; move it to the GPU when capture gives textures
+  (`veil-media/src/scale.rs`).
+- A paused rung's encoder is reopened on resume, a stall of tens of milliseconds
+  (`veil-media/src/ffi/windows/mod.rs`).
+- The async (hardware) encoder is polled every 0.2 ms for events (`ffi/windows/mod.rs`).
 
 ## Not yet tested
 
@@ -156,9 +186,9 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 
 1. Two-machine test over the real internet with `veil-probe` (steps above). Needs Jeremy's
    machines and a public box.
-2. `veil-media`, continued: the core and keyframe requests are done (see above). Next, in
-   order: the Windows Media Foundation H.264 encoder behind `VideoEncoder` (likely simulcast, one encoder
-   per rung, since hardware H.264 has no spatial SVC); camera capture; Opus. Decided
+2. `veil-media`, continued: the core, keyframe requests and the Windows H.264 encoder are done
+   (see above). Next, in order: camera capture on Windows (Media Foundation source reader to
+   NV12, into `RawPicture`); Opus; then the H.264 decoder. Decided
    15/11/2026: `unsafe` FFI and libopus are allowed in `veil-media` only, under the rules in
    `docs/TRANSPARENCY.md` section 5 (one `ffi` module per OS, `// SAFETY:` on every block,
    `clippy::undocumented_unsafe_blocks` denied, each module listed in that table).

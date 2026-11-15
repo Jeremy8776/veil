@@ -6,7 +6,10 @@
 //! saves upload and encoder load.
 //!
 //! Invariants:
-//! - A keyframe is always temporal layer 0 and restarts the temporal pattern.
+//! - A keyframe is always temporal layer 0 and falls where the pattern restarts anyway (a
+//!   multiple of its period). Hardware encoders running their own temporal pattern only
+//!   honour a forced IDR there, so a keyframe may wait up to one period (4 pictures at 3
+//!   levels, 67 ms at 60 fps).
 //! - A layer's reference is the latest earlier picture of a lower temporal layer, or the
 //!   previous layer-0 picture for layer 0. Lower layers never refer to higher ones.
 //! - Keyframes come at most once per [`MIN_KEY_GAP`], however often receivers ask. A request
@@ -23,7 +26,7 @@ use std::time::{Duration, Instant};
 use veil_security::{Layer, Wanted};
 
 use crate::ladder::Ladder;
-use crate::temporal::{MAX_LEVELS, temporal_id};
+use crate::temporal::{MAX_LEVELS, period, temporal_id};
 
 /// Shortest time between two keyframes.
 pub const MIN_KEY_GAP: Duration = Duration::from_millis(500);
@@ -109,7 +112,8 @@ impl Schedule {
 
         let gap_ok = self.last_key.is_none_or(|at| now.duration_since(at) >= MIN_KEY_GAP);
         let stale = self.last_key.is_some_and(|at| now.duration_since(at) >= KEYFRAME_EVERY);
-        let keyframe = (self.key_due && gap_ok) || stale;
+        let aligned = self.phase % period(self.ladder.levels()) == 0;
+        let keyframe = ((self.key_due && gap_ok) || stale) && aligned;
         if keyframe {
             self.phase = 0;
             self.latest = [None; MAX_LEVELS as usize];
@@ -173,9 +177,21 @@ fn skip(picture: u64, temporal: u8) -> PicturePlan {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
+
+    /// The keyframe due at `at`: it must come within one pattern period, at its start.
+    fn keyframe_by(s: &mut Schedule, at: Instant) -> PicturePlan {
+        for _ in 0..period(s.ladder().levels()) {
+            let plan = s.next(at);
+            if plan.keyframe {
+                assert_eq!(plan.temporal, 0);
+                return plan;
+            }
+        }
+        panic!("no keyframe within one period");
+    }
 
     fn spatial(plan: &PicturePlan) -> Vec<u8> {
         plan.layers.iter().map(|l| l.spatial).collect()
@@ -208,8 +224,8 @@ mod tests {
         assert!(s.next(start).keyframe);
         s.request_keyframe();
         assert!(!s.next(start + MIN_KEY_GAP / 2).keyframe, "too soon");
-        let served = s.next(start + MIN_KEY_GAP);
-        assert!(served.keyframe && served.temporal == 0);
+        let served = keyframe_by(&mut s, start + MIN_KEY_GAP);
+        assert_eq!(served.picture % 4, 0, "on a pattern boundary");
         assert!(!s.next(start + MIN_KEY_GAP * 3).keyframe, "request served once");
     }
 
@@ -219,7 +235,7 @@ mod tests {
         let mut s = Schedule::new(Ladder::camera());
         s.next(start);
         assert!(!s.next(start + KEYFRAME_EVERY / 2).keyframe);
-        assert!(s.next(start + KEYFRAME_EVERY).keyframe);
+        keyframe_by(&mut s, start + KEYFRAME_EVERY);
     }
 
     #[test]
@@ -243,13 +259,13 @@ mod tests {
         s.set_wanted(Some(Wanted::THUMB));
         s.next(start);
         s.set_wanted(Some(Wanted::ALL));
-        assert!(s.next(later).keyframe);
+        keyframe_by(&mut s, later);
 
         s.set_wanted(wanted_by([]));
         assert!(s.next(later).layers.is_empty(), "nobody watching");
         s.set_wanted(Some(Wanted::THUMB));
-        let resumed = s.next(later + MIN_KEY_GAP);
-        assert!(resumed.keyframe && resumed.layers.len() == 1);
+        let resumed = keyframe_by(&mut s, later + MIN_KEY_GAP);
+        assert_eq!(resumed.layers.len(), 1);
     }
 
     #[test]
@@ -263,8 +279,7 @@ mod tests {
         assert!(early.iter().all(|p| !p.keyframe));
         assert!(early[..3].iter().all(|p| p.layers.is_empty()));
         assert_eq!(spatial(&early[3]), [0], "Thumb only, from the old keyframe");
-        let key = s.next(start + MIN_KEY_GAP);
-        assert!(key.keyframe);
+        let key = keyframe_by(&mut s, start + MIN_KEY_GAP);
         assert_eq!(spatial(&key), [0, 1, 2]);
     }
 
@@ -276,6 +291,6 @@ mod tests {
         s.set_wanted(None);
         s.set_wanted(Some(Wanted::ALL));
         assert!(s.next(start).layers.is_empty());
-        assert!(s.next(start + MIN_KEY_GAP).keyframe);
+        keyframe_by(&mut s, start + MIN_KEY_GAP);
     }
 }

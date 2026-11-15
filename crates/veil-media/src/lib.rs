@@ -8,18 +8,22 @@
 //! to ask the sender for a keyframe. Per-OS encoders implement [`VideoEncoder`].
 //!
 //! Invariants:
-//! - No `unsafe` here. Native media APIs will live in one `ffi` module per OS, under the rules
-//!   in `docs/TRANSPARENCY.md` section 5.
+//! - `unsafe` only in [`ffi`], one module per OS, under the rules in `docs/TRANSPARENCY.md`
+//!   section 5. Everything else here is safe Rust and denies `unsafe_code`.
 //! - Nothing here touches the network or keys. The app seals each payload with
 //!   `FrameSender::encrypt_layer`, using the [`veil_security::Layer`] the schedule chose.
 //! - Time is passed in, so keyframe timing is tested without sleeping.
 
+pub mod annexb;
 pub mod encoder;
 pub mod error;
+pub mod ffi;
 pub mod gate;
 pub mod ladder;
 pub mod payload;
+pub mod scale;
 pub mod schedule;
+pub mod simulcast;
 pub mod temporal;
 
 pub use encoder::{EncodedLayer, RawPicture, VideoEncoder};
@@ -28,3 +32,7 @@ pub use gate::{Gate, Verdict};
 pub use ladder::{Ladder, Rung, Tier};
 pub use payload::{Codec, VideoHeader};
 pub use schedule::{PicturePlan, Schedule};
+pub use simulcast::{RungEncoder, Simulcast};
+
+#[cfg(windows)]
+pub use ffi::windows::{MediaFoundationEncoder, MfRung, media_foundation};

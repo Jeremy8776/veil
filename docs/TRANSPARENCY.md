@@ -64,13 +64,14 @@ code are from the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113
 
 ## 5. Code Rust cannot check
 
-**Today:** Veil's own crates contain no `unsafe` code. The workspace sets
-`unsafe_code = "forbid"`, so the compiler refuses any.
+**Today:** the workspace sets `unsafe_code = "forbid"`, so the compiler refuses `unsafe` in
+every crate except `veil-media`. That crate sets `deny` instead, and only its Windows `ffi`
+module allows it. The rest of `veil-media` is safe Rust.
 
 **Native code in dependencies:** `ring` (used by `rustls` and `quinn` for TLS) is written partly
 in C and assembly. It is licensed Apache-2.0 and ISC.
 
-**Planned, for `veil-media`:**
+**In `veil-media`:**
 - Camera and screen capture and hardware video encoding are only available through each
   operating system's own APIs: Media Foundation (Windows), VideoToolbox (macOS), VA-API (Linux).
   Calling them needs `unsafe` foreign-function calls. These libraries ship with the operating
@@ -85,7 +86,7 @@ in C and assembly. It is licensed Apache-2.0 and ISC.
 
 | Module | Calls | Why |
 |---|---|---|
-| (none yet) | | |
+| `veil-media/src/ffi/windows` (`mod.rs`, `enumerate.rs`, `sample.rs`) | COM start-up (`CoInitializeEx`, `CoCreateInstance`, `CoTaskMemFree`); Media Foundation (`MFStartup`, `MFTEnumEx`, the H.264 encoder transform `IMFTransform` and its `ICodecAPI` settings, media types, samples and buffers) | Hardware H.264 encoding on Windows, one encoder per simulcast rung, with Microsoft's software encoder as the fallback. Both ship with Windows |
 
 ## 6. Known shortcuts
 

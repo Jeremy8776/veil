@@ -12,6 +12,8 @@ pub enum MediaError {
     TooLarge,
     /// The platform encoder failed. The text names the step.
     Encoder(&'static str),
+    /// This machine has no usable platform media component. The text names it.
+    Unavailable(&'static str),
 }
 
 impl fmt::Display for MediaError {
@@ -21,6 +23,7 @@ impl fmt::Display for MediaError {
             Self::BadConfig(part) => write!(f, "bad media setting: {part}"),
             Self::TooLarge => f.write_str("media payload is too large"),
             Self::Encoder(step) => write!(f, "encoder failed: {step}"),
+            Self::Unavailable(what) => write!(f, "not available on this machine: {what}"),
         }
     }
 }
