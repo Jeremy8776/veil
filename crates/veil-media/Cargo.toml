@@ -9,6 +9,10 @@ license.workspace = true
 [dependencies]
 veil-security = { path = "../veil-security" }
 
+[build-dependencies]
+# Builds the vendored libopus (vendor/opus) without cmake.
+cc = "1.2"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Win32_Media_MediaFoundation",

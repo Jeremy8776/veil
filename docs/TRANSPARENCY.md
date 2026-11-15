@@ -10,7 +10,8 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 
 | Built and tested on localhost | Planned, not built |
 |---|---|
-| Device keys, safety numbers, signed invites | Capture, encoding and decoding (`veil-media` has its schedule and framing only) |
+| Device keys, safety numbers, signed invites | Video decoding, and capture and encoding on macOS and Linux |
+| Windows camera capture and H.264 encoding, Opus audio | Echo cancellation, a jitter buffer |
 | MLS group keys, the host's lobby | The desktop app (`veil-app`) |
 | Per-frame encryption with a layer marker | Signed organisation policy, OIDC or SAML identity |
 | QUIC links pinned to device keys | Metrics export (OpenTelemetry) |
@@ -36,6 +37,8 @@ forwarders and rendezvous nodes never hold media keys. They can still see this:
 
 **Known leaks:**
 - Packet sizes and timing show when someone speaks or moves. Padding is planned, not built.
+- Opus runs at a variable bitrate, and research shows variable-bitrate speech packet sizes can
+  reveal some words even when encrypted. A constant-bitrate option is planned.
 - Layer markers show which tiers each sender sends and each receiver asks for, so a forwarder
   can tell whose tile is large on someone's screen.
 - Keyframe requests are not authenticated end to end. A forwarder or member can ask a sender
@@ -76,9 +79,12 @@ in C and assembly. It is licensed Apache-2.0 and ISC.
   operating system's own APIs: Media Foundation (Windows), VideoToolbox (macOS), VA-API (Linux).
   Calling them needs `unsafe` foreign-function calls. These libraries ship with the operating
   system; Veil does not bundle them.
-- Opus audio means the libopus C library (BSD-3-Clause), built from source.
+- Opus audio means the libopus C library (BSD-3-Clause). Its sources are in
+  `crates/veil-media/vendor/opus` (version, origin and what was left out in `VENDORED.md`),
+  and `build.rs` compiles them with the `cc` crate. The deep-learning features are not built.
 - Rules for that code:
-  - `unsafe` is allowed only in `veil-media`, and only inside one `ffi` module per platform.
+  - `unsafe` is allowed only in `veil-media`, and only inside one `ffi` module per platform,
+    plus `ffi/opus.rs` for libopus.
     Every other crate keeps `forbid`.
   - Every `unsafe` block has a `// SAFETY:` comment saying why it is sound.
     `clippy::undocumented_unsafe_blocks` is set to deny, so a missing comment fails the build.
@@ -88,6 +94,7 @@ in C and assembly. It is licensed Apache-2.0 and ISC.
 |---|---|---|
 | `veil-media/src/ffi/windows` (`mod.rs`, `enumerate.rs`, `sample.rs`) | COM start-up (`CoInitializeEx`, `CoCreateInstance`, `CoTaskMemFree`); Media Foundation (`MFStartup`, `MFTEnumEx`, the H.264 encoder transform `IMFTransform` and its `ICodecAPI` settings, media types, samples and buffers) | Hardware H.264 encoding on Windows, one encoder per simulcast rung, with Microsoft's software encoder as the fallback. Both ship with Windows |
 | `veil-media/src/ffi/windows/camera.rs` | Media Foundation capture (`MFEnumDeviceSources`, the camera's `IMFMediaSource`, `MFCreateSourceReaderFromMediaSource`, `IMFSourceReader::ReadSample`, `IMF2DBuffer2::Lock2DSize`) | Camera pictures on Windows, converted to NV12 by Windows' own video processing. Each picture is copied out of the locked buffer, within the bounds Windows reports, before it is used. The camera's name stays on the device; nothing about it is sent |
+| `veil-media/src/ffi/opus.rs` (every platform) | libopus: `opus_encoder_create`, `opus_encode_float`, `opus_encoder_ctl`, `opus_decoder_create`, `opus_decode_float`, the matching `_destroy` calls, `opus_get_version_string` | Opus audio. Every buffer is a Rust slice whose length is the count passed to libopus, and packet lengths are checked before decoding. Each state is freed once, on drop |
 
 ## 6. Known shortcuts
 

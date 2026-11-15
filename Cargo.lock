@@ -1264,6 +1264,7 @@ dependencies = [
 name = "veil-media"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "veil-security",
  "windows",
 ]

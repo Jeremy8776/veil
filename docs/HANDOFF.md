@@ -121,8 +121,17 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   2 Lite here), live capture is `#[ignore]` because it turns the camera on:
   `cargo test -j 8 -p veil-media --test camera -- --ignored --nocapture`. Passed 15/11/2026:
   OBSBOT opened at 1920x1080, 30 fps, native NV12, 30 pictures with rising timestamps.
+- Opus audio (`veil-media`), every platform. libopus 1.6.1 sources are vendored in
+  `crates/veil-media/vendor/opus` (`VENDORED.md`: origin, what was left out, how to update) and
+  `build.rs` compiles them with `cc`, so no cmake is needed. Float build, no SIMD, no
+  deep-learning features. `ffi/opus.rs` is the libopus FFI: `OpusEncoder` (VoIP, voice signal,
+  VBR, in-band FEC, `set_bitrate`, `set_expected_loss`) and `OpusDecoder` (`decode`, `conceal`
+  for a lost frame, `recover` a lost frame from the next packet's FEC). `audio.rs`:
+  `AudioSettings::voice()` (mono, 20 ms, 32 kbit/s, FEC for 10% loss) and `AudioHeader`, 13 bytes
+  inside the sealed datagram (version, sequence number, capture time), then the Opus packet.
+  Test: `tests/opus.rs` (tone round trip, concealment and FEC recovery, bad input).
 
-Tests: `cargo test -j 8 --workspace` (186 tests, one ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
+Tests: `cargo test -j 8 --workspace` (193 tests, one ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -172,6 +181,11 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 - Each camera picture is copied once on the CPU (`ffi/windows/camera.rs`). A camera slower
   than the ladder's capture rate (say 4K at 30 only) is used at 1080p60 if it offers that;
   the app must still fit the ladder to the mode it gets (`Ladder::up_to`).
+- libopus is built without SSE, AVX or NEON (`veil-media/build.rs`).
+- Opus runs at a variable bitrate, which can leak words through packet sizes; no constant
+  bitrate setting yet (`veil-media/src/ffi/opus.rs`).
+- The vendored libopus has not been compared against the xiph.org release tarball
+  (`vendor/opus/VENDORED.md`).
 
 ## Not yet tested
 
@@ -200,7 +214,8 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 1. Two-machine test over the real internet with `veil-probe` (steps above). Needs Jeremy's
    machines and a public box.
 2. `veil-media`, continued: the core, keyframe requests, the Windows H.264 encoder and
-   Windows camera capture are done (see above). Next, in order: Opus; then the H.264 decoder. Decided
+   Windows camera capture and Opus are done (see above). Next, in order: the H.264 decoder
+   (Media Foundation); then audio capture and playback (WASAPI) with a jitter buffer. Decided
    15/11/2026: `unsafe` FFI and libopus are allowed in `veil-media` only, under the rules in
    `docs/TRANSPARENCY.md` section 5 (one `ffi` module per OS, `// SAFETY:` on every block,
    `clippy::undocumented_unsafe_blocks` denied, each module listed in that table).
