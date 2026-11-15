@@ -1,0 +1,20 @@
+[package]
+name = "veil-probe"
+version.workspace = true
+edition.workspace = true
+# Follows veil-call, which needs Rust 1.91 for openmls.
+rust-version = "1.91"
+publish.workspace = true
+
+[dependencies]
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "signal"] }
+veil-call = { path = "../veil-call" }
+veil-net = { path = "../veil-net" }
+veil-security = { path = "../veil-security" }
+veil-topology = { path = "../veil-topology" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+veil-rendezvous = { path = "../veil-rendezvous" }

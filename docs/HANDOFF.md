@@ -48,8 +48,13 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   forward: an older ticket is refused (`StaleTicket`), and a newer one (on a join, or
   `ForwarderClient::update_ticket`, which `MediaSession` sends on every re-plan) drops members
   it no longer lists. The local `routes()` helper is gone: routes come from the host's plan.
+- `veil-probe`: a call with no camera, for the two-machine test. `veil-probe host` prints an
+  invite and admits whoever uses it; `veil-probe join LINK` joins. Both send a sealed probe
+  every second as a video frame and as an audio datagram, and every 10 s print per member and
+  channel the reply rate, median and worst round trip. Each link's path (direct, punched,
+  relayed, forwarder) is printed when routes apply. Run steps below.
 
-Tests: `cargo test -j 8 --workspace` (118 tests), `cargo clippy -j 8 --workspace --all-targets`.
+Tests: `cargo test -j 8 --workspace` (128 tests), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -92,9 +97,20 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
   gives no easy way to build one without a second committer. In `veil-call` only the host
   sends commits, so this needs a deliberately broken host to test.
 
+## Running the two-machine test
+
+1. Public box: `veil-node` with rendezvous, relay and forwarder on (see the example TOML).
+   It prints `rendezvous KEY@IP:PORT` and `forwarder KEY@IP:PORT`.
+2. Home network A: `veil-probe host --rendezvous KEY@IP:PORT`. Add `--advertise PUBLIC_IP:7710`
+   if port 7710/udp is forwarded to this machine. It prints an invite link.
+3. Home network B: `veil-probe join LINK`. Check the safety numbers match on both sides.
+4. Read the `link to ...` lines: `Punched` means hole punching worked. Run again with
+   `join LINK --relay-only` to test the relay, and with `host --forwarder KEY@IP:PORT` to test
+   forwarding. Each invite is one use; the host prints a fresh one after every join.
+
 ## Next, in suggested order
 
-1. Two-machine test over the real internet: run `veil-node` on a public box, then hole
-   punching, relay and forwarding between two home networks. Needs Jeremy's machines.
+1. Two-machine test over the real internet with `veil-probe` (steps above). Needs Jeremy's
+   machines and a public box.
 2. `veil-media`: capture and hardware encode per OS, feeding `MediaSession` and `KeyRing`.
 3. `veil-app`: `egui` and `wgpu` interface.

@@ -6,6 +6,7 @@ members = [
     "crates/veil-group",
     "crates/veil-net",
     "crates/veil-node",
+    "crates/veil-probe",
     "crates/veil-rendezvous",
     "crates/veil-security",
     "crates/veil-topology",
