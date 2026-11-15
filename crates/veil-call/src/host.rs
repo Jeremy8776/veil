@@ -276,7 +276,8 @@ impl Actor {
 
     fn publish(&mut self, plan: &Plan, directory: &Directory) -> Result<Routes, CallError> {
         let room_id = self.lobby.room_id();
-        let plan = CallPlan::from_plan(plan, directory, room_id, self.group.epoch())?;
+        let epoch = self.group.epoch();
+        let plan = CallPlan::from_plan(plan, directory, room_id, epoch, &self.identity)?;
         let members: Vec<PublicId> = self.group.members().into_iter().map(|(_, d)| d).collect();
         if !plan.covers(&members) {
             return Err(CallError::Plan("the directory does not list this epoch's members"));

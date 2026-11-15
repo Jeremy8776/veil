@@ -8,7 +8,7 @@
 //! Invariants: pure; an id the plan names but the directory lacks is an error, never a guess.
 //!
 //! In a call only the host plans: it sends a signed [`crate::CallPlan`] on every epoch change,
-//! and members take their routes from that. [`routes`] is the same resolution done locally.
+//! and members take their routes from that. The types here are what that plan resolves to.
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -16,9 +16,7 @@ use std::net::SocketAddr;
 use serde::{Deserialize, Serialize};
 use veil_net::NodeAddr;
 use veil_security::PublicId;
-use veil_topology::{NodeId, Plan};
-
-use crate::{CallError, CallPlan};
+use veil_topology::NodeId;
 
 /// A member as the media layer sees it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,27 +42,28 @@ pub struct Directory {
 pub enum Routes {
     /// A link to each of these members.
     Mesh(Vec<Peer>),
-    /// One link, to this forwarder.
-    Forwarder(NodeAddr),
-}
-
-/// The links `directory.me` should hold under `plan`.
-pub fn routes(plan: &Plan, directory: &Directory) -> Result<Routes, CallError> {
-    let me = directory
-        .members
-        .get(&directory.me)
-        .ok_or(CallError::Plan("this participant is not in the directory"))?
-        .device;
-    // Room and epoch only matter once the plan is signed and sent.
-    CallPlan::from_plan(plan, directory, [0; 16], 0)?.routes_for(&me)
+    /// One link, to this forwarder, admitted with the host's sealed roster ticket.
+    Forwarder { addr: NodeAddr, ticket: Vec<u8> },
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
-    use veil_topology::{Node, NodeKind, Policy, plan};
+    use veil_security::Identity;
+    use veil_topology::{Node, NodeKind, Plan, Policy, plan};
 
     use super::*;
+    use crate::{CallError, CallPlan};
+
+    /// What the host's plan gives `directory.me`.
+    fn routes(plan: &Plan, directory: &Directory) -> Result<Routes, CallError> {
+        let me = directory
+            .members
+            .get(&directory.me)
+            .ok_or(CallError::Plan("this participant is not in the directory"))?
+            .device;
+        CallPlan::from_plan(plan, directory, [0; 16], 0, &Identity::generate())?.routes_for(&me)
+    }
 
     fn node(id: u32, kind: NodeKind, participant: bool, kbps: u64) -> Node {
         Node {
@@ -123,7 +122,7 @@ mod tests {
         };
         let plan = plan(&nodes, &[], &policy).unwrap();
         let routed = routes(&plan, &directory(0, 3, Some(9))).unwrap();
-        assert!(matches!(routed, Routes::Forwarder(addr) if addr.key == PublicId([0xF0; 32])));
+        assert!(matches!(routed, Routes::Forwarder { addr, .. } if addr.key == PublicId([0xF0; 32])));
         assert!(matches!(
             routes(&plan, &directory(0, 3, None)),
             Err(CallError::Plan(_))

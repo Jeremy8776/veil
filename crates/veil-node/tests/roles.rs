@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use veil_forward::ForwarderClient;
+use veil_forward::{ForwarderClient, RosterTicket};
 use veil_net::{Node, NodeAddr};
 use veil_node::{Config, start};
 use veil_rendezvous::{Refusal, RendezvousClient, RendezvousError, room_tag};
@@ -36,7 +36,12 @@ async fn one_node_serves_rendezvous_and_forwarding_with_one_key() {
     assert_eq!(parsed, rendezvous);
 
     let room = room_tag(&[1; 16]);
-    let member = Node::bind(&Identity::generate(), "127.0.0.1:0".parse().unwrap()).unwrap();
+    let member_id = Identity::generate();
+    let member = Node::bind(&member_id, "127.0.0.1:0".parse().unwrap()).unwrap();
+    let host = Identity::generate();
+    let ticket = RosterTicket { room_tag: room, host: host.public(), epoch: 0, members: vec![member_id.public()] }
+        .seal(&host)
+        .unwrap();
     let mut client = with_timeout(RendezvousClient::connect(&member, &[parsed.addr], parsed.key))
         .await
         .unwrap();
@@ -54,7 +59,7 @@ async fn one_node_serves_rendezvous_and_forwarding_with_one_key() {
         Err(RendezvousError::Refused(Refusal::RelayDisabled))
     ));
 
-    let joined = with_timeout(ForwarderClient::join(&member, &[forwarder.addr], forwarder.key, room))
+    let joined = with_timeout(ForwarderClient::join(&member, &[forwarder.addr], forwarder.key, &ticket))
         .await
         .unwrap();
     assert_eq!(joined.members_at_join(), 1);
@@ -67,7 +72,7 @@ async fn a_dial_must_pin_the_node_key() {
     let member = Node::bind(&Identity::generate(), "127.0.0.1:0".parse().unwrap()).unwrap();
     let wrong_key = Identity::generate().public();
     assert!(
-        with_timeout(ForwarderClient::join(&member, &[forwarder.addr], wrong_key, [0; 32]))
+        with_timeout(ForwarderClient::join(&member, &[forwarder.addr], wrong_key, &[]))
             .await
             .is_err()
     );

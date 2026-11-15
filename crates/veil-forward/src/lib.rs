@@ -6,7 +6,8 @@
 //! Invariants:
 //! - A forwarder never holds media keys. Video frames and audio packets arrive already sealed
 //!   by `veil-security` and leave byte for byte unchanged. It cannot read, forge or relabel them.
-//! - Rooms are named by a hash of the room id (`veil_rendezvous::room_tag`), never the id.
+//! - Rooms are named by a hash of the room id (`veil_rendezvous::room_tag`), never the id, and
+//!   only devices on the host's signed [`RosterTicket`] may join one.
 //! - A frame goes to every other member of the sender's room and never back to the sender or to
 //!   another room.
 //! - Memory per receiver is bounded in bytes. A slow receiver loses frames; it never stalls the
@@ -24,12 +25,14 @@
 pub mod client;
 pub mod protocol;
 pub mod server;
+pub mod ticket;
 
 use std::fmt;
 
 pub use client::ForwarderClient;
 pub use protocol::Refusal;
 pub use server::{ForwarderServer, Limits};
+pub use ticket::{RosterTicket, TicketError};
 
 #[derive(Debug)]
 pub enum ForwardError {

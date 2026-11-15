@@ -50,7 +50,7 @@ pub use keyring::KeyRing;
 pub use media::{Incoming, Media, MediaSession};
 pub use member::{MemberEvent, MemberHandle, join};
 pub use node::{CallNode, Path};
-pub use routes::{Directory, Peer, Routes, routes};
+pub use routes::{Directory, Peer, Routes};
 
 /// Frame keys for one epoch.
 pub struct EpochKeys {

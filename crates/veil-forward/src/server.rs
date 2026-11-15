@@ -8,22 +8,24 @@
 //! shortcut: every member receives every stream at full quality. Upgrade to per-receiver layer
 //! subscriptions once `veil-media` puts SVC layer markers in the plaintext frame header.
 //!
-//! shortcut: any device that knows the room tag can join, so a declined joiner could still
-//! receive ciphertext and timing. Upgrade to host-signed roster tickets checked on `Join`.
+//! Admission: `Join` carries a host-signed [`RosterTicket`]. Rooms are keyed by (room tag,
+//! host key); only listed devices join, epochs only move forward, and a newer ticket (on a
+//! join or a later `Ticket` message from any member) drops members it no longer lists.
 //!
 //! shortcut: no forwarder-to-forwarder cascade yet; one forwarder serves a whole room.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use bytes::Bytes;
 use tokio::sync::mpsc;
-use veil_net::{Link, NetError, Node};
+use veil_net::{FramedSend, Link, NetError, Node};
 use veil_security::PublicId;
 
 use crate::protocol::{ClientMsg, Refusal, ServerMsg};
+use crate::ticket::RosterTicket;
 
 /// Frames waiting for one receiver, counted in frames. The byte budget usually binds first.
 const VIDEO_QUEUE: usize = 256;
@@ -50,14 +52,40 @@ impl Default for Limits {
 type Frame = (u32, Arc<Vec<u8>>);
 
 struct Member {
+    /// Tells this link apart from a later link of the same device.
+    id: u64,
     video: mpsc::Sender<Frame>,
     queued: Arc<AtomicUsize>,
     conn: quinn::Connection,
 }
 
+/// (room tag, host key).
+type RoomKey = ([u8; 32], PublicId);
+
+struct Room {
+    epoch: u64,
+    members: HashMap<PublicId, Member>,
+}
+
+impl Room {
+    /// Takes a newer ticket's roster and drops every member it no longer lists.
+    fn advance(&mut self, ticket: &RosterTicket) {
+        self.epoch = ticket.epoch;
+        let roster: HashSet<PublicId> = ticket.members.iter().copied().collect();
+        self.members.retain(|device, member| {
+            let keep = roster.contains(device);
+            if !keep {
+                member.conn.close(quinn::VarInt::from_u32(1), b"not on the roster");
+            }
+            keep
+        });
+    }
+}
+
 #[derive(Default)]
 struct State {
-    rooms: HashMap<[u8; 32], HashMap<PublicId, Member>>,
+    rooms: HashMap<RoomKey, Room>,
+    next_id: u64,
 }
 
 type Shared = Arc<Mutex<State>>;
@@ -100,45 +128,99 @@ impl ForwarderServer {
     }
 }
 
-fn join(state: &Shared, limits: &Limits, tag: [u8; 32], me: PublicId, member: Member) -> Result<u16, Refusal> {
-    let mut s = lock(state).ok_or(Refusal::Full)?;
-    if !s.rooms.contains_key(&tag) && s.rooms.len() >= limits.max_rooms {
-        return Err(Refusal::Full);
-    }
-    let room = s.rooms.entry(tag).or_default();
-    if room.contains_key(&me) {
-        return Err(Refusal::AlreadyJoined);
-    }
-    if room.len() >= limits.max_members_per_room {
-        return Err(Refusal::RoomFull);
-    }
-    room.insert(me, member);
-    Ok(u16::try_from(room.len()).unwrap_or(u16::MAX))
+struct Joining {
+    video: mpsc::Sender<Frame>,
+    queued: Arc<AtomicUsize>,
+    conn: quinn::Connection,
 }
 
-fn leave(state: &Shared, tag: [u8; 32], me: PublicId) {
-    if let Some(mut s) = lock(state) {
-        if let Some(room) = s.rooms.get_mut(&tag) {
-            room.remove(&me);
-            if room.is_empty() {
-                s.rooms.remove(&tag);
-            }
+/// Admits `me` under `ticket`. Returns the room's member count and this link's id.
+fn join(
+    state: &Shared,
+    limits: &Limits,
+    ticket: &RosterTicket,
+    me: PublicId,
+    joining: Joining,
+) -> Result<(u16, u64), Refusal> {
+    if !ticket.lists(&me) {
+        return Err(Refusal::NotListed);
+    }
+    let mut s = lock(state).ok_or(Refusal::Full)?;
+    let key = (ticket.room_tag, ticket.host);
+    if !s.rooms.contains_key(&key) && s.rooms.len() >= limits.max_rooms {
+        return Err(Refusal::Full);
+    }
+    s.next_id = s.next_id.wrapping_add(1);
+    let id = s.next_id;
+    let room = s.rooms.entry(key).or_insert_with(|| Room {
+        epoch: ticket.epoch,
+        members: HashMap::new(),
+    });
+    if ticket.epoch < room.epoch {
+        return Err(Refusal::StaleTicket);
+    }
+    if ticket.epoch > room.epoch {
+        room.advance(ticket);
+    }
+    if room.members.contains_key(&me) {
+        return Err(Refusal::AlreadyJoined);
+    }
+    if room.members.len() >= limits.max_members_per_room {
+        return Err(Refusal::RoomFull);
+    }
+    let Joining { video, queued, conn } = joining;
+    room.members.insert(me, Member { id, video, queued, conn });
+    Ok((u16::try_from(room.members.len()).unwrap_or(u16::MAX), id))
+}
+
+/// A member's newer ticket for its own room. Anything else is ignored.
+fn update(state: &Shared, key: &RoomKey, sealed: &[u8]) {
+    let Ok(ticket) = RosterTicket::open(sealed) else {
+        return;
+    };
+    if (ticket.room_tag, ticket.host) != *key {
+        return;
+    }
+    if let Some(mut s) = lock(state)
+        && let Some(room) = s.rooms.get_mut(key)
+        && ticket.epoch > room.epoch
+    {
+        room.advance(&ticket);
+    }
+}
+
+fn leave(state: &Shared, key: &RoomKey, me: PublicId, id: u64) {
+    if let Some(mut s) = lock(state)
+        && let Some(room) = s.rooms.get_mut(key)
+    {
+        if room.members.get(&me).is_some_and(|m| m.id == id) {
+            room.members.remove(&me);
+        }
+        if room.members.is_empty() {
+            s.rooms.remove(key);
         }
     }
 }
 
 /// Everyone in the room except the sender.
-fn others<T>(state: &Shared, tag: &[u8; 32], me: PublicId, pick: impl Fn(&Member) -> T) -> Vec<T> {
+fn others<T>(state: &Shared, key: &RoomKey, me: PublicId, pick: impl Fn(&Member) -> T) -> Vec<T> {
     lock(state)
         .and_then(|s| {
-            s.rooms.get(tag).map(|room| {
-                room.iter()
-                    .filter(|(key, _)| **key != me)
+            s.rooms.get(key).map(|room| {
+                room.members
+                    .iter()
+                    .filter(|(device, _)| **device != me)
                     .map(|(_, m)| pick(m))
                     .collect()
             })
         })
         .unwrap_or_default()
+}
+
+async fn refuse(link: &Link, out: &mut FramedSend, refusal: Refusal) {
+    let _ = out.send(&ServerMsg::Refused(refusal)).await;
+    // Closing at once can discard the refusal in flight; let the member hang up first.
+    let _ = tokio::time::timeout(REFUSAL_LINGER, link.quic().closed()).await;
 }
 
 async fn serve(link: Link, state: Shared, limits: Limits) {
@@ -147,31 +229,35 @@ async fn serve(link: Link, state: Shared, limits: Limits) {
         return;
     };
     let (mut out, mut input) = control.split();
-    let Ok(ClientMsg::Join { room_tag: tag }) = input.recv::<ClientMsg>().await else {
+    let Ok(ClientMsg::Join { ticket }) = input.recv::<ClientMsg>().await else {
         return;
     };
+    let Ok(ticket) = RosterTicket::open(&ticket) else {
+        refuse(&link, &mut out, Refusal::BadTicket).await;
+        return;
+    };
+    let key = (ticket.room_tag, ticket.host);
     let me = link.peer();
     let (video_tx, mut video_rx) = mpsc::channel::<Frame>(VIDEO_QUEUE);
     let queued = Arc::new(AtomicUsize::new(0));
-    let member = Member {
+    let joining = Joining {
         video: video_tx,
         queued: queued.clone(),
         conn: link.quic().clone(),
     };
-    match join(&state, &limits, tag, me, member) {
-        Ok(members) => {
+    let id = match join(&state, &limits, &ticket, me, joining) {
+        Ok((members, id)) => {
             if out.send(&ServerMsg::Joined { members }).await.is_err() {
-                leave(&state, tag, me);
+                leave(&state, &key, me, id);
                 return;
             }
+            id
         }
         Err(refusal) => {
-            let _ = out.send(&ServerMsg::Refused(refusal)).await;
-            // Closing at once can discard the refusal in flight; let the member hang up first.
-            let _ = tokio::time::timeout(REFUSAL_LINGER, link.quic().closed()).await;
+            refuse(&link, &mut out, refusal).await;
             return;
         }
-    }
+    };
 
     let writer = {
         let link = link.clone();
@@ -189,7 +275,7 @@ async fn serve(link: Link, state: Shared, limits: Limits) {
         let (link, state) = (link.clone(), state.clone());
         tokio::spawn(async move {
             while let Ok((frame_id, sealed)) = link.recv_frame().await {
-                fan_out_video(&state, &tag, me, frame_id, sealed, limits.queue_bytes);
+                fan_out_video(&state, &key, me, frame_id, sealed, limits.queue_bytes);
             }
         })
     };
@@ -197,24 +283,28 @@ async fn serve(link: Link, state: Shared, limits: Limits) {
         let (conn, state) = (link.quic().clone(), state.clone());
         tokio::spawn(async move {
             while let Ok(packet) = conn.read_datagram().await {
-                fan_out_audio(&state, &tag, me, &packet);
+                fan_out_audio(&state, &key, me, &packet);
             }
         })
     };
 
-    // Later control messages carry nothing yet; reading them detects the link closing.
-    while input.recv::<ClientMsg>().await.is_ok() {}
+    // Reading control messages also detects the link closing.
+    while let Ok(message) = input.recv::<ClientMsg>().await {
+        if let ClientMsg::Ticket(sealed) = message {
+            update(&state, &key, &sealed);
+        }
+    }
 
-    leave(&state, tag, me);
+    leave(&state, &key, me, id);
     writer.abort();
     video.abort();
     audio.abort();
 }
 
-fn fan_out_video(state: &Shared, tag: &[u8; 32], me: PublicId, frame_id: u32, sealed: Vec<u8>, budget: usize) {
+fn fan_out_video(state: &Shared, key: &RoomKey, me: PublicId, frame_id: u32, sealed: Vec<u8>, budget: usize) {
     let len = sealed.len();
     let frame = Arc::new(sealed);
-    for (queue, queued) in others(state, tag, me, |m| (m.video.clone(), m.queued.clone())) {
+    for (queue, queued) in others(state, key, me, |m| (m.video.clone(), m.queued.clone())) {
         if reserve(&queued, len, budget) && queue.try_send((frame_id, frame.clone())).is_err() {
             release(&queued, len);
         }
@@ -235,8 +325,8 @@ fn release(queued: &AtomicUsize, len: usize) {
     let _ = queued.fetch_update(Ordering::AcqRel, Ordering::Acquire, |now| Some(now.saturating_sub(len)));
 }
 
-fn fan_out_audio(state: &Shared, tag: &[u8; 32], me: PublicId, packet: &Bytes) {
-    for conn in others(state, tag, me, |m| m.conn.clone()) {
+fn fan_out_audio(state: &Shared, key: &RoomKey, me: PublicId, packet: &Bytes) {
+    for conn in others(state, key, me, |m| m.conn.clone()) {
         // Audio is loss tolerant: a full or too-small path drops the packet.
         let _ = conn.send_datagram(packet.clone());
     }

@@ -9,8 +9,10 @@ use serde::{Deserialize, Serialize};
 /// Member to forwarder.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ClientMsg {
-    /// Join a room, named by its tag. Must be the first message.
-    Join { room_tag: [u8; 32] },
+    /// Join the room a sealed [`crate::RosterTicket`] names. Must be the first message.
+    Join { ticket: Vec<u8> },
+    /// A newer sealed ticket for this member's room, sent after each epoch change.
+    Ticket(Vec<u8>),
 }
 
 /// Forwarder to member.
@@ -29,4 +31,10 @@ pub enum Refusal {
     RoomFull,
     /// The forwarder has its largest allowed number of rooms.
     Full,
+    /// The ticket does not decode or its signature does not match its host.
+    BadTicket,
+    /// The ticket does not list this device.
+    NotListed,
+    /// The room has already seen a ticket from a later epoch.
+    StaleTicket,
 }

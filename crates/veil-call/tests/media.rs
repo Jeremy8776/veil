@@ -211,7 +211,7 @@ impl Call {
             all.push(next_member_routes(party.member.as_mut().unwrap()).await);
         }
         for (media, routed) in sessions.iter_mut().zip(all) {
-            assert_eq!(matches!(routed, Routes::Forwarder(_)), forwarded);
+            assert_eq!(matches!(routed, Routes::Forwarder { .. }), forwarded);
             let failed = within(media.apply(routed)).await;
             assert!(failed.is_empty(), "dial failures: {failed:?}");
         }
@@ -309,6 +309,34 @@ async fn members_follow_the_hosts_plan_through_a_join() {
     for from in 0..3 {
         frame_reaches_everyone(&mut call, &mut sessions, from).await;
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_forwarder_drops_a_member_the_host_removed() {
+    let forwarder = start_forwarder();
+    let mut call = Call::start(None).await;
+    call.admit_direct().await;
+    call.admit_direct().await;
+    let mut sessions = call.media(true, Some(forwarder)).await;
+
+    // Keep the removed member's node and media session alive: only the forwarder may end it.
+    let removed = call.parties.remove(2);
+    let removed_media = sessions.remove(2);
+    call.host.remove(removed.node.id()).await.unwrap();
+    call.parties[0].keys = next_host_keys(&mut call.events).await;
+    call.parties[1].keys = next_member_keys(call.parties[1].member.as_mut().unwrap()).await;
+    call.replan(&mut sessions, true, Some(forwarder)).await;
+
+    within(async {
+        while !removed_media.paths().is_empty() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    for from in 0..2 {
+        frame_reaches_everyone(&mut call, &mut sessions, from).await;
+    }
+    drop((removed, removed_media));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

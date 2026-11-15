@@ -12,6 +12,8 @@
 //!   so a plan cannot be replayed into another call or another epoch.
 //! - Decoding is bounded: at most [`MAX_CONTROL_LEN`] bytes, [`MAX_MEMBERS`] members and
 //!   [`MAX_PEER_ADDRS`] addresses per member, no member listed twice.
+//! - A forwarded plan carries the host's sealed [`RosterTicket`] for the epoch, listing every
+//!   member. Members show it to the forwarder, which admits no one else.
 //! - Pure: no I/O.
 //!
 //! shortcut: a plan carries at most [`MAX_MEMBERS`] members so it fits one control message.
@@ -22,7 +24,9 @@ use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
 use veil_net::NodeAddr;
+use veil_forward::RosterTicket;
 use veil_net::control::MAX_CONTROL_LEN;
+use veil_rendezvous::room_tag;
 use veil_security::{Identity, PublicId};
 use veil_topology::Plan;
 
@@ -35,12 +39,17 @@ const SIGNATURE_LEN: usize = 64;
 const DOMAIN: &[u8] = b"veil-call-plan-v1";
 
 /// How the members link up.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum Layout {
     /// Every member links to every other member.
     Mesh,
-    /// Every member links to this one forwarder.
-    Forwarded { key: PublicId, addr: SocketAddr },
+    /// Every member links to this one forwarder and shows it `ticket`, a sealed
+    /// [`RosterTicket`].
+    Forwarded {
+        key: PublicId,
+        addr: SocketAddr,
+        ticket: Vec<u8>,
+    },
 }
 
 /// One epoch's layout, as the host decided it.
@@ -54,12 +63,14 @@ pub struct CallPlan {
 }
 
 impl CallPlan {
-    /// Resolves a planner's output into devices and addresses for one epoch.
+    /// Resolves a planner's output into devices and addresses for one epoch. `host` signs the
+    /// forwarder's roster ticket.
     pub fn from_plan(
         plan: &Plan,
         directory: &Directory,
         room_id: [u8; 16],
         epoch: u64,
+        host: &Identity,
     ) -> Result<Self, CallError> {
         let layout = match plan {
             Plan::Mesh { .. } => Layout::Mesh,
@@ -78,9 +89,18 @@ impl CallPlan {
                     .forwarders
                     .get(forwarder)
                     .ok_or(CallError::Plan("the plan's forwarder is not in the directory"))?;
+                let ticket = RosterTicket {
+                    room_tag: room_tag(&room_id),
+                    host: host.public(),
+                    epoch,
+                    members: directory.members.values().map(|m| m.device).collect(),
+                };
                 Layout::Forwarded {
                     key: addr.key,
                     addr: addr.addr,
+                    ticket: ticket
+                        .seal(host)
+                        .map_err(|_| CallError::Plan("the roster ticket cannot be signed"))?,
                 }
             }
         };
@@ -113,7 +133,7 @@ impl CallPlan {
         if !self.members.iter().any(|m| m.device == *me) {
             return Err(CallError::Plan("this participant is not in the plan"));
         }
-        Ok(match self.layout {
+        Ok(match &self.layout {
             Layout::Mesh => Routes::Mesh(
                 self.members
                     .iter()
@@ -121,7 +141,10 @@ impl CallPlan {
                     .cloned()
                     .collect(),
             ),
-            Layout::Forwarded { key, addr } => Routes::Forwarder(NodeAddr { key, addr }),
+            Layout::Forwarded { key, addr, ticket } => Routes::Forwarder {
+                addr: NodeAddr { key: *key, addr: *addr },
+                ticket: ticket.clone(),
+            },
         })
     }
 
@@ -282,8 +305,16 @@ mod tests {
             subscriptions: Vec::new(),
             degraded: false,
         };
-        let plan = CallPlan::from_plan(&homed(&[0, 1]), &directory, ROOM, 1).unwrap();
-        assert!(matches!(plan.layout, Layout::Forwarded { key, .. } if key == PublicId([0xF0; 32])));
-        assert!(CallPlan::from_plan(&homed(&[0]), &directory, ROOM, 1).is_err());
+        let host = Identity::generate();
+        let plan = CallPlan::from_plan(&homed(&[0, 1]), &directory, ROOM, 1, &host).unwrap();
+        let Layout::Forwarded { key, ticket, .. } = &plan.layout else {
+            panic!("forwarded plan");
+        };
+        assert_eq!(*key, PublicId([0xF0; 32]));
+        let ticket = RosterTicket::open(ticket).unwrap();
+        assert_eq!((ticket.host, ticket.epoch), (host.public(), 1));
+        assert_eq!(ticket.room_tag, room_tag(&ROOM));
+        assert!(ticket.lists(&PublicId([0; 32])) && ticket.lists(&PublicId([1; 32])));
+        assert!(CallPlan::from_plan(&homed(&[0]), &directory, ROOM, 1, &host).is_err());
     }
 }

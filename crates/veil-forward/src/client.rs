@@ -3,6 +3,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use tokio::sync::Mutex;
 use veil_net::{FramedRecv, FramedSend, Link, Node};
 use veil_security::PublicId;
 
@@ -17,20 +18,22 @@ pub struct ForwarderClient {
     link: Link,
     members: u16,
     // Held so the control stream stays open: the forwarder treats its end as leaving.
-    _control: (FramedSend, FramedRecv),
+    control: Mutex<FramedSend>,
+    _input: FramedRecv,
 }
 
 impl ForwarderClient {
-    /// Connects to a forwarder, pinned to its key, and joins the room named by `room_tag`.
+    /// Connects to a forwarder, pinned to its key, and joins the room a sealed
+    /// [`crate::RosterTicket`] names.
     pub async fn join(
         node: &Node,
         addrs: &[SocketAddr],
         forwarder: PublicId,
-        room_tag: [u8; 32],
+        ticket: &[u8],
     ) -> Result<Self, ForwardError> {
         let link = node.connect(addrs, forwarder).await?;
         let (mut out, mut input) = link.open_control().await?.split();
-        out.send(&ClientMsg::Join { room_tag }).await?;
+        out.send(&ClientMsg::Join { ticket: ticket.to_vec() }).await?;
         let answer = tokio::time::timeout(ANSWER_TIMEOUT, input.recv::<ServerMsg>())
             .await
             .map_err(|_| ForwardError::Timeout)??;
@@ -38,10 +41,18 @@ impl ForwarderClient {
             ServerMsg::Joined { members } => Ok(Self {
                 link,
                 members,
-                _control: (out, input),
+                control: Mutex::new(out),
+                _input: input,
             }),
             ServerMsg::Refused(refusal) => Err(ForwardError::Refused(refusal)),
         }
+    }
+
+    /// Hands the forwarder the host's ticket for a later epoch. It drops members the new
+    /// ticket no longer lists.
+    pub async fn update_ticket(&self, ticket: &[u8]) -> Result<(), ForwardError> {
+        let message = ClientMsg::Ticket(ticket.to_vec());
+        Ok(self.control.lock().await.send(&message).await?)
     }
 
     pub fn link(&self) -> &Link {

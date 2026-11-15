@@ -40,9 +40,16 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   and addresses), signs it (domain tag, room id, epoch) and queues `Control::Plan` behind the
   epoch's commit. Members check it against the invite's host key, room and their own epoch and
   get `MemberEvent::Routes`, or `MemberEvent::PlanRefused` (old routes stand). The app applies
-  the routes to its `MediaSession`. `routes()` now goes through `CallPlan` too.
+  the routes to its `MediaSession`.
+- Roster tickets (`veil-forward/src/ticket.rs`): a forwarded `CallPlan` carries a host-signed
+  `RosterTicket` (room tag, host key, epoch, every member's device key). `Join` must carry one
+  and the forwarder admits only listed devices. Forwarder rooms are keyed by (room tag, host
+  key), so a stranger's self-signed ticket only opens a room of its own. Epochs only move
+  forward: an older ticket is refused (`StaleTicket`), and a newer one (on a join, or
+  `ForwarderClient::update_ticket`, which `MediaSession` sends on every re-plan) drops members
+  it no longer lists. The local `routes()` helper is gone: routes come from the host's plan.
 
-Tests: `cargo test -j 8 --workspace` (111 tests), `cargo clippy -j 8 --workspace --all-targets`.
+Tests: `cargo test -j 8 --workspace` (118 tests), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -62,8 +69,9 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 - MLS keys are kept in memory only; a restarted app rejoins as a new member (`provider.rs`).
 - Forwarders send every stream at full quality: no layer subscriptions until `veil-media`
   marks SVC layers (`veil-forward/src/server.rs`).
-- Any device that knows the room tag can join a forwarder room and receive ciphertext. Needs
-  host-signed roster tickets (`veil-forward/src/server.rs`).
+- A forwarder room's tickets have no expiry. A removed member holding an old ticket can open
+  an empty room after everyone leaves; it receives nothing, and is dropped as soon as a real
+  member joins with a newer ticket. Add an expiry if empty-room squatting matters.
 - No forwarder-to-forwarder cascade yet: one forwarder per room (`veil-forward/src/server.rs`).
 - `NodeAddr` takes a literal IP only, no DNS names (`veil-net/src/node_addr.rs`).
 - A plan carries at most 128 members so it fits one control message (`call_plan.rs`).
@@ -88,7 +96,5 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 
 1. Two-machine test over the real internet: run `veil-node` on a public box, then hole
    punching, relay and forwarding between two home networks. Needs Jeremy's machines.
-2. Forwarder roster tickets: the signed `CallPlan` already names every member, so the
-   forwarder can admit only devices the host listed (closes the room-tag shortcut).
-3. `veil-media`: capture and hardware encode per OS, feeding `MediaSession` and `KeyRing`.
-4. `veil-app`: `egui` and `wgpu` interface.
+2. `veil-media`: capture and hardware encode per OS, feeding `MediaSession` and `KeyRing`.
+3. `veil-app`: `egui` and `wgpu` interface.

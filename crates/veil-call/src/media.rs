@@ -29,7 +29,6 @@ use tokio::time::Instant;
 use veil_forward::ForwarderClient;
 use veil_net::control::Control;
 use veil_net::{FramedRecv, FramedSend, Link, Node, NodeAddr};
-use veil_rendezvous::room_tag;
 use veil_security::PublicId;
 
 use crate::inbound::Inbound;
@@ -203,7 +202,7 @@ impl MediaSession {
     pub async fn apply(&mut self, routes: Routes) -> Vec<(PublicId, CallError)> {
         match routes {
             Routes::Mesh(peers) => self.apply_mesh(peers).await,
-            Routes::Forwarder(addr) => self.apply_forwarder(addr).await,
+            Routes::Forwarder { addr, ticket } => self.apply_forwarder(addr, &ticket).await,
         }
     }
 
@@ -253,20 +252,30 @@ impl MediaSession {
         failed
     }
 
-    async fn apply_forwarder(&mut self, addr: NodeAddr) -> Vec<(PublicId, CallError)> {
-        let have = self.ctx.lock().is_some_and(|mut state| {
+    async fn apply_forwarder(
+        &mut self,
+        addr: NodeAddr,
+        ticket: &[u8],
+    ) -> Vec<(PublicId, CallError)> {
+        let have = self.ctx.lock().and_then(|mut state| {
             state.wanted = HashSet::from([addr.key]);
             state.expected.clear();
             state.early.clear();
             state.links.retain(|peer, _| *peer == addr.key);
-            state.links.contains_key(&addr.key)
+            state.links.get(&addr.key).map(|e| e.carrier.clone())
         });
         self.ctx.changed();
-        if have {
-            return Vec::new();
+        if let Some(carrier) = have {
+            // Already linked: hand on this epoch's ticket so the forwarder drops removed members.
+            let Carrier::Forwarder(client) = &*carrier else {
+                return Vec::new();
+            };
+            return match client.update_ticket(ticket).await {
+                Ok(()) => Vec::new(),
+                Err(e) => vec![(addr.key, CallError::Forward(e))],
+            };
         }
-        let joined =
-            ForwarderClient::join(&self.node, &[addr.addr], addr.key, room_tag(&self.room_id)).await;
+        let joined = ForwarderClient::join(&self.node, &[addr.addr], addr.key, ticket).await;
         match joined {
             Ok(client) => {
                 if let Some(mut state) = self.ctx.lock() {
