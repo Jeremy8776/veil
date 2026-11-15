@@ -53,8 +53,17 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   every second as a video frame and as an audio datagram, and every 10 s print per member and
   channel the reply rate, median and worst round trip. Each link's path (direct, punched,
   relayed, forwarder) is printed when routes apply. Run steps below.
+- Layer markers (`veil-security/src/layer.rs`): the sealed frame header is now 18 bytes, key id,
+  counter, then a two-byte `Layer` (spatial 0 to 2, temporal 0 to 3, keyframe flag), all in the
+  AEAD's associated data. `FrameSender::encrypt_layer` sets it (`encrypt` seals `Layer::BASE`),
+  `frame::frame_layer` reads it without opening. Unknown flag bits are refused.
+- Layer subscriptions (`veil-forward/src/subscribe.rs`): `ClientMsg::Subscribe` names the highest
+  `Wanted` layers per sender. Lowering is immediate, raising waits for that sender's next
+  keyframe, unnamed senders get every layer, at most 256 senders tracked per receiver. A frame
+  whose marker does not parse is dropped. `ForwarderClient::subscribe` and
+  `MediaSession::subscribe` send it.
 
-Tests: `cargo test -j 8 --workspace` (128 tests), `cargo clippy -j 8 --workspace --all-targets`.
+Tests: `cargo test -j 8 --workspace` (139 tests), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -72,8 +81,11 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 - Every forwarder in a cascade receives every stream (topology planner).
 - The host is the only MLS committer, so the call ends when the host leaves (`group.rs`).
 - MLS keys are kept in memory only; a restarted app rejoins as a new member (`provider.rs`).
-- Forwarders send every stream at full quality: no layer subscriptions until `veil-media`
-  marks SVC layers (`veil-forward/src/server.rs`).
+- A receiver that raises its layers waits for the sender's periodic keyframe; there is no
+  keyframe request yet (`veil-forward/src/subscribe.rs`).
+- In a mesh every layer still arrives; subscriptions work only through a forwarder, and a new
+  forwarder link starts with every layer, so the app subscribes again after routes change
+  (`veil-call/src/media.rs`).
 - A forwarder room's tickets have no expiry. A removed member holding an old ticket can open
   an empty room after everyone leaves; it receives nothing, and is dropped as soon as a real
   member joins with a newer ticket. Add an expiry if empty-room squatting matters.
@@ -114,4 +126,7 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 1. Two-machine test over the real internet with `veil-probe` (steps above). Needs Jeremy's
    machines and a public box.
 2. `veil-media`: capture and hardware encode per OS, feeding `MediaSession` and `KeyRing`.
+   The layer marker and forwarder side are done; the encoder sets `Layer` per frame. Decide
+   first: OS capture and Media Foundation need `unsafe` FFI, which the workspace forbids, so
+   `veil-media` needs its own lint exception; and Opus means libopus (BSD, C build).
 3. `veil-app`: `egui` and `wgpu` interface.

@@ -9,8 +9,9 @@
 //! `key_id = epoch << 16 | sender_index`. Distinct senders therefore never share a key, which
 //! is what makes a per-sender counter a safe nonce.
 //!
-//! Header: key id (u64, big endian) then frame counter (u64, big endian). The header is the
-//! AEAD's associated data, so changing it breaks authentication.
+//! Header: key id (u64, big endian), frame counter (u64, big endian), then the two-byte
+//! [`Layer`] marker a forwarder reads to drop SVC layers. The whole header is the AEAD's
+//! associated data, so changing any of it breaks authentication.
 //!
 //! Replay: each receiver keeps a 64-frame sliding window per sender. A counter seen before, or
 //! more than 64 behind the newest, is refused. State for a sender is stored only after one of
@@ -25,8 +26,10 @@ use sha2::Sha256;
 use zeroize::Zeroizing;
 
 use crate::SecurityError;
+use crate::layer::{LAYER_LEN, Layer};
 
-pub const HEADER_LEN: usize = 16;
+const ID_LEN: usize = 16;
+pub const HEADER_LEN: usize = ID_LEN + LAYER_LEN;
 pub const TAG_LEN: usize = 16;
 /// Largest frame accepted. A 4K AV1 keyframe is well under this.
 pub const MAX_FRAME_LEN: usize = 8 * 1024 * 1024;
@@ -73,11 +76,22 @@ fn nonce(salt: &[u8; 12], counter: u64) -> Nonce {
     Nonce::from(n)
 }
 
-fn header(kid: u64, counter: u64) -> [u8; HEADER_LEN] {
+fn header(kid: u64, counter: u64, layer: Layer) -> [u8; HEADER_LEN] {
     let mut h = [0u8; HEADER_LEN];
     h[..8].copy_from_slice(&kid.to_be_bytes());
-    h[8..].copy_from_slice(&counter.to_be_bytes());
+    h[8..ID_LEN].copy_from_slice(&counter.to_be_bytes());
+    h[ID_LEN..].copy_from_slice(&layer.encode());
     h
+}
+
+/// Reads a sealed frame's layer marker without opening it. Forwarders use this; it is not
+/// authenticated until the frame is decrypted.
+pub fn frame_layer(packet: &[u8]) -> Result<Layer, SecurityError> {
+    let bytes = packet
+        .get(ID_LEN..HEADER_LEN)
+        .and_then(|b| <[u8; LAYER_LEN]>::try_from(b).ok())
+        .ok_or(SecurityError::Malformed("short packet"))?;
+    Layer::decode(bytes)
 }
 
 /// Seals one sender's frames for one epoch.
@@ -97,8 +111,13 @@ impl FrameSender {
         })
     }
 
-    /// Returns `header || ciphertext || tag`.
+    /// Seals audio or single-layer video as [`Layer::BASE`].
     pub fn encrypt(&mut self, frame: &[u8]) -> Result<Vec<u8>, SecurityError> {
+        self.encrypt_layer(Layer::BASE, frame)
+    }
+
+    /// Returns `header || ciphertext || tag`, with `layer` in the plaintext header.
+    pub fn encrypt_layer(&mut self, layer: Layer, frame: &[u8]) -> Result<Vec<u8>, SecurityError> {
         if frame.len() > MAX_FRAME_LEN {
             return Err(SecurityError::TooLarge);
         }
@@ -106,7 +125,7 @@ impl FrameSender {
             return Err(SecurityError::CounterExhausted);
         }
         let counter = self.next;
-        let head = header(self.kid, counter);
+        let head = header(self.kid, counter, layer);
         let sealed = self
             .keys
             .cipher
@@ -202,11 +221,12 @@ impl FrameReceiver {
         if packet.len() > HEADER_LEN + MAX_FRAME_LEN + TAG_LEN {
             return Err(SecurityError::TooLarge);
         }
+        frame_layer(packet)?;
         let (head, sealed) = packet.split_at(HEADER_LEN);
         let mut kid_bytes = [0u8; 8];
         let mut counter_bytes = [0u8; 8];
         kid_bytes.copy_from_slice(&head[..8]);
-        counter_bytes.copy_from_slice(&head[8..]);
+        counter_bytes.copy_from_slice(&head[8..ID_LEN]);
         let kid = u64::from_be_bytes(kid_bytes);
         let counter = u64::from_be_bytes(counter_bytes);
         if kid >> 16 != self.epoch {
@@ -287,6 +307,29 @@ mod tests {
         let mut packet = tx.encrypt(b"frame").unwrap();
         packet[7] = 2; // claim sender 2
         assert_eq!(rx.decrypt(&packet), Err(SecurityError::Decrypt));
+    }
+
+    #[test]
+    fn layer_is_readable_but_not_changeable() {
+        let mut tx = FrameSender::new(&SECRET, 0, 1).unwrap();
+        let mut rx = FrameReceiver::new(&SECRET, 0).unwrap();
+        let layer = Layer::new(2, 1, true).unwrap();
+        let packet = tx.encrypt_layer(layer, b"uhd frame").unwrap();
+        assert_eq!(frame_layer(&packet).unwrap(), layer);
+        let mut relabelled = packet.clone();
+        relabelled[ID_LEN + 1] = 0x00; // claim the base layer
+        assert_eq!(rx.decrypt(&relabelled), Err(SecurityError::Decrypt));
+        assert_eq!(rx.decrypt(&packet).unwrap().1, b"uhd frame");
+    }
+
+    #[test]
+    fn unknown_layer_bits_are_refused_before_decrypting() {
+        let mut tx = FrameSender::new(&SECRET, 0, 1).unwrap();
+        let mut rx = FrameReceiver::new(&SECRET, 0).unwrap();
+        let mut packet = tx.encrypt(b"frame").unwrap();
+        packet[ID_LEN] = 0x80;
+        assert!(matches!(rx.decrypt(&packet), Err(SecurityError::Malformed(_))));
+        assert_eq!(frame_layer(&tx.encrypt(b"audio").unwrap()).unwrap(), Layer::BASE);
     }
 
     #[test]

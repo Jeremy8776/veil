@@ -8,6 +8,7 @@ use veil_net::{FramedRecv, FramedSend, Link, Node};
 use veil_security::PublicId;
 
 use crate::ForwardError;
+use crate::subscribe::Wanted;
 use crate::protocol::{ClientMsg, ServerMsg};
 
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
@@ -52,6 +53,13 @@ impl ForwarderClient {
     /// ticket no longer lists.
     pub async fn update_ticket(&self, ticket: &[u8]) -> Result<(), ForwardError> {
         let message = ClientMsg::Ticket(ticket.to_vec());
+        Ok(self.control.lock().await.send(&message).await?)
+    }
+
+    /// Asks for at most these layers from each named sender. Raising takes effect at that
+    /// sender's next keyframe; lowering at once.
+    pub async fn subscribe(&self, request: &[(PublicId, Wanted)]) -> Result<(), ForwardError> {
+        let message = ClientMsg::Subscribe(request.to_vec());
         Ok(self.control.lock().await.send(&message).await?)
     }
 

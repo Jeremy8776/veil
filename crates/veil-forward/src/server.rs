@@ -5,8 +5,8 @@
 //! video writer. Video for a member waits in a queue bounded in bytes; when the queue is full,
 //! new frames for that member are dropped.
 //!
-//! shortcut: every member receives every stream at full quality. Upgrade to per-receiver layer
-//! subscriptions once `veil-media` puts SVC layer markers in the plaintext frame header.
+//! Layers: each receiver's [`Subscriptions`] decide which SVC layers of each sender it gets,
+//! read from the frame's plaintext layer marker. A frame whose marker does not parse is dropped.
 //!
 //! Admission: `Join` carries a host-signed [`RosterTicket`]. Rooms are keyed by (room tag,
 //! host key); only listed devices join, epochs only move forward, and a newer ticket (on a
@@ -23,8 +23,10 @@ use bytes::Bytes;
 use tokio::sync::mpsc;
 use veil_net::{FramedSend, Link, NetError, Node};
 use veil_security::PublicId;
+use veil_security::frame::frame_layer;
 
 use crate::protocol::{ClientMsg, Refusal, ServerMsg};
+use crate::subscribe::{Subscriptions, Wanted};
 use crate::ticket::RosterTicket;
 
 /// Frames waiting for one receiver, counted in frames. The byte budget usually binds first.
@@ -57,6 +59,7 @@ struct Member {
     video: mpsc::Sender<Frame>,
     queued: Arc<AtomicUsize>,
     conn: quinn::Connection,
+    subs: Subscriptions,
 }
 
 /// (room tag, host key).
@@ -169,7 +172,8 @@ fn join(
         return Err(Refusal::RoomFull);
     }
     let Joining { video, queued, conn } = joining;
-    room.members.insert(me, Member { id, video, queued, conn });
+    let subs = Subscriptions::default();
+    room.members.insert(me, Member { id, video, queued, conn, subs });
     Ok((u16::try_from(room.members.len()).unwrap_or(u16::MAX), id))
 }
 
@@ -186,6 +190,16 @@ fn update(state: &Shared, key: &RoomKey, sealed: &[u8]) {
         && ticket.epoch > room.epoch
     {
         room.advance(&ticket);
+    }
+}
+
+/// A member's layer request for the senders it names.
+fn subscribe(state: &Shared, key: &RoomKey, me: PublicId, id: u64, request: &[(PublicId, Wanted)]) {
+    if let Some(mut s) = lock(state)
+        && let Some(member) = s.rooms.get_mut(key).and_then(|r| r.members.get_mut(&me))
+        && member.id == id
+    {
+        member.subs.update(request);
     }
 }
 
@@ -290,8 +304,10 @@ async fn serve(link: Link, state: Shared, limits: Limits) {
 
     // Reading control messages also detects the link closing.
     while let Ok(message) = input.recv::<ClientMsg>().await {
-        if let ClientMsg::Ticket(sealed) = message {
-            update(&state, &key, &sealed);
+        match message {
+            ClientMsg::Ticket(sealed) => update(&state, &key, &sealed),
+            ClientMsg::Subscribe(request) => subscribe(&state, &key, me, id, &request),
+            ClientMsg::Join { .. } => {}
         }
     }
 
@@ -302,9 +318,23 @@ async fn serve(link: Link, state: Shared, limits: Limits) {
 }
 
 fn fan_out_video(state: &Shared, key: &RoomKey, me: PublicId, frame_id: u32, sealed: Vec<u8>, budget: usize) {
+    let Ok(layer) = frame_layer(&sealed) else {
+        return;
+    };
+    let receivers: Vec<_> = lock(state)
+        .and_then(|mut s| {
+            s.rooms.get_mut(key).map(|room| {
+                room.members
+                    .iter_mut()
+                    .filter(|(device, _)| **device != me)
+                    .filter_map(|(_, m)| m.subs.pass(&me, layer).then(|| (m.video.clone(), m.queued.clone())))
+                    .collect()
+            })
+        })
+        .unwrap_or_default();
     let len = sealed.len();
     let frame = Arc::new(sealed);
-    for (queue, queued) in others(state, key, me, |m| (m.video.clone(), m.queued.clone())) {
+    for (queue, queued) in receivers {
         if reserve(&queued, len, budget) && queue.try_send((frame_id, frame.clone())).is_err() {
             release(&queued, len);
         }

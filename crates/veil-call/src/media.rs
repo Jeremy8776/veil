@@ -26,7 +26,7 @@ use bytes::Bytes;
 use tokio::sync::{mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::Instant;
-use veil_forward::ForwarderClient;
+use veil_forward::{ForwarderClient, Wanted};
 use veil_net::control::Control;
 use veil_net::{FramedRecv, FramedSend, Link, Node, NodeAddr};
 use veil_security::PublicId;
@@ -345,6 +345,21 @@ impl MediaSession {
             .iter()
             .filter(|c| c.link().send_datagram(sealed).is_ok())
             .count()
+    }
+
+    /// Asks the forwarder for at most these layers from each named member, for example
+    /// [`Wanted::THUMB`] for a small tile. Does nothing without a forwarder link.
+    ///
+    /// shortcut: in a mesh every layer still arrives. Add a member-to-member request if mesh
+    /// calls send more than one layer. A new forwarder link starts with every layer again, so
+    /// the app subscribes again after routes change.
+    pub async fn subscribe(&self, request: &[(PublicId, Wanted)]) -> Result<(), CallError> {
+        for carrier in self.carriers() {
+            if let Carrier::Forwarder(client) = &*carrier {
+                client.subscribe(request).await.map_err(CallError::Forward)?;
+            }
+        }
+        Ok(())
     }
 
     /// The next packet from any link. `None` once the session has stopped.

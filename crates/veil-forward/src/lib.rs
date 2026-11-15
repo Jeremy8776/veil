@@ -8,8 +8,8 @@
 //!   by `veil-security` and leave byte for byte unchanged. It cannot read, forge or relabel them.
 //! - Rooms are named by a hash of the room id (`veil_rendezvous::room_tag`), never the id, and
 //!   only devices on the host's signed [`RosterTicket`] may join one.
-//! - A frame goes to every other member of the sender's room and never back to the sender or to
-//!   another room.
+//! - A frame goes to every other member of the sender's room that subscribes to its layer, and
+//!   never back to the sender or to another room.
 //! - Memory per receiver is bounded in bytes. A slow receiver loses frames; it never stalls the
 //!   sender or the other receivers.
 #![forbid(unsafe_code)]
@@ -25,6 +25,7 @@
 pub mod client;
 pub mod protocol;
 pub mod server;
+pub mod subscribe;
 pub mod ticket;
 
 use std::fmt;
@@ -32,6 +33,7 @@ use std::fmt;
 pub use client::ForwarderClient;
 pub use protocol::Refusal;
 pub use server::{ForwarderServer, Limits};
+pub use subscribe::Wanted;
 pub use ticket::{RosterTicket, TicketError};
 
 #[derive(Debug)]

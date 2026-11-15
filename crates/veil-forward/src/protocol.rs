@@ -5,6 +5,9 @@
 //! not care whether its peer is another participant or a forwarder.
 
 use serde::{Deserialize, Serialize};
+use veil_security::PublicId;
+
+use crate::subscribe::Wanted;
 
 /// Member to forwarder.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -13,6 +16,9 @@ pub enum ClientMsg {
     Join { ticket: Vec<u8> },
     /// A newer sealed ticket for this member's room, sent after each epoch change.
     Ticket(Vec<u8>),
+    /// The highest layers this member wants from each named sender. Senders not named keep
+    /// their earlier setting, or every layer.
+    Subscribe(Vec<(PublicId, Wanted)>),
 }
 
 /// Forwarder to member.

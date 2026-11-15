@@ -24,7 +24,9 @@ pub mod error;
 pub mod frame;
 pub mod identity;
 pub mod invite;
+pub mod layer;
 pub mod safety;
 
 pub use error::SecurityError;
 pub use identity::{Identity, PublicId};
+pub use layer::Layer;
