@@ -10,7 +10,7 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 
 | Built and tested on localhost | Planned, not built |
 |---|---|
-| Device keys, safety numbers, signed invites | Capture, encoding and decoding (`veil-media`) |
+| Device keys, safety numbers, signed invites | Capture, encoding and decoding (`veil-media` has its schedule and framing only) |
 | MLS group keys, the host's lobby | The desktop app (`veil-app`) |
 | Per-frame encryption with a layer marker | Signed organisation policy, OIDC or SAML identity |
 | QUIC links pinned to device keys | Metrics export (OpenTelemetry) |

@@ -65,6 +65,47 @@ impl Layer {
     }
 }
 
+/// The highest layers a receiver wants from one sender. Forwarders filter by it, and senders
+/// use the highest anyone wants to pause layers nobody watches.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Wanted {
+    pub spatial: u8,
+    pub temporal: u8,
+}
+
+impl Wanted {
+    pub const ALL: Self = Self {
+        spatial: MAX_SPATIAL,
+        temporal: MAX_TEMPORAL,
+    };
+
+    /// Only the smallest picture at the lowest frame rate.
+    pub const THUMB: Self = Self {
+        spatial: 0,
+        temporal: 0,
+    };
+
+    pub fn admits(self, layer: Layer) -> bool {
+        layer.spatial <= self.spatial && layer.temporal <= self.temporal
+    }
+
+    /// The lower of each part.
+    pub fn min(self, other: Self) -> Self {
+        Self {
+            spatial: self.spatial.min(other.spatial),
+            temporal: self.temporal.min(other.temporal),
+        }
+    }
+
+    /// The higher of each part.
+    pub fn max(self, other: Self) -> Self {
+        Self {
+            spatial: self.spatial.max(other.spatial),
+            temporal: self.temporal.max(other.temporal),
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {

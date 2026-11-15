@@ -1,0 +1,13 @@
+[package]
+name = "veil-media"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+veil-security = { path = "../veil-security" }
+
+[lints]
+workspace = true

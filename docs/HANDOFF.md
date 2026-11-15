@@ -61,9 +61,25 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   `Wanted` layers per sender. Lowering is immediate, raising waits for that sender's next
   keyframe, unnamed senders get every layer, at most 256 senders tracked per receiver. A frame
   whose marker does not parse is dropped. `ForwarderClient::subscribe` and
-  `MediaSession::subscribe` send it.
+  `MediaSession::subscribe` send it. `Wanted` now lives in `veil-security::layer` (re-exported
+  by `veil-forward`) so `veil-media` can use it without the network stack.
+- `veil-media` core, OS-independent, no `unsafe` yet:
+  - `ladder.rs`: the bitrate ladder. `Ladder::camera()` is Thumb 640x360 at 15 fps, Hd
+    1920x1080 at 30 fps, Uhd 3840x2160 at 60 fps, from 60 fps capture with 3 temporal levels.
+  - `temporal.rs`: the dyadic temporal pattern (3 levels: 0, 2, 1, 2).
+  - `schedule.rs`: `Schedule::next(now)` plans each captured picture: number, temporal layer,
+    keyframe, reference picture, and the `Layer` markers to encode. Layers nobody wants are not
+    encoded (`set_wanted`, `wanted_by`). Lowering is immediate; a raise or resume waits for a
+    keyframe. Keyframes at most every 500 ms, at least every 4 s, and on `request_keyframe`.
+  - `payload.rs`: `VideoHeader`, 27 bytes inside the sealed frame (codec, picture, reference
+    distance, `needs_lower` for SVC, capture time, size), then the bitstream.
+  - `gate.rs`: `Gate::admit(layer, header)` per sender. Passes a layer only if its reference
+    was decoded; asks for a keyframe (`DropAndRequestKeyframe`) only when a temporal 0 picture
+    cannot decode, once per break.
+  - `encoder.rs`: `VideoEncoder` trait (NV12 `RawPicture` plus `PicturePlan` in, one
+    `EncodedLayer` per planned layer out), and `check_output`.
 
-Tests: `cargo test -j 8 --workspace` (139 tests), `cargo clippy -j 8 --workspace --all-targets`.
+Tests: `cargo test -j 8 --workspace` (165 tests), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -103,6 +119,12 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
   (`veil-call/src/call_plan.rs`).
 - Forwarder links are direct only, no relay fallback (`veil-call/src/media.rs`).
 - Host events are an unbounded channel (`veil-call/src/host.rs`).
+- Keyframe requests are made and served in `veil-media` but no message carries them yet
+  (`veil-forward/src/subscribe.rs`).
+- The forwarder sends every spatial layer up to the wanted one, which wastes download for
+  simulcast (`subscribe.rs`).
+- A layer that arrives before its reference is dropped, not reordered (`veil-media/src/gate.rs`).
+- The 4 s periodic keyframe is the fallback for lost requests (`veil-media/src/schedule.rs`).
 
 ## Not yet tested
 
@@ -130,8 +152,10 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 
 1. Two-machine test over the real internet with `veil-probe` (steps above). Needs Jeremy's
    machines and a public box.
-2. `veil-media`: capture and hardware encode per OS, feeding `MediaSession` and `KeyRing`.
-   The layer marker and forwarder side are done; the encoder sets `Layer` per frame. Decided
+2. `veil-media`, continued: the core is done (see above). Next, in order: a keyframe request
+   message end to end (member to member in a mesh, through the forwarder otherwise); the
+   Windows Media Foundation H.264 encoder behind `VideoEncoder` (likely simulcast, one encoder
+   per rung, since hardware H.264 has no spatial SVC); camera capture; Opus. Decided
    15/11/2026: `unsafe` FFI and libopus are allowed in `veil-media` only, under the rules in
    `docs/TRANSPARENCY.md` section 5 (one `ffi` module per OS, `// SAFETY:` on every block,
    `clippy::undocumented_unsafe_blocks` denied, each module listed in that table).

@@ -12,47 +12,20 @@
 //! - Audio is never filtered: it is sealed as the base layer.
 //!
 //! shortcut: a receiver that raises waits for the sender's periodic keyframe; nobody asks the
-//! sender for one. Add an end-to-end keyframe request when `veil-media` encodes.
+//! sender for one. `veil-media` makes and serves requests (`Verdict::DropAndRequestKeyframe`,
+//! `Schedule::request_keyframe`); add a message that carries them end to end.
+//!
+//! shortcut: every spatial layer up to the wanted one is forwarded. That suits SVC, where each
+//! layer needs the one below, but a simulcast receiver decodes only the top one and the lower
+//! ones waste its download. Add a simulcast flag when a platform encoder sends simulcast.
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
-use veil_security::layer::{MAX_SPATIAL, MAX_TEMPORAL};
+pub use veil_security::layer::Wanted;
 use veil_security::{Layer, PublicId};
 
 /// Most senders one subscription message may name. Larger than any room.
 pub const MAX_SUBSCRIPTIONS: usize = 256;
-
-/// The highest layers a receiver wants from one sender.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Wanted {
-    pub spatial: u8,
-    pub temporal: u8,
-}
-
-impl Wanted {
-    pub const ALL: Self = Self {
-        spatial: MAX_SPATIAL,
-        temporal: MAX_TEMPORAL,
-    };
-
-    /// Only the smallest picture at the lowest frame rate.
-    pub const THUMB: Self = Self {
-        spatial: 0,
-        temporal: 0,
-    };
-
-    pub fn admits(self, layer: Layer) -> bool {
-        layer.spatial <= self.spatial && layer.temporal <= self.temporal
-    }
-
-    fn min(self, other: Self) -> Self {
-        Self {
-            spatial: self.spatial.min(other.spatial),
-            temporal: self.temporal.min(other.temporal),
-        }
-    }
-}
 
 /// One receiver's filter for one sender.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

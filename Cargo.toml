@@ -4,6 +4,7 @@ members = [
     "crates/veil-call",
     "crates/veil-forward",
     "crates/veil-group",
+    "crates/veil-media",
     "crates/veil-net",
     "crates/veil-node",
     "crates/veil-probe",

@@ -29,4 +29,4 @@ pub mod safety;
 
 pub use error::SecurityError;
 pub use identity::{Identity, PublicId};
-pub use layer::Layer;
+pub use layer::{Layer, Wanted};

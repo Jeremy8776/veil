@@ -1261,6 +1261,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "veil-media"
+version = "0.1.0"
+dependencies = [
+ "veil-security",
+]
+
+[[package]]
 name = "veil-net"
 version = "0.1.0"
 dependencies = [
