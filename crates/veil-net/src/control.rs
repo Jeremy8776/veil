@@ -22,6 +22,12 @@ pub enum Control {
     /// Round-trip measurement.
     Ping(u64),
     Pong(u64),
+    /// Joiner to host, after `Admitted`: an MLS key package signed by the joiner's device key.
+    KeyPackage(Vec<u8>),
+    /// Host to joiner: the MLS Welcome that carries the group's keys.
+    Welcome(Vec<u8>),
+    /// Host to existing members: an MLS commit that starts the next epoch.
+    Commit(Vec<u8>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]

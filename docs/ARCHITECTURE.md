@@ -134,7 +134,9 @@ only"), or forbid servers entirely ("peers only").
 1. **Transport.** QUIC with TLS 1.3 on every hop. Node keys are pinned. This protects metadata
    from the network.
 2. **Group keys.** MLS (RFC 9420) through `openmls`. Forward secrecy and post-compromise
-   security. Every join or leave starts a new epoch.
+   security. Every join or leave starts a new epoch. Each member's MLS signature key is its
+   device key, so the roster matches the safety numbers people compare. For now the host is the
+   only member allowed to commit; members refuse commits from anyone else.
 3. **Media.** Per-frame authenticated encryption, in the style of SFrame (RFC 9605). Each sender
    has its own key for each epoch, derived from the MLS exporter secret. Forwarders read only
    the plaintext layer header.
@@ -164,7 +166,7 @@ turn on padding, at a bandwidth cost.
 | `veil-topology` | Built | Planner: mesh or forwarded, forwarder choice, cascades, degradation |
 | `veil-net` | Built | QUIC links (`quinn`) pinned to device keys with TLS 1.3 raw public keys; control stream; one stream per video frame; audio datagrams; parallel dialling of candidate addresses |
 | `veil-rendezvous` | Built | Runs on any node. Reflects public addresses, introduces two members of a room for a timed simultaneous dial (hole punching), and relays. Rooms are registered by hash, never by id. A relayed link is the two members' own pinned QUIC link running inside the relay session, so the relay carries ciphertext only |
-| `veil-group` | Next | MLS group state (`openmls`), epoch secrets for `veil-security` |
+| `veil-group` | Built | MLS group state (`openmls`) and the host's lobby. The host checks each joiner's one-time invite token, waits for approval, then adds the joiner's key package, which must be signed by the device key the QUIC link is pinned to. Every join or leave is a commit and a new epoch. Each epoch's 32-byte exporter secret keys `veil-security` frames; a member's frame sender index is its MLS leaf index. Runs on Veil's own security backend (one ciphersuite: X25519, ChaCha20-Poly1305, SHA-256, Ed25519) because `openmls_rust_crypto` depends on MPL-2.0 code |
 | `veil-media` | Next | Capture and hardware encode or decode per OS: Media Foundation (Windows), VideoToolbox (macOS), VA-API (Linux); Opus audio |
 | `veil-node` | Next | Relay, forwarder and rendezvous roles in one binary |
 | `veil-app` | Next | Desktop interface (`egui` and `wgpu`) |
