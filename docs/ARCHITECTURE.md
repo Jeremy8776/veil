@@ -162,7 +162,8 @@ turn on padding, at a bandwidth cost.
 |---|---|---|
 | `veil-security` | Built | Device identity, safety numbers, signed invites, per-frame encryption |
 | `veil-topology` | Built | Planner: mesh or forwarded, forwarder choice, cascades, degradation |
-| `veil-net` | Next | QUIC transport (`quinn`), hole punching, relay fallback |
+| `veil-net` | Built | QUIC links (`quinn`) pinned to device keys with TLS 1.3 raw public keys; control stream; one stream per video frame; audio datagrams; parallel dialling of candidate addresses |
+| `veil-rendezvous` | Next | Address exchange and timed simultaneous dial for hole punching; relay fallback |
 | `veil-group` | Next | MLS group state (`openmls`), epoch secrets for `veil-security` |
 | `veil-media` | Next | Capture and hardware encode or decode per OS: Media Foundation (Windows), VideoToolbox (macOS), VA-API (Linux); Opus audio |
 | `veil-node` | Next | Relay, forwarder and rendezvous roles in one binary |

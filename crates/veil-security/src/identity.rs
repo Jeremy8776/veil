@@ -8,6 +8,7 @@ use std::fmt;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use rand_core::{CryptoRngCore, OsRng};
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
 use crate::SecurityError;
 
@@ -34,6 +35,12 @@ impl Identity {
         Self {
             key: SigningKey::from_bytes(secret),
         }
+    }
+
+    /// The 32-byte secret, in a buffer wiped on drop. For the transport layer, which must hand
+    /// the key to TLS. Never log or store it.
+    pub fn secret_bytes(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(self.key.to_bytes())
     }
 
     pub fn public(&self) -> PublicId {
