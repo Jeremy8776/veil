@@ -22,3 +22,12 @@ Check dependency licences (fails on a licence that is not allowed, or a stale li
 ```bash
 python tools/licences.py --check
 ```
+
+## Licence
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT licence](LICENSE-MIT),
+at your option.
+
+Unless you explicitly state otherwise, any contribution you intentionally submit for inclusion in
+Veil, as defined in the Apache-2.0 licence, is dual licensed as above, without any additional
+terms or conditions.

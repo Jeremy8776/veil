@@ -48,7 +48,8 @@ code are from the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113
 
 ## 4. Dependencies and licences
 
-- Veil's own licence is not chosen yet. Until a `LICENSE` file is added, no licence is granted.
+- Veil itself is licensed under either of [MIT](../LICENSE-MIT) or [Apache-2.0](../LICENSE-APACHE),
+  at your option, like most of the Rust ecosystem. Apache-2.0 adds an explicit patent grant.
 - Every third-party crate, its version and its licence is listed in
   [DEPENDENCIES.md](DEPENDENCIES.md). It is generated from `Cargo.lock` by
   `python tools/licences.py`, which also fails if a crate's licence is not allowed. Run it with

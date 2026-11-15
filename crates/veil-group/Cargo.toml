@@ -5,6 +5,7 @@ edition.workspace = true
 # openmls 0.9 needs Rust 1.91.
 rust-version = "1.91"
 publish.workspace = true
+license.workspace = true
 
 # Licences checked 15/11/2026. openmls, openmls_traits and openmls_memory_storage are MIT.
 # `hpke` is MIT or Apache-2.0. openmls_rust_crypto is not used: it pulls hpke-rs (MPL-2.0).

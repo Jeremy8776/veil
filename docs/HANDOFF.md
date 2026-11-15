@@ -71,7 +71,8 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 
 Run `python tools/licences.py --check` after any `Cargo.lock` change; it regenerates nothing
 and fails on a disallowed licence or a stale `docs/DEPENDENCIES.md` (rewrite it without
-`--check`). Veil's own licence is not chosen yet.
+`--check`). Veil is MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`, set once in the
+workspace `Cargo.toml`; each crate has `license.workspace = true`).
 
 `openmls_rust_crypto` and `openmls_basic_credential` are not used. The first pulls `hpke-rs`
 (MPL-2.0). `veil-group/src/provider.rs` is Veil's own backend on RustCrypto plus `hpke` 0.13

@@ -5,6 +5,7 @@ edition.workspace = true
 # Follows veil-call, which needs Rust 1.91 for openmls.
 rust-version = "1.91"
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "signal"] }

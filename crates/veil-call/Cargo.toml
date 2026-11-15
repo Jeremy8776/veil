@@ -5,6 +5,7 @@ edition.workspace = true
 # Follows veil-group, which needs Rust 1.91 for openmls.
 rust-version = "1.91"
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 bytes = "1.7"
