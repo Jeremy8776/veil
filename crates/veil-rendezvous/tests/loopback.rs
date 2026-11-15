@@ -171,3 +171,20 @@ async fn relayed_dial_to_the_wrong_key_fails() {
     let result = with_timeout(a_inner.connect(&[RELAY_PEER], someone_else)).await;
     assert!(result.is_err());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn relay_can_be_turned_off() {
+    let node = Node::bind(&Identity::generate(), localhost()).unwrap();
+    let server = RendezvousServer::new(node).without_relay();
+    let addr = (server.local_addr().unwrap(), server.id());
+    tokio::spawn(server.run());
+    let room = room_tag(&[6; 16]);
+    let mut a = member(addr, room).await;
+    let b = member(addr, room).await;
+    assert!(matches!(
+        with_timeout(a.client.open_relay(b.identity.public())).await,
+        Err(RendezvousError::Refused(Refusal::RelayDisabled))
+    ));
+    // Introductions still work.
+    assert!(with_timeout(a.client.introduce(b.identity.public())).await.is_ok());
+}

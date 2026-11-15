@@ -164,11 +164,12 @@ turn on padding, at a bandwidth cost.
 |---|---|---|
 | `veil-security` | Built | Device identity, safety numbers, signed invites, per-frame encryption |
 | `veil-topology` | Built | Planner: mesh or forwarded, forwarder choice, cascades, degradation |
-| `veil-net` | Built | QUIC links (`quinn`) pinned to device keys with TLS 1.3 raw public keys; control stream; one stream per video frame; audio datagrams; parallel dialling of candidate addresses |
+| `veil-net` | Built | QUIC links (`quinn`) pinned to device keys with TLS 1.3 raw public keys; control stream; one stream per video frame; audio datagrams; parallel dialling of candidate addresses; `NodeAddr` (`key@ip:port`), the text form that pins a node's key in invites |
 | `veil-rendezvous` | Built | Runs on any node. Reflects public addresses, introduces two members of a room for a timed simultaneous dial (hole punching), and relays. Rooms are registered by hash, never by id. A relayed link is the two members' own pinned QUIC link running inside the relay session, so the relay carries ciphertext only |
 | `veil-group` | Built | MLS group state (`openmls`) and the host's lobby. The host checks each joiner's one-time invite token, waits for approval, then adds the joiner's key package, which must be signed by the device key the QUIC link is pinned to. Every join or leave is a commit and a new epoch. Each epoch's 32-byte exporter secret keys `veil-security` frames; a member's frame sender index is its MLS leaf index. Runs on Veil's own security backend (one ciphersuite: X25519, ChaCha20-Poly1305, SHA-256, Ed25519) because `openmls_rust_crypto` depends on MPL-2.0 code |
 | `veil-media` | Next | Capture and hardware encode or decode per OS: Media Foundation (Windows), VideoToolbox (macOS), VA-API (Linux); Opus audio |
-| `veil-node` | Next | Relay, forwarder and rendezvous roles in one binary |
+| `veil-forward` | Built | The forwarder role as a library, so a participant or a node can run it. Members join a room by its tag; each sealed video frame and audio packet goes unchanged to every other member. Per-receiver queues are bounded in bytes, so a slow receiver loses frames instead of stalling the room |
+| `veil-node` | Built | One binary. A TOML file turns on the rendezvous role (with or without relay) and the forwarder role, each on its own port with the node's one device key, created on first start. Prints each role as `key@address`. Holds no group or media keys |
 | `veil-app` | Next | Desktop interface (`egui` and `wgpu`) |
 
 Every dependency has its licence checked before it is added. FFmpeg (LGPL) is avoided; hardware

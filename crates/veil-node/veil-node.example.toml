@@ -1,0 +1,17 @@
+# veil-node configuration. Copy to veil-node.toml and run: veil-node veil-node.toml
+# The node prints each role as key@address. Put that in an invite's relay field.
+
+# Created on first start, next to this file. Keep it private: it is this node's identity.
+identity_file = "node.key"
+
+# Address reflection and hole-punch introductions. Relays when direct links fail.
+[rendezvous]
+listen = "0.0.0.0:4433"
+relay = true
+
+# Receives each member's stream once and sends it to the rest of the room.
+# Remove this section to run rendezvous only.
+[forwarder]
+listen = "0.0.0.0:4434"
+max_rooms = 1000
+max_members_per_room = 16

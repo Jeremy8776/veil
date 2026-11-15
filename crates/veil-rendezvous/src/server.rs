@@ -58,6 +58,7 @@ struct State {
     rooms: HashMap<[u8; 32], HashMap<PublicId, Member>>,
     sessions: HashMap<u32, Session<quinn::Connection>>,
     next_session: u32,
+    relay_disabled: bool,
 }
 
 type Shared = Arc<Mutex<State>>;
@@ -78,6 +79,15 @@ impl RendezvousServer {
             node,
             state: Shared::default(),
         }
+    }
+
+    /// Turns the relay role off: reflection and introductions still work, relay requests
+    /// are refused with [`Refusal::RelayDisabled`].
+    pub fn without_relay(self) -> Self {
+        if let Some(mut s) = lock(&self.state) {
+            s.relay_disabled = true;
+        }
+        self
     }
 
     pub fn id(&self) -> PublicId {
@@ -232,6 +242,9 @@ fn handle(
         }
 
         ClientMsg::OpenRelay { peer } => {
+            if s.relay_disabled {
+                return refuse(Refusal::RelayDisabled);
+            }
             let Some(tag) = room else {
                 return refuse(Refusal::NotRegistered);
             };

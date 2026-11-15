@@ -59,6 +59,8 @@ pub enum Refusal {
     TooManyAddrs,
     /// A server limit was reached (rooms, members or sessions).
     Full,
+    /// This node runs rendezvous without the relay role.
+    RelayDisabled,
 }
 
 pub fn session_packet(session: u32, packet: &[u8]) -> Vec<u8> {

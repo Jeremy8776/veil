@@ -1,8 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/veil-forward",
     "crates/veil-group",
     "crates/veil-net",
+    "crates/veil-node",
     "crates/veil-rendezvous",
     "crates/veil-security",
     "crates/veil-topology",
