@@ -19,6 +19,9 @@ pub enum ClientMsg {
     /// The highest layers this member wants from each named sender. Senders not named keep
     /// their earlier setting, or every layer.
     Subscribe(Vec<(PublicId, Wanted)>),
+    /// This member cannot decode the named sender until its next keyframe. The forwarder
+    /// passes the request on without saying who asked.
+    KeyframeRequest(PublicId),
 }
 
 /// Forwarder to member.
@@ -27,6 +30,9 @@ pub enum ServerMsg {
     /// Joined. `members` counts everyone in the room, including this member.
     Joined { members: u16 },
     Refused(Refusal),
+    /// Someone in the room needs a keyframe from this member: a receiver lost the stream, or
+    /// raised its subscription.
+    KeyframeRequest,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]

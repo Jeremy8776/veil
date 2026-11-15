@@ -20,7 +20,7 @@ pub struct ForwarderClient {
     members: u16,
     // Held so the control stream stays open: the forwarder treats its end as leaving.
     control: Mutex<FramedSend>,
-    _input: FramedRecv,
+    input: Mutex<FramedRecv>,
 }
 
 impl ForwarderClient {
@@ -43,9 +43,10 @@ impl ForwarderClient {
                 link,
                 members,
                 control: Mutex::new(out),
-                _input: input,
+                input: Mutex::new(input),
             }),
             ServerMsg::Refused(refusal) => Err(ForwardError::Refused(refusal)),
+            ServerMsg::KeyframeRequest => Err(ForwardError::Closed),
         }
     }
 
@@ -61,6 +62,18 @@ impl ForwarderClient {
     pub async fn subscribe(&self, request: &[(PublicId, Wanted)]) -> Result<(), ForwardError> {
         let message = ClientMsg::Subscribe(request.to_vec());
         Ok(self.control.lock().await.send(&message).await?)
+    }
+
+    /// Tells the forwarder this member needs a keyframe from `sender`.
+    pub async fn request_keyframe(&self, sender: PublicId) -> Result<(), ForwardError> {
+        let message = ClientMsg::KeyframeRequest(sender);
+        Ok(self.control.lock().await.send(&message).await?)
+    }
+
+    /// The forwarder's next message after joining, such as [`ServerMsg::KeyframeRequest`].
+    /// Read it in one task; an error means the link has closed.
+    pub async fn recv(&self) -> Result<ServerMsg, ForwardError> {
+        Ok(self.input.lock().await.recv::<ServerMsg>().await?)
     }
 
     pub fn link(&self) -> &Link {

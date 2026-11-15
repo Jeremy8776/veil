@@ -90,6 +90,7 @@ impl Session {
         let (channel, packet) = match &incoming.media {
             Media::Video { sealed, .. } => (Channel::Video, sealed.as_slice()),
             Media::Audio(bytes) => (Channel::Audio, bytes.as_ref()),
+            Media::KeyframeRequest => return,
         };
         let Some(ring) = &mut self.ring else { return };
         let (from, plain) = match ring.open(packet, Instant::now()) {

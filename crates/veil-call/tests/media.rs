@@ -396,3 +396,31 @@ fn take_receiver(keys: &mut EpochKeys) -> veil_security::frame::FrameReceiver {
     let empty = veil_security::frame::FrameReceiver::new(&[0; 32], keys.epoch).unwrap();
     std::mem::replace(&mut keys.receiver, empty)
 }
+
+/// Waits for the next keyframe request, skipping media.
+async fn next_keyframe_request(media: &mut MediaSession) {
+    loop {
+        if within(media.recv()).await.unwrap().media == Media::KeyframeRequest {
+            return;
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn keyframe_requests_reach_the_sender_in_a_mesh_and_through_a_forwarder() {
+    for forwarded in [false, true] {
+        let forwarder = forwarded.then(start_forwarder);
+        let rendezvous = (!forwarded).then(start_rendezvous);
+        let mut call = Call::start(rendezvous).await;
+        call.admit_direct().await;
+        call.admit_direct().await;
+        let mut sessions = call.media(forwarded, forwarder).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let sender = call.parties[0].node.id();
+        assert!(within(sessions[2].request_keyframe(sender)).await.unwrap());
+        next_keyframe_request(&mut sessions[0]).await;
+        let quiet = tokio::time::timeout(Duration::from_millis(300), sessions[1].recv()).await;
+        assert!(quiet.is_err(), "only the named sender is asked (forwarded: {forwarded})");
+    }
+}

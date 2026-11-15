@@ -5,6 +5,8 @@
 //! frames then go out on every link with [`MediaSession::send_frame`] and
 //! [`MediaSession::send_audio`], and everything that arrives comes out of
 //! [`MediaSession::recv`]. Frames stay sealed here; open them with a [`crate::KeyRing`].
+//! [`MediaSession::request_keyframe`] asks one sender for a keyframe: on the media link's
+//! control stream in a mesh, through the forwarder otherwise.
 //!
 //! Invariants:
 //! - One link per pair of members: the member with the lower device key dials, the other
@@ -37,16 +39,22 @@ use crate::presence::Presence;
 use crate::routes::{Peer, Routes};
 use crate::CallError;
 
+mod read;
+
 /// How long an early media link may wait for this member's routes to expect it.
 pub const EARLY_WAIT: Duration = Duration::from_secs(10);
 const MAX_EARLY: usize = 16;
 const INCOMING: usize = 1_024;
 
-/// A sealed packet as it arrived.
+/// A sealed packet as it arrived, or a request about this member's own video.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Media {
     Video { frame_id: u32, sealed: Vec<u8> },
     Audio(Bytes),
+    /// Someone cannot decode this member's video until its next keyframe. Unauthenticated:
+    /// a forwarder or member can send it at will, so the sender limits how often it obeys
+    /// (`veil_media::Schedule::request_keyframe`).
+    KeyframeRequest,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,14 +66,22 @@ pub struct Incoming {
 }
 
 enum Carrier {
-    Link(Link),
+    /// A link to another member, with its media control stream.
+    Member { link: Link, control: tokio::sync::Mutex<FramedSend> },
     Forwarder(ForwarderClient),
 }
 
 impl Carrier {
+    fn member(link: Link, control: FramedSend) -> Self {
+        Self::Member {
+            link,
+            control: tokio::sync::Mutex::new(control),
+        }
+    }
+
     fn link(&self) -> &Link {
         match self {
-            Self::Link(link) => link,
+            Self::Member { link, .. } => link,
             Self::Forwarder(client) => client.link(),
         }
     }
@@ -75,10 +91,8 @@ struct Entry {
     id: u64,
     carrier: Arc<Carrier>,
     path: Path,
-    /// A member link's control stream, kept open for the link's life.
-    _control: Option<(FramedSend, FramedRecv)>,
     _via: Option<Arc<Node>>,
-    readers: [JoinHandle<()>; 2],
+    readers: [JoinHandle<()>; 3],
 }
 
 impl Drop for Entry {
@@ -125,15 +139,19 @@ impl Ctx {
         state.next_id = state.next_id.wrapping_add(1);
         let id = state.next_id;
         let carrier = Arc::new(carrier);
+        let control = match rest.input {
+            Some(input) => tokio::spawn(read::member_control(input, peer, self.incoming.clone())),
+            None => tokio::spawn(read::forwarder_control(carrier.clone(), peer, self.incoming.clone())),
+        };
         let readers = [
-            tokio::spawn(read_video(carrier.clone(), peer, id, self.clone())),
-            tokio::spawn(read_audio(carrier.clone(), peer, self.incoming.clone())),
+            tokio::spawn(read::video(carrier.clone(), peer, id, self.clone())),
+            tokio::spawn(read::audio(carrier.clone(), peer, self.incoming.clone())),
+            control,
         ];
         let entry = Entry {
             id,
             carrier,
             path,
-            _control: rest.control,
             _via: rest.via,
             readers,
         };
@@ -142,7 +160,8 @@ impl Ctx {
 }
 
 struct Extra {
-    control: Option<(FramedSend, FramedRecv)>,
+    /// A member link's control stream, read for keyframe requests. `None` for a forwarder.
+    input: Option<FramedRecv>,
     via: Option<Arc<Node>>,
 }
 
@@ -238,11 +257,11 @@ impl MediaSession {
         while let Some(done) = dials.join_next().await {
             let Ok((device, result)) = done else { continue };
             match result {
-                Ok((link, path, extra)) => {
+                Ok((carrier, path, extra)) => {
                     if let Some(mut state) = self.ctx.lock()
                         && state.wanted.contains(&device)
                     {
-                        self.ctx.adopt(&mut state, device, Carrier::Link(link), path, extra);
+                        self.ctx.adopt(&mut state, device, carrier, path, extra);
                     }
                     self.ctx.changed();
                 }
@@ -279,7 +298,7 @@ impl MediaSession {
         match joined {
             Ok(client) => {
                 if let Some(mut state) = self.ctx.lock() {
-                    let extra = Extra { control: None, via: None };
+                    let extra = Extra { input: None, via: None };
                     let carrier = Carrier::Forwarder(client);
                     self.ctx.adopt(&mut state, addr.key, carrier, Path::Forwarder, extra);
                 }
@@ -362,6 +381,30 @@ impl MediaSession {
         Ok(())
     }
 
+    /// Asks `sender` for a keyframe: on its own link in a mesh, through the forwarder
+    /// otherwise. Returns `false` if no link could carry the request.
+    pub async fn request_keyframe(&self, sender: PublicId) -> Result<bool, CallError> {
+        let carrier = self.ctx.lock().and_then(|s| {
+            s.links.get(&sender).map(|e| e.carrier.clone()).or_else(|| {
+                s.links
+                    .values()
+                    .find(|e| matches!(*e.carrier, Carrier::Forwarder(_)))
+                    .map(|e| e.carrier.clone())
+            })
+        });
+        match carrier.as_deref() {
+            None => Ok(false),
+            Some(Carrier::Member { control, .. }) => {
+                control.lock().await.send(&Control::KeyframeRequest).await?;
+                Ok(true)
+            }
+            Some(Carrier::Forwarder(client)) => {
+                client.request_keyframe(sender).await.map_err(CallError::Forward)?;
+                Ok(true)
+            }
+        }
+    }
+
     /// The next packet from any link. `None` once the session has stopped.
     pub async fn recv(&mut self) -> Option<Incoming> {
         self.incoming.recv().await
@@ -375,16 +418,16 @@ async fn open_media(
     peer: &Peer,
     relay_only: bool,
     room_id: [u8; 16],
-) -> Result<(Link, Path, Extra), CallError> {
+) -> Result<(Carrier, Path, Extra), CallError> {
     let addrs: &[SocketAddr] = &peer.addrs;
     let dialled = dial(node, presence, peer.device, addrs, relay_only).await?;
     let (mut out, input) = dialled.link.open_control().await?.split();
     out.send(&Control::Media { room_id }).await?;
     let extra = Extra {
-        control: Some((out, input)),
+        input: Some(input),
         via: dialled.via,
     };
-    Ok((dialled.link, dialled.path, extra))
+    Ok((Carrier::member(dialled.link, out), dialled.path, extra))
 }
 
 /// Moves early links whose peer is now expected into the link set; drops stale ones.
@@ -408,10 +451,10 @@ fn accept(ctx: &Ctx, state: &mut State, inbound: Inbound) {
     let peer = inbound.link.peer();
     let path = if inbound.via.is_some() { Path::Relayed } else { Path::Direct };
     let extra = Extra {
-        control: Some((inbound.out, inbound.input)),
+        input: Some(inbound.input),
         via: inbound.via,
     };
-    ctx.adopt(state, peer, Carrier::Link(inbound.link), path, extra);
+    ctx.adopt(state, peer, Carrier::member(inbound.link, inbound.out), path, extra);
 }
 
 async fn run_inbox(
@@ -443,25 +486,5 @@ async fn run_inbox(
             }
         }
         ctx.changed();
-    }
-}
-
-async fn read_video(carrier: Arc<Carrier>, via: PublicId, id: u64, ctx: Ctx) {
-    while let Ok((frame_id, sealed)) = carrier.link().recv_frame().await {
-        let media = Media::Video { frame_id, sealed };
-        if ctx.incoming.send(Incoming { via, media }).await.is_err() {
-            return;
-        }
-    }
-    let _ = ctx.closed.send((via, id)).await;
-}
-
-async fn read_audio(carrier: Arc<Carrier>, via: PublicId, incoming: mpsc::Sender<Incoming>) {
-    while let Ok(packet) = carrier.link().recv_datagram().await {
-        // Audio is late or lost, never queued: a full channel drops the packet.
-        let _ = incoming.try_send(Incoming {
-            via,
-            media: Media::Audio(packet),
-        });
     }
 }

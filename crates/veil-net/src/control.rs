@@ -33,6 +33,9 @@ pub enum Control {
     Media { room_id: [u8; 16] },
     /// Host to members, after each epoch's commit: the signed layout for that epoch.
     Plan(Vec<u8>),
+    /// Member to member on a media link: the receiver cannot decode the sender until its
+    /// next keyframe.
+    KeyframeRequest,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]

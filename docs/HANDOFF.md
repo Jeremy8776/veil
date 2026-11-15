@@ -78,8 +78,16 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
     cannot decode, once per break.
   - `encoder.rs`: `VideoEncoder` trait (NV12 `RawPicture` plus `PicturePlan` in, one
     `EncodedLayer` per planned layer out), and `check_output`.
+- Keyframe requests end to end. `MediaSession::request_keyframe(sender)` sends
+  `Control::KeyframeRequest` on that member's media link in a mesh, or
+  `ClientMsg::KeyframeRequest(sender)` to the forwarder, which passes `ServerMsg::KeyframeRequest`
+  to that sender only, without saying who asked. The forwarder also asks a sender itself when a
+  receiver's subscription raise waits for a keyframe. The sender sees `Media::KeyframeRequest`
+  from `MediaSession::recv` and calls `Schedule::request_keyframe`, which limits keyframes to
+  one per 500 ms. Requests are never queued behind video: a full queue drops them.
+  `ForwarderClient::recv` reads the forwarder's messages after joining.
 
-Tests: `cargo test -j 8 --workspace` (165 tests), `cargo clippy -j 8 --workspace --all-targets`.
+Tests: `cargo test -j 8 --workspace` (168 tests), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -102,8 +110,6 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 - Every forwarder in a cascade receives every stream (topology planner).
 - The host is the only MLS committer, so the call ends when the host leaves (`group.rs`).
 - MLS keys are kept in memory only; a restarted app rejoins as a new member (`provider.rs`).
-- A receiver that raises its layers waits for the sender's periodic keyframe; there is no
-  keyframe request yet (`veil-forward/src/subscribe.rs`).
 - In a mesh every layer still arrives; subscriptions work only through a forwarder, and a new
   forwarder link starts with every layer, so the app subscribes again after routes change
   (`veil-call/src/media.rs`).
@@ -119,8 +125,6 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
   (`veil-call/src/call_plan.rs`).
 - Forwarder links are direct only, no relay fallback (`veil-call/src/media.rs`).
 - Host events are an unbounded channel (`veil-call/src/host.rs`).
-- Keyframe requests are made and served in `veil-media` but no message carries them yet
-  (`veil-forward/src/subscribe.rs`).
 - The forwarder sends every spatial layer up to the wanted one, which wastes download for
   simulcast (`subscribe.rs`).
 - A layer that arrives before its reference is dropped, not reordered (`veil-media/src/gate.rs`).
@@ -152,9 +156,8 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 
 1. Two-machine test over the real internet with `veil-probe` (steps above). Needs Jeremy's
    machines and a public box.
-2. `veil-media`, continued: the core is done (see above). Next, in order: a keyframe request
-   message end to end (member to member in a mesh, through the forwarder otherwise); the
-   Windows Media Foundation H.264 encoder behind `VideoEncoder` (likely simulcast, one encoder
+2. `veil-media`, continued: the core and keyframe requests are done (see above). Next, in
+   order: the Windows Media Foundation H.264 encoder behind `VideoEncoder` (likely simulcast, one encoder
    per rung, since hardware H.264 has no spatial SVC); camera capture; Opus. Decided
    15/11/2026: `unsafe` FFI and libopus are allowed in `veil-media` only, under the rules in
    `docs/TRANSPARENCY.md` section 5 (one `ffi` module per OS, `// SAFETY:` on every block,

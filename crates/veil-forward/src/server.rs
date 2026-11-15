@@ -8,6 +8,11 @@
 //! Layers: each receiver's [`Subscriptions`] decide which SVC layers of each sender it gets,
 //! read from the frame's plaintext layer marker. A frame whose marker does not parse is dropped.
 //!
+//! Keyframe requests: a member's `KeyframeRequest(sender)` goes on to that sender, without
+//! the asker's identity. A receiver whose subscription raise waits for a keyframe makes the
+//! forwarder ask the sender itself. Each member's control queue is bounded; when it is full,
+//! requests are dropped (the sender coalesces them anyway).
+//!
 //! Admission: `Join` carries a host-signed [`RosterTicket`]. Rooms are keyed by (room tag,
 //! host key); only listed devices join, epochs only move forward, and a newer ticket (on a
 //! join or a later `Ticket` message from any member) drops members it no longer lists.
@@ -32,6 +37,8 @@ use crate::ticket::RosterTicket;
 /// Frames waiting for one receiver, counted in frames. The byte budget usually binds first.
 const VIDEO_QUEUE: usize = 256;
 const REFUSAL_LINGER: std::time::Duration = std::time::Duration::from_secs(2);
+/// Control messages waiting for one member.
+const CONTROL_QUEUE: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -59,6 +66,7 @@ struct Member {
     video: mpsc::Sender<Frame>,
     queued: Arc<AtomicUsize>,
     conn: quinn::Connection,
+    control: mpsc::Sender<ServerMsg>,
     subs: Subscriptions,
 }
 
@@ -135,6 +143,7 @@ struct Joining {
     video: mpsc::Sender<Frame>,
     queued: Arc<AtomicUsize>,
     conn: quinn::Connection,
+    control: mpsc::Sender<ServerMsg>,
 }
 
 /// Admits `me` under `ticket`. Returns the room's member count and this link's id.
@@ -171,9 +180,9 @@ fn join(
     if room.members.len() >= limits.max_members_per_room {
         return Err(Refusal::RoomFull);
     }
-    let Joining { video, queued, conn } = joining;
+    let Joining { video, queued, conn, control } = joining;
     let subs = Subscriptions::default();
-    room.members.insert(me, Member { id, video, queued, conn, subs });
+    room.members.insert(me, Member { id, video, queued, conn, control, subs });
     Ok((u16::try_from(room.members.len()).unwrap_or(u16::MAX), id))
 }
 
@@ -193,13 +202,31 @@ fn update(state: &Shared, key: &RoomKey, sealed: &[u8]) {
     }
 }
 
-/// A member's layer request for the senders it names.
+/// A member's layer request for the senders it names. Senders whose raise waits for a
+/// keyframe are asked for one.
 fn subscribe(state: &Shared, key: &RoomKey, me: PublicId, id: u64, request: &[(PublicId, Wanted)]) {
-    if let Some(mut s) = lock(state)
-        && let Some(member) = s.rooms.get_mut(key).and_then(|r| r.members.get_mut(&me))
-        && member.id == id
+    let raised = lock(state)
+        .and_then(|mut s| {
+            let member = s.rooms.get_mut(key)?.members.get_mut(&me)?;
+            (member.id == id).then(|| member.subs.update(request))
+        })
+        .unwrap_or_default();
+    for sender in raised {
+        request_keyframe(state, key, me, id, sender);
+    }
+}
+
+/// Passes a keyframe request from member `me` (this link `id`) to `sender` in the same room.
+fn request_keyframe(state: &Shared, key: &RoomKey, me: PublicId, id: u64, sender: PublicId) {
+    if sender == me {
+        return;
+    }
+    if let Some(s) = lock(state)
+        && let Some(room) = s.rooms.get(key)
+        && room.members.get(&me).is_some_and(|m| m.id == id)
+        && let Some(target) = room.members.get(&sender)
     {
-        member.subs.update(request);
+        let _ = target.control.try_send(ServerMsg::KeyframeRequest);
     }
 }
 
@@ -254,10 +281,12 @@ async fn serve(link: Link, state: Shared, limits: Limits) {
     let me = link.peer();
     let (video_tx, mut video_rx) = mpsc::channel::<Frame>(VIDEO_QUEUE);
     let queued = Arc::new(AtomicUsize::new(0));
+    let (control_tx, mut control_rx) = mpsc::channel::<ServerMsg>(CONTROL_QUEUE);
     let joining = Joining {
         video: video_tx,
         queued: queued.clone(),
         conn: link.quic().clone(),
+        control: control_tx,
     };
     let id = match join(&state, &limits, &ticket, me, joining) {
         Ok((members, id)) => {
@@ -273,6 +302,13 @@ async fn serve(link: Link, state: Shared, limits: Limits) {
         }
     };
 
+    let control_writer = tokio::spawn(async move {
+        while let Some(message) = control_rx.recv().await {
+            if out.send(&message).await.is_err() {
+                break;
+            }
+        }
+    });
     let writer = {
         let link = link.clone();
         tokio::spawn(async move {
@@ -307,11 +343,13 @@ async fn serve(link: Link, state: Shared, limits: Limits) {
         match message {
             ClientMsg::Ticket(sealed) => update(&state, &key, &sealed),
             ClientMsg::Subscribe(request) => subscribe(&state, &key, me, id, &request),
+            ClientMsg::KeyframeRequest(sender) => request_keyframe(&state, &key, me, id, sender),
             ClientMsg::Join { .. } => {}
         }
     }
 
     leave(&state, &key, me, id);
+    control_writer.abort();
     writer.abort();
     video.abort();
     audio.abort();

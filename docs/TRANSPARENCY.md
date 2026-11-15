@@ -38,6 +38,9 @@ forwarders and rendezvous nodes never hold media keys. They can still see this:
 - Packet sizes and timing show when someone speaks or moves. Padding is planned, not built.
 - Layer markers show which tiers each sender sends and each receiver asks for, so a forwarder
   can tell whose tile is large on someone's screen.
+- Keyframe requests are not authenticated end to end. A forwarder or member can ask a sender
+  for keyframes at will. That costs the sender bandwidth, but no more than one keyframe per
+  500 ms, and it reveals nothing.
 
 ## 3. No telemetry, no default servers
 

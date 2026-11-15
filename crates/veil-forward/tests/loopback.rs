@@ -4,6 +4,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use veil_forward::protocol::ServerMsg;
 use veil_forward::{ForwardError, ForwarderClient, ForwarderServer, Limits, Refusal, RosterTicket, Wanted};
 use veil_net::Node;
 use veil_rendezvous::room_tag;
@@ -266,4 +267,40 @@ async fn a_receiver_gets_only_the_layers_it_subscribes_to() {
     let next = tx.encrypt_layer(Layer::new(2, 0, false).unwrap(), b"next").unwrap();
     a.client.link().send_frame(5, &next).await.unwrap();
     assert_eq!(with_timeout(b.client.link().recv_frame()).await.unwrap().0, 5);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn keyframe_requests_reach_only_the_named_sender() {
+    let forwarder = start(Limits::default());
+    let room = Room::new(41);
+    let (alice, bob, carol) = (Identity::generate(), Identity::generate(), Identity::generate());
+    let ticket = room.ticket(0, &[&alice, &bob, &carol]);
+    let a = join_as(forwarder, &alice, &ticket).await.unwrap();
+    let b = join_as(forwarder, &bob, &ticket).await.unwrap();
+    let c = join_as(forwarder, &carol, &ticket).await.unwrap();
+    settle().await;
+
+    b.client.request_keyframe(alice.public()).await.unwrap();
+    assert_eq!(with_timeout(a.client.recv()).await.unwrap(), ServerMsg::KeyframeRequest);
+    assert!(nothing_arrives(c.client.recv()).await, "carol was not named");
+
+    // A request naming a device outside the room goes nowhere.
+    b.client.request_keyframe(Identity::generate().public()).await.unwrap();
+    assert!(nothing_arrives(a.client.recv()).await);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_subscription_raise_asks_the_sender_for_a_keyframe() {
+    let forwarder = start(Limits::default());
+    let room = Room::new(42);
+    let (alice, bob) = (Identity::generate(), Identity::generate());
+    let ticket = room.ticket(0, &[&alice, &bob]);
+    let a = join_as(forwarder, &alice, &ticket).await.unwrap();
+    let b = join_as(forwarder, &bob, &ticket).await.unwrap();
+    settle().await;
+
+    b.client.subscribe(&[(alice.public(), Wanted::THUMB)]).await.unwrap();
+    assert!(nothing_arrives(a.client.recv()).await, "lowering needs no keyframe");
+    b.client.subscribe(&[(alice.public(), Wanted::ALL)]).await.unwrap();
+    assert_eq!(with_timeout(a.client.recv()).await.unwrap(), ServerMsg::KeyframeRequest);
 }

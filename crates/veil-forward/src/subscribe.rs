@@ -11,10 +11,6 @@
 //!   receiver keeps the layers it had.
 //! - Audio is never filtered: it is sealed as the base layer.
 //!
-//! shortcut: a receiver that raises waits for the sender's periodic keyframe; nobody asks the
-//! sender for one. `veil-media` makes and serves requests (`Verdict::DropAndRequestKeyframe`,
-//! `Schedule::request_keyframe`); add a message that carries them end to end.
-//!
 //! shortcut: every spatial layer up to the wanted one is forwarded. That suits SVC, where each
 //! layer needs the one below, but a simulcast receiver decodes only the top one and the lower
 //! ones waste its download. Add a simulcast flag when a platform encoder sends simulcast.
@@ -67,18 +63,24 @@ pub(crate) struct Subscriptions {
 
 impl Subscriptions {
     /// Applies a receiver's request. Entries past [`MAX_SUBSCRIPTIONS`] senders are ignored,
-    /// so a member cannot grow the forwarder's memory without bound.
-    pub(crate) fn update(&mut self, request: &[(PublicId, Wanted)]) {
+    /// so a member cannot grow the forwarder's memory without bound. Returns the senders
+    /// whose raise now waits for a keyframe, so the forwarder can ask them for one.
+    pub(crate) fn update(&mut self, request: &[(PublicId, Wanted)]) -> Vec<PublicId> {
+        let mut raised = Vec::new();
         for (sender, wanted) in request {
             let wanted = wanted.min(Wanted::ALL);
-            if let Some(gate) = self.gates.get_mut(sender) {
-                gate.set(wanted);
-            } else if self.gates.len() < MAX_SUBSCRIPTIONS {
-                let mut gate = Gate::OPEN;
-                gate.set(wanted);
-                self.gates.insert(*sender, gate);
+            let room = self.gates.len() < MAX_SUBSCRIPTIONS;
+            let gate = match self.gates.get_mut(sender) {
+                Some(gate) => gate,
+                None if room => self.gates.entry(*sender).or_insert(Gate::OPEN),
+                None => continue,
+            };
+            gate.set(wanted);
+            if gate.pending.is_some() && !raised.contains(sender) {
+                raised.push(*sender);
             }
         }
+        raised
     }
 
     /// Whether this receiver gets `sender`'s frame in `layer`.
@@ -119,8 +121,8 @@ mod tests {
     #[test]
     fn raising_waits_for_a_keyframe() {
         let mut subs = Subscriptions::default();
-        subs.update(&[(ALICE, Wanted::THUMB)]);
-        subs.update(&[(ALICE, Wanted::ALL)]);
+        assert!(subs.update(&[(ALICE, Wanted::THUMB)]).is_empty(), "lowering needs no keyframe");
+        assert_eq!(subs.update(&[(ALICE, Wanted::ALL)]), [ALICE]);
         assert!(!subs.pass(&ALICE, layer(2, 0, false)), "mid group of pictures");
         assert!(subs.pass(&ALICE, layer(0, 0, true)), "key picture, base layer");
         assert!(subs.pass(&ALICE, layer(2, 0, true)));
