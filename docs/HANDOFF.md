@@ -119,7 +119,8 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   (`capture::pack_nv12` copies it out of the locked buffer within the bounds Windows reports).
   `ffi/windows/camera.rs`. Test: `tests/camera.rs`; listing runs always (finds the OBSBOT Tiny
   2 Lite here), live capture is `#[ignore]` because it turns the camera on:
-  `cargo test -j 8 -p veil-media --test camera -- --ignored --nocapture`. Not yet run.
+  `cargo test -j 8 -p veil-media --test camera -- --ignored --nocapture`. Passed 15/11/2026:
+  OBSBOT opened at 1920x1080, 30 fps, native NV12, 30 pictures with rising timestamps.
 
 Tests: `cargo test -j 8 --workspace` (186 tests, one ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
@@ -199,8 +200,7 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 1. Two-machine test over the real internet with `veil-probe` (steps above). Needs Jeremy's
    machines and a public box.
 2. `veil-media`, continued: the core, keyframe requests, the Windows H.264 encoder and
-   Windows camera capture are done (see above). First run the ignored live camera test once.
-   Next, in order: Opus; then the H.264 decoder. Decided
+   Windows camera capture are done (see above). Next, in order: Opus; then the H.264 decoder. Decided
    15/11/2026: `unsafe` FFI and libopus are allowed in `veil-media` only, under the rules in
    `docs/TRANSPARENCY.md` section 5 (one `ffi` module per OS, `// SAFETY:` on every block,
    `clippy::undocumented_unsafe_blocks` denied, each module listed in that table).
