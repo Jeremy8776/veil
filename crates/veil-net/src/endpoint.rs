@@ -32,11 +32,14 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const KEEP_ALIVE: Duration = Duration::from_secs(4);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(20);
 const DATAGRAM_BUFFER: usize = 16 * 1024 * 1024;
+const INITIAL_MTU: u16 = 1_400;
+/// Relayed (inner) links stay at QUIC's minimum so each packet fits one outer datagram.
+const RELAYED_MTU: u16 = 1_200;
 const MAX_CANDIDATES: usize = 16;
 /// TLS server name. Ignored by verification, which pins the device key instead.
 const SERVER_NAME: &str = "veil";
 
-fn transport() -> Result<Arc<TransportConfig>, NetError> {
+fn transport(initial_mtu: u16) -> Result<Arc<TransportConfig>, NetError> {
     let mut t = TransportConfig::default();
     t.keep_alive_interval(Some(KEEP_ALIVE));
     t.max_idle_timeout(Some(
@@ -44,6 +47,10 @@ fn transport() -> Result<Arc<TransportConfig>, NetError> {
     ));
     t.datagram_receive_buffer_size(Some(DATAGRAM_BUFFER));
     t.datagram_send_buffer_size(DATAGRAM_BUFFER);
+    // Start above QUIC's 1,200-byte floor so a relayed inner packet (1,200 bytes plus a
+    // 4-byte session header) fits one outer datagram. If the path is smaller, quinn's
+    // black-hole detection falls back and the relay uses its stream path instead.
+    t.initial_mtu(initial_mtu);
     // shortcut: quinn's default loss-based congestion control. Real-time video wants a
     // delay-based controller; replace once media runs over these links.
     Ok(Arc::new(t))
@@ -54,18 +61,44 @@ pub struct Node {
     endpoint: quinn::Endpoint,
     key: Arc<CertifiedKey>,
     id: PublicId,
+    mtu: u16,
 }
 
 impl Node {
     pub fn bind(identity: &Identity, addr: SocketAddr) -> Result<Self, NetError> {
         let key = tls::certified_key(identity)?;
         let mut server = quinn::ServerConfig::with_crypto(Arc::new(tls::server_config(key.clone())?));
-        server.transport_config(transport()?);
+        server.transport_config(transport(INITIAL_MTU)?);
         let endpoint = quinn::Endpoint::server(server, addr)?;
         Ok(Self {
             endpoint,
             key,
             id: identity.public(),
+            mtu: INITIAL_MTU,
+        })
+    }
+
+    /// Binds to a virtual socket instead of UDP. Used for relayed links: the virtual socket
+    /// carries this node's QUIC packets through a relay, so the link stays end-to-end
+    /// encrypted and pinned exactly as a direct one.
+    pub fn bind_virtual(
+        identity: &Identity,
+        socket: Arc<dyn quinn::AsyncUdpSocket>,
+    ) -> Result<Self, NetError> {
+        let key = tls::certified_key(identity)?;
+        let mut server = quinn::ServerConfig::with_crypto(Arc::new(tls::server_config(key.clone())?));
+        server.transport_config(transport(RELAYED_MTU)?);
+        let endpoint = quinn::Endpoint::new_with_abstract_socket(
+            quinn::EndpointConfig::default(),
+            Some(server),
+            socket,
+            Arc::new(quinn::TokioRuntime),
+        )?;
+        Ok(Self {
+            endpoint,
+            key,
+            id: identity.public(),
+            mtu: RELAYED_MTU,
         })
     }
 
@@ -86,7 +119,7 @@ impl Node {
             self.key.clone(),
             expected,
         )?));
-        config.transport_config(transport()?);
+        config.transport_config(transport(self.mtu)?);
 
         let mut attempts = JoinSet::new();
         let mut last_error = String::from("no attempt started");
@@ -253,6 +286,12 @@ impl Link {
     pub fn close(&self, reason: &str) {
         self.conn.close(0u32.into(), reason.as_bytes());
     }
+
+    /// The underlying QUIC connection, for protocols that need raw datagrams or streams
+    /// (the relay). Its peer identity is already proven.
+    pub fn quic(&self) -> &quinn::Connection {
+        &self.conn
+    }
 }
 
 /// The reliable, ordered control channel of a link.
@@ -268,5 +307,29 @@ impl ControlStream {
 
     pub async fn recv(&mut self) -> Result<control::Control, NetError> {
         control::read(&mut self.recv).await
+    }
+
+    /// Splits into halves so one task can write while another reads. Reading inside a
+    /// `select!` is not cancel safe; a dedicated reader task is.
+    pub fn split(self) -> (FramedSend, FramedRecv) {
+        (FramedSend(self.send), FramedRecv(self.recv))
+    }
+}
+
+/// The sending half of a framed stream, for any message type.
+pub struct FramedSend(quinn::SendStream);
+
+impl FramedSend {
+    pub async fn send<T: serde::Serialize>(&mut self, message: &T) -> Result<(), NetError> {
+        control::write(&mut self.0, message).await
+    }
+}
+
+/// The receiving half of a framed stream, for any message type.
+pub struct FramedRecv(quinn::RecvStream);
+
+impl FramedRecv {
+    pub async fn recv<T: serde::de::DeserializeOwned>(&mut self) -> Result<T, NetError> {
+        control::read(&mut self.0).await
     }
 }

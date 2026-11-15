@@ -29,5 +29,5 @@ pub mod error;
 pub mod tls;
 
 pub use control::Control;
-pub use endpoint::{Link, Node};
+pub use endpoint::{FramedRecv, FramedSend, Link, Node};
 pub use error::NetError;

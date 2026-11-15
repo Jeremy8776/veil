@@ -849,6 +849,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "veil-rendezvous"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "quinn",
+ "serde",
+ "sha2",
+ "tokio",
+ "veil-net",
+ "veil-security",
+]
+
+[[package]]
 name = "veil-security"
 version = "0.1.0"
 dependencies = [

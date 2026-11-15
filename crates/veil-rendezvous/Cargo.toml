@@ -1,0 +1,21 @@
+[package]
+name = "veil-rendezvous"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bytes = "1.7"
+quinn = { version = "0.11.5", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+serde = { version = "1.0.210", features = ["derive"] }
+sha2 = "0.10.8"
+tokio = { version = "1.40", features = ["rt", "time", "sync", "macros"] }
+veil-net = { path = "../veil-net" }
+veil-security = { path = "../veil-security" }
+
+[dev-dependencies]
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time"] }
+
+[lints]
+workspace = true

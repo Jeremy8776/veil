@@ -1,8 +1,10 @@
-//! Control messages on a reliable QUIC stream.
+//! Framed messages on a reliable QUIC stream: the call's [`Control`] messages, and any other
+//! protocol that rides a link (for example rendezvous).
 //!
-//! Wire format: u32 big-endian length, then a postcard-encoded [`Control`]. Lengths over
+//! Wire format: u32 big-endian length, then a postcard-encoded message. Lengths over
 //! [`MAX_CONTROL_LEN`] are refused before any allocation.
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::NetError;
@@ -31,7 +33,7 @@ pub enum RefuseReason {
 }
 
 /// Encodes a message with its length prefix.
-pub fn encode(message: &Control) -> Result<Vec<u8>, NetError> {
+pub fn encode<T: Serialize>(message: &T) -> Result<Vec<u8>, NetError> {
     let body = postcard::to_allocvec(message).map_err(|_| NetError::Protocol("encode"))?;
     if body.len() > MAX_CONTROL_LEN {
         return Err(NetError::TooLarge);
@@ -52,11 +54,11 @@ pub fn body_len(prefix: [u8; 4]) -> Result<usize, NetError> {
     Ok(len)
 }
 
-pub fn decode(body: &[u8]) -> Result<Control, NetError> {
+pub fn decode<T: DeserializeOwned>(body: &[u8]) -> Result<T, NetError> {
     postcard::from_bytes(body).map_err(|_| NetError::Protocol("decode"))
 }
 
-pub async fn write(stream: &mut quinn::SendStream, message: &Control) -> Result<(), NetError> {
+pub async fn write<T: Serialize>(stream: &mut quinn::SendStream, message: &T) -> Result<(), NetError> {
     let bytes = encode(message)?;
     stream
         .write_all(&bytes)
@@ -64,7 +66,7 @@ pub async fn write(stream: &mut quinn::SendStream, message: &Control) -> Result<
         .map_err(|e| NetError::Closed(e.to_string()))
 }
 
-pub async fn read(stream: &mut quinn::RecvStream) -> Result<Control, NetError> {
+pub async fn read<T: DeserializeOwned>(stream: &mut quinn::RecvStream) -> Result<T, NetError> {
     let mut prefix = [0u8; 4];
     stream
         .read_exact(&mut prefix)
@@ -92,7 +94,7 @@ mod tests {
         let bytes = encode(&message).unwrap();
         let len = body_len(bytes[..4].try_into().unwrap()).unwrap();
         assert_eq!(len, bytes.len() - 4);
-        assert_eq!(decode(&bytes[4..]).unwrap(), message);
+        assert_eq!(decode::<Control>(&bytes[4..]).unwrap(), message);
     }
 
     #[test]
@@ -104,6 +106,6 @@ mod tests {
 
     #[test]
     fn garbage_is_refused() {
-        assert!(decode(&[0xff, 0xff, 0xff]).is_err());
+        assert!(decode::<Control>(&[0xff, 0xff, 0xff]).is_err());
     }
 }

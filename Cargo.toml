@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/veil-net", "crates/veil-security", "crates/veil-topology"]
+members = [
+    "crates/veil-net",
+    "crates/veil-rendezvous",
+    "crates/veil-security",
+    "crates/veil-topology",
+]
 
 [workspace.package]
 version = "0.1.0"
