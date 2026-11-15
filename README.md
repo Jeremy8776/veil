@@ -8,8 +8,17 @@ Motto: modular, agnostic, shared.
 
 Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+Veil is early and unaudited. [docs/TRANSPARENCY.md](docs/TRANSPARENCY.md) says what it depends on,
+what other parties can see, where it uses code Rust cannot check, and what is not finished.
+
 ## Build and test
 
 ```bash
 cargo test -j 8 -p veil-security -p veil-topology
+```
+
+Check dependency licences (fails on a licence that is not allowed, or a stale list):
+
+```bash
+python tools/licences.py --check
 ```

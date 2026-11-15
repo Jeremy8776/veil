@@ -69,6 +69,10 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 
 ## Licence note
 
+Run `python tools/licences.py --check` after any `Cargo.lock` change; it regenerates nothing
+and fails on a disallowed licence or a stale `docs/DEPENDENCIES.md` (rewrite it without
+`--check`). Veil's own licence is not chosen yet.
+
 `openmls_rust_crypto` and `openmls_basic_credential` are not used. The first pulls `hpke-rs`
 (MPL-2.0). `veil-group/src/provider.rs` is Veil's own backend on RustCrypto plus `hpke` 0.13
 (MIT or Apache-2.0), with one ciphersuite. Re-check licences when bumping openmls.
@@ -126,7 +130,8 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 1. Two-machine test over the real internet with `veil-probe` (steps above). Needs Jeremy's
    machines and a public box.
 2. `veil-media`: capture and hardware encode per OS, feeding `MediaSession` and `KeyRing`.
-   The layer marker and forwarder side are done; the encoder sets `Layer` per frame. Decide
-   first: OS capture and Media Foundation need `unsafe` FFI, which the workspace forbids, so
-   `veil-media` needs its own lint exception; and Opus means libopus (BSD, C build).
+   The layer marker and forwarder side are done; the encoder sets `Layer` per frame. Decided
+   15/11/2026: `unsafe` FFI and libopus are allowed in `veil-media` only, under the rules in
+   `docs/TRANSPARENCY.md` section 5 (one `ffi` module per OS, `// SAFETY:` on every block,
+   `clippy::undocumented_unsafe_blocks` denied, each module listed in that table).
 3. `veil-app`: `egui` and `wgpu` interface.

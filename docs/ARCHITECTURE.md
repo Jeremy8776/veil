@@ -173,5 +173,6 @@ turn on padding, at a bandwidth cost.
 | `veil-node` | Built | One binary. A TOML file turns on the rendezvous role (with or without relay) and the forwarder role, each on its own port with the node's one device key, created on first start. Prints each role as `key@address`. Holds no group or media keys |
 | `veil-app` | Next | Desktop interface (`egui` and `wgpu`) |
 
-Every dependency has its licence checked before it is added. FFmpeg (LGPL) is avoided; hardware
-codecs are reached through the operating system's own media APIs.
+Every dependency has its licence checked before it is added (`python tools/licences.py`, see
+[TRANSPARENCY.md](TRANSPARENCY.md)). FFmpeg (LGPL) is avoided; hardware codecs are reached
+through the operating system's own media APIs.
