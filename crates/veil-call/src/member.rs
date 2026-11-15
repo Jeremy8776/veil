@@ -1,0 +1,124 @@
+//! The joiner's session: knock with an invite, join the group, follow the host's commits.
+
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
+
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+use veil_group::{Applied, GroupError, Joiner};
+use veil_net::control::Control;
+use veil_net::{FramedRecv, Link, Node};
+use veil_security::Identity;
+use veil_security::invite::Invite;
+
+use crate::{CallError, EpochKeys};
+
+/// How long a joiner waits in the lobby for the host to decide.
+pub const LOBBY_WAIT: Duration = Duration::from_secs(600);
+/// How long each later step of the handshake may take.
+const STEP: Duration = Duration::from_secs(10);
+
+#[derive(Debug)]
+pub enum MemberEvent {
+    /// A new epoch started. Replace the media pipeline's frame keys.
+    Keys(EpochKeys),
+    /// The host removed this member. No later keys will arrive.
+    Removed,
+    /// The link to the host closed. The call is over for this member.
+    Closed,
+    /// A commit could not be applied, so this member's state no longer matches the group.
+    /// The session stops; rejoin with a new invite.
+    Failed(GroupError),
+}
+
+/// A joined member's session. Dropping it leaves the call.
+pub struct MemberHandle {
+    pub events: mpsc::UnboundedReceiver<MemberEvent>,
+    link: Arc<Link>,
+    task: JoinHandle<()>,
+}
+
+impl Drop for MemberHandle {
+    fn drop(&mut self) {
+        self.task.abort();
+        self.link.close("left");
+    }
+}
+
+impl MemberHandle {
+    /// The link to the host, which can also carry media.
+    pub fn link(&self) -> &Link {
+        &self.link
+    }
+}
+
+async fn recv(input: &mut FramedRecv, wait: Duration) -> Result<Control, CallError> {
+    tokio::time::timeout(wait, input.recv::<Control>())
+        .await
+        .map_err(|_| CallError::Timeout)?
+        .map_err(CallError::from)
+}
+
+/// Joins the call an invite points to. Returns once the host has admitted this device and its
+/// Welcome has been applied; the first event is the joined epoch's keys.
+///
+/// shortcut: dials the invite's direct addresses only. Upgrade to try the relay and to follow
+/// the topology plan once the planner drives link choice.
+pub async fn join(node: &Node, invite: &Invite, identity: &Identity) -> Result<MemberHandle, CallError> {
+    let addrs: Vec<SocketAddr> = invite.addrs.iter().filter_map(|a| a.parse().ok()).collect();
+    let link = Arc::new(node.connect(&addrs, invite.host).await?);
+    let (mut out, mut input) = link.open_control().await?.split();
+
+    out.send(&Control::Hello {
+        room_id: invite.room_id,
+        join_token: invite.join_token,
+    })
+    .await?;
+    match recv(&mut input, LOBBY_WAIT).await? {
+        Control::Admitted => {}
+        Control::Refused(reason) => return Err(CallError::Refused(reason)),
+        _ => return Err(CallError::Protocol("admitted or refused")),
+    }
+
+    let joiner = Joiner::new(identity)?;
+    out.send(&Control::KeyPackage(joiner.key_package()?)).await?;
+    let welcome = match recv(&mut input, STEP).await? {
+        Control::Welcome(welcome) => welcome,
+        Control::Refused(reason) => return Err(CallError::Refused(reason)),
+        _ => return Err(CallError::Protocol("welcome")),
+    };
+    let mut group = joiner.join(&welcome, &invite.host)?;
+
+    let (events, events_rx) = mpsc::unbounded_channel();
+    let _ = events.send(MemberEvent::Keys(EpochKeys::from_group(&group)?));
+    let task = tokio::spawn(async move {
+        let ending = loop {
+            let Ok(message) = input.recv::<Control>().await else {
+                break MemberEvent::Closed;
+            };
+            match message {
+                Control::Commit(commit) => match group.apply(&commit) {
+                    Ok(Applied::NewEpoch(_)) => match EpochKeys::from_group(&group) {
+                        Ok(keys) => {
+                            let _ = events.send(MemberEvent::Keys(keys));
+                        }
+                        Err(e) => break MemberEvent::Failed(e),
+                    },
+                    Ok(Applied::Removed) => break MemberEvent::Removed,
+                    Err(e) => break MemberEvent::Failed(e),
+                },
+                Control::Ping(n) if out.send(&Control::Pong(n)).await.is_err() => {
+                    break MemberEvent::Closed;
+                }
+                _ => {}
+            }
+        };
+        let _ = events.send(ending);
+    });
+    Ok(MemberHandle {
+        events: events_rx,
+        link,
+        task,
+    })
+}

@@ -269,3 +269,24 @@ fn garbage_is_refused_without_panicking() {
         assert!(Joiner::new(&alice).unwrap().join(bytes, &host.identity.public()).is_err());
     }
 }
+
+#[test]
+fn forgotten_joiner_frees_its_seat_and_cannot_be_admitted() {
+    let mut host = Host::new();
+    let alice = Identity::generate();
+    let invite = host.invite();
+    let knock = host
+        .lobby
+        .knock(&Host::hello(&invite), alice.public(), &host.group, NOW)
+        .unwrap();
+    host.lobby.approve(knock).unwrap();
+    host.lobby.forget(&alice.public());
+    let package = Control::KeyPackage(Joiner::new(&alice).unwrap().key_package().unwrap());
+    assert!(matches!(
+        host.lobby.admit(&mut host.group, &alice.public(), &package),
+        Err(GroupError::NotMember)
+    ));
+    // Knocking again with a fresh invite is not refused as a duplicate.
+    let invite = host.invite();
+    assert!(host.lobby.knock(&Host::hello(&invite), alice.public(), &host.group, NOW).is_ok());
+}

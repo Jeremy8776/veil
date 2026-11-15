@@ -1,0 +1,20 @@
+[package]
+name = "veil-call"
+version.workspace = true
+edition.workspace = true
+# Follows veil-group, which needs Rust 1.91 for openmls.
+rust-version = "1.91"
+publish.workspace = true
+
+[dependencies]
+rand_core = { version = "0.6.4", features = ["getrandom"] }
+tokio = { version = "1.40", features = ["rt", "time", "sync", "macros"] }
+veil-group = { path = "../veil-group" }
+veil-net = { path = "../veil-net" }
+veil-security = { path = "../veil-security" }
+
+[dev-dependencies]
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time"] }
+
+[lints]
+workspace = true

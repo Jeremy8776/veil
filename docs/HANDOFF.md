@@ -20,8 +20,12 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   forwarder, each on its own port, one device key from `identity_file` (created on first
   start). Prints `key@address` per role. Example: `crates/veil-node/veil-node.example.toml`.
 - `veil-net::NodeAddr`: `key@ip:port`, so an invite's relay field can pin the relay's key.
+- `veil-call`: participant sessions over real links. `HostHandle::start` / `serve` / `invite` /
+  `decide` / `remove` and `join(node, invite, identity)`. Events carry `EpochKeys` (frame sender,
+  receiver, roster) for every epoch. A closed link is a leave. `Lobby::forget` frees the seat of
+  a joiner that disconnects in the lobby.
 
-Tests: `cargo test -j 8 --workspace` (87 tests), `cargo clippy -j 8 --workspace --all-targets`.
+Tests: `cargo test -j 8 --workspace` (93 tests), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -40,27 +44,30 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 - Every forwarder in a cascade receives every stream (topology planner).
 - The host is the only MLS committer, so the call ends when the host leaves (`group.rs`).
 - MLS keys are kept in memory only; a restarted app rejoins as a new member (`provider.rs`).
-- A joiner who knocks and disconnects keeps its lobby seat until the lobby is dropped
-  (`lobby.rs`).
 - Forwarders send every stream at full quality: no layer subscriptions until `veil-media`
   marks SVC layers (`veil-forward/src/server.rs`).
 - Any device that knows the room tag can join a forwarder room and receive ciphertext. Needs
   host-signed roster tickets (`veil-forward/src/server.rs`).
 - No forwarder-to-forwarder cascade yet: one forwarder per room (`veil-forward/src/server.rs`).
 - `NodeAddr` takes a literal IP only, no DNS names (`veil-net/src/node_addr.rs`).
+- New epoch keys replace the old ones at once; frames sealed just before a change are refused.
+  Keep the previous receiver briefly in the media pipeline (`veil-call/src/lib.rs`).
+- `join` dials the invite's direct addresses only, not the relay (`veil-call/src/member.rs`).
+- Host events are an unbounded channel (`veil-call/src/host.rs`).
 
 ## Not yet tested
 
 - A commit forged by a non-host member (the `NotFromHost` check) has no test, because openmls
-  gives no easy way to build one without a second committer. Add one with the session layer.
+  gives no easy way to build one without a second committer. In `veil-call` only the host
+  sends commits, so this needs a deliberately broken host to test.
 
 ## Next, in suggested order
 
 1. Two-machine test over the real internet: run `veil-node` on a public box, then hole
-   punching, relay and forwarding between two home networks.
-2. A call session layer on the participant side: drive `veil-group`'s lobby over real links
-   (`Hello` and `KeyPackage` in; `Admitted`, `Welcome` and `Commit` out; remove a member when
-   its link closes), and pick direct, relayed or forwarded links from the topology plan. This is
-   not `veil-node`'s job: nodes never hold group keys.
-3. `veil-media`: capture and hardware encode per OS.
+   punching, relay and forwarding between two home networks. Needs Jeremy's machines.
+2. Media links: after `join`, set up member-to-member (mesh) or member-to-forwarder links from
+   the `veil-topology` plan, with rendezvous punching and relay fallback, and let `join` try the
+   invite's relay.
+3. `veil-media`: capture and hardware encode per OS; keep the previous epoch's receiver for a
+   short grace period.
 4. `veil-app`: `egui` and `wgpu` interface.

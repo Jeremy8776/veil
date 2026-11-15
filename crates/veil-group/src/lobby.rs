@@ -32,9 +32,7 @@ pub struct Knock {
     pub device: PublicId,
 }
 
-/// shortcut: a joiner who knocks or is approved and then disconnects keeps its seat until the
-/// lobby is dropped. Upgrade with a timeout, or a `leave(device)` call on link close, when
-/// `veil-node` drives the lobby from real connections.
+/// A joiner who disconnects while waiting must be [`Lobby::forget`]-ed, or it keeps its seat.
 pub struct Lobby {
     room_id: [u8; 16],
     /// Token hash to expiry (Unix seconds).
@@ -55,6 +53,10 @@ impl Lobby {
             waiting: BTreeSet::new(),
             approved: BTreeSet::new(),
         }
+    }
+
+    pub fn room_id(&self) -> [u8; 16] {
+        self.room_id
     }
 
     /// Registers an invite the host made for this room.
@@ -115,6 +117,12 @@ impl Lobby {
     pub fn decline(&mut self, knock: Knock) -> Control {
         self.waiting.remove(&knock.device);
         Control::Refused(RefuseReason::DeclinedByHost)
+    }
+
+    /// Frees the seat of a joiner whose link closed before it joined the group.
+    pub fn forget(&mut self, device: &PublicId) {
+        self.waiting.remove(device);
+        self.approved.remove(device);
     }
 
     /// Adds an approved joiner from its `Control::KeyPackage`. Send the commit to existing
