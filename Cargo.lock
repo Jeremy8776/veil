@@ -1212,7 +1212,9 @@ name = "veil-call"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "postcard",
  "rand_core 0.6.4",
+ "serde",
  "tokio",
  "veil-forward",
  "veil-group",

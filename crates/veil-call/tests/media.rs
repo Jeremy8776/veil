@@ -1,5 +1,6 @@
 //! Media links from the topology plan, over real QUIC links on localhost: mesh with punched
-//! dials, forwarded through `veil-forward`, and the relay for both joining and media.
+//! dials, forwarded through `veil-forward`, and the relay for both joining and media. Routes
+//! come from the host's signed plan.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::net::SocketAddr;
@@ -7,8 +8,8 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc::UnboundedReceiver;
 use veil_call::{
-    CallNode, Directory, EpochKeys, HostEvent, HostHandle, KeyRing, Media, MediaSession,
-    MemberEvent, MemberHandle, Path, Peer, Routes, join, routes,
+    CallError, CallNode, Directory, EpochKeys, HostEvent, HostHandle, KeyRing, Media,
+    MediaSession, MemberEvent, MemberHandle, Path, Peer, Routes, join,
 };
 use veil_forward::{ForwarderServer, Limits};
 use veil_net::{Node, NodeAddr};
@@ -80,6 +81,13 @@ async fn next_member_keys(member: &mut MemberHandle) -> EpochKeys {
     match within(member.events.recv()).await.unwrap() {
         MemberEvent::Keys(keys) => keys,
         other => panic!("expected keys, got {other:?}"),
+    }
+}
+
+async fn next_member_routes(member: &mut MemberHandle) -> Routes {
+    match within(member.events.recv()).await.unwrap() {
+        MemberEvent::Routes(routes) => routes,
+        other => panic!("expected routes, got {other:?}"),
     }
 }
 
@@ -181,22 +189,35 @@ impl Call {
         plan(&nodes, &[], &policy).unwrap()
     }
 
-    /// Starts every party's media session and applies its routes from the plan.
+    /// Starts every party's media session and applies the host's plan.
     async fn media(&mut self, forwarded: bool, forwarder: Option<NodeAddr>) -> Vec<MediaSession> {
+        let mut sessions: Vec<MediaSession> =
+            self.parties.iter_mut().map(|p| p.node.media().unwrap()).collect();
+        self.replan(&mut sessions, forwarded, forwarder).await;
+        sessions
+    }
+
+    /// The host publishes this epoch's plan; every party applies the routes it gets.
+    async fn replan(
+        &mut self,
+        sessions: &mut [MediaSession],
+        forwarded: bool,
+        forwarder: Option<NodeAddr>,
+    ) {
         let plan = self.plan(forwarded);
-        let mut sessions = Vec::new();
-        for i in 0..self.parties.len() {
-            let routed = routes(&plan, &self.directory(i, forwarder)).unwrap();
+        let mine = self.host.publish_plan(plan, self.directory(0, forwarder)).await.unwrap();
+        let mut all = vec![mine];
+        for party in &mut self.parties[1..] {
+            all.push(next_member_routes(party.member.as_mut().unwrap()).await);
+        }
+        for (media, routed) in sessions.iter_mut().zip(all) {
             assert_eq!(matches!(routed, Routes::Forwarder(_)), forwarded);
-            let mut media = self.parties[i].node.media().unwrap();
             let failed = within(media.apply(routed)).await;
             assert!(failed.is_empty(), "dial failures: {failed:?}");
-            sessions.push(media);
         }
-        for media in &sessions {
+        for media in sessions.iter() {
             within(media.ready(Duration::from_secs(10))).await.unwrap();
         }
-        sessions
     }
 }
 
@@ -263,6 +284,28 @@ async fn forwarded_call_sends_each_frame_once_and_every_member_opens_it() {
     }
     // Let the forwarder register every member's readers before the first frame.
     tokio::time::sleep(Duration::from_millis(100)).await;
+    for from in 0..3 {
+        frame_reaches_everyone(&mut call, &mut sessions, from).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn members_follow_the_hosts_plan_through_a_join() {
+    let mut call = Call::start(Some(start_rendezvous())).await;
+    call.admit_direct().await;
+    let mut sessions = call.media(false, None).await;
+    frame_reaches_everyone(&mut call, &mut sessions, 1).await;
+
+    let stale = call.directory(0, None);
+    call.admit_direct().await;
+    let refused = call.host.publish_plan(call.plan(false), stale).await;
+    assert!(matches!(refused, Err(CallError::Plan(_))), "a last-epoch directory: {refused:?}");
+
+    sessions.push(call.parties[2].node.media().unwrap());
+    call.replan(&mut sessions, false, None).await;
+    for media in &sessions {
+        assert_eq!(media.paths().len(), 2, "a link to each other member");
+    }
     for from in 0..3 {
         frame_reaches_everyone(&mut call, &mut sessions, from).await;
     }

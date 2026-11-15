@@ -5,7 +5,9 @@
 //! lobby over their pinned QUIC links and sends every epoch change to the members. A joiner
 //! calls [`join`] with an invite and gets a [`MemberHandle`]. Both sides report each new epoch
 //! as [`EpochKeys`]. The [`MediaSession`] then links the members as the topology plan says
-//! (see [`routes`]), and a [`KeyRing`] opens their frames across epoch changes.
+//! (see [`routes`]), and a [`KeyRing`] opens their frames across epoch changes. The host
+//! decides the layout for each epoch and sends it signed ([`CallPlan`]), so every member
+//! follows the same one.
 //!
 //! Invariants:
 //! - Only participants run this crate. Nodes (relays, forwarders, rendezvous) never hold group
@@ -24,6 +26,7 @@
     clippy::unreachable
 )]
 
+pub mod call_plan;
 pub mod host;
 mod inbound;
 pub mod keyring;
@@ -41,6 +44,7 @@ use veil_net::control::RefuseReason;
 use veil_security::PublicId;
 use veil_security::frame::{FrameReceiver, FrameSender};
 
+pub use call_plan::{CallPlan, Layout};
 pub use host::{HostEvent, HostHandle};
 pub use keyring::KeyRing;
 pub use media::{Incoming, Media, MediaSession};

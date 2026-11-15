@@ -7,21 +7,21 @@
 //!
 //! Invariants: pure; an id the plan names but the directory lacks is an error, never a guess.
 //!
-//! shortcut: every participant plans from its own inputs, so two members with different
-//! bandwidth figures could choose different layouts. Upgrade by having the host sign and send
-//! the plan over the control link.
+//! In a call only the host plans: it sends a signed [`crate::CallPlan`] on every epoch change,
+//! and members take their routes from that. [`routes`] is the same resolution done locally.
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
+use serde::{Deserialize, Serialize};
 use veil_net::NodeAddr;
 use veil_security::PublicId;
 use veil_topology::{NodeId, Plan};
 
-use crate::CallError;
+use crate::{CallError, CallPlan};
 
 /// A member as the media layer sees it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Peer {
     pub device: PublicId,
     /// Direct addresses to try before rendezvous, if any are known.
@@ -48,38 +48,15 @@ pub enum Routes {
     Forwarder(NodeAddr),
 }
 
+/// The links `directory.me` should hold under `plan`.
 pub fn routes(plan: &Plan, directory: &Directory) -> Result<Routes, CallError> {
-    if !directory.members.contains_key(&directory.me) {
-        return Err(CallError::Plan("this participant is not in the directory"));
-    }
-    match plan {
-        Plan::Mesh { .. } => Ok(Routes::Mesh(
-            directory
-                .members
-                .iter()
-                .filter(|(id, _)| **id != directory.me)
-                .map(|(_, peer)| peer.clone())
-                .collect(),
-        )),
-        Plan::Forwarded {
-            forwarders, home, ..
-        } => {
-            // shortcut: veil-forward has no forwarder-to-forwarder cascade, so a plan with
-            // more than one forwarder cannot be carried yet. Upgrade with the cascade.
-            if forwarders.len() > 1 {
-                return Err(CallError::Plan("cascaded forwarders are not supported yet"));
-            }
-            let mine = home
-                .get(&directory.me)
-                .ok_or(CallError::Plan("the plan gives this participant no forwarder"))?;
-            directory
-                .forwarders
-                .get(mine)
-                .copied()
-                .map(Routes::Forwarder)
-                .ok_or(CallError::Plan("the plan's forwarder is not in the directory"))
-        }
-    }
+    let me = directory
+        .members
+        .get(&directory.me)
+        .ok_or(CallError::Plan("this participant is not in the directory"))?
+        .device;
+    // Room and epoch only matter once the plan is signed and sent.
+    CallPlan::from_plan(plan, directory, [0; 16], 0)?.routes_for(&me)
 }
 
 #[cfg(test)]

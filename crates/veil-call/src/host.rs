@@ -8,6 +8,10 @@
 //! Message flow per joiner: `Hello` -> [`HostEvent::Knock`] -> [`HostHandle::decide`] ->
 //! `Admitted` or `Refused` -> `KeyPackage` -> `Welcome` to the joiner and `Commit` to every
 //! existing member -> [`HostEvent::Joined`] and [`HostEvent::Keys`].
+//!
+//! After each [`HostEvent::Keys`] the app plans the epoch's layout and calls
+//! [`HostHandle::publish_plan`]. The actor checks the plan lists exactly this epoch's members,
+//! signs it, and queues it behind the epoch's commit, so every member reads the commit first.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -20,9 +24,11 @@ use veil_net::control::{Control, RefuseReason};
 use veil_net::{FramedRecv, FramedSend, Link, Node};
 use veil_security::invite::Invite;
 use veil_security::{Identity, PublicId};
+use veil_topology::Plan;
 
 use crate::inbound::Inbound;
-use crate::{CallError, EpochKeys, now_unix};
+use crate::routes::{Directory, Routes};
+use crate::{CallError, CallPlan, EpochKeys, now_unix};
 
 /// Control messages queued for one link. A member that falls this far behind is dropped.
 const OUTBOX: usize = 64;
@@ -53,6 +59,11 @@ enum Command {
     AddInbound(Inbound),
     Decide { device: PublicId, admit: bool },
     Remove(PublicId),
+    Publish {
+        plan: Plan,
+        directory: Directory,
+        reply: oneshot::Sender<Result<Routes, CallError>>,
+    },
 }
 
 /// Events from one link task. `u64` is the link's id, so a stale or duplicate link of a
@@ -131,6 +142,15 @@ impl HostHandle {
     /// Answers a [`HostEvent::Knock`].
     pub async fn decide(&self, device: PublicId, admit: bool) -> Result<(), CallError> {
         self.send(Command::Decide { device, admit }).await
+    }
+
+    /// Signs this epoch's layout and sends it to every member. `directory` must list exactly
+    /// the current members; a plan made for an earlier epoch is refused. Returns the host's
+    /// own routes. Members get theirs as [`crate::MemberEvent::Routes`].
+    pub async fn publish_plan(&self, plan: Plan, directory: Directory) -> Result<Routes, CallError> {
+        let (reply, answer) = oneshot::channel();
+        self.send(Command::Publish { plan, directory, reply }).await?;
+        answer.await.map_err(|_| CallError::Closed)?
     }
 
     /// Removes a member. Its link closes after it receives the commit.
@@ -248,7 +268,24 @@ impl Actor {
                 }
             }
             Command::Remove(device) => self.remove(device, true),
+            Command::Publish { plan, directory, reply } => {
+                let _ = reply.send(self.publish(&plan, &directory));
+            }
         }
+    }
+
+    fn publish(&mut self, plan: &Plan, directory: &Directory) -> Result<Routes, CallError> {
+        let room_id = self.lobby.room_id();
+        let plan = CallPlan::from_plan(plan, directory, room_id, self.group.epoch())?;
+        let members: Vec<PublicId> = self.group.members().into_iter().map(|(_, d)| d).collect();
+        if !plan.covers(&members) {
+            return Err(CallError::Plan("the directory does not list this epoch's members"));
+        }
+        let sealed = plan.seal(&self.identity)?;
+        for device in self.others() {
+            self.send_to(&device, Control::Plan(sealed.clone()));
+        }
+        plan.routes_for(&self.identity.public())
     }
 
     fn invite(

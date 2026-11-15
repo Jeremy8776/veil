@@ -31,6 +31,8 @@ pub enum Control {
     /// Member to member, first message: this link carries the call's media. The receiver
     /// still checks that the link's pinned key belongs to a member.
     Media { room_id: [u8; 16] },
+    /// Host to members, after each epoch's commit: the signed layout for that epoch.
+    Plan(Vec<u8>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]

@@ -34,8 +34,15 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   early inbound links up to 10 s until the routes expect them, and sends and receives sealed
   frames and audio. `KeyRing` (`keyring.rs`) opens the previous epoch for 2 s after a change.
   `CallNode::set_relay_only` hides the participant's address from other members.
+- Plan distribution (`veil-call/src/call_plan.rs`): the host plans each epoch and calls
+  `HostHandle::publish_plan(plan, directory)`. The actor refuses a directory that does not list
+  exactly this epoch's members, resolves it to a `CallPlan` (layout plus every member's device
+  and addresses), signs it (domain tag, room id, epoch) and queues `Control::Plan` behind the
+  epoch's commit. Members check it against the invite's host key, room and their own epoch and
+  get `MemberEvent::Routes`, or `MemberEvent::PlanRefused` (old routes stand). The app applies
+  the routes to its `MediaSession`. `routes()` now goes through `CallPlan` too.
 
-Tests: `cargo test -j 8 --workspace` (104 tests), `cargo clippy -j 8 --workspace --all-targets`.
+Tests: `cargo test -j 8 --workspace` (111 tests), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -59,11 +66,11 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
   host-signed roster tickets (`veil-forward/src/server.rs`).
 - No forwarder-to-forwarder cascade yet: one forwarder per room (`veil-forward/src/server.rs`).
 - `NodeAddr` takes a literal IP only, no DNS names (`veil-net/src/node_addr.rs`).
-- Each participant plans from its own inputs; two members with different bandwidth figures
-  could choose different layouts. The host should sign and send the plan
-  (`veil-call/src/routes.rs`).
+- A plan carries at most 128 members so it fits one control message (`call_plan.rs`).
+- The app must call `publish_plan` after each `HostEvent::Keys`; the session does not plan by
+  itself. A member sees no routes for an epoch until the host publishes.
 - A plan with more than one forwarder is refused until `veil-forward` cascades
-  (`veil-call/src/routes.rs`).
+  (`veil-call/src/call_plan.rs`).
 - Forwarder links are direct only, no relay fallback (`veil-call/src/media.rs`).
 - Host events are an unbounded channel (`veil-call/src/host.rs`).
 
@@ -81,7 +88,7 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 
 1. Two-machine test over the real internet: run `veil-node` on a public box, then hole
    punching, relay and forwarding between two home networks. Needs Jeremy's machines.
-2. Plan distribution: the host signs the topology plan and sends it on the control link, and
-   members re-apply routes on every epoch change (join, leave).
+2. Forwarder roster tickets: the signed `CallPlan` already names every member, so the
+   forwarder can admit only devices the host listed (closes the room-tag shortcut).
 3. `veil-media`: capture and hardware encode per OS, feeding `MediaSession` and `KeyRing`.
 4. `veil-app`: `egui` and `wgpu` interface.

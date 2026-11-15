@@ -12,7 +12,8 @@ use veil_net::{FramedRecv, Link, Node};
 use veil_security::invite::Invite;
 
 use crate::node::{CallNode, Path};
-use crate::{CallError, EpochKeys};
+use crate::routes::Routes;
+use crate::{CallError, CallPlan, EpochKeys};
 
 /// How long a joiner waits in the lobby for the host to decide.
 pub const LOBBY_WAIT: Duration = Duration::from_secs(600);
@@ -23,6 +24,10 @@ const STEP: Duration = Duration::from_secs(10);
 pub enum MemberEvent {
     /// A new epoch started. Replace the media pipeline's frame keys.
     Keys(EpochKeys),
+    /// The host's layout for the current epoch. Apply it to the media session.
+    Routes(Routes),
+    /// The host sent a plan this member cannot follow. The previous routes still stand.
+    PlanRefused(CallError),
     /// The host removed this member. No later keys will arrive.
     Removed,
     /// The link to the host closed. The call is over for this member.
@@ -103,6 +108,7 @@ pub async fn join(call: &CallNode, invite: &Invite) -> Result<MemberHandle, Call
         _ => return Err(CallError::Protocol("welcome")),
     };
     let mut group = joiner.join(&welcome, &invite.host)?;
+    let (host, room_id, me) = (invite.host, invite.room_id, call.identity().public());
 
     let (events, events_rx) = mpsc::unbounded_channel();
     let _ = events.send(MemberEvent::Keys(EpochKeys::from_group(&group)?));
@@ -122,6 +128,12 @@ pub async fn join(call: &CallNode, invite: &Invite) -> Result<MemberHandle, Call
                     Ok(Applied::Removed) => break MemberEvent::Removed,
                     Err(e) => break MemberEvent::Failed(e),
                 },
+                Control::Plan(sealed) => {
+                    let event = CallPlan::open(&sealed, &host, room_id, group.epoch())
+                        .and_then(|plan| plan.routes_for(&me))
+                        .map_or_else(MemberEvent::PlanRefused, MemberEvent::Routes);
+                    let _ = events.send(event);
+                }
                 Control::Ping(n) if out.send(&Control::Pong(n)).await.is_err() => {
                     break MemberEvent::Closed;
                 }
