@@ -24,8 +24,18 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   `decide` / `remove` and `join(node, invite, identity)`. Events carry `EpochKeys` (frame sender,
   receiver, roster) for every epoch. A closed link is a leave. `Lobby::forget` frees the seat of
   a joiner that disconnects in the lobby.
+- Media links (`veil-call`): `CallNode` (`node.rs`) routes incoming links by first message
+  (`inbound.rs`: `Hello` to the host, new `Control::Media` to media) and runs a rendezvous
+  presence (`presence.rs`). `dial` tries direct, then punched (introduction), then relay.
+  `join(&CallNode, &Invite)` uses it, so the invite's relay (`key@ip:port`) is the fallback.
+  `routes.rs` turns a `veil-topology` plan plus a `Directory` (planner id to device key or
+  forwarder `NodeAddr`) into `Routes::Mesh` or `Routes::Forwarder`. `MediaSession` (`media.rs`)
+  applies routes, keeps one link per pair (lower key dials; a punch dial-back is closed), holds
+  early inbound links up to 10 s until the routes expect them, and sends and receives sealed
+  frames and audio. `KeyRing` (`keyring.rs`) opens the previous epoch for 2 s after a change.
+  `CallNode::set_relay_only` hides the participant's address from other members.
 
-Tests: `cargo test -j 8 --workspace` (93 tests), `cargo clippy -j 8 --workspace --all-targets`.
+Tests: `cargo test -j 8 --workspace` (104 tests), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -38,7 +48,6 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 ## Open shortcuts (each marked `shortcut:` in the code)
 
 - Relay has no per-session bandwidth cap or fair queuing. Needed before relaying for strangers.
-- When both sides of a punch connect, the caller holds two links. Keep the lower key's dial.
 - Video frames are read one at a time on the receiver; stale frames are not reset.
 - Congestion control is quinn's loss-based default; real-time video needs a delay-based one.
 - Every forwarder in a cascade receives every stream (topology planner).
@@ -50,12 +59,19 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
   host-signed roster tickets (`veil-forward/src/server.rs`).
 - No forwarder-to-forwarder cascade yet: one forwarder per room (`veil-forward/src/server.rs`).
 - `NodeAddr` takes a literal IP only, no DNS names (`veil-net/src/node_addr.rs`).
-- New epoch keys replace the old ones at once; frames sealed just before a change are refused.
-  Keep the previous receiver briefly in the media pipeline (`veil-call/src/lib.rs`).
-- `join` dials the invite's direct addresses only, not the relay (`veil-call/src/member.rs`).
+- Each participant plans from its own inputs; two members with different bandwidth figures
+  could choose different layouts. The host should sign and send the plan
+  (`veil-call/src/routes.rs`).
+- A plan with more than one forwarder is refused until `veil-forward` cascades
+  (`veil-call/src/routes.rs`).
+- Forwarder links are direct only, no relay fallback (`veil-call/src/media.rs`).
 - Host events are an unbounded channel (`veil-call/src/host.rs`).
 
 ## Not yet tested
+
+- The automatic step from a failed punch to the relay. On localhost a punch always succeeds,
+  so the relay path is tested through relay-only mode, and the failed direct dial falls back
+  to the punch. Covered properly by the two-machine test.
 
 - A commit forged by a non-host member (the `NotFromHost` check) has no test, because openmls
   gives no easy way to build one without a second committer. In `veil-call` only the host
@@ -65,9 +81,7 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 
 1. Two-machine test over the real internet: run `veil-node` on a public box, then hole
    punching, relay and forwarding between two home networks. Needs Jeremy's machines.
-2. Media links: after `join`, set up member-to-member (mesh) or member-to-forwarder links from
-   the `veil-topology` plan, with rendezvous punching and relay fallback, and let `join` try the
-   invite's relay.
-3. `veil-media`: capture and hardware encode per OS; keep the previous epoch's receiver for a
-   short grace period.
+2. Plan distribution: the host signs the topology plan and sends it on the control link, and
+   members re-apply routes on every epoch change (join, leave).
+3. `veil-media`: capture and hardware encode per OS, feeding `MediaSession` and `KeyRing`.
 4. `veil-app`: `egui` and `wgpu` interface.

@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use tokio::sync::mpsc::UnboundedReceiver;
-use veil_call::{CallError, EpochKeys, HostEvent, HostHandle, MemberEvent, MemberHandle, join};
+use veil_call::{CallError, CallNode, EpochKeys, HostEvent, HostHandle, MemberEvent, MemberHandle, join};
 use veil_net::Node;
 use veil_net::control::RefuseReason;
 use veil_security::invite::Invite;
@@ -27,13 +27,14 @@ fn now() -> u64 {
 }
 
 struct Member {
-    _node: Node,
+    _node: CallNode,
     device: PublicId,
     handle: MemberHandle,
     keys: EpochKeys,
 }
 
 struct Call {
+    _node: CallNode,
     host: HostHandle,
     events: UnboundedReceiver<HostEvent>,
     addr: SocketAddr,
@@ -45,10 +46,10 @@ async fn start_call() -> Call {
     let node = Node::bind(&identity, localhost()).unwrap();
     let addr = node.local_addr().unwrap();
     let (host, mut events) = HostHandle::start(&identity, [4; 16]).unwrap();
-    tokio::spawn(host.clone().serve(node));
+    let node = CallNode::start(&identity, node, [4; 16], None, Some(host.clone())).await;
     let keys = next_keys(&mut events).await;
     assert_eq!(keys.epoch, 0);
-    Call { host, events, addr, keys }
+    Call { _node: node, host, events, addr, keys }
 }
 
 async fn next_keys(events: &mut UnboundedReceiver<HostEvent>) -> EpochKeys {
@@ -84,12 +85,13 @@ impl Call {
         &mut self,
         invite: Invite,
         admit: bool,
-    ) -> (Node, PublicId, Result<MemberHandle, CallError>) {
+    ) -> (CallNode, PublicId, Result<MemberHandle, CallError>) {
         let identity = Identity::generate();
         let device = identity.public();
         let joining = tokio::spawn(async move {
             let node = Node::bind(&identity, localhost()).unwrap();
-            let result = join(&node, &invite, &identity).await;
+            let node = CallNode::for_invite(&identity, node, &invite).await;
+            let result = join(&node, &invite).await;
             (node, result)
         });
         loop {
@@ -155,7 +157,8 @@ async fn an_invite_admits_one_device_only() {
     assert!(first.is_ok());
     let identity = Identity::generate();
     let node = Node::bind(&identity, localhost()).unwrap();
-    let second = within(join(&node, &invite, &identity)).await;
+    let node = CallNode::for_invite(&identity, node, &invite).await;
+    let second = within(join(&node, &invite)).await;
     assert!(matches!(second, Err(CallError::Refused(RefuseReason::TokenUsed))));
 }
 

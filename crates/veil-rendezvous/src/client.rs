@@ -29,8 +29,8 @@ pub struct Punch {
 }
 
 /// Waits the agreed delay, then dials. Both members do this at once.
-// shortcut: when both dials succeed the caller holds two links. Keep the one dialled by the
-// lower key once the room layer manages links.
+// When both dials succeed there are two links. `veil-call` keeps only the one dialled by the
+// member that asked for the introduction and closes the other side's dial-back.
 pub async fn punch(node: &Node, punch: &Punch) -> Result<Link, NetError> {
     tokio::time::sleep(punch.delay).await;
     node.connect(&punch.addrs, punch.peer).await

@@ -28,6 +28,9 @@ pub enum Control {
     Welcome(Vec<u8>),
     /// Host to existing members: an MLS commit that starts the next epoch.
     Commit(Vec<u8>),
+    /// Member to member, first message: this link carries the call's media. The receiver
+    /// still checks that the link's pinned key belongs to a member.
+    Media { room_id: [u8; 16] },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]

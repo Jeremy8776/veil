@@ -10,16 +10,18 @@
 //! existing member -> [`HostEvent::Joined`] and [`HostEvent::Keys`].
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use rand_core::OsRng;
 use tokio::sync::{mpsc, oneshot};
 use veil_group::{Group, GroupError, Knock, Lobby};
 use veil_net::control::{Control, RefuseReason};
-use veil_net::{Link, Node};
+use veil_net::{FramedRecv, FramedSend, Link, Node};
 use veil_security::invite::Invite;
 use veil_security::{Identity, PublicId};
 
+use crate::inbound::Inbound;
 use crate::{CallError, EpochKeys, now_unix};
 
 /// Control messages queued for one link. A member that falls this far behind is dropped.
@@ -48,6 +50,7 @@ enum Command {
         reply: oneshot::Sender<Result<String, CallError>>,
     },
     AddLink(Link),
+    AddInbound(Inbound),
     Decide { device: PublicId, admit: bool },
     Remove(PublicId),
 }
@@ -120,15 +123,9 @@ impl HostHandle {
         self.send(Command::AddLink(link)).await
     }
 
-    /// Accepts every incoming link on `node` as a joiner until the node closes.
-    pub async fn serve(self, node: Node) {
-        while let Some(incoming) = node.accept().await {
-            if let Ok(link) = incoming
-                && self.add_link(link).await.is_err()
-            {
-                break;
-            }
-        }
+    /// Hands the session a joiner whose `Hello` a router already read.
+    pub(crate) async fn add_inbound(&self, inbound: Inbound) -> Result<(), CallError> {
+        self.send(Command::AddInbound(inbound)).await
     }
 
     /// Answers a [`HostEvent::Knock`].
@@ -229,7 +226,13 @@ impl Actor {
             }
             Command::AddLink(link) => {
                 self.next_link = self.next_link.wrapping_add(1);
-                tokio::spawn(run_link(link, self.next_link, self.internal.clone()));
+                tokio::spawn(run_link(link, None, self.next_link, self.internal.clone()));
+            }
+            Command::AddInbound(inbound) => {
+                self.next_link = self.next_link.wrapping_add(1);
+                let Inbound { link, out, input, first, via } = inbound;
+                let opened = Opened { out, input, first, _via: via };
+                tokio::spawn(run_link(link, Some(opened), self.next_link, self.internal.clone()));
             }
             Command::Decide { device, admit } => {
                 let knock = Knock { device };
@@ -348,14 +351,34 @@ impl Actor {
     }
 }
 
-async fn run_link(link: Link, id: u64, actor: mpsc::Sender<Internal>) {
+/// A link whose control stream is already open and whose first message is already read.
+struct Opened {
+    out: FramedSend,
+    input: FramedRecv,
+    first: Control,
+    /// Keeps a relayed link's virtual node alive for as long as the link.
+    _via: Option<Arc<Node>>,
+}
+
+async fn run_link(link: Link, opened: Option<Opened>, id: u64, actor: mpsc::Sender<Internal>) {
     let device = link.peer();
-    let Ok(control) = link.accept_control().await else {
-        return;
+    let (mut out, mut input, first, _via) = match opened {
+        Some(o) => (o.out, o.input, Some(o.first), o._via),
+        None => {
+            let Ok(control) = link.accept_control().await else {
+                return;
+            };
+            let (out, input) = control.split();
+            (out, input, None, None)
+        }
     };
-    let (mut out, mut input) = control.split();
     let (outbox, mut queue) = mpsc::channel(OUTBOX);
     if actor.send(Internal::Opened(device, id, outbox)).await.is_err() {
+        return;
+    }
+    if let Some(first) = first
+        && actor.send(Internal::Message(device, id, first)).await.is_err()
+    {
         return;
     }
     let reader = {

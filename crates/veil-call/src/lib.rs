@@ -1,9 +1,11 @@
 //! Veil call sessions: the participant-side glue between links, the lobby and MLS.
 //!
-//! Purpose: the host runs [`HostHandle`], which admits joiners from its lobby over their pinned
-//! QUIC links and sends every epoch change to the members. A joiner calls [`join`] with an
-//! invite and gets a [`MemberHandle`]. Both sides report each new epoch as [`EpochKeys`], the
-//! frame sender and receiver the media pipeline uses.
+//! Purpose: every participant starts a [`CallNode`], which routes incoming links and talks to
+//! the call's rendezvous node. The host runs [`HostHandle`], which admits joiners from its
+//! lobby over their pinned QUIC links and sends every epoch change to the members. A joiner
+//! calls [`join`] with an invite and gets a [`MemberHandle`]. Both sides report each new epoch
+//! as [`EpochKeys`]. The [`MediaSession`] then links the members as the topology plan says
+//! (see [`routes`]), and a [`KeyRing`] opens their frames across epoch changes.
 //!
 //! Invariants:
 //! - Only participants run this crate. Nodes (relays, forwarders, rendezvous) never hold group
@@ -12,10 +14,6 @@
 //!   no lock around MLS state and every change happens in one order.
 //! - A link closing is a leave: the host removes that member, which starts a new epoch.
 //! - No function here panics. Failures are a [`CallError`].
-//!
-//! shortcut: the new epoch's keys replace the old ones at once, so frames sealed just before a
-//! change are refused by receivers that already moved on. Upgrade by keeping the previous
-//! receiver for a short grace period in the media pipeline.
 #![forbid(unsafe_code)]
 #![deny(
     clippy::unwrap_used,
@@ -27,7 +25,13 @@
 )]
 
 pub mod host;
+mod inbound;
+pub mod keyring;
+pub mod media;
 pub mod member;
+pub mod node;
+mod presence;
+pub mod routes;
 
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -38,7 +42,11 @@ use veil_security::PublicId;
 use veil_security::frame::{FrameReceiver, FrameSender};
 
 pub use host::{HostEvent, HostHandle};
+pub use keyring::KeyRing;
+pub use media::{Incoming, Media, MediaSession};
 pub use member::{MemberEvent, MemberHandle, join};
+pub use node::{CallNode, Path};
+pub use routes::{Directory, Peer, Routes, routes};
 
 /// Frame keys for one epoch.
 pub struct EpochKeys {
@@ -77,8 +85,12 @@ pub enum CallError {
     Group(GroupError),
     /// The host turned this joiner away.
     Refused(RefuseReason),
+    Rendezvous(veil_rendezvous::RendezvousError),
+    Forward(veil_forward::ForwardError),
     /// The other side sent a message out of turn. The text names what was expected.
     Protocol(&'static str),
+    /// The topology plan cannot be carried out. The text says why.
+    Plan(&'static str),
     /// No answer in time.
     Timeout,
     /// The session task has stopped.
@@ -91,7 +103,10 @@ impl fmt::Display for CallError {
             Self::Net(e) => write!(f, "{e}"),
             Self::Group(e) => write!(f, "{e}"),
             Self::Refused(r) => write!(f, "host refused: {r:?}"),
+            Self::Rendezvous(e) => write!(f, "{e}"),
+            Self::Forward(e) => write!(f, "{e}"),
             Self::Protocol(what) => write!(f, "protocol violation, wanted {what}"),
+            Self::Plan(why) => write!(f, "cannot follow the plan: {why}"),
             Self::Timeout => f.write_str("the host did not answer in time"),
             Self::Closed => f.write_str("call session has stopped"),
         }

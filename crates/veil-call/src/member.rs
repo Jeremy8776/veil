@@ -9,9 +9,9 @@ use tokio::task::JoinHandle;
 use veil_group::{Applied, GroupError, Joiner};
 use veil_net::control::Control;
 use veil_net::{FramedRecv, Link, Node};
-use veil_security::Identity;
 use veil_security::invite::Invite;
 
+use crate::node::{CallNode, Path};
 use crate::{CallError, EpochKeys};
 
 /// How long a joiner waits in the lobby for the host to decide.
@@ -36,6 +36,9 @@ pub enum MemberEvent {
 pub struct MemberHandle {
     pub events: mpsc::UnboundedReceiver<MemberEvent>,
     link: Arc<Link>,
+    path: Path,
+    /// The virtual node of a relayed link to the host.
+    _via: Option<Arc<Node>>,
     task: JoinHandle<()>,
 }
 
@@ -47,9 +50,14 @@ impl Drop for MemberHandle {
 }
 
 impl MemberHandle {
-    /// The link to the host, which can also carry media.
+    /// The control link to the host.
     pub fn link(&self) -> &Link {
         &self.link
+    }
+
+    /// How the control link reached the host.
+    pub fn path(&self) -> Path {
+        self.path
     }
 }
 
@@ -63,11 +71,17 @@ async fn recv(input: &mut FramedRecv, wait: Duration) -> Result<Control, CallErr
 /// Joins the call an invite points to. Returns once the host has admitted this device and its
 /// Welcome has been applied; the first event is the joined epoch's keys.
 ///
-/// shortcut: dials the invite's direct addresses only. Upgrade to try the relay and to follow
-/// the topology plan once the planner drives link choice.
-pub async fn join(node: &Node, invite: &Invite, identity: &Identity) -> Result<MemberHandle, CallError> {
+/// The host is dialled at the invite's direct addresses first. When that fails and `call` has
+/// a rendezvous node (the invite's relay), a punched dial and then a relay session are tried.
+/// A relay-only node skips straight to the relay.
+pub async fn join(call: &CallNode, invite: &Invite) -> Result<MemberHandle, CallError> {
+    if invite.room_id != call.room_id() {
+        return Err(CallError::Protocol("a node started for this invite's room"));
+    }
     let addrs: Vec<SocketAddr> = invite.addrs.iter().filter_map(|a| a.parse().ok()).collect();
-    let link = Arc::new(node.connect(&addrs, invite.host).await?);
+    let dialled = call.dial(invite.host, &addrs).await?;
+    let (path, via) = (dialled.path, dialled.via);
+    let link = Arc::new(dialled.link);
     let (mut out, mut input) = link.open_control().await?.split();
 
     out.send(&Control::Hello {
@@ -81,7 +95,7 @@ pub async fn join(node: &Node, invite: &Invite, identity: &Identity) -> Result<M
         _ => return Err(CallError::Protocol("admitted or refused")),
     }
 
-    let joiner = Joiner::new(identity)?;
+    let joiner = Joiner::new(call.identity())?;
     out.send(&Control::KeyPackage(joiner.key_package()?)).await?;
     let welcome = match recv(&mut input, STEP).await? {
         Control::Welcome(welcome) => welcome,
@@ -119,6 +133,8 @@ pub async fn join(node: &Node, invite: &Invite, identity: &Identity) -> Result<M
     Ok(MemberHandle {
         events: events_rx,
         link,
+        path,
+        _via: via,
         task,
     })
 }
