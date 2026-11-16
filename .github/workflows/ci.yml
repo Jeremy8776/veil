@@ -1,6 +1,8 @@
 # Tests, lints, licences and known advisories on every push and pull request.
-# Windows only: veil-media and veil-app use Media Foundation and WASAPI. Tests marked
-# `#[ignore]` need a camera, microphone or open ports and are not run here.
+# Tests run on Windows, where veil-media's Media Foundation and WASAPI code lives. Tests marked
+# `#[ignore]` need a camera, microphone or open ports and are not run here. The `build` job
+# lints and builds the release binaries on Linux and macOS, so release.yml cannot be the first
+# place a non-Windows build breaks.
 # Every action is pinned to a commit SHA (the version is in the comment), as in release.yml.
 name: CI
 
@@ -39,6 +41,35 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked
       - name: Tests
         run: cargo test --workspace --locked
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: "1.98.1"
+          components: clippy
+      # Headers for eframe's X11 and Wayland back ends, as in release.yml.
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # Clippy covers the `cfg(not(windows))` stubs that the Windows job never compiles.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked
+      - name: Build
+        run: cargo build --locked -p veil-app -p veil-node -p veil-probe
 
   supply-chain:
     runs-on: ubuntu-latest

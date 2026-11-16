@@ -25,6 +25,7 @@ use eframe::egui;
 use serde::Deserialize;
 
 /// The repository releases come from.
+#[cfg_attr(not(windows), allow(dead_code, reason = "only `open` reads it, Windows only"))]
 pub const REPO: &str = "Jeremy8776/veil";
 const API: &str = "https://api.github.com/repos/Jeremy8776/veil/releases/latest";
 /// This build's version.
@@ -65,6 +66,7 @@ impl Version {
     }
 
     /// The release page for this version, built here, never read from GitHub's answer.
+    #[cfg_attr(not(windows), allow(dead_code, reason = "only `open` reads it, Windows only"))]
     pub fn link(self) -> String {
         format!("https://github.com/{REPO}/releases/tag/v{self}")
     }
