@@ -20,7 +20,9 @@ use eframe::egui;
 
 use crate::convert::Rgba;
 use crate::devices::Choice;
-use crate::engine::{Captured, Taps};
+use crate::engine::Taps;
+#[cfg(windows)]
+use crate::engine::Captured;
 
 /// What the interface reads from the workers.
 #[derive(Default)]

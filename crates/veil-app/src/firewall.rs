@@ -22,7 +22,11 @@ use eframe::egui;
 
 use crate::media::lock;
 
+// The script and rule helpers below serve the Windows `sys` only; other platforms keep them
+// compiled so their tests run everywhere.
+
 /// The rule's display name in Windows Defender Firewall.
+#[cfg_attr(not(windows), allow(dead_code, reason = "Windows firewall only"))]
 pub const RULE_NAME: &str = "Veil";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,6 +36,7 @@ pub enum State {
     Checking,
     Allowed,
     /// No rule lets calls in.
+    #[cfg_attr(not(windows), allow(dead_code, reason = "Windows firewall only"))]
     Blocked,
     /// Waiting for the person to answer Windows' prompt.
     Asking,
@@ -98,11 +103,13 @@ impl Firewall {
 }
 
 /// A PowerShell single-quoted string literal holding `text`.
+#[cfg_attr(not(windows), allow(dead_code, reason = "Windows firewall only"))]
 fn ps_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "''"))
 }
 
 /// Prints how many enabled inbound Allow rules name `exe` and cover Public networks.
+#[cfg_attr(not(windows), allow(dead_code, reason = "Windows firewall only"))]
 fn check_script(exe: &str) -> String {
     format!(
         "$exe = {}\n\
@@ -116,6 +123,7 @@ fn check_script(exe: &str) -> String {
 }
 
 /// `netsh` arguments that add the rule for `exe`. `None` if the path cannot be quoted.
+#[cfg_attr(not(windows), allow(dead_code, reason = "Windows firewall only"))]
 fn netsh_args(exe: &str) -> Option<String> {
     if exe.contains('"') || exe.contains('\n') || exe.contains('\r') {
         return None;
@@ -128,6 +136,7 @@ fn netsh_args(exe: &str) -> Option<String> {
 
 /// Runs `netsh` (by full path, never a search: it runs as administrator) elevated through
 /// Windows' prompt and exits with its exit code.
+#[cfg_attr(not(windows), allow(dead_code, reason = "Windows firewall only"))]
 fn allow_script(netsh: &str, args: &str) -> String {
     // One line: PowerShell reading standard input runs each line as it comes.
     format!(
@@ -140,6 +149,7 @@ fn allow_script(netsh: &str, args: &str) -> String {
 
 /// A program in Windows' own folder, by full path, so nothing earlier on the search path
 /// (or beside Veil) can stand in for it.
+#[cfg_attr(not(windows), allow(dead_code, reason = "Windows only"))]
 pub(crate) fn system_program(system_root: Option<&str>, relative: &str) -> String {
     let root = system_root
         .filter(|r| !r.is_empty())
@@ -149,6 +159,7 @@ pub(crate) fn system_program(system_root: Option<&str>, relative: &str) -> Strin
 }
 
 /// Reads the rule count `check_script` prints.
+#[cfg_attr(not(windows), allow(dead_code, reason = "Windows firewall only"))]
 fn parse_count(output: &str) -> Option<usize> {
     output.lines().rev().find_map(|line| line.trim().parse().ok())
 }
