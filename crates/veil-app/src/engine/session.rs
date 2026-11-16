@@ -381,8 +381,7 @@ impl Session {
                 }
             }
             Ok(AppMessage::Chat(text)) => {
-                let from = self.name_for(&device);
-                self.shared.push_chat(from, text);
+                self.shared.push_chat(device, text);
             }
             Err(e) => eprintln!("veil-app: dropped a message from {}: {e}", short(&device)),
         }

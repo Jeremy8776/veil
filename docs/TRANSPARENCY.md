@@ -68,8 +68,11 @@ rendezvous never says who is online.
 - Layer markers show which tiers each sender sends and each receiver asks for, so a forwarder
   can tell whose tile is large on someone's screen.
 - A display name is whatever its owner typed. Veil does not check it, so someone can call
-  themselves by another person's name. Who someone is rests on the safety number; the host
-  badge comes from the invite's host key, not from a name.
+  themselves by another person's name. When two people in a call show the same name (case
+  and spacing ignored), each gets the start of their device key after it, so they never look
+  alike. Letters that only look the same, such as Latin "a" and Cyrillic "а", are not caught.
+  Who someone is rests on the safety number; the host badge comes from the invite's host
+  key, not from a name.
 - Chat message sizes are not padded, so a relay or forwarder sees roughly how long each
   message is.
 - Keyframe requests are not authenticated end to end. A forwarder or member can ask a sender

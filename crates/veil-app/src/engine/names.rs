@@ -49,6 +49,52 @@ impl Names {
     }
 }
 
+/// What to show for each person: their name, plus their key prefix when someone else in the
+/// call (you included) shows the same name, so no two people ever look alike (audit L4).
+/// Names match ignoring case, spacing and a trailing key prefix, so "priya (ab12cd34)" cannot
+/// pose as a tagged "Priya".
+///
+/// shortcut: letters that only look alike (Latin "a", Cyrillic "а") still count as different;
+/// add a confusables table if that is ever abused. The safety number stays the real check.
+pub fn labels<'a>(
+    yours: Option<&str>,
+    people: impl IntoIterator<Item = (&'a PublicId, &'a str)>,
+) -> HashMap<PublicId, String> {
+    let people: Vec<(&PublicId, &str)> = people.into_iter().collect();
+    let mut count: HashMap<String, usize> = HashMap::new();
+    for name in yours.into_iter().chain(people.iter().map(|(_, n)| *n)) {
+        *count.entry(base(name)).or_default() += 1;
+    }
+    people
+        .into_iter()
+        .map(|(device, name)| {
+            let name = name.trim();
+            let label = if count.get(&base(name)).copied().unwrap_or(0) > 1 {
+                format!("{name} ({})", short(device))
+            } else {
+                name.to_string()
+            };
+            (*device, label)
+        })
+        .collect()
+}
+
+/// A name as compared: lower case, single spaces, without a trailing "(8 hex digits)".
+fn base(name: &str) -> String {
+    let words: Vec<String> = name.split_whitespace().map(str::to_lowercase).collect();
+    let mut joined = words.join(" ");
+    if let Some(open) = joined.rfind(" (") {
+        let tail = &joined[open + 2..];
+        if tail.len() == 9
+            && tail.ends_with(')')
+            && tail[..8].bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            joined.truncate(open);
+        }
+    }
+    joined
+}
+
 /// When to send your own name.
 pub struct Announcer {
     mine: Option<AppMessage>,
@@ -105,6 +151,30 @@ mod tests {
             "the same name again is no change"
         );
         assert_eq!(names.of(&guest, &host), "Priya");
+    }
+
+    #[test]
+    fn a_shared_name_shows_the_key_prefix() {
+        let (a, b, c) = (
+            Identity::generate().public(),
+            Identity::generate().public(),
+            Identity::generate().public(),
+        );
+        let shown = labels(Some("Jo"), [(&a, "Priya"), (&b, " priya "), (&c, "Sam")]);
+        assert_eq!(shown[&a], format!("Priya ({})", short(&a)));
+        assert_eq!(shown[&b], format!("priya ({})", short(&b)));
+        assert_eq!(shown[&c], "Sam", "a name nobody else has stays as it is");
+
+        let shown = labels(Some("Jo"), [(&a, "JO")]);
+        assert_eq!(shown[&a], format!("JO ({})", short(&a)), "nobody looks like you");
+
+        let fake = format!("Priya ({})", short(&a));
+        let shown = labels(None, [(&a, "Priya"), (&b, fake.as_str())]);
+        assert!(shown[&a].ends_with(&format!("({})", short(&a))));
+        assert!(
+            shown[&b].ends_with(&format!("({})", short(&b))),
+            "a copied prefix does not hide the real one"
+        );
     }
 
     #[test]

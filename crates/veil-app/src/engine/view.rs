@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use veil_security::PublicId;
 
+use super::names::labels;
 use crate::convert::Rgba;
 use crate::media::lock;
 use crate::model::{Call, CallStatus, LinkPath, Participant, Waiting};
@@ -85,8 +86,8 @@ pub struct Shared {
     pub view: Mutex<View>,
     pictures: Mutex<HashMap<u32, Picture>>,
     heard: Mutex<HashMap<u32, Heard>>,
-    /// Chat that arrived, as (sender's name, text), not yet in the interface's call.
-    chat: Mutex<Vec<(String, String)>>,
+    /// Chat that arrived, as (sender's device, text), not yet in the interface's call.
+    chat: Mutex<Vec<(PublicId, String)>>,
     /// Each other person's tile on screen, as (participant id, width in physical pixels).
     tiles: Mutex<Vec<(u32, f32)>>,
     ctx: egui::Context,
@@ -154,7 +155,7 @@ impl Shared {
     }
 
     /// Queues a chat message that arrived for the interface.
-    pub fn push_chat(&self, from: String, text: String) {
+    pub fn push_chat(&self, from: PublicId, text: String) {
         let mut chat = lock(&self.chat);
         if chat.len() >= CHAT_QUEUE {
             chat.remove(0);
@@ -165,7 +166,7 @@ impl Shared {
     }
 
     /// Chat that arrived since the last call.
-    pub fn take_chat(&self) -> Vec<(String, String)> {
+    pub fn take_chat(&self) -> Vec<(PublicId, String)> {
         std::mem::take(&mut *lock(&self.chat))
     }
 
@@ -189,18 +190,28 @@ impl Shared {
 
 /// Copies the engine's view into the screens' call. Your own entry is left to the interface
 /// (devices, hand); everyone else is rebuilt from the view each time. `verified` says
-/// whether you marked a device as verified.
+/// whether you marked a device as verified. Returns the name shown for each device, which
+/// chat uses too, so a name two people share carries a key prefix everywhere.
 pub fn apply(
     view: &View,
     seen: &Seen,
     verified: impl Fn(&PublicId) -> bool,
     call: &mut Call,
     now: Instant,
-) {
+) -> HashMap<PublicId, String> {
     call.status = view.status.clone();
     call.invite.clone_from(&view.invite);
     call.epoch = view.epoch;
     call.participants.retain(|p| p.is_you);
+    let yours = call.you().map(|p| p.name.clone());
+    let shown = labels(
+        yours.as_deref(),
+        view.people
+            .iter()
+            .map(|p| (&p.device, p.name.as_str()))
+            .chain(view.lobby.iter().map(|k| (&k.device, k.name.as_str()))),
+    );
+    let label = |device: &PublicId| shown.get(device).cloned().unwrap_or_default();
     for person in &view.people {
         let heard = seen
             .audio
@@ -212,7 +223,7 @@ pub fn apply(
             .is_some_and(|at| now.saturating_duration_since(*at) < DARK);
         call.participants.push(Participant {
             id: person.id,
-            name: person.name.clone(),
+            name: label(&person.device),
             is_you: false,
             is_host: person.is_host,
             muted: heard.is_none(),
@@ -230,16 +241,18 @@ pub fn apply(
         .iter()
         .map(|k| Waiting {
             id: k.id,
-            name: k.name.clone(),
+            name: label(&k.device),
             since: k.since,
             safety: k.safety.clone(),
             verified: verified(&k.device),
         })
         .collect();
+    shown
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::short;
     use super::*;
 
     fn view(now: Instant) -> View {
@@ -307,6 +320,19 @@ mod tests {
         assert_eq!(call.lobby.len(), 1);
         assert_eq!(call.lobby[0].safety, "11111");
         assert!(call.lobby[0].verified && !call.participants[1].verified);
+    }
+
+    #[test]
+    fn a_knock_with_a_members_name_shows_its_key() {
+        let now = Instant::now();
+        let mut call = Call::live("Call".into(), "Jo", true, now);
+        let mut v = view(now);
+        v.lobby[0].name = "host".into();
+        let shown = apply(&v, &Seen::default(), |_| false, &mut call, now);
+        let knock = PublicId([3; 32]);
+        assert_eq!(call.lobby[0].name, format!("host ({})", short(&knock)));
+        assert_eq!(shown[&knock], call.lobby[0].name, "chat uses the same name");
+        assert!(call.participants[1].name.starts_with("Host ("));
     }
 
     #[test]

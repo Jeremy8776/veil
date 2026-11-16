@@ -272,7 +272,10 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
     shows "Verified" or "New device"; Security has Mark verified and Forget
     (`Action::Verify`, saved by `Engine::act`); Home has "New device key" (two clicks).
     Verified never admits anyone. Off Windows nothing is saved yet (`shortcut:`).
-  Still open: L4 (names are self-chosen), L5 (wait for an
+  - L4, names (`veil-app/src/engine/names.rs::labels`): a name that anyone else in the call
+    shows, you included, gets that person's key prefix in people, lobby and chat. Names match
+    ignoring case, spacing and a copied "(prefix)". Look-alike letters are a `shortcut:`.
+  Still open: L5 (wait for an
   eframe release with quick-xml 0.41), L6 (compare vendored libopus with the xiph release).
 
 Tests: `cargo test -j 8 --workspace` (233 tests, two ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.

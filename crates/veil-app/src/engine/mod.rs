@@ -206,10 +206,15 @@ impl Engine {
         let view: View = lock(&self.shared.view).clone();
         let seen = self.shared.seen();
         let keys = lock(&self.keys);
-        view::apply(&view, &seen, |d| keys.is_verified(d), call, now);
+        let shown = view::apply(&view, &seen, |d| keys.is_verified(d), call, now);
         drop(keys);
         for (from, text) in self.shared.take_chat() {
-            call.receive(from, text, now);
+            // Someone who left between sending and now is named by key prefix alone.
+            let name = shown
+                .get(&from)
+                .cloned()
+                .unwrap_or_else(|| format!("Guest {}", short(&from)));
+            call.receive(name, text, now);
         }
     }
 
