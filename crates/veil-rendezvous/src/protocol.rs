@@ -139,6 +139,14 @@ mod tests {
         assert!(!room_tag(&id).windows(16).any(|w| w == id));
     }
 
+    // Known answer: the rendezvous node and every client must agree on the tag, whatever
+    // sha2 version each was built with.
+    #[test]
+    fn room_tag_bytes_are_fixed() {
+        let hex: String = room_tag(&[3u8; 16]).iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, "8820bad367e1d4a13088aa8e4acb60fde4eb43413e63adf97e0015cae80d8bf8");
+    }
+
     #[test]
     fn session_framing_round_trip() {
         let packet = session_packet(77, b"quic bytes");
