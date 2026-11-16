@@ -2,7 +2,7 @@
 
 Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
-## Done (all on `main`, pushed to the private repo Jeremy8776/veil)
+## Done (all on `main`, Jeremy8776/veil)
 
 - `veil-security`: device keys, safety numbers, signed invites, per-frame encryption.
 - `veil-topology`: mesh or forwarded layout, forwarder choice by policy, cascades, degradation.
@@ -261,7 +261,8 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   App messages are now signed by the sender's device key, bound to the frame id
   (`app_msg.rs`, tests `a_member_cannot_speak_as_another` and
   `a_signed_message_cannot_move_to_another_frame`). Video and sound are still only
-  group-authenticated (TRANSPARENCY.md, known leaks). Open from that audit: L1 to L4.
+  group-authenticated (TRANSPARENCY.md, known leaks). Open from that audit: L2 to L4.
+  L1 (CI actions on floating tags) fixed 16/11/2026: pinned to commit SHAs.
 - Second audit, M1, fixed 16/11/2026: `KeyRing` kept the previous epoch open for 2 s after
   every change, so a member removed by that change could still inject video and sound under
   the old key. Every member can derive every sender's key from the epoch secret, so the old
@@ -317,7 +318,14 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 `veil-probe` on `windows-2025` with Rust 1.98.1 and no cache, packs them with the licences,
 README, `docs/DEPENDENCIES.md` and the node's example config into
 `veil-X.Y.Z-windows-x64.zip`, writes `SHA256SUMS.txt`, and creates a **draft** release.
-Build provenance is attested once the repository is public. Actions are pinned to SHAs.
+Build provenance is attested once the repository is public. Actions are pinned to SHAs, in
+`ci.yml` too from 16/11/2026 (second audit, L1).
+
+Going public (16/11/2026): no secrets in history; workflows hold no secrets and give a
+read-only token. `SECURITY.md` asks for private reports. Commits from this checkout use the
+GitHub noreply address from 16/11/2026. After
+the switch: turn on private vulnerability reporting, protect `main`, and keep approval
+required for workflow runs from outside contributors.
 
 1. Bump `version` in the workspace `Cargo.toml`, run the tests, commit and push to `main`.
    The tag must equal the version or the build fails.
