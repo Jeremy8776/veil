@@ -330,8 +330,8 @@ Users do not type that command: the host's pre-join screen checks the rules in t
 (`firewall.rs`, about 0.7 s of PowerShell) and, if none lets guests in, shows "Allow guests",
 which adds the same rule (name "Veil") through the Windows administrator prompt, then checks
 again. Only the host is checked: a guest's own links work without a rule, because hole
-punching makes its traffic look like replies. Not yet run by a person (it changes the
-firewall): press Allow guests on the host before the next two-machine test.
+punching makes its traffic look like replies. Tested by hand 16/11/2026: Allow guests added
+the rule on the host and a guest then connected.
 `cargo test -j 8 -p veil-app firewall -- --ignored --nocapture` reads the rules only.
 A public `veil-node` (`VEIL_RENDEZVOUS`) removes the need for any rule, since every flow then
 starts outbound; the installer should add the rule for release builds.
