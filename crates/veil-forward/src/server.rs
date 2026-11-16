@@ -43,6 +43,8 @@ const VIDEO_QUEUE: usize = 256;
 const REFUSAL_LINGER: std::time::Duration = std::time::Duration::from_secs(2);
 /// Control messages waiting for one member.
 const CONTROL_QUEUE: usize = 16;
+/// A link must send its `Join` within this time.
+const JOIN_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -287,11 +289,16 @@ async fn refuse(link: &Link, out: &mut FramedSend, refusal: Refusal) {
 
 async fn serve(link: Link, state: Shared, limits: Limits) {
     let link = Arc::new(link);
-    let Ok(control) = link.accept_control().await else {
-        return;
-    };
-    let (mut out, mut input) = control.split();
-    let Ok(ClientMsg::Join { ticket }) = input.recv::<ClientMsg>().await else {
+    // A link that does not join promptly is dropped, so idle links cannot pile up.
+    let joined = tokio::time::timeout(JOIN_WAIT, async {
+        let (out, mut input) = link.accept_control().await.ok()?.split();
+        match input.recv::<ClientMsg>().await.ok()? {
+            ClientMsg::Join { ticket } => Some((out, input, ticket)),
+            _ => None,
+        }
+    })
+    .await;
+    let Ok(Some((mut out, mut input, ticket))) = joined else {
         return;
     };
     let Ok(ticket) = RosterTicket::open(&ticket) else {

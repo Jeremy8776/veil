@@ -36,11 +36,16 @@ see this:
 | Relay | Members' IP addresses, encrypted traffic volume and timing |
 | Forwarder | Members' device keys and the room hash (from the host's roster ticket), traffic volume and timing, and each video frame's layer marker: which resolution tier and frame-rate step it is, and whether it is a keyframe. Names and chat pass through it sealed: it sees when one is sent and how large it is, not who sent it or what it says |
 | Other members | Your device key, the display name you chose, your chat messages, and your IP address unless you use relay-only mode. Chat is not stored: it is gone when the call ends |
-| Anyone holding an invite link | The host's device key and the addresses in it: the host's LAN address and port, and any public address set in `VEIL_ADVERTISE`. The desktop app puts these in every invite so a guest can dial directly |
+| Anyone holding an invite link | The host's device key and the addresses in it: the host's LAN address and port, and any public address set in `VEIL_ADVERTISE`. The desktop app puts these in every invite so a guest can dial directly. Through the rendezvous they can also learn the host's public address, since joiners punch through to the host. They cannot learn any other member's address: a member accepts an introduction only from peers its current routes link to |
 
-When the desktop app hosts without a configured `veil-node`, it runs a rendezvous and relay of
-its own on a second port for the length of the call. It sees what any rendezvous sees (the
-table above), and it is the host's own machine.
+When the desktop app hosts without a configured `veil-node`, it runs a rendezvous, relay and
+forwarder of its own on extra ports for the length of the call. They see what any rendezvous,
+relay or forwarder sees (the table above), and they are the host's own machine.
+
+The rendezvous passes on a member's address only after that member agrees. A request for an
+introduction or a relay session goes to the member first, and the member's app agrees only
+if its current routes expect the one asking (the host agrees to anyone holding the invite).
+A relay-only member never agrees to an introduction.
 
 **Known leaks:**
 - Packet sizes and timing show when someone speaks or moves. Padding is planned, not built.

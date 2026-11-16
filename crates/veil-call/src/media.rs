@@ -232,6 +232,10 @@ impl MediaSession {
     }
 
     async fn apply_mesh(&mut self, peers: Vec<Peer>) -> Vec<(PublicId, CallError)> {
+        // Only the members these routes link to may be introduced or relayed to this one.
+        if let Some(presence) = &self.presence {
+            presence.expect(peers.iter().map(|p| p.device));
+        }
         let mut to_dial = Vec::new();
         if let Some(mut state) = self.ctx.lock() {
             state.wanted = peers.iter().map(|p| p.device).collect();
@@ -282,6 +286,10 @@ impl MediaSession {
         addr: NodeAddr,
         ticket: &[u8],
     ) -> Vec<(PublicId, CallError)> {
+        // Through a forwarder no member dials this one.
+        if let Some(presence) = &self.presence {
+            presence.expect([]);
+        }
         let have = self.ctx.lock().and_then(|mut state| {
             state.wanted = HashSet::from([addr.key]);
             state.expected.clear();

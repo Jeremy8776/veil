@@ -8,7 +8,7 @@ use veil_net::Node;
 use veil_net::control::Control;
 use veil_rendezvous::protocol::ServerMsg;
 use veil_rendezvous::socket::RELAY_PEER;
-use veil_rendezvous::{Refusal, RendezvousClient, RendezvousError, RendezvousServer, punch, room_tag};
+use veil_rendezvous::{Ask, Refusal, RendezvousClient, RendezvousError, RendezvousServer, punch, room_tag};
 use veil_security::frame::{FrameReceiver, FrameSender};
 use veil_security::{Identity, PublicId};
 
@@ -46,6 +46,13 @@ async fn member(server: (SocketAddr, PublicId), room: [u8; 32]) -> Member {
     }
 }
 
+/// `m` waits for `from`'s request of `kind` and accepts it.
+async fn consent(m: &mut Member, from: PublicId, kind: Ask) {
+    let event = with_timeout(m.client.next_event()).await.unwrap();
+    assert_eq!(event, ServerMsg::Request { from, kind });
+    m.client.accept(from, kind).await.unwrap();
+}
+
 async fn with_timeout<T>(f: impl std::future::Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(10), f)
         .await
@@ -61,7 +68,11 @@ async fn introduction_lets_two_members_connect_directly() {
     let b_key = b.identity.public();
     let a_key = a.identity.public();
 
-    let plan_a = with_timeout(a.client.introduce(b_key)).await.unwrap();
+    let (plan_a, ()) = tokio::join!(
+        with_timeout(a.client.introduce(b_key)),
+        consent(&mut b, a_key, Ask::Introduce)
+    );
+    let plan_a = plan_a.unwrap();
     assert_eq!(plan_a.peer, b_key);
     let ServerMsg::Punch { peer, .. } = with_timeout(b.client.next_event()).await.unwrap() else {
         panic!("b should be told to punch");
@@ -108,7 +119,11 @@ async fn relay_carries_a_pinned_end_to_end_link() {
     let a_key = a.identity.public();
     let b_key = b.identity.public();
 
-    let session = with_timeout(a.client.open_relay(b_key)).await.unwrap();
+    let (session, ()) = tokio::join!(
+        with_timeout(a.client.open_relay(b_key)),
+        consent(&mut b, a_key, Ask::Relay)
+    );
+    let session = session.unwrap();
     let ServerMsg::RelayReady { session: b_session, peer } =
         with_timeout(b.client.next_event()).await.unwrap()
     else {
@@ -159,7 +174,12 @@ async fn relayed_dial_to_the_wrong_key_fails() {
     let room = room_tag(&[5; 16]);
     let mut a = member(server, room).await;
     let mut b = member(server, room).await;
-    let session = with_timeout(a.client.open_relay(b.identity.public())).await.unwrap();
+    let a_key = a.identity.public();
+    let (session, ()) = tokio::join!(
+        with_timeout(a.client.open_relay(b.identity.public())),
+        consent(&mut b, a_key, Ask::Relay)
+    );
+    let session = session.unwrap();
     let _ = with_timeout(b.client.next_event()).await;
 
     let a_inner = Node::bind_virtual(&a.identity, a.client.relay_socket(session).unwrap()).unwrap();
@@ -180,11 +200,36 @@ async fn relay_can_be_turned_off() {
     tokio::spawn(server.run());
     let room = room_tag(&[6; 16]);
     let mut a = member(addr, room).await;
-    let b = member(addr, room).await;
+    let mut b = member(addr, room).await;
     assert!(matches!(
         with_timeout(a.client.open_relay(b.identity.public())).await,
         Err(RendezvousError::Refused(Refusal::RelayDisabled))
     ));
     // Introductions still work.
-    assert!(with_timeout(a.client.introduce(b.identity.public())).await.is_ok());
+    let a_key = a.identity.public();
+    let (plan, ()) = tokio::join!(
+        with_timeout(a.client.introduce(b.identity.public())),
+        consent(&mut b, a_key, Ask::Introduce)
+    );
+    assert!(plan.is_ok());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_unanswered_request_reveals_nothing() {
+    let server = start_server();
+    let room = room_tag(&[8; 16]);
+    let mut asker = member(server, room).await;
+    let mut target = member(server, room).await;
+    let (asker_key, target_key) = (asker.identity.public(), target.identity.public());
+
+    // The target is asked but does not accept: the asker gets no address, only a timeout.
+    let result = with_timeout(asker.client.introduce(target_key)).await;
+    assert!(matches!(result, Err(RendezvousError::Timeout)), "{result:?}");
+    let event = with_timeout(target.client.next_event()).await.unwrap();
+    assert_eq!(event, ServerMsg::Request { from: asker_key, kind: Ask::Introduce });
+
+    // An accept for a request that was never made does nothing for the "asker".
+    target.client.accept(asker_key, Ask::Relay).await.unwrap();
+    let quiet = tokio::time::timeout(Duration::from_millis(300), asker.client.next_event()).await;
+    assert!(quiet.is_err(), "nothing reaches the asker: {quiet:?}");
 }

@@ -15,7 +15,8 @@
 //! Invariants:
 //! - The server never learns room ids. Members register under [`room_tag`], a hash of the
 //!   room id, which only invite holders can compute.
-//! - Introductions and relay sessions only join two keys registered in the same room.
+//! - Introductions and relay sessions only join two keys registered in the same room, and
+//!   only once the asked member accepts. Until then the asker learns nothing about it.
 //! - A relay session forwards only between its two members. Anyone else's packets are dropped.
 //! - A dishonest server can deny service and see metadata (who, when, how much). It cannot
 //!   impersonate a peer: every dial names the key it expects.
@@ -37,7 +38,7 @@ pub mod socket;
 use std::fmt;
 
 pub use client::{Punch, RendezvousClient, punch};
-pub use protocol::{Refusal, room_tag};
+pub use protocol::{Ask, Refusal, room_tag};
 pub use server::RendezvousServer;
 pub use socket::RelaySocket;
 

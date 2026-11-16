@@ -30,10 +30,20 @@ pub enum ClientMsg {
         room_tag: [u8; 32],
         local_addrs: Vec<SocketAddr>,
     },
-    /// Ask to be introduced to another member for a simultaneous dial.
+    /// Ask to be introduced to another member for a simultaneous dial. The peer is asked
+    /// first ([`ServerMsg::Request`]); nobody's address moves until it accepts.
     Introduce { peer: PublicId },
-    /// Ask for a relay session with another member.
+    /// Ask for a relay session with another member. The peer is asked first.
     OpenRelay { peer: PublicId },
+    /// Agree to a [`ServerMsg::Request`] from `from`. A stale or unknown one is ignored.
+    Accept { from: PublicId, kind: Ask },
+}
+
+/// What a member asks of another.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Ask {
+    Introduce,
+    Relay,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -48,6 +58,9 @@ pub enum ServerMsg {
     },
     /// A relay session with `peer` is open. Both members receive one.
     RelayReady { session: u32, peer: PublicId },
+    /// `from` asks for an introduction or a relay session. Answer with
+    /// [`ClientMsg::Accept`], or not at all to refuse.
+    Request { from: PublicId, kind: Ask },
     Refused(Refusal),
 }
 
@@ -57,7 +70,7 @@ pub enum Refusal {
     AlreadyRegistered,
     PeerNotInRoom,
     TooManyAddrs,
-    /// A server limit was reached (rooms, members or sessions).
+    /// A server limit was reached (rooms, members, sessions or open requests).
     Full,
     /// This node runs rendezvous without the relay role.
     RelayDisabled,

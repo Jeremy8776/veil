@@ -15,14 +15,23 @@
 //!   ciphertext and never holds keys.
 //! - A punch dial-back is never kept. The peer that asked dials the link that is used; the
 //!   dial-back only opens this side's NAT mapping. This keeps one link per pair.
+//! - Another member's request (introduction or relay) is accepted only as [`Consent`]
+//!   allows: the host takes anyone (joiners dial its address, and the lobby decides who gets
+//!   in); a member takes only peers its current routes expect; a relay-only node never
+//!   accepts an introduction, so its address never leaves the rendezvous. A request that
+//!   arrives just before the routes that expect it waits up to [`WAIT`] and is accepted
+//!   when they come.
 
-use std::sync::Arc;
+use std::collections::{HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 use veil_net::{Node, NodeAddr};
 use veil_rendezvous::protocol::ServerMsg;
-use veil_rendezvous::{Punch, RendezvousClient, punch, room_tag};
+use veil_rendezvous::{Ask, Punch, RendezvousClient, punch, room_tag};
 use veil_security::{Identity, PublicId};
 
 use crate::CallError;
@@ -31,16 +40,41 @@ use crate::inbound::Router;
 const COMMANDS: usize = 16;
 /// Relay sessions other members opened to this one. Sixteen is the call's size limit.
 const MAX_RELAYED: usize = 32;
+/// Requests kept while no route expects their sender yet. The server forgets them at 10 s.
+const WAIT: Duration = Duration::from_secs(8);
+const MAX_WAITING: usize = 64;
 
 enum Command {
     Introduce(PublicId, oneshot::Sender<Result<Punch, CallError>>),
     Relay(PublicId, oneshot::Sender<Result<Arc<Node>, CallError>>),
+    /// The expected peers changed: accept waiting requests that are now allowed.
+    Recheck,
+}
+
+/// Whose requests this participant accepts. Shared with its `CallNode` and media session.
+#[derive(Default)]
+pub(crate) struct Consent {
+    /// The host: anyone holding the invite may be introduced or relayed to it.
+    pub open: bool,
+    pub relay_only: AtomicBool,
+    /// Peers the current routes link to.
+    pub expected: Mutex<HashSet<PublicId>>,
+}
+
+impl Consent {
+    pub fn allows(&self, from: &PublicId, kind: Ask) -> bool {
+        if kind == Ask::Introduce && self.relay_only.load(Ordering::Relaxed) {
+            return false;
+        }
+        self.open || self.expected.lock().is_ok_and(|e| e.contains(from))
+    }
 }
 
 /// Talks to the presence task. Cheap to clone.
 #[derive(Clone)]
 pub(crate) struct Presence {
     commands: mpsc::Sender<Command>,
+    consent: Arc<Consent>,
 }
 
 impl Presence {
@@ -50,6 +84,7 @@ impl Presence {
         node: Arc<Node>,
         server: NodeAddr,
         router: Router,
+        consent: Arc<Consent>,
     ) -> Result<(Self, tokio::task::JoinHandle<()>), CallError> {
         let mut client = RendezvousClient::connect(&node, &[server.addr], server.key)
             .await
@@ -60,6 +95,8 @@ impl Presence {
             .register(room_tag(&router.room_id), locals)
             .await
             .map_err(CallError::Rendezvous)?;
+        let policy = consent.clone();
+        client.set_consent(Arc::new(move |from, kind| policy.allows(from, kind)));
         let (commands, rx) = mpsc::channel(COMMANDS);
         let actor = Actor {
             identity: Identity::from_secret(&identity.secret_bytes()),
@@ -67,8 +104,20 @@ impl Presence {
             client,
             router,
             relayed: JoinSet::new(),
+            consent: consent.clone(),
+            waiting: VecDeque::new(),
         };
-        Ok((Self { commands }, tokio::spawn(actor.run(rx))))
+        Ok((Self { commands, consent }, tokio::spawn(actor.run(rx))))
+    }
+
+    /// The peers this participant's routes now link to. Their requests are accepted, and
+    /// so are any of theirs that arrived a moment early.
+    pub fn expect(&self, peers: impl IntoIterator<Item = PublicId>) {
+        if let Ok(mut expected) = self.consent.expected.lock() {
+            *expected = peers.into_iter().collect();
+        }
+        // A full queue already holds commands; the next recheck sees the new set.
+        let _ = self.commands.try_send(Command::Recheck);
     }
 
     /// Asks the server to introduce this node to `peer`. Both then dial at the given moment.
@@ -100,6 +149,9 @@ struct Actor {
     router: Router,
     /// Accept loops of relay sessions others opened. Dropped with the actor.
     relayed: JoinSet<()>,
+    consent: Arc<Consent>,
+    /// Requests not yet allowed, oldest first, with when they came.
+    waiting: VecDeque<(PublicId, Ask, Instant)>,
 }
 
 impl Actor {
@@ -111,7 +163,7 @@ impl Actor {
                     None => break,
                 },
                 notice = self.client.next_event() => match notice {
-                    Some(notice) => self.notice(notice),
+                    Some(notice) => self.notice(notice).await,
                     // The rendezvous link closed. Requests now fail with `Closed`.
                     None => break,
                 },
@@ -128,7 +180,31 @@ impl Actor {
             Command::Relay(peer, reply) => {
                 let _ = reply.send(self.open_relay(peer).await);
             }
+            Command::Recheck => {
+                let now = Instant::now();
+                self.waiting.retain(|(.., at)| now.duration_since(*at) < WAIT);
+                for (from, kind, at) in std::mem::take(&mut self.waiting) {
+                    if self.consent.allows(&from, kind) {
+                        let _ = self.client.accept(from, kind).await;
+                    } else {
+                        self.waiting.push_back((from, kind, at));
+                    }
+                }
+            }
         }
+    }
+
+    /// Accepts another member's request if consent allows; otherwise keeps it a moment, in
+    /// case the routes that expect that member are about to arrive.
+    async fn request(&mut self, from: PublicId, kind: Ask) {
+        if self.consent.allows(&from, kind) {
+            let _ = self.client.accept(from, kind).await;
+            return;
+        }
+        if self.waiting.len() >= MAX_WAITING {
+            self.waiting.pop_front();
+        }
+        self.waiting.push_back((from, kind, Instant::now()));
     }
 
     async fn open_relay(&mut self, peer: PublicId) -> Result<Arc<Node>, CallError> {
@@ -137,8 +213,9 @@ impl Actor {
         Ok(Arc::new(Node::bind_virtual(&self.identity, socket)?))
     }
 
-    fn notice(&mut self, notice: ServerMsg) {
+    async fn notice(&mut self, notice: ServerMsg) {
         match notice {
+            ServerMsg::Request { from, kind } => self.request(from, kind).await,
             ServerMsg::Punch {
                 peer,
                 addrs,
@@ -174,5 +251,34 @@ impl Actor {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn consent_follows_role_routes_and_relay_only() {
+        let (known, stranger) = (PublicId([1; 32]), PublicId([2; 32]));
+        let member = Consent::default();
+        assert!(!member.allows(&known, Ask::Introduce), "nobody before routes");
+        member.expected.lock().map(|mut e| e.insert(known)).ok();
+        assert!(member.allows(&known, Ask::Introduce));
+        assert!(member.allows(&known, Ask::Relay));
+        assert!(!member.allows(&stranger, Ask::Introduce), "an invite alone is not enough");
+        assert!(!member.allows(&stranger, Ask::Relay));
+        member.relay_only.store(true, Ordering::Relaxed);
+        assert!(!member.allows(&known, Ask::Introduce), "relay-only hides its address");
+        assert!(member.allows(&known, Ask::Relay), "but still takes relayed links");
+
+        let host = Consent {
+            open: true,
+            ..Consent::default()
+        };
+        assert!(host.allows(&stranger, Ask::Introduce), "joiners dial the host");
+        host.relay_only.store(true, Ordering::Relaxed);
+        assert!(!host.allows(&stranger, Ask::Introduce));
+        assert!(host.allows(&stranger, Ask::Relay));
     }
 }

@@ -11,7 +11,7 @@ use tokio::task::JoinHandle;
 use veil_net::{FramedSend, Link, NetError, Node};
 use veil_security::PublicId;
 
-use crate::protocol::{ClientMsg, STREAM_HEADER, ServerMsg, parse_stream_header, split_session};
+use crate::protocol::{Ask, ClientMsg, STREAM_HEADER, ServerMsg, parse_stream_header, split_session};
 use crate::{RelaySocket, RendezvousError};
 
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
@@ -43,7 +43,11 @@ pub struct RendezvousClient {
     pending: VecDeque<ServerMsg>,
     inboxes: Inboxes,
     tasks: Vec<JoinHandle<()>>,
+    consent: Option<Policy>,
 }
+
+/// Whether to accept a request from this member for this.
+pub type Policy = Arc<dyn Fn(&PublicId, Ask) -> bool + Send + Sync>;
 
 impl Drop for RendezvousClient {
     fn drop(&mut self) {
@@ -82,6 +86,7 @@ impl RendezvousClient {
             pending: VecDeque::new(),
             inboxes,
             tasks: vec![reader, datagrams, streams],
+            consent: None,
         })
     }
 
@@ -110,7 +115,8 @@ impl RendezvousClient {
         }
     }
 
-    /// Asks to be introduced to `peer`. The peer receives a matching [`ServerMsg::Punch`].
+    /// Asks to be introduced to `peer`. The peer is asked first ([`ServerMsg::Request`]);
+    /// once it accepts, both receive a matching [`ServerMsg::Punch`]. Times out if it does not.
     pub async fn introduce(&mut self, peer: PublicId) -> Result<Punch, RendezvousError> {
         self.out.send(&ClientMsg::Introduce { peer }).await?;
         match self
@@ -130,7 +136,7 @@ impl RendezvousClient {
         }
     }
 
-    /// Opens a relay session with `peer` and returns its session id.
+    /// Opens a relay session with `peer` and returns its session id. The peer must accept.
     pub async fn open_relay(&mut self, peer: PublicId) -> Result<u32, RendezvousError> {
         self.out.send(&ClientMsg::OpenRelay { peer }).await?;
         match self
@@ -142,7 +148,20 @@ impl RendezvousClient {
         }
     }
 
-    /// The next notice from the server, such as another member's punch or relay request.
+    /// Requests this policy allows are accepted even while waiting for another answer, so
+    /// two members asking each other at once do not each wait out the other. Requests it
+    /// does not allow, or all of them without a policy, come out of [`Self::next_event`].
+    pub fn set_consent(&mut self, allows: Policy) {
+        self.consent = Some(allows);
+    }
+
+    /// Agrees to another member's [`ServerMsg::Request`]. Only accept members you expect.
+    pub async fn accept(&mut self, from: PublicId, kind: Ask) -> Result<(), RendezvousError> {
+        self.out.send(&ClientMsg::Accept { from, kind }).await?;
+        Ok(())
+    }
+
+    /// The next notice from the server: another member's request, punch or relay session.
     pub async fn next_event(&mut self) -> Option<ServerMsg> {
         if let Some(event) = self.pending.pop_front() {
             return Some(event);
@@ -177,6 +196,13 @@ impl RendezvousClient {
             }
             if want(&message) {
                 return Ok(message);
+            }
+            // Two members asking each other at once would each wait for the other's answer.
+            if let ServerMsg::Request { from, kind } = message
+                && self.consent.as_ref().is_some_and(|allows| allows(&from, kind))
+            {
+                self.out.send(&ClientMsg::Accept { from, kind }).await?;
+                continue;
             }
             if self.pending.len() >= MAX_PENDING {
                 self.pending.pop_front();

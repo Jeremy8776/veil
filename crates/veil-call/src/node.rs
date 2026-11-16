@@ -24,7 +24,7 @@ use veil_security::{Identity, PublicId};
 
 use crate::host::HostHandle;
 use crate::inbound::{Inbound, Router};
-use crate::presence::Presence;
+use crate::presence::{Consent, Presence};
 use crate::{CallError, media};
 
 /// Incoming media links waiting for the media session.
@@ -57,6 +57,7 @@ pub struct CallNode {
     room_id: [u8; 16],
     presence: Option<Presence>,
     relay_only: bool,
+    consent: Arc<Consent>,
     media: Option<mpsc::Receiver<Inbound>>,
     tasks: Vec<JoinHandle<()>>,
 }
@@ -86,10 +87,15 @@ impl CallNode {
             host,
             media: media_tx,
         };
+        let consent = Arc::new(Consent {
+            open: router.host.is_some(),
+            ..Consent::default()
+        });
         let mut tasks = vec![tokio::spawn(router.clone().accept_loop(node.clone(), false))];
         let mut presence = None;
         if let Some(server) = rendezvous
-            && let Ok((handle, task)) = Presence::start(identity, node.clone(), server, router).await
+            && let Ok((handle, task)) =
+                Presence::start(identity, node.clone(), server, router, consent.clone()).await
         {
             presence = Some(handle);
             tasks.push(task);
@@ -100,6 +106,7 @@ impl CallNode {
             room_id,
             presence,
             relay_only: false,
+            consent,
             media: Some(media_rx),
             tasks,
         }
@@ -130,10 +137,14 @@ impl CallNode {
     }
 
     /// When set, this node dials other participants only through the relay, never directly
-    /// or by punching, so they never learn its address. Costs relay bandwidth and latency.
-    /// Applies to [`crate::join`] and to a media session made after the change.
+    /// or by punching, and refuses their introductions, so they never learn its address.
+    /// Costs relay bandwidth and latency. Dialling follows it in [`crate::join`] and in a
+    /// media session made after the change; refusing introductions starts at once.
     pub fn set_relay_only(&mut self, relay_only: bool) {
         self.relay_only = relay_only;
+        self.consent
+            .relay_only
+            .store(relay_only, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// The media session for this call. There is one per node; a second call is refused.

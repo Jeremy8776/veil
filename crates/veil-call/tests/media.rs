@@ -197,10 +197,12 @@ impl Call {
         sessions
     }
 
-    /// The host publishes this epoch's plan; every party applies the routes it gets.
+    /// The host publishes this epoch's plan; every party applies the routes it gets, all at
+    /// once as in a real call (a member accepts a peer's dial only once its own routes
+    /// expect that peer).
     async fn replan(
         &mut self,
-        sessions: &mut [MediaSession],
+        sessions: &mut Vec<MediaSession>,
         forwarded: bool,
         forwarder: Option<NodeAddr>,
     ) {
@@ -210,10 +212,18 @@ impl Call {
         for party in &mut self.parties[1..] {
             all.push(next_member_routes(party.member.as_mut().unwrap()).await);
         }
-        for (media, routed) in sessions.iter_mut().zip(all) {
+        let mut applying = Vec::new();
+        for (mut media, routed) in sessions.drain(..).zip(all) {
             assert_eq!(matches!(routed, Routes::Forwarder { .. }), forwarded);
-            let failed = within(media.apply(routed)).await;
+            applying.push(tokio::spawn(async move {
+                let failed = within(media.apply(routed)).await;
+                (media, failed)
+            }));
+        }
+        for task in applying {
+            let (media, failed) = task.await.unwrap();
             assert!(failed.is_empty(), "dial failures: {failed:?}");
+            sessions.push(media);
         }
         for media in sessions.iter() {
             within(media.ready(Duration::from_secs(10))).await.unwrap();
