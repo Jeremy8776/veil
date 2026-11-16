@@ -28,7 +28,8 @@ use zeroize::Zeroizing;
 use crate::SecurityError;
 use crate::layer::{LAYER_LEN, Layer};
 
-const ID_LEN: usize = 16;
+/// Bytes of a frame's id: key id then counter. Unique per sealed frame within an epoch.
+pub const ID_LEN: usize = 16;
 pub const HEADER_LEN: usize = ID_LEN + LAYER_LEN;
 pub const TAG_LEN: usize = 16;
 /// Largest frame accepted. A 4K AV1 keyframe is well under this.
@@ -94,6 +95,12 @@ pub fn frame_layer(packet: &[u8]) -> Result<Layer, SecurityError> {
     Layer::decode(bytes)
 }
 
+/// Reads a sealed frame's id (key id and counter) without opening it. The id is
+/// authenticated only once the frame decrypts; within an epoch no two frames share one.
+pub fn frame_id(packet: &[u8]) -> Option<[u8; ID_LEN]> {
+    packet.first_chunk::<ID_LEN>().copied()
+}
+
 /// Seals one sender's frames for one epoch.
 pub struct FrameSender {
     kid: u64,
@@ -109,6 +116,15 @@ impl FrameSender {
             keys: derive(epoch_secret, kid)?,
             next: 0,
         })
+    }
+
+    /// The id the next sealed frame will carry, so a payload can sign it: a signature bound
+    /// to the id cannot be moved to another frame.
+    pub fn next_frame_id(&self) -> [u8; ID_LEN] {
+        let mut id = [0u8; ID_LEN];
+        id[..8].copy_from_slice(&self.kid.to_be_bytes());
+        id[8..].copy_from_slice(&self.next.to_be_bytes());
+        id
     }
 
     /// Seals audio or single-layer video as [`Layer::BASE`].
@@ -388,6 +404,17 @@ mod tests {
             assert!(rx.decrypt(&forged).is_err());
         }
         assert!(rx.senders.is_empty());
+    }
+
+    #[test]
+    fn next_frame_id_is_the_id_the_frame_carries() {
+        let mut tx = FrameSender::new(&SECRET, 2, 5).unwrap();
+        tx.encrypt(b"first").unwrap();
+        let expected = tx.next_frame_id();
+        let packet = tx.encrypt(b"second").unwrap();
+        assert_eq!(frame_id(&packet), Some(expected));
+        assert_ne!(tx.next_frame_id(), expected, "each frame has its own id");
+        assert_eq!(frame_id(&packet[..ID_LEN - 1]), None);
     }
 
     #[test]

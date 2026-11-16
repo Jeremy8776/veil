@@ -35,7 +35,6 @@ pub async fn run(
     pipes: Pipes,
     mut commands: UnboundedReceiver<Command>,
 ) -> Result<(), String> {
-    let me = identity.public();
     let bind = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
     let node = Node::bind(&identity, bind).map_err(|e| format!("Cannot open the network: {e}"))?;
     let rendezvous = config.rendezvous;
@@ -51,7 +50,7 @@ pub async fn run(
     };
     shared.update(|view| view.status = CallStatus::Live);
     let media = call.media().map_err(|e| e.to_string())?;
-    let mut session = Session::new(media, me, invite.host, your_name, shared.clone(), pipes);
+    let mut session = Session::new(media, &identity, invite.host, your_name, shared.clone(), pipes);
     loop {
         tokio::select! {
             command = commands.recv() => match command {

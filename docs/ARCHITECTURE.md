@@ -139,9 +139,11 @@ only"), or forbid servers entirely ("peers only").
    only member allowed to commit; members refuse commits from anyone else.
 3. **Media.** Per-frame authenticated encryption, in the style of SFrame (RFC 9605). Each sender
    has its own key for each epoch, derived from the MLS exporter secret. Forwarders read only
-   the plaintext layer header. Display names and chat are sealed the same way, with the
-   sender's frame key, behind a fixed prefix so a forwarder cannot pass one off as video or
-   sound; forwarders pass them on unread.
+   the plaintext layer header. Every member can derive every sender's key, so frame keys
+   prove a frame came from a member, not which one. Display names and chat are sealed the
+   same way, with the sender's frame key, behind a fixed prefix so a forwarder cannot pass
+   one off as video or sound, and each is also signed with the sender's device key over its
+   frame id, so no member can send one as another; forwarders pass them on unread.
 4. **Identity.** Ed25519 device keys. Safety numbers people can compare. Optional identity
    provider attestation.
 5. **Invites.** Signed by the host, with an expiry and a one-time join token. An invite carries

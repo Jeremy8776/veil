@@ -2,16 +2,24 @@
 //!
 //! Purpose: names and chat ride the media links next to video and sound, sealed with the
 //! sender's frame key for the current epoch ([`AppMessage::seal`]), so relays and forwarders
-//! see only ciphertext and its size. The receiver opens the packet with its `KeyRing`, which
-//! gives the authenticated sender index (MLS leaf), then calls [`AppMessage::decode`]. Who
-//! sent a message is that index, never the link it came on.
+//! see only ciphertext and its size. The frame key is shared by every member, so it cannot say
+//! which member sent a message: any member can seal under any sender index. Each message is
+//! therefore also signed with the sender's device key. The receiver opens the packet with its
+//! `KeyRing`, looks up the device key of the leaf the frame names in the MLS roster, and calls
+//! [`AppMessage::open`], which refuses the message unless that device signed it. Who sent a
+//! message is that signed device, never the link it came on.
 //!
 //! Wire format (the plaintext inside the sealed frame):
-//! - 8 bytes `veil-app`, then a version byte (1). Video and sound never start like this, so
+//! - 8 bytes `veil-app`, then a version byte (2). Video and sound never start like this, so
 //!   a forwarder that moves a sealed frame from one channel to another gets it refused here.
-//! - a postcard-encoded [`AppMessage`], with nothing after it.
+//! - a 64-byte Ed25519 signature by the sender's device key over a domain tag, the frame id
+//!   (key id and counter, see `veil_security::frame::frame_id`) and the body.
+//! - the body: a postcard-encoded [`AppMessage`], with nothing after it.
 //!
 //! Invariants:
+//! - The signature covers the frame id, which names the epoch, the sender index and a counter
+//!   used once. So a member cannot sign as another device, and cannot lift a signed message
+//!   into another frame (a later counter, another sender index or another epoch).
 //! - Every message is checked on the way in and out: names 1 to [`MAX_NAME_CHARS`]
 //!   characters, chat 1 to [`MAX_CHAT_CHARS`], no control characters (chat may hold line
 //!   breaks and tabs) and no bidirectional overrides, which could make a name read as another.
@@ -23,7 +31,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use veil_net::control::MAX_APP_LEN;
-use veil_security::frame::{FrameSender, HEADER_LEN, TAG_LEN};
+use veil_security::frame::{FrameSender, HEADER_LEN, ID_LEN, TAG_LEN, frame_id};
+use veil_security::{Identity, PublicId};
 
 /// The longest display name, in characters.
 pub const MAX_NAME_CHARS: usize = 64;
@@ -31,8 +40,10 @@ pub const MAX_NAME_CHARS: usize = 64;
 pub const MAX_CHAT_CHARS: usize = 2_000;
 
 const MAGIC: &[u8; 8] = b"veil-app";
-const VERSION: u8 = 1;
-const PREFIX_LEN: usize = MAGIC.len() + 1;
+const VERSION: u8 = 2;
+const SIGNATURE_LEN: usize = 64;
+const SIGN_DOMAIN: &[u8] = b"veil-app-message-v2";
+const PREFIX_LEN: usize = MAGIC.len() + 1 + SIGNATURE_LEN;
 /// The largest plaintext that still seals within `MAX_APP_LEN`.
 const MAX_PLAIN_LEN: usize = MAX_APP_LEN - HEADER_LEN - TAG_LEN;
 
@@ -52,6 +63,8 @@ pub enum AppError {
     BadCharacter,
     /// Not an app message, an unknown version, or trailing bytes.
     Malformed,
+    /// Not signed by the device the frame names, or signed for another frame.
+    BadSignature,
     /// The frame key refused to seal (its counter ran out).
     Seal,
 }
@@ -63,6 +76,7 @@ impl fmt::Display for AppError {
             Self::TooLong => "message too long",
             Self::BadCharacter => "message holds a character that is not allowed",
             Self::Malformed => "not a valid app message",
+            Self::BadSignature => "message not signed by its sender",
             Self::Seal => "cannot seal the message",
         })
     }
@@ -107,42 +121,63 @@ impl AppMessage {
         Ok(())
     }
 
-    /// The plaintext to seal: the prefix, then the message.
-    pub fn encode(&self) -> Result<Vec<u8>, AppError> {
+    /// Signs with `identity` (this device's key) for the frame `sender` seals next, then
+    /// seals, ready for `MediaSession::send_app`.
+    pub fn seal(&self, sender: &mut FrameSender, identity: &Identity) -> Result<Vec<u8>, AppError> {
         self.check()?;
-        let mut out = Vec::with_capacity(PREFIX_LEN + 64);
-        out.extend_from_slice(MAGIC);
-        out.push(VERSION);
-        let out = postcard::to_extend(self, out).map_err(|_| AppError::Malformed)?;
-        if out.len() > MAX_PLAIN_LEN {
-            return Err(AppError::TooLong);
-        }
-        Ok(out)
-    }
-
-    /// Reads an opened app message and checks it.
-    pub fn decode(plain: &[u8]) -> Result<Self, AppError> {
+        let body = postcard::to_allocvec(self).map_err(|_| AppError::Malformed)?;
+        let plain = signed_plain(identity, &sender.next_frame_id(), &body);
         if plain.len() > MAX_PLAIN_LEN {
             return Err(AppError::TooLong);
         }
-        let body = plain
+        sender.encrypt(&plain).map_err(|_| AppError::Seal)
+    }
+
+    /// Reads an app message the frame key opened. `sealed` is the packet as it arrived,
+    /// `plain` what the frame key opened, and `device` the roster's device key for the leaf
+    /// the frame key named. Refuses a message `device` did not sign for this very frame.
+    pub fn open(sealed: &[u8], plain: &[u8], device: &PublicId) -> Result<Self, AppError> {
+        if plain.len() > MAX_PLAIN_LEN {
+            return Err(AppError::TooLong);
+        }
+        let rest = plain
             .strip_prefix(MAGIC.as_slice())
             .and_then(|rest| rest.strip_prefix(&[VERSION]))
             .ok_or(AppError::Malformed)?;
-        let (message, rest): (Self, _) =
+        let (signature, body) = rest
+            .split_first_chunk::<SIGNATURE_LEN>()
+            .ok_or(AppError::Malformed)?;
+        let id = frame_id(sealed).ok_or(AppError::Malformed)?;
+        device
+            .verify(&signed_message(&id, body), signature)
+            .map_err(|_| AppError::BadSignature)?;
+        let (message, trailing): (Self, _) =
             postcard::take_from_bytes(body).map_err(|_| AppError::Malformed)?;
-        if !rest.is_empty() {
+        if !trailing.is_empty() {
             return Err(AppError::Malformed);
         }
         message.check()?;
         Ok(message)
     }
+}
 
-    /// Encodes and seals with this epoch's frame key, ready for `MediaSession::send_app`.
-    pub fn seal(&self, sender: &mut FrameSender) -> Result<Vec<u8>, AppError> {
-        let plain = self.encode()?;
-        sender.encrypt(&plain).map_err(|_| AppError::Seal)
-    }
+/// What the sender signs: a domain tag, the frame id and the body.
+fn signed_message(id: &[u8; ID_LEN], body: &[u8]) -> Vec<u8> {
+    let mut message = Vec::with_capacity(SIGN_DOMAIN.len() + ID_LEN + body.len());
+    message.extend_from_slice(SIGN_DOMAIN);
+    message.extend_from_slice(id);
+    message.extend_from_slice(body);
+    message
+}
+
+/// The plaintext to seal: the prefix, the signature, then the body.
+fn signed_plain(identity: &Identity, id: &[u8; ID_LEN], body: &[u8]) -> Vec<u8> {
+    let mut plain = Vec::with_capacity(PREFIX_LEN + body.len());
+    plain.extend_from_slice(MAGIC);
+    plain.push(VERSION);
+    plain.extend_from_slice(&identity.sign(&signed_message(id, body)));
+    plain.extend_from_slice(body);
+    plain
 }
 
 /// Characters that reorder text around them (U+202A to U+202E, U+2066 to U+2069) and the
@@ -158,20 +193,71 @@ mod tests {
 
     use super::*;
 
+    const SECRET: [u8; 32] = [7; 32];
+    const EPOCH: u64 = 3;
+
+    /// Seals `body` signed by `signer` as sender `leaf`, skipping every check `seal` makes.
+    fn forge(signer: &Identity, leaf: u32, body: &[u8]) -> Vec<u8> {
+        let mut sender = FrameSender::new(&SECRET, EPOCH, leaf).unwrap();
+        let plain = signed_plain(signer, &sender.next_frame_id(), body);
+        sender.encrypt(&plain).unwrap()
+    }
+
+    /// Opens `sealed` as a receiver whose roster says `device` holds the leaf the frame names.
+    fn receive(sealed: &[u8], device: &PublicId) -> Result<AppMessage, AppError> {
+        let mut receiver = FrameReceiver::new(&SECRET, EPOCH).unwrap();
+        let (_, plain) = receiver.decrypt(sealed).unwrap();
+        AppMessage::open(sealed, &plain, device)
+    }
+
     #[test]
-    fn names_and_chat_round_trip() {
+    fn names_and_chat_round_trip_and_name_the_sender() {
+        let jo = Identity::generate();
+        let mut sender = FrameSender::new(&SECRET, EPOCH, 1).unwrap();
+        let mut receiver = FrameReceiver::new(&SECRET, EPOCH).unwrap();
         for message in [
             AppMessage::name("  Jo Bloggs ").unwrap(),
             AppMessage::chat("Hello\nsecond line\twith a tab, and émoji 🎉").unwrap(),
         ] {
-            let plain = message.encode().unwrap();
-            assert!(plain.starts_with(b"veil-app\x01"));
-            assert_eq!(AppMessage::decode(&plain).unwrap(), message);
+            let sealed = message.seal(&mut sender, &jo).unwrap();
+            let (leaf, plain) = receiver.decrypt(&sealed).unwrap();
+            assert_eq!(leaf, 1);
+            assert!(plain.starts_with(b"veil-app\x02"));
+            assert_eq!(AppMessage::open(&sealed, &plain, &jo.public()).unwrap(), message);
         }
-        assert_eq!(
-            AppMessage::name(" Jo ").unwrap(),
-            AppMessage::Name("Jo".into())
-        );
+        assert_eq!(AppMessage::name(" Jo ").unwrap(), AppMessage::Name("Jo".into()));
+    }
+
+    #[test]
+    fn a_member_cannot_speak_as_another() {
+        let (alice, bob) = (Identity::generate(), Identity::generate());
+        // Alice holds the shared epoch secret, so she can seal under Bob's leaf (2), but
+        // cannot sign with Bob's device key.
+        let as_bob = AppMessage::chat("Bob here, please send the file")
+            .unwrap()
+            .seal(&mut FrameSender::new(&SECRET, EPOCH, 2).unwrap(), &alice)
+            .unwrap();
+        assert_eq!(receive(&as_bob, &bob.public()), Err(AppError::BadSignature));
+    }
+
+    #[test]
+    fn a_signed_message_cannot_move_to_another_frame() {
+        let (alice, bob) = (Identity::generate(), Identity::generate());
+        let mut bob_sender = FrameSender::new(&SECRET, EPOCH, 2).unwrap();
+        let original = AppMessage::chat("yes").unwrap().seal(&mut bob_sender, &bob).unwrap();
+        let mut receiver = FrameReceiver::new(&SECRET, EPOCH).unwrap();
+        let (_, plain) = receiver.decrypt(&original).unwrap();
+
+        // Alice re-seals Bob's signed plaintext under Bob's leaf with a later counter.
+        let mut replayer = FrameSender::new(&SECRET, EPOCH, 2).unwrap();
+        replayer.encrypt(b"burn counter 0").unwrap();
+        let moved = replayer.encrypt(&plain).unwrap();
+        assert_eq!(receive(&moved, &bob.public()), Err(AppError::BadSignature));
+
+        // Or under her own leaf, claiming the words as hers.
+        let mut hers = FrameSender::new(&SECRET, EPOCH, 1).unwrap();
+        let moved = hers.encrypt(&plain).unwrap();
+        assert_eq!(receive(&moved, &alice.public()), Err(AppError::BadSignature));
     }
 
     #[test]
@@ -192,41 +278,45 @@ mod tests {
         assert_eq!(AppMessage::chat("bell\u{7}"), Err(AppError::BadCharacter));
 
         // A sender that skips the checks is still refused on the way in.
-        let mut plain = b"veil-app\x01".to_vec();
-        plain = postcard::to_extend(&AppMessage::Name("a\u{0}b".into()), plain).unwrap();
-        assert_eq!(AppMessage::decode(&plain), Err(AppError::BadCharacter));
-        let mut long = b"veil-app\x01".to_vec();
-        long = postcard::to_extend(&AppMessage::Chat("a".repeat(3_000)), long).unwrap();
-        assert_eq!(AppMessage::decode(&long), Err(AppError::TooLong));
+        let jo = Identity::generate();
+        let body = postcard::to_allocvec(&AppMessage::Name("a\u{0}b".into())).unwrap();
+        assert_eq!(receive(&forge(&jo, 1, &body), &jo.public()), Err(AppError::BadCharacter));
+        let body = postcard::to_allocvec(&AppMessage::Chat("a".repeat(3_000))).unwrap();
+        assert_eq!(receive(&forge(&jo, 1, &body), &jo.public()), Err(AppError::TooLong));
     }
 
     #[test]
     fn other_bytes_are_not_app_messages() {
-        let good = AppMessage::chat("hi").unwrap().encode().unwrap();
-        let mut trailing = good.clone();
-        trailing.push(0);
-        assert_eq!(AppMessage::decode(&trailing), Err(AppError::Malformed));
-        let mut version = good.clone();
-        version[8] = 2;
-        assert_eq!(AppMessage::decode(&version), Err(AppError::Malformed));
-        assert_eq!(AppMessage::decode(&good[9..]), Err(AppError::Malformed));
+        let jo = Identity::generate();
+        let mut body = postcard::to_allocvec(&AppMessage::Chat("hi".into())).unwrap();
+        body.push(0);
+        assert_eq!(receive(&forge(&jo, 1, &body), &jo.public()), Err(AppError::Malformed));
+
+        let mut sender = FrameSender::new(&SECRET, EPOCH, 1).unwrap();
+        let sealed = AppMessage::chat("hi").unwrap().seal(&mut sender, &jo).unwrap();
+        let mut receiver = FrameReceiver::new(&SECRET, EPOCH).unwrap();
+        let (_, plain) = receiver.decrypt(&sealed).unwrap();
+        let mut version = plain.clone();
+        version[8] = 1;
+        assert_eq!(AppMessage::open(&sealed, &version, &jo.public()), Err(AppError::Malformed));
         assert_eq!(
-            AppMessage::decode(&[0x00, 0x00, 0x00, 0x01, 0x67]),
+            AppMessage::open(&sealed, &plain[..PREFIX_LEN - 1], &jo.public()),
             Err(AppError::Malformed)
         );
+        assert_eq!(AppMessage::open(&sealed[..4], &plain, &jo.public()), Err(AppError::Malformed));
         assert_eq!(
-            AppMessage::decode(&vec![0; MAX_PLAIN_LEN + 1]),
+            AppMessage::open(&sealed, &vec![0; MAX_PLAIN_LEN + 1], &jo.public()),
             Err(AppError::TooLong)
         );
     }
 
     #[test]
     fn sealed_messages_open_only_with_the_epoch_key_and_once() {
-        let secret = [7u8; 32];
-        let mut sender = FrameSender::new(&secret, 3, 1).unwrap();
-        let mut receiver = FrameReceiver::new(&secret, 3).unwrap();
+        let jo = Identity::generate();
+        let mut sender = FrameSender::new(&SECRET, EPOCH, 1).unwrap();
+        let mut receiver = FrameReceiver::new(&SECRET, EPOCH).unwrap();
         let message = AppMessage::chat(&"x".repeat(MAX_CHAT_CHARS)).unwrap();
-        let sealed = message.seal(&mut sender).unwrap();
+        let sealed = message.seal(&mut sender, &jo).unwrap();
         assert!(sealed.len() <= MAX_APP_LEN);
         assert!(
             !sealed.windows(8).any(|w| w == b"veil-app"),
@@ -234,9 +324,9 @@ mod tests {
         );
         let (leaf, plain) = receiver.decrypt(&sealed).unwrap();
         assert_eq!(leaf, 1);
-        assert_eq!(AppMessage::decode(&plain).unwrap(), message);
+        assert_eq!(AppMessage::open(&sealed, &plain, &jo.public()).unwrap(), message);
         assert!(receiver.decrypt(&sealed).is_err(), "a replay is refused");
-        let mut stranger = FrameReceiver::new(&[8u8; 32], 3).unwrap();
+        let mut stranger = FrameReceiver::new(&[8u8; 32], EPOCH).unwrap();
         assert!(stranger.decrypt(&sealed).is_err());
     }
 
@@ -244,6 +334,8 @@ mod tests {
     fn the_longest_chat_fits_one_sealed_message() {
         // Four bytes a character is the worst case for UTF-8.
         let message = AppMessage::Chat("🎉".repeat(MAX_CHAT_CHARS));
-        assert!(message.encode().unwrap().len() <= MAX_PLAIN_LEN);
+        let mut sender = FrameSender::new(&SECRET, EPOCH, 1).unwrap();
+        let sealed = message.seal(&mut sender, &Identity::generate()).unwrap();
+        assert!(sealed.len() <= MAX_APP_LEN);
     }
 }
