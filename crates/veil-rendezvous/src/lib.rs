@@ -31,6 +31,7 @@
 )]
 
 pub mod client;
+pub mod limit;
 pub mod protocol;
 pub mod server;
 pub mod socket;

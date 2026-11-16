@@ -180,3 +180,32 @@ fn the_jitter_buffer_feeds_the_decoder_through_loss() -> Result<(), MediaError> 
     assert!(level > 0.25, "tone level {level:.3}");
     Ok(())
 }
+
+/// Constant bitrate: speech, silence and a loud tone all give packets of one size, so the
+/// sizes say nothing about what was said.
+#[test]
+fn voice_packets_are_all_one_size() -> Result<(), MediaError> {
+    let settings = AudioSettings::voice();
+    assert!(settings.constant_bitrate);
+    let mut encoder = OpusEncoder::new(&settings)?;
+    let mut frames = tone(&settings, 10);
+    frames.extend(std::iter::repeat_n(vec![0.0; 960], 10));
+    frames.extend(tone(&settings, 10).into_iter().map(|f| f.iter().map(|s| s * 0.05).collect()));
+    let sizes: std::collections::BTreeSet<usize> = frames
+        .iter()
+        .map(|frame| encoder.encode(frame).map(|p| p.len()))
+        .collect::<Result<_, _>>()?;
+    // 32 kbit/s for 20 ms is 80 bytes.
+    assert_eq!(sizes.into_iter().collect::<Vec<_>>(), vec![80], "sizes vary");
+
+    let mut vbr = OpusEncoder::new(&AudioSettings {
+        constant_bitrate: false,
+        ..settings
+    })?;
+    let vbr_sizes: std::collections::BTreeSet<usize> = frames
+        .iter()
+        .map(|frame| vbr.encode(frame).map(|p| p.len()))
+        .collect::<Result<_, _>>()?;
+    assert!(vbr_sizes.len() > 1, "the test can tell the two modes apart");
+    Ok(())
+}

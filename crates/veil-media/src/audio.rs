@@ -59,10 +59,14 @@ pub struct AudioSettings {
     pub dtx: bool,
     /// Encoder effort, 0 to 10.
     pub complexity: u8,
+    /// Every packet the same size. Variable-bitrate packet sizes follow the speech closely
+    /// enough to give away words even when encrypted; constant bitrate gives away nothing.
+    pub constant_bitrate: bool,
 }
 
 impl AudioSettings {
-    /// Speech in a call: mono, 20 ms, 32 kbit/s, FEC on for 10% loss, DTX off.
+    /// Speech in a call: mono, 20 ms, 32 kbit/s at a constant bitrate, FEC on for 10% loss,
+    /// DTX off.
     pub fn voice() -> Self {
         Self {
             channels: Channels::Mono,
@@ -72,6 +76,7 @@ impl AudioSettings {
             expected_loss_percent: 10,
             dtx: false,
             complexity: 9,
+            constant_bitrate: true,
         }
     }
 

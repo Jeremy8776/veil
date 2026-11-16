@@ -135,7 +135,7 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   `crates/veil-media/vendor/opus` (`VENDORED.md`: origin, what was left out, how to update) and
   `build.rs` compiles them with `cc`, so no cmake is needed. Float build, no SIMD, no
   deep-learning features. `ffi/opus.rs` is the libopus FFI: `OpusEncoder` (VoIP, voice signal,
-  VBR, in-band FEC, `set_bitrate`, `set_expected_loss`) and `OpusDecoder` (`decode`, `conceal`
+  constant bitrate by default (`AudioSettings::constant_bitrate`), in-band FEC, `set_bitrate`, `set_expected_loss`) and `OpusDecoder` (`decode`, `conceal`
   for a lost frame, `recover` a lost frame from the next packet's FEC). `audio.rs`:
   `AudioSettings::voice()` (mono, 20 ms, 32 kbit/s, FEC for 10% loss) and `AudioHeader`, 13 bytes
   inside the sealed datagram (version, sequence number, capture time), then the Opus packet.
@@ -270,7 +270,8 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 
 ## Open shortcuts (each marked `shortcut:` in the code)
 
-- Relay has no per-session bandwidth cap or fair queuing. Needed before relaying for strangers.
+- Relay sessions are capped at 16 Mbit/s each (`veil-rendezvous/src/limit.rs`), but there is
+  no fair queuing and no total cap for the server. Needed before relaying for many strangers.
 - Video frames are read one at a time on the receiver; stale frames are not reset.
 - Congestion control is quinn's loss-based default; real-time video needs a delay-based one.
 - Every forwarder in a cascade receives every stream (topology planner).
@@ -322,8 +323,6 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
   where the device has none.
 - H.264 decoding is on the CPU; the GPU path needs a D3D11 device manager
   (`veil-media/src/ffi/windows/decoder.rs`).
-- Opus runs at a variable bitrate, which can leak words through packet sizes; no constant
-  bitrate setting yet (`veil-media/src/ffi/opus.rs`).
 - The vendored libopus has not been compared against the xiph.org release tarball
   (`vendor/opus/VENDORED.md`).
 

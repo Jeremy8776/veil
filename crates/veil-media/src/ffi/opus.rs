@@ -119,9 +119,8 @@ impl OpusEncoder {
             return Err(MediaError::Encoder("opus_encoder_create"));
         }
         encoder.ctl(OPUS_SET_SIGNAL_REQUEST, OPUS_SIGNAL_VOICE)?;
-        // shortcut: variable bitrate, whose packet sizes can leak words (TRANSPARENCY.md
-        // section 2). Add a constant-bitrate setting before calls that need that protection.
-        encoder.ctl(OPUS_SET_VBR_REQUEST, 1)?;
+        // Constant bitrate unless asked otherwise: variable packet sizes can leak words.
+        encoder.ctl(OPUS_SET_VBR_REQUEST, i32::from(!settings.constant_bitrate))?;
         encoder.ctl(OPUS_SET_COMPLEXITY_REQUEST, i32::from(settings.complexity))?;
         encoder.ctl(OPUS_SET_DTX_REQUEST, i32::from(settings.dtx))?;
         encoder.ctl(OPUS_SET_INBAND_FEC_REQUEST, i32::from(settings.fec))?;

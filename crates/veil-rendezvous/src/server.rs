@@ -20,6 +20,7 @@ use tokio::sync::mpsc;
 use veil_net::{Link, NetError, Node};
 use veil_security::PublicId;
 
+use crate::limit::Bucket;
 use crate::protocol::{
     Ask, ClientMsg, MAX_ADDRS, Refusal, STREAM_HEADER, ServerMsg, parse_stream_header,
     split_session,
@@ -140,8 +141,9 @@ async fn serve(link: Link, state: Shared) {
     });
     let me = link.peer();
     let conn = link.quic().clone();
-    let datagrams = tokio::spawn(forward_datagrams(conn.clone(), me, state.clone()));
-    let streams = tokio::spawn(forward_streams(conn, me, state.clone()));
+    let buckets = Buckets::default();
+    let datagrams = tokio::spawn(forward_datagrams(conn.clone(), me, state.clone(), buckets.clone()));
+    let streams = tokio::spawn(forward_streams(conn, me, state.clone(), buckets));
 
     let mut room: Option<[u8; 32]> = None;
     while let Ok(message) = input.recv::<ClientMsg>().await {
@@ -353,22 +355,36 @@ fn route(state: &Shared, session: u32, from: PublicId) -> Option<quinn::Connecti
     s.sessions.get(&session)?.other(from).cloned()
 }
 
-// shortcut: no per-session bandwidth cap or fair queuing. Add both before running a relay
-// for strangers.
-async fn forward_datagrams(conn: quinn::Connection, me: PublicId, state: Shared) {
+/// One member's bandwidth buckets, by relay session (`limit.rs`). Only sessions the member
+/// is in get one, so there are at most `MAX_SESSIONS_PER_MEMBER`.
+type Buckets = Arc<Mutex<HashMap<u32, Bucket>>>;
+
+/// Whether `session` may carry `bytes` from this member now.
+fn within_limit(buckets: &Buckets, session: u32, bytes: usize) -> bool {
+    let now = std::time::Instant::now();
+    let Ok(mut map) = buckets.lock() else {
+        return false;
+    };
+    map.retain(|_, b| !b.idle(now));
+    map.entry(session).or_insert_with(|| Bucket::new(now)).take(bytes, now)
+}
+
+async fn forward_datagrams(conn: quinn::Connection, me: PublicId, state: Shared, buckets: Buckets) {
     while let Ok(datagram) = conn.read_datagram().await {
         let Some((session, _)) = split_session(&datagram) else {
             continue;
         };
-        if let Some(target) = route(&state, session, me) {
+        if let Some(target) = route(&state, session, me)
+            && within_limit(&buckets, session, datagram.len())
+        {
             let _ = target.send_datagram(datagram);
         }
     }
 }
 
-async fn forward_streams(conn: quinn::Connection, me: PublicId, state: Shared) {
+async fn forward_streams(conn: quinn::Connection, me: PublicId, state: Shared, buckets: Buckets) {
     while let Ok(mut stream) = conn.accept_uni().await {
-        let state = state.clone();
+        let (state, buckets) = (state.clone(), buckets.clone());
         tokio::spawn(async move {
             let mut head = [0u8; STREAM_HEADER];
             if stream.read_exact(&mut head).await.is_err() {
@@ -378,6 +394,9 @@ async fn forward_streams(conn: quinn::Connection, me: PublicId, state: Shared) {
             let Some(target) = route(&state, session, me) else {
                 return;
             };
+            if !within_limit(&buckets, session, len) {
+                return;
+            }
             let mut packet = vec![0u8; len];
             if stream.read_exact(&mut packet).await.is_err() {
                 return;

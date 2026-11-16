@@ -49,8 +49,10 @@ A relay-only member never agrees to an introduction.
 
 **Known leaks:**
 - Packet sizes and timing show when someone speaks or moves. Padding is planned, not built.
-- Opus runs at a variable bitrate, and research shows variable-bitrate speech packet sizes can
-  reveal some words even when encrypted. A constant-bitrate option is planned.
+- Fixed 16/11/2026: Opus now runs at a constant bitrate, so every voice packet is the same
+  size (80 bytes at 32 kbit/s) whatever is said. Variable-bitrate packet sizes can reveal some
+  words even when encrypted. When a packet is sent still shows when someone has their
+  microphone on.
 - Layer markers show which tiers each sender sends and each receiver asks for, so a forwarder
   can tell whose tile is large on someone's screen.
 - A display name is whatever its owner typed. Veil does not check it, so someone can call

@@ -126,14 +126,26 @@ fn netsh_args(exe: &str) -> Option<String> {
     ))
 }
 
-/// Runs `netsh` elevated through Windows' prompt and exits with its exit code.
-fn allow_script(args: &str) -> String {
+/// Runs `netsh` (by full path, never a search: it runs as administrator) elevated through
+/// Windows' prompt and exits with its exit code.
+fn allow_script(netsh: &str, args: &str) -> String {
     // One line: PowerShell reading standard input runs each line as it comes.
     format!(
-        "try {{ $p = Start-Process -FilePath netsh -Verb RunAs -Wait -PassThru \
+        "try {{ $p = Start-Process -FilePath {} -Verb RunAs -Wait -PassThru \
          -WindowStyle Hidden -ArgumentList {}; exit $p.ExitCode }} catch {{ exit 1223 }}\n\n",
+        ps_quote(netsh),
         ps_quote(args)
     )
+}
+
+/// A program in Windows' own folder, by full path, so nothing earlier on the search path
+/// (or beside Veil) can stand in for it.
+fn system_program(system_root: Option<&str>, relative: &str) -> String {
+    let root = system_root
+        .filter(|r| !r.is_empty())
+        .unwrap_or(r"C:\Windows")
+        .trim_end_matches('\\');
+    format!(r"{root}\System32\{relative}")
 }
 
 /// Reads the rule count `check_script` prints.
@@ -147,7 +159,7 @@ mod sys {
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
 
-    use super::{State, allow_script, check_script, netsh_args, parse_count};
+    use super::{State, allow_script, check_script, netsh_args, parse_count, system_program};
 
     /// No console window flashes up for PowerShell.
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -159,8 +171,12 @@ mod sys {
         Ok(path.to_string_lossy().into_owned())
     }
 
+    fn system(relative: &str) -> String {
+        system_program(std::env::var("SystemRoot").ok().as_deref(), relative)
+    }
+
     fn powershell(script: &str) -> Result<std::process::Output, String> {
-        let mut child = Command::new("powershell.exe")
+        let mut child = Command::new(system(r"WindowsPowerShell\v1.0\powershell.exe"))
             .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -193,7 +209,7 @@ mod sys {
     pub fn allow() -> Result<(), String> {
         let exe = exe()?;
         let args = netsh_args(&exe).ok_or("Veil's path cannot be used in a rule")?;
-        let out = powershell(&allow_script(&args))?;
+        let out = powershell(&allow_script(&system("netsh.exe"), &args))?;
         match out.status.code() {
             Some(0) => Ok(()),
             Some(CANCELLED) => Err(String::from("Windows did not allow the change")),
@@ -236,9 +252,18 @@ mod tests {
             assert!(args.contains(part), "{part}");
         }
         assert_eq!(netsh_args("C:\\a\"b.exe"), None);
-        let script = allow_script(&args);
+        let script = allow_script(r"C:\Windows\System32\netsh.exe", &args);
         assert!(script.contains("-Verb RunAs"));
+        assert!(script.contains(r"-FilePath 'C:\Windows\System32\netsh.exe'"));
         assert!(script.contains("Jo O''Neil"), "the argument string is quoted once more");
+    }
+
+    #[test]
+    fn system_programs_are_named_by_full_path() {
+        let netsh = system_program(Some(r"D:\WINDOWS\"), "netsh.exe");
+        assert_eq!(netsh, r"D:\WINDOWS\System32\netsh.exe");
+        assert_eq!(system_program(None, "netsh.exe"), r"C:\Windows\System32\netsh.exe");
+        assert_eq!(system_program(Some(""), "netsh.exe"), r"C:\Windows\System32\netsh.exe");
     }
 
     /// Reads this machine's rules (read only): `cargo test -j 8 -p veil-app firewall --
