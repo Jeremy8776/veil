@@ -1,5 +1,5 @@
-//! Windows Media Foundation: H.264 encoding, one encoder transform per simulcast rung, and
-//! camera capture (`camera.rs`).
+//! Windows Media Foundation: H.264 encoding, one encoder transform per simulcast rung, H.264
+//! decoding (`decoder.rs`) and camera capture (`camera.rs`).
 //!
 //! Purpose: the [`RungEncoder`] behind [`MediaFoundationEncoder`]. It prefers a hardware
 //! encoder (GPU, through `MFTEnumEx`) and falls back to Microsoft's software H.264 encoder,
@@ -21,10 +21,12 @@
 #![allow(unsafe_code)]
 
 mod camera;
+mod decoder;
 mod enumerate;
 mod sample;
 
 pub use camera::{CameraInfo, MfCamera, cameras};
+pub use decoder::MfDecoder;
 
 use std::mem::ManuallyDrop;
 use std::time::{Duration, Instant};
@@ -72,7 +74,8 @@ const OUTPUT_TIMEOUT: Duration = Duration::from_secs(2);
 /// Large enough that the encoder never inserts an IDR of its own between forced keyframes.
 const GOP_NEVER: u32 = 0xFFFF_FFFE;
 
-/// Keeps COM and Media Foundation started while an encoder lives.
+/// Keeps COM and Media Foundation started while an encoder, decoder or camera lives. Each
+/// owner holds it as its last field, so its interfaces are released first.
 struct Runtime {
     uninit_com: bool,
 }
@@ -97,12 +100,12 @@ impl Runtime {
 
 impl Drop for Runtime {
     fn drop(&mut self) {
-        // SAFETY: balances the MFStartup in `start`. Every interface of this encoder has been
-        // released already (field order in MfRung).
+        // SAFETY: balances the MFStartup in `start`. Every interface of the owner has been
+        // released already (the runtime is its last field).
         let _ = unsafe { MFShutdown() };
         if self.uninit_com {
-            // SAFETY: balances the successful CoInitializeEx in `start`. MfRung is not Send
-            // (it holds COM interfaces), so this runs on the thread that called it.
+            // SAFETY: balances the successful CoInitializeEx in `start`. Every owner holds COM
+            // interfaces, so it is not Send, and this runs on the thread that called it.
             unsafe { CoUninitialize() };
         }
     }

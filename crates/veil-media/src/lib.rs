@@ -5,7 +5,8 @@
 //! [`Schedule`] decides, for every captured picture, which spatial and temporal layers to
 //! encode and whether it is a keyframe. [`VideoHeader`] goes in front of every encoded layer,
 //! inside the sealed frame. [`Gate`] tells a receiver whether a layer can be decoded, and when
-//! to ask the sender for a keyframe. Per-OS encoders implement [`VideoEncoder`]. Audio is
+//! to ask the sender for a keyframe. Per-OS encoders implement [`VideoEncoder`] and decoders
+//! [`VideoDecoder`]. Audio is
 //! Opus ([`OpusEncoder`], [`OpusDecoder`]) with an [`AudioHeader`] in front of each packet.
 //!
 //! Invariants:
@@ -18,6 +19,7 @@
 pub mod annexb;
 pub mod audio;
 pub mod capture;
+pub mod decoder;
 pub mod encoder;
 pub mod error;
 pub mod ffi;
@@ -31,6 +33,7 @@ pub mod temporal;
 
 pub use audio::{AudioHeader, AudioSettings, Channels};
 pub use capture::{CameraMode, NativeMode, PixelFormat};
+pub use decoder::VideoDecoder;
 pub use encoder::{EncodedLayer, RawPicture, VideoEncoder};
 pub use error::MediaError;
 pub use ffi::opus::{OpusDecoder, OpusEncoder, opus_version};
@@ -42,5 +45,5 @@ pub use simulcast::{RungEncoder, Simulcast};
 
 #[cfg(windows)]
 pub use ffi::windows::{
-    CameraInfo, MediaFoundationEncoder, MfCamera, MfRung, cameras, media_foundation,
+    CameraInfo, MediaFoundationEncoder, MfCamera, MfDecoder, MfRung, cameras, media_foundation,
 };

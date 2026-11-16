@@ -130,8 +130,19 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   `AudioSettings::voice()` (mono, 20 ms, 32 kbit/s, FEC for 10% loss) and `AudioHeader`, 13 bytes
   inside the sealed datagram (version, sequence number, capture time), then the Opus packet.
   Test: `tests/opus.rs` (tone round trip, concealment and FEC recovery, bad input).
+- Windows H.264 decoder (`veil-media`). `VideoDecoder` trait (`decoder.rs`): one access unit in,
+  at most one packed NV12 `RawPicture` out, one decoder per sender and spatial layer. Call it
+  only for layers `Gate` passes. `check_size` refuses a decoded size above 4K (3840x2176 coded)
+  before allocating. `MfDecoder` (`ffi/windows/decoder.rs`) is Microsoft's decoder transform,
+  low latency, so each access unit gives its picture at once; a picture still held is dropped
+  before the next input. It crops the padded coded height (1088) to the display area (1080),
+  and follows a change of rung at a keyframe without reopening. The NV12 copy out of a Media
+  Foundation buffer (`sample.rs::copy_nv12`) is now shared with the camera.
+  Test: `tests/mf_decoder.rs` decodes the software and hardware encoders' Thumb and Hd output
+  (sizes, timestamps, Hd luma within 6 levels on average), a switch from Thumb to Hd at a
+  keyframe, and bad input (no picture, then recovery at a keyframe).
 
-Tests: `cargo test -j 8 --workspace` (193 tests, one ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
+Tests: `cargo test -j 8 --workspace` (199 tests, one ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -182,6 +193,8 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
   than the ladder's capture rate (say 4K at 30 only) is used at 1080p60 if it offers that;
   the app must still fit the ladder to the mode it gets (`Ladder::up_to`).
 - libopus is built without SSE, AVX or NEON (`veil-media/build.rs`).
+- H.264 decoding is on the CPU; the GPU path needs a D3D11 device manager
+  (`veil-media/src/ffi/windows/decoder.rs`).
 - Opus runs at a variable bitrate, which can leak words through packet sizes; no constant
   bitrate setting yet (`veil-media/src/ffi/opus.rs`).
 - The vendored libopus has not been compared against the xiph.org release tarball
@@ -214,8 +227,8 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 1. Two-machine test over the real internet with `veil-probe` (steps above). Needs Jeremy's
    machines and a public box.
 2. `veil-media`, continued: the core, keyframe requests, the Windows H.264 encoder and
-   Windows camera capture and Opus are done (see above). Next, in order: the H.264 decoder
-   (Media Foundation); then audio capture and playback (WASAPI) with a jitter buffer. Decided
+   Windows camera capture, Opus and the H.264 decoder are done (see above). Next: audio
+   capture and playback (WASAPI) with a jitter buffer. Decided
    15/11/2026: `unsafe` FFI and libopus are allowed in `veil-media` only, under the rules in
    `docs/TRANSPARENCY.md` section 5 (one `ffi` module per OS, `// SAFETY:` on every block,
    `clippy::undocumented_unsafe_blocks` denied, each module listed in that table).

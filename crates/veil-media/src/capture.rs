@@ -119,17 +119,17 @@ pub fn pack_nv12(
     let (w, h) = (usize::from(width), usize::from(height));
     let even = w % 2 == 0 && h % 2 == 0;
     if w == 0 || h == 0 || !even || pitch < w || alloc_rows < h {
-        return Err(MediaError::Malformed("camera picture size"));
+        return Err(MediaError::Malformed("NV12 picture size"));
     }
     let chroma_start = pitch
         .checked_mul(alloc_rows)
-        .ok_or(MediaError::Malformed("camera picture size"))?;
+        .ok_or(MediaError::Malformed("NV12 picture size"))?;
     // The last chroma row needs only `w` bytes, not a full pitch.
     let needed = chroma_start
         .checked_add(pitch * (h / 2 - 1) + w)
-        .ok_or(MediaError::Malformed("camera picture size"))?;
+        .ok_or(MediaError::Malformed("NV12 picture size"))?;
     if src.len() < needed {
-        return Err(MediaError::Malformed("camera buffer"));
+        return Err(MediaError::Malformed("NV12 buffer"));
     }
     out.clear();
     out.reserve(w * h * 3 / 2);
