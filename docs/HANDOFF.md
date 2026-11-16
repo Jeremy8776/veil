@@ -277,7 +277,13 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
     ignoring case, spacing and a copied "(prefix)". Look-alike letters are a `shortcut:`.
   - L6, vendored libopus: every file matches xiph's `opus-1.6.1.tar.gz` (checksum and
     method in `crates/veil-media/vendor/opus/VENDORED.md`).
-  Still open: L5 (wait for an eframe release with quick-xml 0.41).
+  - L5, quick-xml advisories (RUSTSEC-2026-0194, -0195): the old quick-xml came from
+    `zbus_xml` 5.1 (Linux accessibility, under eframe), not the Wayland scanner. `zbus_xml`
+    5.2.1 parses without quick-xml. The resolver held it back only because the workspace says
+    Rust 1.85 and it asks for 1.87; it is Linux-only, so the Windows build is unchanged.
+    `.cargo/audit.toml` accepts nothing now. Do not run a plain `cargo update` expecting it to
+    stay: re-check `cargo tree -i quick-xml` after any lockfile change.
+  Every audit finding (M1 to M4, L1 to L7) is now fixed.
 
 Tests: `cargo test -j 8 --workspace` (233 tests, two ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
