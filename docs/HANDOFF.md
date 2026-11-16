@@ -320,6 +320,13 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 
 ## Running the two-machine test
 
+Firewall first (found 16/11/2026, first two-machine run of `veil-app` failed to connect):
+Windows blocks inbound UDP for a program with no rule, and this PC's Wi-Fi is a Public
+network. `veil-probe.exe` and `veil-node.exe` have Allow rules; `veil-app.exe` had none. Add one
+on each machine (admin PowerShell, path to that machine's build):
+`New-NetFirewallRule -DisplayName "Veil app" -Direction Inbound -Program <path>	argeteleaseeil-app.exe -Protocol UDP -Action Allow -Profile Private,Public`.
+A guest that cannot reach the host now says the host's firewall may be blocking Veil.
+
 1. Public box: `veil-node` with rendezvous, relay and forwarder on (see the example TOML).
    It prints `rendezvous KEY@IP:PORT` and `forwarder KEY@IP:PORT`. It prints the listen address
    (`0.0.0.0`), so replace that with the box's public IP. Open 4433/udp and 4434/udp.

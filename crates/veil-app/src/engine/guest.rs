@@ -87,6 +87,11 @@ fn join_error(e: &CallError) -> String {
     match e {
         CallError::Refused(_) => String::from("The host did not let you in."),
         CallError::Timeout => String::from("The host did not answer."),
+        // Windows blocks inbound UDP for an app with no firewall rule, which looks exactly
+        // like this from the guest's side; the host's own invite lists only its addresses.
+        CallError::Net(_) | CallError::Rendezvous(_) => format!(
+            "Could not reach the host. Its firewall may be blocking Veil: allow veil-app on              the host for private and public networks. ({e})"
+        ),
         other => format!("Could not reach the call: {other}"),
     }
 }
@@ -99,5 +104,7 @@ mod tests {
     fn join_errors_read_plainly() {
         assert_eq!(join_error(&CallError::Timeout), "The host did not answer.");
         assert!(join_error(&CallError::Closed).starts_with("Could not reach the call"));
+        let unreachable = CallError::Net(veil_net::NetError::Timeout);
+        assert!(join_error(&unreachable).contains("firewall"));
     }
 }
