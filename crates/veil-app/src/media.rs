@@ -1,14 +1,16 @@
-//! This device's camera and microphone, for the preview and the meter.
+//! This device's camera and microphone, for the preview, the meter and the call.
 //!
 //! Purpose: each runs on its own thread, because the platform objects block on reads and are
 //! not `Send`. The camera thread hands the newest picture to the interface; the microphone
-//! thread hands over a level from 0 to 1. Nothing here leaves the device.
+//! thread hands over a level from 0 to 1. During a call, [`Taps`] also pass each picture and
+//! each 20 ms of sound to the call engine, which encodes and encrypts them.
 //!
 //! Invariants:
 //! - Off means closed: turning the camera or microphone off stops its thread and releases the
 //!   device, so the operating system's in-use light goes out too.
 //! - Only the newest picture is kept; a slow interface skips pictures, never queues them.
 //! - A device error is kept as text for the interface and the thread ends.
+//! - The taps never block capture: a full engine queue drops the picture or frame.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -18,6 +20,7 @@ use eframe::egui;
 
 use crate::convert::Rgba;
 use crate::devices::Choice;
+use crate::engine::{Captured, Taps};
 
 /// What the interface reads from the workers.
 #[derive(Default)]
@@ -28,22 +31,25 @@ struct Shared {
     level: AtomicU32,
     camera_error: Mutex<Option<String>>,
     mic_error: Mutex<Option<String>>,
+    /// Where the call engine takes pictures and sound, while in a call.
+    taps: Mutex<Option<Taps>>,
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     // A worker that panicked mid-write leaves plain data behind; use it.
     mutex
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-struct Worker {
+/// A named thread with a stop flag. Dropping it asks the thread to stop and waits for it.
+pub(crate) struct Worker {
     stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
 
 impl Worker {
-    fn spawn(body: impl FnOnce(Arc<AtomicBool>) + Send + 'static) -> Self {
+    pub(crate) fn spawn(body: impl FnOnce(Arc<AtomicBool>) + Send + 'static) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
         let handle = std::thread::Builder::new()
@@ -155,7 +161,7 @@ impl LocalMedia {
         }
     }
 
-    /// Remembers the speaker for the call; nothing plays before it is wired in.
+    /// Remembers the speaker; the call's playback opens it (`engine/audio_out.rs`).
     pub fn choose_speaker(&mut self, id: Option<String>) {
         self.choice.speaker = id;
     }
@@ -168,6 +174,11 @@ impl LocalMedia {
         }
         self.seen_seq = seq;
         lock(&self.shared.picture).take()
+    }
+
+    /// Starts or stops handing pictures and sound to the call engine.
+    pub fn set_taps(&self, taps: Option<Taps>) {
+        *lock(&self.shared.taps) = taps;
     }
 
     pub fn level(&self) -> f32 {
@@ -209,6 +220,8 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
             return;
         }
     };
+    let mode = camera.mode();
+    let fps = (mode.fps_num / mode.fps_den.max(1)).clamp(1, 60);
     while !stop.load(Ordering::Relaxed) {
         let picture = match camera.read() {
             Ok(Some(picture)) => picture,
@@ -218,6 +231,16 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
                 break;
             }
         };
+        if let Some(taps) = lock(&shared.taps).as_ref() {
+            let _ = taps.video.try_send(Captured {
+                width: picture.width,
+                height: picture.height,
+                stride: picture.stride,
+                fps,
+                timestamp_us: picture.timestamp_us,
+                data: picture.data.to_vec(),
+            });
+        }
         let (w, h) = (usize::from(picture.width), usize::from(picture.height));
         let half = w > 960;
         if let Some(rgba) = crate::convert::nv12_to_rgba(picture.data, w, h, picture.stride, half) {
@@ -244,12 +267,15 @@ fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Option<
     while !stop.load(Ordering::Relaxed) {
         match mic.read() {
             Ok(frame) => {
+                if let Some(taps) = lock(&shared.taps).as_ref() {
+                    let _ = taps.audio.try_send(frame.to_vec());
+                }
                 shared
                     .level
                     .store(meter(frame).to_bits(), Ordering::Relaxed);
                 // Every other 20 ms frame is smooth enough for a meter.
                 frames = frames.wrapping_add(1);
-                if frames % 2 == 0 {
+                if frames.is_multiple_of(2) {
                     ctx.request_repaint();
                 }
             }

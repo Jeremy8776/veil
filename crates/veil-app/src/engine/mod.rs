@@ -1,0 +1,240 @@
+//! The real call: `veil-call` for links, the lobby and keys, `veil-media` for sound and video.
+//!
+//! Purpose: [`Engine`] runs one call away from the interface thread and shows it through
+//! [`Engine::sync`], which copies what the engine knows into the screens' [`Call`]. The parts:
+//! - a Tokio runtime running the session task: `host.rs` or `guest.rs` for the call itself,
+//!   `session.rs` for sealing, sending, receiving and opening media, `plan.rs` for addresses
+//!   and the host's layout of each key epoch;
+//! - `video_out.rs`, a thread that encodes your camera (H.264 simulcast);
+//! - `video_in.rs`, a thread that checks and decodes everyone else's video;
+//! - `audio_out.rs`, a thread that orders, decodes, mixes and plays everyone's sound.
+//!
+//! Your camera and microphone threads (`media.rs`) feed the engine through [`Taps`].
+//!
+//! Invariants:
+//! - On the interface thread the engine only takes short locks (`sync`, `act`,
+//!   `take_pictures`) and, when dropped, waits at most about a second for the call to close.
+//! - Queues between threads are bounded and full queues drop media rather than block. Only
+//!   the interface's commands are unbounded, and the interface sends a handful.
+//! - Nothing leaves the device unencrypted: every picture and sound frame is sealed with the
+//!   current MLS epoch's frame key before it reaches the network (`session.rs`).
+//! - Dropping the engine leaves the call: the session task ends, links close, threads stop.
+
+mod audio_out;
+mod guest;
+mod host;
+mod loopback;
+pub mod plan;
+mod session;
+mod video_in;
+mod video_out;
+mod view;
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::mpsc::{SyncSender, sync_channel};
+use std::time::{Duration, Instant};
+
+use eframe::egui;
+use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
+use veil_security::invite::Invite;
+
+use crate::convert::Rgba;
+use crate::media::{Worker, lock};
+use crate::model::{Action, Call, CallStatus};
+pub use view::Shared;
+use view::View;
+
+/// One camera picture, copied out of the camera for the encoder.
+pub struct Captured {
+    pub width: u16,
+    pub height: u16,
+    pub stride: usize,
+    pub fps: u32,
+    pub timestamp_us: u64,
+    pub data: Vec<u8>,
+}
+
+/// Where the camera and microphone threads hand their output to the engine.
+#[derive(Clone)]
+pub struct Taps {
+    pub video: SyncSender<Captured>,
+    /// One 20 ms frame of interleaved samples (`AudioSettings::voice`).
+    pub audio: mpsc::Sender<Vec<f32>>,
+}
+
+/// Start a call, or join one from an invite.
+pub enum Role {
+    Host,
+    Guest(Box<Invite>),
+}
+
+/// What the interface asks of the session task.
+pub(crate) enum Command {
+    Act(Action),
+    Leave,
+}
+
+/// How long leaving may hold the interface while links close.
+const CLOSE_WAIT: Duration = Duration::from_secs(1);
+
+pub struct Engine {
+    runtime: Option<Runtime>,
+    task: Option<tokio::task::JoinHandle<()>>,
+    commands: mpsc::UnboundedSender<Command>,
+    shared: Arc<Shared>,
+    taps: Taps,
+    _workers: Vec<Worker>,
+}
+
+impl Engine {
+    /// Starts the call. `speaker` is a device id from the pre-join picker, `None` for the
+    /// default. Fails only if the async runtime cannot start.
+    pub fn start(role: Role, speaker: Option<String>, ctx: egui::Context) -> Result<Self, String> {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("veil-call")
+            .enable_all()
+            .build()
+            .map_err(|e| format!("cannot start the call runtime: {e}"))?;
+        let shared = Arc::new(Shared::new(ctx));
+        // One picture waits at most: the encoder always takes the newest.
+        let (video_tx, video_rx) = sync_channel(1);
+        let (sound_tx, sound_rx) = mpsc::channel(8);
+        let (encoded_tx, encoded_rx) = mpsc::channel(16);
+        let (video_in_tx, video_in_rx) = sync_channel(64);
+        let (audio_in_tx, audio_in_rx) = sync_channel(128);
+        let (keyframe_tx, keyframe_rx) = mpsc::unbounded_channel();
+        let control = Arc::new(video_out::VideoControl::default());
+        let workers = vec![
+            video_out::spawn(video_rx, encoded_tx, control.clone()),
+            video_in::spawn(video_in_rx, keyframe_tx, shared.clone()),
+            audio_out::spawn(audio_in_rx, shared.clone(), speaker),
+        ];
+        let pipes = session::Pipes {
+            encoded: encoded_rx,
+            sound: sound_rx,
+            keyframes: keyframe_rx,
+            video_in: video_in_tx,
+            audio_in: audio_in_tx,
+            control,
+        };
+        let (commands, commands_rx) = mpsc::unbounded_channel();
+        let config = plan::NetConfig::from_env();
+        let task_shared = shared.clone();
+        let task = runtime.spawn(async move {
+            let shared = task_shared.clone();
+            let result = match role {
+                Role::Host => host::run(config, task_shared, pipes, commands_rx).await,
+                Role::Guest(invite) => {
+                    guest::run(*invite, config, task_shared, pipes, commands_rx).await
+                }
+            };
+            let reason = match result {
+                Ok(()) => String::from("You left the call"),
+                Err(reason) => reason,
+            };
+            shared.update(|view| view.status = CallStatus::Ended(reason));
+        });
+        Ok(Self {
+            runtime: Some(runtime),
+            task: Some(task),
+            commands,
+            shared,
+            taps: Taps {
+                video: video_tx,
+                audio: sound_tx,
+            },
+            _workers: workers,
+        })
+    }
+
+    pub fn taps(&self) -> Taps {
+        self.taps.clone()
+    }
+
+    /// Hands a host's decision to the session. Admitting or declining takes the person out
+    /// of the lobby at once, so a second click cannot repeat it.
+    pub fn act(&self, action: Action) {
+        if let Action::Admit(id) | Action::Decline(id) = action {
+            self.shared.update(|view| view.lobby.retain(|k| k.id != id));
+        }
+        let _ = self.commands.send(Command::Act(action));
+    }
+
+    /// Copies the engine's view of the call into `call`.
+    pub fn sync(&self, call: &mut Call, now: Instant) {
+        let view: View = lock(&self.shared.view).clone();
+        let seen = self.shared.seen();
+        view::apply(&view, &seen, call, now);
+    }
+
+    /// Pictures decoded since the last call, by participant id.
+    pub fn take_pictures(&self) -> Vec<(u32, Rgba)> {
+        self.shared.take_pictures()
+    }
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        let _ = self.commands.send(Command::Leave);
+        if let (Some(runtime), Some(task)) = (self.runtime.take(), self.task.take()) {
+            runtime.block_on(async {
+                let _ = tokio::time::timeout(CLOSE_WAIT, task).await;
+                // Lets the endpoints send their close frames before the runtime stops.
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            });
+            runtime.shutdown_timeout(Duration::from_millis(200));
+        }
+    }
+}
+
+/// The first 8 hex digits of a key: enough to tell people apart until names are sent.
+pub fn short(key: &veil_security::PublicId) -> String {
+    key.0.iter().take(4).map(|b| format!("{b:02x}")).collect()
+}
+
+/// Microseconds since `start`, saturating.
+pub(crate) fn micros_since(start: Instant) -> u64 {
+    u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX)
+}
+
+/// Ids handed to the interface for each device, stable for the whole call. You are 0.
+#[derive(Default)]
+pub(crate) struct Ids {
+    by_device: HashMap<veil_security::PublicId, u32>,
+}
+
+impl Ids {
+    pub fn id(&mut self, device: veil_security::PublicId) -> u32 {
+        let next = u32::try_from(self.by_device.len()).unwrap_or(u32::MAX) + 1;
+        *self.by_device.entry(device).or_insert(next)
+    }
+
+    pub fn device(&self, id: u32) -> Option<veil_security::PublicId> {
+        self.by_device
+            .iter()
+            .find(|(_, i)| **i == id)
+            .map(|(d, _)| *d)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use veil_security::Identity;
+
+    use super::*;
+
+    #[test]
+    fn ids_are_stable_and_start_at_one() {
+        let (a, b) = (Identity::generate().public(), Identity::generate().public());
+        let mut ids = Ids::default();
+        assert_eq!(ids.id(a), 1);
+        assert_eq!(ids.id(b), 2);
+        assert_eq!(ids.id(a), 1);
+        assert_eq!(ids.device(2), Some(b));
+        assert_eq!(ids.device(3), None);
+        assert_eq!(short(&a).len(), 8);
+    }
+}

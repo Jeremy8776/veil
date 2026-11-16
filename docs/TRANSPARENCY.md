@@ -12,12 +12,13 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 |---|---|
 | Device keys, safety numbers, signed invites | Capture, encoding and decoding on macOS and Linux |
 | Windows camera capture, H.264 encoding and decoding, Opus audio | Veil's own echo cancellation (Windows' is used where the device offers it) |
-| MLS group keys, the host's lobby | The desktop app joined to real calls (today it runs a labelled demo) |
+| MLS group keys, the host's lobby | Names and chat sent between members (the app shows a key prefix, and chat stays on your device) |
 | Per-frame encryption with a layer marker | Signed organisation policy, OIDC or SAML identity |
 | QUIC links pinned to device keys | Metrics export (OpenTelemetry) |
 | Rendezvous, hole punching, relay | Compliance recording, federation, gateways |
 | Forwarder with layer subscriptions | Padding against size analysis |
 | `veil-node`, `veil-probe` | An independent security audit |
+| The desktop app in a real call: host, lobby, guest, video and sound both ways | |
 
 [ARCHITECTURE.md](ARCHITECTURE.md) describes the whole design, including the planned parts.
 [HANDOFF.md](HANDOFF.md) says what is done and what is next.
@@ -34,6 +35,11 @@ forwarders and rendezvous nodes never hold media keys. They can still see this:
 | Relay | Members' IP addresses, encrypted traffic volume and timing |
 | Forwarder | Members' device keys and the room hash (from the host's roster ticket), traffic volume and timing, and each video frame's layer marker: which resolution tier and frame-rate step it is, and whether it is a keyframe |
 | Other members | Your device key, and your IP address unless you use relay-only mode |
+| Anyone holding an invite link | The host's device key and the addresses in it: the host's LAN address and port, and any public address set in `VEIL_ADVERTISE`. The desktop app puts these in every invite so a guest can dial directly |
+
+When the desktop app hosts without a configured `veil-node`, it runs a rendezvous and relay of
+its own on a second port for the length of the call. It sees what any rendezvous sees (the
+table above), and it is the host's own machine.
 
 **Known leaks:**
 - Packet sizes and timing show when someone speaks or moves. Padding is planned, not built.
@@ -48,7 +54,10 @@ forwarders and rendezvous nodes never hold media keys. They can still see this:
 ## 3. No telemetry, no default servers
 
 Veil sends nothing to its authors and has no built-in servers. Every rendezvous, relay and
-forwarder address comes from an invite or a config file you control. Addresses in the source
+forwarder address comes from an invite, a config file or an environment variable you control
+(`VEIL_RENDEZVOUS`, `VEIL_ADVERTISE`, `VEIL_PORT` for the desktop app). To find its LAN
+address, the app asks the operating system which interface would route to a documentation
+address (192.0.2.1); no packet is sent. Addresses in the source
 code are from the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24,
 2001:db8::/32) and appear only in tests.
 
@@ -125,7 +134,10 @@ grep -rn "shortcut:" crates
 - Live camera capture runs only on request (`cargo test -p veil-media --test camera --
   --ignored`), because it turns the camera on. Listing cameras runs in every test pass.
   The microphone test is the same (`--test wasapi -- --ignored`); playback of silence runs in
-  every test pass.
+  every test pass. The desktop app's two-engine call (`cargo test -p veil-app loopback --
+  --ignored`) opens ports, the H.264 encoder and the speaker, so it also runs only on request.
+- A call between two copies of the desktop app with real cameras and microphones has not yet
+  been run by a person.
 
 ## 8. Reporting a security problem
 

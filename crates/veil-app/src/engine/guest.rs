@@ -1,0 +1,101 @@
+//! Joining a call from an invite: wait in the lobby, then follow the host's keys and plan.
+//!
+//! Purpose: starts a network node registered with the invite's rendezvous, calls
+//! `veil_call::join` (which waits until the host decides), then runs the guest's loop: each
+//! `MemberEvent::Keys` replaces the frame keys and each `MemberEvent::Routes` is applied to
+//! the `MediaSession`.
+//!
+//! Invariants:
+//! - Leaving while still in the lobby cancels the join; nothing was admitted, so nothing to
+//!   undo.
+//! - Being removed, or the host ending the call, ends it here with a reason the end screen
+//!   shows.
+
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::Arc;
+
+use tokio::sync::mpsc::UnboundedReceiver;
+use veil_call::{CallError, CallNode, MemberEvent, join};
+use veil_net::Node;
+use veil_security::Identity;
+use veil_security::invite::Invite;
+
+use super::Command;
+use super::plan::NetConfig;
+use super::session::{Pipes, Session};
+use super::view::Shared;
+use crate::model::CallStatus;
+
+pub async fn run(
+    invite: Invite,
+    config: NetConfig,
+    shared: Arc<Shared>,
+    pipes: Pipes,
+    mut commands: UnboundedReceiver<Command>,
+) -> Result<(), String> {
+    let identity = Identity::generate();
+    let me = identity.public();
+    let bind = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
+    let node = Node::bind(&identity, bind).map_err(|e| format!("Cannot open the network: {e}"))?;
+    let rendezvous = config.rendezvous;
+    let mut call = match rendezvous {
+        // A configured rendezvous wins over the invite's, for networks the host's cannot reach.
+        Some(addr) => CallNode::start(&identity, node, invite.room_id, Some(addr), None).await,
+        None => CallNode::for_invite(&identity, node, &invite).await,
+    };
+    shared.update(|view| view.status = CallStatus::Lobby);
+    let mut member = tokio::select! {
+        joined = join(&call, &invite) => joined.map_err(|e| join_error(&e))?,
+        () = wait_for_leave(&mut commands) => return Ok(()),
+    };
+    shared.update(|view| view.status = CallStatus::Live);
+    let media = call.media().map_err(|e| e.to_string())?;
+    let mut session = Session::new(media, me, invite.host, shared.clone(), pipes);
+    loop {
+        tokio::select! {
+            command = commands.recv() => match command {
+                None | Some(Command::Leave) => return Ok(()),
+                // Only the host decides; the interface offers a guest nothing to act on.
+                Some(Command::Act(_)) => {}
+            },
+            event = member.events.recv() => match event {
+                Some(MemberEvent::Keys(keys)) => session.on_keys(keys),
+                Some(MemberEvent::Routes(routes)) => session.on_routes(routes).await,
+                Some(MemberEvent::PlanRefused(e)) => {
+                    eprintln!("veil-app: refused the host's plan: {e}");
+                }
+                Some(MemberEvent::Removed) => return Err("The host removed you from the call.".into()),
+                Some(MemberEvent::Failed(e)) => return Err(format!("The call failed: {e}")),
+                Some(MemberEvent::Closed) | None => return Err("The host ended the call.".into()),
+            },
+            () = session.pump() => {}
+        }
+    }
+}
+
+async fn wait_for_leave(commands: &mut UnboundedReceiver<Command>) {
+    while let Some(command) = commands.recv().await {
+        if matches!(command, Command::Leave) {
+            return;
+        }
+    }
+}
+
+fn join_error(e: &CallError) -> String {
+    match e {
+        CallError::Refused(_) => String::from("The host did not let you in."),
+        CallError::Timeout => String::from("The host did not answer."),
+        other => format!("Could not reach the call: {other}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn join_errors_read_plainly() {
+        assert_eq!(join_error(&CallError::Timeout), "The host did not answer.");
+        assert!(join_error(&CallError::Closed).starts_with("Could not reach the call"));
+    }
+}

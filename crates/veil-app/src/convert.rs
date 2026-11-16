@@ -27,7 +27,7 @@ pub fn nv12_to_rgba(
     stride: usize,
     half: bool,
 ) -> Option<Rgba> {
-    let even = width % 2 == 0 && height % 2 == 0;
+    let even = width.is_multiple_of(2) && height.is_multiple_of(2);
     if width == 0 || height == 0 || !even || stride < width {
         return None;
     }

@@ -3756,7 +3756,13 @@ name = "veil-app"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "tokio",
+ "veil-call",
  "veil-media",
+ "veil-net",
+ "veil-rendezvous",
+ "veil-security",
+ "veil-topology",
 ]
 
 [[package]]

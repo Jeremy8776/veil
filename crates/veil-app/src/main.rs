@@ -1,9 +1,9 @@
 //! Veil's desktop app: start or join a call, check your camera and microphone, and talk.
 //!
 //! Purpose: the window and start-up. The screens are in `screens/`, the look in `theme.rs`,
-//! and the call state in `model.rs`. Until the app is wired to `veil-call`, the other people
-//! in a call are simulated (`demo.rs`) and the interface says so; your own camera and
-//! microphone are real and never leave the device.
+//! the call state the screens read in `model.rs`, and the real call (network, keys, encoding,
+//! decoding, playback) in `engine/`. `demo.rs` simulates a call behind the "Demo call" entry
+//! on Home, and the interface says so.
 //!
 //! Invariants:
 //! - No `unsafe`: the workspace forbids it, and the native media code lives in `veil-media`.
@@ -16,6 +16,7 @@ mod app;
 mod convert;
 mod demo;
 mod devices;
+mod engine;
 mod icons;
 mod layout;
 mod media;

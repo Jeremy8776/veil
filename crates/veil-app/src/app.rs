@@ -6,20 +6,30 @@
 //! Invariants:
 //! - Devices are on only on the pre-join and call screens. Leaving either turns them off.
 //! - The camera texture is updated once per frame, before any screen draws.
+//! - A real call's engine lives in its [`CallView`]; your camera and microphone feed it only
+//!   while that view exists.
 
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, TextureHandle, TextureOptions};
 
+use crate::engine::{Engine, Role};
 use crate::media::LocalMedia;
-use crate::model::Call;
+use crate::model::{Call, CallStatus};
 use crate::screens::call::CallView;
 
 pub enum Screen {
     Home,
-    PreJoin { host: bool },
+    PreJoin {
+        host: bool,
+    },
     Call(Box<CallView>),
-    Ended { title: String, lasted: Duration },
+    Ended {
+        title: String,
+        lasted: Duration,
+        reason: String,
+    },
 }
 
 pub struct VeilApp {
@@ -37,6 +47,13 @@ pub struct VeilApp {
     pub want_mic: bool,
     /// Devices on this machine, read when the pre-join screen opens.
     pub devices: crate::devices::DeviceLists,
+    /// The invite being joined, checked on the home screen.
+    pub joining: Option<veil_security::invite::Invite>,
+    /// The next call is the simulated demo.
+    pub demo: bool,
+    /// Everyone else's video in the current call, by participant id.
+    pub remote: HashMap<u32, TextureHandle>,
+    ctx: egui::Context,
 }
 
 impl VeilApp {
@@ -55,6 +72,10 @@ impl VeilApp {
             want_camera: true,
             want_mic: true,
             devices: crate::devices::DeviceLists::default(),
+            joining: None,
+            demo: false,
+            remote: HashMap::new(),
+            ctx: ctx.clone(),
         }
     }
 
@@ -66,25 +87,92 @@ impl VeilApp {
         self.screen = Screen::PreJoin { host };
     }
 
+    /// Starts the call: the demo, or the real engine as host or guest.
     pub fn go_call(&mut self, host: bool) {
-        let mut call = crate::demo::call(self.name.trim(), host, Instant::now());
+        let now = Instant::now();
+        let name = self.name.trim().to_string();
+        let (mut call, engine) = if self.demo {
+            (crate::demo::call(&name, host, now), None)
+        } else {
+            let role = match (host, self.joining.clone()) {
+                (true, _) => Role::Host,
+                (false, Some(invite)) => Role::Guest(Box::new(invite)),
+                (false, None) => {
+                    self.home_error = Some(String::from("Paste the invite link you were sent."));
+                    self.go_home();
+                    return;
+                }
+            };
+            let speaker = self.media.choice().speaker.clone();
+            match Engine::start(role, speaker, self.ctx.clone()) {
+                Ok(engine) => {
+                    self.media.set_taps(Some(engine.taps()));
+                    let title = if host {
+                        format!("{name}'s call")
+                    } else {
+                        String::from("Veil call")
+                    };
+                    (Call::live(title, &name, host, now), Some(engine))
+                }
+                Err(e) => {
+                    self.home_error = Some(e);
+                    self.go_home();
+                    return;
+                }
+            }
+        };
         if let Some(you) = call.you_mut() {
             you.muted = !self.want_mic;
             you.camera = self.want_camera;
         }
-        self.screen = Screen::Call(Box::new(CallView::new(call)));
+        self.remote.clear();
+        self.screen = Screen::Call(Box::new(CallView::new(call, engine)));
     }
 
     pub fn leave(&mut self, call: &Call) {
+        self.media.set_taps(None);
         self.media.set_camera(false);
         self.media.set_mic(false);
+        self.remote.clear();
+        let reason = match &call.status {
+            CallStatus::Ended(reason) => reason.clone(),
+            _ => String::from("You left the call"),
+        };
         self.screen = Screen::Ended {
             title: call.title.clone(),
             lasted: call.elapsed(Instant::now()),
+            reason,
         };
     }
 
+    /// Uploads pictures that arrived for other people's tiles.
+    pub fn upload_remote(&mut self, pictures: Vec<(u32, crate::convert::Rgba)>) {
+        for (id, picture) in pictures {
+            let image = egui::ColorImage::from_rgba_unmultiplied(
+                [picture.width, picture.height],
+                &picture.pixels,
+            );
+            match self.remote.get_mut(&id) {
+                Some(texture) => texture.set(image, TextureOptions::LINEAR),
+                None => {
+                    let texture = self.ctx.load_texture(
+                        format!("person-{id}"),
+                        image,
+                        TextureOptions::LINEAR,
+                    );
+                    self.remote.insert(id, texture);
+                }
+            }
+        }
+    }
+
+    /// Someone else's newest picture, for their tile.
+    pub fn remote_video(&self, id: u32) -> Option<(egui::TextureId, [usize; 2], bool)> {
+        self.remote.get(&id).map(|t| (t.id(), t.size(), false))
+    }
+
     pub fn go_home(&mut self) {
+        self.media.set_taps(None);
         self.media.set_camera(false);
         self.media.set_mic(false);
         self.preview = None;
@@ -139,8 +227,16 @@ impl eframe::App for VeilApp {
                     self.leave(&view.call);
                 }
             }
-            Screen::Ended { title, lasted } => {
-                self.screen = Screen::Ended { title, lasted };
+            Screen::Ended {
+                title,
+                lasted,
+                reason,
+            } => {
+                self.screen = Screen::Ended {
+                    title,
+                    lasted,
+                    reason,
+                };
                 crate::screens::home::ended(self, ui);
             }
         }

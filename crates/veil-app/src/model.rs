@@ -2,13 +2,15 @@
 //! and how each link is carried.
 //!
 //! Purpose: the screens draw only from [`Call`] and change it only through its methods, so the
-//! demo ([`crate::demo`]) and, next, the real call engine (`veil-call`) can sit behind it
-//! without the screens changing.
+//! real call engine ([`crate::engine`]) and the demo ([`crate::demo`]) sit behind it without
+//! the screens changing.
 //!
 //! Invariants:
 //! - Exactly one participant is you, and it is first.
-//! - Admitting or removing someone starts a new key epoch, as MLS does in `veil-group`.
 //! - Only the host admits, declines or removes; the methods do nothing for a guest.
+//! - In a real call those three only queue an [`Action`] for the engine. The people list
+//!   changes when the engine reports the new key epoch, never before. A demo call changes at
+//!   once, as MLS would.
 
 use std::time::{Duration, Instant};
 
@@ -19,6 +21,8 @@ pub enum LinkPath {
     Punched,
     Relayed,
     Forwarder,
+    /// Keys are agreed but the media link is not up yet.
+    Pending,
 }
 
 impl LinkPath {
@@ -28,6 +32,7 @@ impl LinkPath {
             Self::Punched => "Direct (hole punched)",
             Self::Relayed => "Relayed",
             Self::Forwarder => "Through forwarder",
+            Self::Pending => "Connecting",
         }
     }
 }
@@ -52,6 +57,28 @@ pub struct Waiting {
     pub id: u32,
     pub name: String,
     pub since: Instant,
+    /// Safety number with this person, to compare before letting them in. Empty in a demo.
+    pub safety: String,
+}
+
+/// Where a call stands.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CallStatus {
+    /// Setting up the network.
+    Connecting,
+    /// A guest waiting for the host to let them in.
+    Lobby,
+    Live,
+    /// The call is over for you; the text says why.
+    Ended(String),
+}
+
+/// A host's decision, queued for the engine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    Admit(u32),
+    Decline(u32),
+    Remove(u32),
 }
 
 #[derive(Clone, Debug)]
@@ -74,12 +101,45 @@ pub struct Call {
     pub epoch: u64,
     /// Other participants are simulated.
     pub demo: bool,
+    pub status: CallStatus,
+    /// Decisions not yet handed to the engine. Always empty in a demo.
+    pub outbox: Vec<Action>,
     /// Chat messages not yet seen with the chat panel open.
     pub unread: usize,
     pub(crate) next_id: u32,
 }
 
 impl Call {
+    /// A real call with only you in it, before the engine reports anything.
+    pub fn live(title: String, your_name: &str, is_host: bool, now: Instant) -> Self {
+        Self {
+            title,
+            is_host,
+            started: now,
+            participants: vec![Participant {
+                id: 0,
+                name: your_name.to_string(),
+                is_you: true,
+                is_host,
+                muted: false,
+                camera: false,
+                hand_raised: false,
+                speaking: false,
+                path: LinkPath::Direct,
+                safety: String::new(),
+            }],
+            lobby: Vec::new(),
+            chat: Vec::new(),
+            invite: String::new(),
+            epoch: 0,
+            demo: false,
+            status: CallStatus::Connecting,
+            outbox: Vec::new(),
+            unread: 0,
+            next_id: 1,
+        }
+    }
+
     pub fn you(&self) -> Option<&Participant> {
         self.participants.iter().find(|p| p.is_you)
     }
@@ -100,6 +160,10 @@ impl Call {
             return;
         };
         let waiting = self.lobby.remove(index);
+        if !self.demo {
+            self.outbox.push(Action::Admit(id));
+            return;
+        }
         self.participants.push(Participant {
             id: waiting.id,
             safety: crate::demo::safety_number(waiting.id),
@@ -116,13 +180,23 @@ impl Call {
     }
 
     pub fn decline(&mut self, id: u32) {
-        if self.is_host {
-            self.lobby.retain(|w| w.id != id);
+        if !self.is_host || !self.lobby.iter().any(|w| w.id == id) {
+            return;
+        }
+        self.lobby.retain(|w| w.id != id);
+        if !self.demo {
+            self.outbox.push(Action::Decline(id));
         }
     }
 
     pub fn remove(&mut self, id: u32) {
         if !self.is_host {
+            return;
+        }
+        if !self.demo {
+            if self.participants.iter().any(|p| !p.is_you && p.id == id) {
+                self.outbox.push(Action::Remove(id));
+            }
             return;
         }
         let before = self.participants.len();
@@ -182,6 +256,7 @@ mod tests {
             id: 99,
             name: "Priya Shah".into(),
             since: now,
+            safety: String::new(),
         });
         let epoch = call.epoch;
         call.admit(99);
@@ -194,6 +269,7 @@ mod tests {
             id: 100,
             name: "Sam".into(),
             since: now,
+            safety: String::new(),
         });
         call.decline(100);
         assert!(call.lobby.is_empty());
@@ -207,6 +283,7 @@ mod tests {
             id: 99,
             name: "Priya".into(),
             since: now,
+            safety: String::new(),
         });
         call.admit(99);
         assert_eq!(call.lobby.len(), 1);
@@ -227,6 +304,36 @@ mod tests {
         assert_eq!(call.chat.len(), before);
         call.send(" hello ", now);
         assert_eq!(call.chat.last().unwrap().text, "hello");
+    }
+
+    #[test]
+    fn a_live_call_queues_decisions_for_the_engine() {
+        let now = Instant::now();
+        let mut call = Call::live("Call".into(), "Jo", true, now);
+        call.lobby.push(Waiting {
+            id: 7,
+            name: "Guest".into(),
+            since: now,
+            safety: String::new(),
+        });
+        call.admit(7);
+        assert!(call.lobby.is_empty());
+        assert_eq!(
+            call.participants.len(),
+            1,
+            "joins only when the engine says so"
+        );
+        call.decline(8);
+        call.remove(9);
+        assert_eq!(call.outbox, [Action::Admit(7)]);
+        call.participants.push(Participant {
+            id: 9,
+            is_you: false,
+            ..call.participants[0].clone()
+        });
+        call.remove(9);
+        assert_eq!(call.outbox, [Action::Admit(7), Action::Remove(9)]);
+        assert_eq!(call.epoch, 0);
     }
 
     #[test]

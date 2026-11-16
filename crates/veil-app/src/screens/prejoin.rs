@@ -17,7 +17,11 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
                 .inner_margin(egui::Margin::same(32)),
         )
         .show(ui, |ui| {
-            let title = if host { "Start a call" } else { "Join a call" };
+            let title = match (app.demo, host) {
+                (true, _) => "Try a demo call",
+                (false, true) => "Start a call",
+                (false, false) => "Join a call",
+            };
             ui.label(RichText::new(title).font(theme::bold(26.0)));
             ui.add_space(12.0);
             let wide = ui.available_width() > 1000.0;
@@ -152,10 +156,10 @@ fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
             app.go_home();
         }
         ui.add_space(6.0);
-        let note = if host {
-            "You let people in from the lobby."
-        } else {
-            "The host lets you in."
+        let note = match (app.demo, host) {
+            (true, _) => "Other people are simulated.",
+            (false, true) => "You let people in from the lobby.",
+            (false, false) => "The host lets you in.",
         };
         ui.label(RichText::new(note).small().color(MUTED));
     });

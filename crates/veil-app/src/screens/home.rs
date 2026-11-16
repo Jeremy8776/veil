@@ -1,7 +1,14 @@
-//! The first screen (your name, start a call, or join one with an invite link) and the screen
-//! after a call ends.
+//! The first screen (your name, start a call, join one with an invite link, or try the demo)
+//! and the screen after a call ends.
+//!
+//! Invariants:
+//! - An invite is checked here (signature, expiry) before any device or network starts, so a
+//!   bad link is reported where it was pasted.
+
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, Align, Layout, RichText, TextEdit};
+use veil_security::invite::Invite;
 
 use crate::app::VeilApp;
 use crate::icons::Icon;
@@ -34,6 +41,7 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
             )
             .clicked()
             {
+                app.demo = false;
                 start(app, true);
             }
             ui.add_space(12.0);
@@ -45,10 +53,13 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
             );
             let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if pill(ui, Some(Icon::Link), "Join", Tone::Quiet, COLUMN - 40.0).clicked() || entered {
-                if app.invite.trim().is_empty() {
-                    app.home_error = Some(String::from("Paste the invite link you were sent."));
-                } else {
-                    start(app, false);
+                match check_invite(&app.invite) {
+                    Ok(invite) => {
+                        app.joining = Some(invite);
+                        app.demo = false;
+                        start(app, false);
+                    }
+                    Err(problem) => app.home_error = Some(problem),
                 }
             }
             if let Some(error) = &app.home_error {
@@ -57,7 +68,27 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
         });
         ui.add_space(16.0);
         ui.label(RichText::new("End-to-end encrypted").small().color(MUTED));
+        ui.add_space(8.0);
+        let demo = ui
+            .add(egui::Button::new(RichText::new("Demo call").small().color(MUTED)).frame(false))
+            .on_hover_text("Try the interface with simulated people. Nothing is sent.");
+        if demo.clicked() {
+            app.demo = true;
+            start(app, true);
+        }
     });
+}
+
+/// Reads an invite link, or says plainly what is wrong with it.
+fn check_invite(text: &str) -> Result<Invite, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err(String::from("Paste the invite link you were sent."));
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    Invite::from_link(text, now).map_err(|e| format!("This invite link does not work: {e}"))
 }
 
 fn start(app: &mut VeilApp, host: bool) {
@@ -71,12 +102,17 @@ fn start(app: &mut VeilApp, host: bool) {
 
 /// After leaving: how long the call lasted, and the way back.
 pub fn ended(app: &mut VeilApp, ui: &mut egui::Ui) {
-    let crate::app::Screen::Ended { title, lasted } = &app.screen else {
+    let crate::app::Screen::Ended {
+        title,
+        lasted,
+        reason,
+    } = &app.screen
+    else {
         return;
     };
-    let (title, lasted) = (title.clone(), *lasted);
+    let (title, lasted, reason) = (title.clone(), *lasted, reason.clone());
     page(ui, |ui| {
-        ui.label(RichText::new("You left the call").font(theme::bold(28.0)));
+        ui.label(RichText::new(reason).font(theme::bold(28.0)));
         ui.label(RichText::new(format!("{title} · {}", clock(lasted))).color(MUTED));
         ui.add_space(20.0);
         if pill(ui, None, "Back to home", Tone::Primary, 220.0).clicked() {

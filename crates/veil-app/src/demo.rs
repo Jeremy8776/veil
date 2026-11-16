@@ -1,4 +1,4 @@
-//! A simulated call, so the interface can be used before it is wired to `veil-call`.
+//! A simulated call, behind the "Demo call" entry on Home, to try the interface alone.
 //!
 //! Purpose: fills a [`Call`] with people who take turns speaking, someone who knocks in the
 //! lobby, and a chat message, on a fixed timeline. The interface shows a banner whenever
@@ -8,7 +8,6 @@
 //! - Deterministic: the same elapsed time gives the same state, so it is testable.
 //! - Safety numbers here are made up and labelled as demo values in the interface.
 //!
-//! shortcut: the whole module goes once the screens read from the real call engine.
 
 use std::time::{Duration, Instant};
 
@@ -66,6 +65,8 @@ pub fn call(your_name: &str, is_host: bool, now: Instant) -> Call {
         invite: String::from("veil://join/demo-invite-not-a-real-link"),
         epoch: 1,
         demo: true,
+        status: crate::model::CallStatus::Live,
+        outbox: Vec::new(),
         unread: 0,
         next_id: 10,
     }
@@ -91,6 +92,7 @@ pub fn tick(call: &mut Call, now: Instant) {
             id: call.next_id,
             name: String::from("Priya Shah"),
             since: now,
+            safety: String::new(),
         });
         call.next_id += 1;
     }

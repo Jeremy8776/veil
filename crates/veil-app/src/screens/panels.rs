@@ -4,6 +4,9 @@
 //! Invariants:
 //! - Only the host sees Admit, Decline and Remove.
 //! - In a demo call, chat and safety numbers say they are not real.
+//! - In a real call, chat says it stays on this device: messages are not sent yet.
+//! - A person in the lobby shows their safety number on hover, so the host can compare it
+//!   before letting them in.
 
 use std::time::Instant;
 
@@ -54,15 +57,15 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, panel: Panel, now: Instant) 
 }
 
 fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
-    if pill(
+    let copy = pill(
         ui,
         Some(Icon::Copy),
         "Copy invite link",
         Tone::Quiet,
         ui.available_width(),
     )
-    .clicked()
-    {
+    .on_hover_text("Works once and for an hour. A new link is made after each use.");
+    if copy.clicked() && !view.call.invite.is_empty() {
         ui.ctx().copy_text(view.call.invite.clone());
         view.notify("Invite link copied");
     }
@@ -80,7 +83,14 @@ fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
                 person_avatar(ui, &waiting.name);
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    ui.label(&waiting.name);
+                    let name = ui.label(&waiting.name);
+                    if !waiting.safety.is_empty() {
+                        name.on_hover_text(format!(
+                            "Safety number: {}
+Compare it with them before letting them in.",
+                            waiting.safety
+                        ));
+                    }
                     let waited = clock(now.saturating_duration_since(waiting.since));
                     ui.label(
                         RichText::new(format!("Waiting {waited}"))
@@ -168,13 +178,12 @@ fn status_icons(ui: &mut egui::Ui, person: &Participant) {
 }
 
 fn chat(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
-    if view.call.demo {
-        ui.label(
-            RichText::new("Demo: messages stay here.")
-                .small()
-                .color(theme::WARN),
-        );
-    }
+    let note = if view.call.demo {
+        "Demo: messages stay here."
+    } else {
+        "Not sent yet: messages stay on this device."
+    };
+    ui.label(RichText::new(note).small().color(theme::WARN));
     let input_h = 44.0;
     let list_h = (ui.available_height() - input_h - 8.0).max(80.0);
     ScrollArea::vertical()
@@ -277,6 +286,7 @@ fn security(view: &mut CallView, ui: &mut egui::Ui) {
 fn path_label(ui: &mut egui::Ui, path: LinkPath) {
     let colour = match path {
         LinkPath::Relayed => theme::WARN,
+        LinkPath::Pending => MUTED,
         _ => theme::SPEAKING,
     };
     ui.horizontal(|ui| {

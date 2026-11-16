@@ -2,12 +2,19 @@
 name = "veil-app"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+# Follows veil-call, which needs Rust 1.91 for openmls.
+rust-version = "1.91"
 publish.workspace = true
 license.workspace = true
 
 [dependencies]
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "sync"] }
+veil-call = { path = "../veil-call" }
 veil-media = { path = "../veil-media" }
+veil-net = { path = "../veil-net" }
+veil-rendezvous = { path = "../veil-rendezvous" }
+veil-security = { path = "../veil-security" }
+veil-topology = { path = "../veil-topology" }
 # No default features: egui's bundled fonts carry licences outside the allow list
 # (tools/licences.py), so the app loads the operating system's own fonts at start-up.
 eframe = { version = "0.37", default-features = false, features = [

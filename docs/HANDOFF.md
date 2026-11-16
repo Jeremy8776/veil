@@ -161,12 +161,12 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   silence (about 430 ms here) and, `--ignored`, reads 50 microphone frames:
   `cargo test -j 8 -p veil-media --test wasapi -- --ignored --nocapture`.
 
-- `veil-app`, the desktop interface (`eframe` 0.37 with `wgpu`), demo only. Run it with
+- `veil-app`, the desktop interface (`eframe` 0.37 with `wgpu`). Run it with
   `cargo run -j 8 -p veil-app --release`. Screens (`src/screens/`): home, pre-join, call (top
   bar, gallery or speaker stage, control bar), side panels (people and lobby, chat, security),
   and the end screen. `model.rs` is the call state the screens read; `demo.rs` fills it with
   four simulated people who take turns speaking, a knock in the lobby at 8 s, and a chat
-  message at 14 s, behind a banner. `media.rs` runs your real camera (`MfCamera`, converted to
+  message at 14 s, behind a banner, only from the "Demo call" entry on Home. `media.rs` runs your real camera (`MfCamera`, converted to
   RGBA at half size in `convert.rs`) and microphone (`WasapiCapture`, for the meter and your
   speaking ring) on threads; muting or stopping video closes the device. Ctrl+Shift+M mutes,
   Ctrl+Shift+O toggles video. Fonts and icons come from Windows (`theme.rs`, `icons.rs`), none
@@ -175,10 +175,50 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   WASAPI devices (`audio_devices.rs`), `WasapiCapture::open` and `WasapiPlayback::open` take
   a device id or `None` for the default. In the app, `devices.rs` reads cameras, microphones
   and speakers when pre-join opens, and pre-join has a drop-down for each; changing camera or
-  microphone reopens it. The speaker choice is stored for when playback is wired in.
-  Tests: 21 unit tests (grid layout, NV12 conversion, meter, model, demo timeline, device
-  labels); `tests/wasapi.rs` lists devices and opens a speaker by id.
-  Not yet looked at by a person: the app has not been run on screen by anyone but its tests.
+  microphone reopens it. The call's playback opens the chosen speaker.
+  `tests/wasapi.rs` lists devices and opens a speaker by id.
+- `veil-app` real calls (16/11/2026), `src/engine/`. `Engine::start(Role::Host | Guest)`
+  owns a Tokio runtime (2 workers) and three threads; dropping it leaves the call (it waits up
+  to about a second for links to close). The screens still read only `model.rs`:
+  `Engine::sync` copies the engine's view (status, invite, epoch, people, lobby) into `Call`
+  each frame, and the host's Admit, Decline and Remove go out through `Call::outbox` to
+  `HostHandle::decide` and `remove`. `Call::live` starts a real call; `CallStatus` is
+  Connecting, Lobby (guest waiting), Live or Ended with a reason the end screen shows.
+  - `host.rs`: binds `0.0.0.0` (port from `VEIL_PORT` or any), runs its own
+    `RendezvousServer` (rendezvous plus relay) on a second port unless `VEIL_RENDEZVOUS` names
+    a `veil-node`, and puts in the invite the `VEIL_ADVERTISE` addresses, the LAN address
+    (found by asking the routing table, nothing sent) and 127.0.0.1, so a second copy on the
+    same computer can join. A fresh invite after every knock (tokens are one use). After
+    every `HostEvent::Keys` it plans a mesh (`plan.rs`, as `veil-probe`) and calls
+    `publish_plan`.
+  - `guest.rs`: `CallNode::for_invite` and `join`; the lobby wait can be cancelled by Leave.
+    `MemberEvent::Routes` is applied to the `MediaSession`; Removed or Closed end the call.
+  - `session.rs`: seals each encoded layer with `encrypt_layer` and each Opus frame with
+    `encrypt`, sends through the `MediaSession`, opens incoming media through a `KeyRing` and
+    maps the authenticated leaf index to a participant. Nothing is encoded or sent while you
+    are alone. Link paths refresh once a second for the Security panel.
+  - `video_out.rs`: `ladder_for` fits the camera (720p30 gives Thumb 640x360 at 15 fps and
+    Hd 1280x720 at 30 fps; a camera of 640 or less sends one layer; capped at 1080p), then
+    `Schedule` and `media_foundation(&ladder, true)`. A failed encoder reopens after 5 s.
+  - `video_in.rs`: per sender, follows the largest spatial layer that keeps arriving (drops
+    to the next after 1 s without it), `Gate`, `MfDecoder`, NV12 to RGBA (half size above 960
+    wide) for that person's tile. A broken stream asks for a keyframe.
+  - `audio_out.rs`: per sender a `JitterBuffer` and `OpusDecoder` (decode, FEC recover or
+    conceal), mixed, clamped and written to `WasapiPlayback`, which paces the loop. Each
+    person's level drives their speaking ring; no packet for a second shows them muted, no
+    picture for two seconds shows their camera off.
+  - `media.rs` hands camera pictures and microphone frames to the engine through `Taps`
+    (bounded; a full queue drops).
+  Names and chat are not sent yet: people show as "Host" or "Guest" plus a key prefix, and
+  chat says it stays on this device. Raised hands are local only.
+  Tests: 33 unit tests, plus `engine/loopback.rs` (ignored: it opens ports, the encoder and the
+  speaker): two engines on localhost, the guest knocks, the host admits, both show the same
+  safety number and epoch, synthetic 720p pictures and silence go both ways until each side
+  decodes the other's video and hears packets, then the guest leaves. Passed 16/11/2026 in
+  1.8 s (host link Punched, guest link Direct):
+  `cargo test -j 8 -p veil-app loopback -- --ignored --nocapture`.
+  Not yet run by a person: two copies of the app calling each other with real devices. Use
+  headphones: there is no echo cancellation of Veil's own.
 
 Tests: `cargo test -j 8 --workspace` (233 tests, two ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
@@ -231,8 +271,14 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
   than the ladder's capture rate (say 4K at 30 only) is used at 1080p60 if it offers that;
   the app must still fit the ladder to the mode it gets (`Ladder::up_to`).
 - libopus is built without SSE, AVX or NEON (`veil-media/build.rs`).
-- `veil-app` converts camera pictures to RGBA on the CPU (`convert.rs`), shows only your own
-  video, and simulates everyone else (`demo.rs`). Screen sharing says it is not built yet.
+- `veil-app` converts camera and decoded pictures to RGBA on the CPU (`convert.rs`). Screen
+  sharing says it is not built yet.
+- `veil-app` plans every call as a mesh on assumed capacities (`engine/plan.rs`); no
+  forwarder yet, so large calls will not fit.
+- `veil-app` applies routes on the session task, so media pauses while a new member's link
+  is dialled (`engine/host.rs`).
+- `veil-app` sends no names or chat between members; a protocol message for both is needed
+  (`engine/session.rs` names people by key prefix).
 - The jitter buffer catches up by skipping packets, which clicks; time-stretch instead if it
   is audible (`veil-media/src/jitter.rs`).
 - A lost audio device is an error and the app opens it again, and an open default device
@@ -278,6 +324,7 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
    15/11/2026: `unsafe` FFI and libopus are allowed in `veil-media` only, under the rules in
    `docs/TRANSPARENCY.md` section 5 (one `ffi` module per OS, `// SAFETY:` on every block,
    `clippy::undocumented_unsafe_blocks` denied, each module listed in that table).
-3. `veil-app`: the interface is built as a demo (see above). Next: Jeremy runs it and reports
-   what to change; then wire it to `veil-call` (start or join, lobby events, plan publishing)
-   and `veil-media` (encode, seal, send; receive, gate, decode, play), replacing `demo.rs`.
+3. `veil-app`: wired to real calls (see above). Next: Jeremy runs two copies on this machine
+   (with headphones): New call in one, copy the invite from People, Join in the other, Admit.
+   Then: send names and chat (a sealed app message in `veil-call`), a forwarder in the plan
+   for larger calls, and the same test across two machines.

@@ -6,6 +6,8 @@
 //!   nothing is captured while you appear off.
 //! - Shortcuts: Ctrl+Shift+M mutes or unmutes, Ctrl+Shift+O starts or stops video.
 //! - A demo call always shows its banner.
+//! - A real call reads the engine once per frame, before drawing, and hands it the host's
+//!   decisions from the model's outbox. It ends when the engine says so.
 
 use std::time::{Duration, Instant};
 
@@ -15,9 +17,10 @@ use eframe::egui::{
 };
 
 use crate::app::VeilApp;
+use crate::engine::Engine;
 use crate::icons::Icon;
 use crate::layout;
-use crate::model::{Call, Participant, clock};
+use crate::model::{Call, CallStatus, Participant, clock};
 use crate::screens::panels::{self, Panel};
 use crate::theme::{self, GAP, MUTED, PAGE, SURFACE};
 use crate::widgets::{self, ControlState, Tile, Tone, control, pill};
@@ -34,11 +37,14 @@ pub struct CallView {
     pub view: View,
     pub draft: String,
     notice: Option<(String, Instant)>,
+    /// The real call; `None` in a demo. Dropping it leaves the call.
+    engine: Option<Engine>,
 }
 
 impl CallView {
-    pub fn new(call: Call) -> Self {
+    pub fn new(call: Call, engine: Option<Engine>) -> Self {
         Self {
+            engine,
             call,
             panel: None,
             view: View::Gallery,
@@ -56,6 +62,21 @@ impl CallView {
         let now = Instant::now();
         if self.call.demo {
             crate::demo::tick(&mut self.call, now);
+        }
+        if let Some(engine) = &self.engine {
+            let was_live = self.call.status == CallStatus::Live;
+            for action in self.call.outbox.drain(..) {
+                engine.act(action);
+            }
+            engine.sync(&mut self.call, now);
+            app.upload_remote(engine.take_pictures());
+            // A guest's timer starts when the host lets them in, not in the lobby.
+            if !was_live && self.call.status == CallStatus::Live && !self.call.is_host {
+                self.call.started = now;
+            }
+        }
+        if matches!(self.call.status, CallStatus::Ended(_)) {
+            return false;
         }
         if self.panel == Some(Panel::Chat) {
             self.call.unread = 0;
@@ -103,8 +124,8 @@ impl CallView {
 
     fn stage(&mut self, app: &VeilApp, ui: &mut egui::Ui, now: Instant) {
         let mut area = ui.available_rect_before_wrap();
-        if self.call.demo {
-            area.min.y += banner(ui, area) + GAP;
+        if let Some((text, colour)) = self.banner_text() {
+            area.min.y += banner(ui, area, text, colour) + GAP;
         }
         let people = &self.call.participants;
         match self.view {
@@ -136,11 +157,29 @@ impl CallView {
     }
 }
 
+impl CallView {
+    /// The line across the top of the stage, if the call needs one.
+    fn banner_text(&self) -> Option<(&'static str, Color32)> {
+        let alone = self.call.participants.len() < 2;
+        match &self.call.status {
+            _ if self.call.demo => Some(("Demo: other people are simulated.", theme::WARN)),
+            CallStatus::Connecting => Some(("Starting the call…", MUTED)),
+            CallStatus::Lobby => Some(("Waiting for the host to let you in.", MUTED)),
+            CallStatus::Live if alone && self.call.is_host => Some((
+                "Nobody else is here yet. Copy the invite link from People.",
+                MUTED,
+            )),
+            CallStatus::Live if alone => Some(("Connecting to the others…", MUTED)),
+            CallStatus::Live | CallStatus::Ended(_) => None,
+        }
+    }
+}
+
 fn draw(app: &VeilApp, ui: &egui::Ui, rect: Rect, person: &Participant) {
-    let video = if person.is_you && person.camera {
-        app.preview_video()
-    } else {
-        None
+    let video = match (person.is_you, person.camera) {
+        (true, true) => app.preview_video(),
+        (false, true) => app.remote_video(person.id),
+        (_, false) => None,
     };
     let tile = Tile {
         name: &person.name,
@@ -153,27 +192,24 @@ fn draw(app: &VeilApp, ui: &egui::Ui, rect: Rect, person: &Participant) {
     widgets::tile(ui, rect, &tile);
 }
 
-/// The demo warning across the top of the stage. Returns its height.
-fn banner(ui: &egui::Ui, area: Rect) -> f32 {
+/// A notice across the top of the stage: the demo warning, or where the call stands.
+/// Returns its height.
+fn banner(ui: &egui::Ui, area: Rect, text: &str, colour: Color32) -> f32 {
     let rect = Rect::from_min_size(area.min, vec2(area.width(), 32.0));
     let painter = ui.painter();
-    painter.rect_filled(
-        rect,
-        CornerRadius::same(6),
-        theme::WARN.gamma_multiply(0.18),
-    );
+    painter.rect_filled(rect, CornerRadius::same(6), colour.gamma_multiply(0.18));
     Icon::Info.paint(
         painter,
         pos2(rect.left() + 18.0, rect.center().y),
         14.0,
-        theme::WARN,
+        colour,
     );
     painter.text(
         pos2(rect.left() + 34.0, rect.center().y),
         Align2::LEFT_CENTER,
-        "Demo: other people are simulated.",
+        text,
         FontId::proportional(13.0),
-        theme::WARN,
+        colour,
     );
     rect.height()
 }
@@ -295,10 +331,10 @@ fn device_controls(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
         ..Default::default()
     };
     let label = if raised { "Lower" } else { "Raise" };
-    if control(ui, Icon::Hand, label, "Raise or lower your hand", state).clicked() {
-        if let Some(you) = view.call.you_mut() {
-            you.hand_raised = !raised;
-        }
+    if control(ui, Icon::Hand, label, "Raise or lower your hand", state).clicked()
+        && let Some(you) = view.call.you_mut()
+    {
+        you.hand_raised = !raised;
     }
 }
 
