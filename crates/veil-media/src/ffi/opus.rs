@@ -286,7 +286,7 @@ impl Drop for OpusDecoder {
 }
 
 fn check_lost(samples: usize) -> Result<(), MediaError> {
-    if samples == 0 || samples > MAX_FRAME_SAMPLES || samples % 120 != 0 {
+    if samples == 0 || samples > MAX_FRAME_SAMPLES || !samples.is_multiple_of(120) {
         return Err(MediaError::BadConfig("lost frame length"));
     }
     Ok(())

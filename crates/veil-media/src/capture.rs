@@ -75,7 +75,7 @@ pub fn rank_modes(offered: &[NativeMode], want: CameraMode) -> Vec<usize> {
     let mut ranked: Vec<usize> = (0..offered.len())
         .filter(|&i| {
             let m = &offered[i];
-            m.width > 0 && m.height > 0 && m.width % 2 == 0 && m.height % 2 == 0
+            m.width > 0 && m.height > 0 && m.width.is_multiple_of(2) && m.height.is_multiple_of(2)
         })
         .collect();
     ranked.sort_by_key(|&i| {

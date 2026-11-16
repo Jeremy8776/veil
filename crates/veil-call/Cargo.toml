@@ -9,8 +9,8 @@ license.workspace = true
 
 [dependencies]
 bytes = "1.7"
+getrandom = { version = "0.4.3", features = ["sys_rng"] }
 postcard = { version = "1.0.10", default-features = false, features = ["alloc"] }
-rand_core = { version = "0.6.4", features = ["getrandom"] }
 serde = { version = "1.0.210", features = ["derive"] }
 tokio = { version = "1.40", features = ["rt", "time", "sync", "macros"] }
 veil-forward = { path = "../veil-forward" }

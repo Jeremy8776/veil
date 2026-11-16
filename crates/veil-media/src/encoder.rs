@@ -34,7 +34,7 @@ impl<'a> RawPicture<'a> {
         timestamp_us: u64,
         data: &'a [u8],
     ) -> Result<Self, MediaError> {
-        let even = width % 2 == 0 && height % 2 == 0;
+        let even = width.is_multiple_of(2) && height.is_multiple_of(2);
         if width == 0 || height == 0 || !even || stride < usize::from(width) {
             return Err(MediaError::Malformed("picture size"));
         }

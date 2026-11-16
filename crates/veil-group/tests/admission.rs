@@ -1,7 +1,8 @@
 //! End-to-end group tests: lobby admission, epochs on join and leave, and media keys.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use rand_core_06::OsRng;
+use getrandom::SysRng;
+use getrandom::rand_core::UnwrapErr;
 use veil_group::{Applied, Group, GroupError, Joiner, Lobby};
 use veil_net::control::{Control, RefuseReason};
 use veil_security::SecurityError;
@@ -28,7 +29,7 @@ impl Host {
     }
 
     fn invite(&mut self) -> Invite {
-        let mut invite = Invite::new(&self.identity, vec!["127.0.0.1:4433".into()], None, NOW + 60, &mut OsRng)
+        let mut invite = Invite::new(&self.identity, vec!["127.0.0.1:4433".into()], None, NOW + 60, &mut UnwrapErr(SysRng))
             .unwrap();
         invite.room_id = [9; 16];
         self.lobby.add_invite(&invite).unwrap();

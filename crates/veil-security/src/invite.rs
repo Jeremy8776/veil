@@ -9,7 +9,7 @@
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use serde::{Deserialize, Serialize};
 
 use crate::{SecurityError, Identity, PublicId};
@@ -53,7 +53,7 @@ pub struct Invite {
 
 impl Invite {
     /// Creates an invite for `host` with a fresh room id and join token.
-    pub fn new<R: RngCore + CryptoRng>(
+    pub fn new<R: CryptoRng + ?Sized>(
         host: &Identity,
         addrs: Vec<String>,
         relay: Option<String>,
@@ -150,7 +150,8 @@ fn signed_message(encoded: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use rand_core::OsRng;
+    use getrandom::SysRng;
+    use rand_core::UnwrapErr;
 
     use super::*;
 
@@ -162,7 +163,7 @@ mod tests {
             vec!["203.0.113.7:4433".into(), "[2001:db8::1]:4433".into()],
             Some("relay.example.org:4433".into()),
             NOW + 3_600,
-            &mut OsRng,
+            &mut UnwrapErr(SysRng),
         )
         .unwrap()
     }
@@ -234,6 +235,6 @@ mod tests {
     fn too_many_addresses_are_refused() {
         let host = Identity::generate();
         let addrs = vec!["198.51.100.1:1".to_string(); MAX_ADDRS + 1];
-        assert!(Invite::new(&host, addrs, None, NOW, &mut OsRng).is_err());
+        assert!(Invite::new(&host, addrs, None, NOW, &mut UnwrapErr(SysRng)).is_err());
     }
 }

@@ -75,10 +75,11 @@ impl AsyncUdpSocket for RelaySocket {
         let outer = self.outer.clone();
         let body = transmit.contents.to_vec();
         tokio::spawn(async move {
-            if let Ok(mut s) = outer.open_uni().await {
-                if s.write_all(&head).await.is_ok() && s.write_all(&body).await.is_ok() {
-                    let _ = s.finish();
-                }
+            if let Ok(mut s) = outer.open_uni().await
+                && s.write_all(&head).await.is_ok()
+                && s.write_all(&body).await.is_ok()
+            {
+                let _ = s.finish();
             }
         });
         Ok(())

@@ -310,7 +310,8 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
 Tests: `cargo test -j 8 --workspace` (233 tests, two ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
-`veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
+`veil-group` needs Rust 1.91 (openmls); the other crates build on 1.88 (`sha2` 0.11.1 and
+`ctutils` 0.4.4 or later need it).
 
 ## Releases (from 16/11/2026)
 
@@ -352,8 +353,17 @@ and fails on a disallowed licence or a stale `docs/DEPENDENCIES.md` (rewrite it 
 workspace `Cargo.toml`; each crate has `license.workspace = true`).
 
 `openmls_rust_crypto` and `openmls_basic_credential` are not used. The first pulls `hpke-rs`
-(MPL-2.0). `veil-group/src/provider.rs` is Veil's own backend on RustCrypto plus `hpke` 0.13
+(MPL-2.0). `veil-group/src/provider.rs` is Veil's own backend on RustCrypto plus `hpke` 0.15
 (MIT or Apache-2.0), with one ciphersuite. Re-check licences when bumping openmls.
+
+RustCrypto crates move in generations (digest, hybrid-array, rand_core); one bumped alone does
+not build. Since 16/11/2026 Veil is on the digest 0.11 generation (chacha20poly1305 0.11, hkdf
+0.13, hmac 0.13, sha2 0.11, ed25519-dalek 3, hpke 0.15, rand_core 0.10 only) and Dependabot
+groups the set into one PR (`rustcrypto` in `.github/dependabot.yml`). Upgrade them together and
+keep the known-answer tests green (`veil-security/tests/known_answers.rs`,
+`veil-group/tests/crypto_known_answers.rs`): they pin wire bytes. The one change hpke 0.15
+brought is that X25519 private keys are stored clamped (RFC 9180 section 7.1.2); same key, and
+private keys never leave the device. OS randomness is `getrandom::SysRng`.
 
 ## Open shortcuts (each marked `shortcut:` in the code)
 
