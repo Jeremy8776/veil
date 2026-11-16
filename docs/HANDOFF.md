@@ -216,7 +216,9 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   safety number and epoch, synthetic 720p pictures and silence go both ways until each side
   decodes the other's video and hears packets, then the guest leaves. Passed 16/11/2026 in
   1.8 s (host link Punched, guest link Direct):
-  `cargo test -j 8 -p veil-app loopback -- --ignored --nocapture`.
+  `cargo test -j 8 -p veil-app loopback -- --ignored --nocapture`. The same filter runs
+  `loopback_leaving_a_call_with_devices_on_is_quick` (camera, microphone and a hosted call,
+  then dropped in the app's order): 123 ms for the call, 113 ms for the devices (16/11/2026).
   Not yet run by a person: two copies of the app calling each other with real devices. Use
   headphones: there is no echo cancellation of Veil's own.
 

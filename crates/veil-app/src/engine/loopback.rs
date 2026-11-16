@@ -133,3 +133,21 @@ fn loopback_host_admits_a_guest_and_both_see_and_hear_each_other() {
         c.participants.len() == 1
     });
 }
+
+#[test]
+#[ignore = "turns the camera and microphone on, and opens ports"]
+fn loopback_leaving_a_call_with_devices_on_is_quick() {
+    let ctx = egui::Context::default();
+    let mut media = crate::media::LocalMedia::new(ctx.clone());
+    media.set_camera(true);
+    media.set_mic(true);
+    let engine = Engine::start(Role::Host, None, ctx).unwrap();
+    media.set_taps(Some(engine.taps()));
+    std::thread::sleep(Duration::from_secs(3));
+    let start = Instant::now();
+    drop(engine);
+    println!("engine dropped in {:?}", start.elapsed());
+    let start = Instant::now();
+    drop(media);
+    println!("devices closed in {:?}", start.elapsed());
+}
