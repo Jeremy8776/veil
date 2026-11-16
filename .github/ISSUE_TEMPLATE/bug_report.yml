@@ -1,0 +1,49 @@
+name: Bug
+description: Something does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Security holes go through the Security tab, not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      placeholder: |
+        1. Start a call as host
+        2. ...
+  - type: input
+    id: version
+    attributes:
+      label: Veil version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+  - type: dropdown
+    id: path
+    attributes:
+      label: How were you connected?
+      options:
+        - Not sure
+        - Same network
+        - Direct over the internet
+        - Through a relay
+        - Through a forwarder
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      description: Anything the app printed. Remove IP addresses you do not want to share.
+      render: text

@@ -2,7 +2,7 @@
 
 Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
-## Done (all on `main`, pushed to the private repo Jeremy8776/veil)
+## Done (all on `main`, Jeremy8776/veil)
 
 - `veil-security`: device keys, safety numbers, signed invites, per-frame encryption.
 - `veil-topology`: mesh or forwarded layout, forwarder choice by policy, cascades, degradation.
