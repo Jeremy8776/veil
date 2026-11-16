@@ -1,0 +1,21 @@
+[package]
+name = "veil-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+veil-media = { path = "../veil-media" }
+# No default features: egui's bundled fonts carry licences outside the allow list
+# (tools/licences.py), so the app loads the operating system's own fonts at start-up.
+eframe = { version = "0.37", default-features = false, features = [
+    "accesskit",
+    "wgpu",
+    "wayland",
+    "x11",
+] }
+
+[lints]
+workspace = true

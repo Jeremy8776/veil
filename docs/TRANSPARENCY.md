@@ -12,7 +12,7 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 |---|---|
 | Device keys, safety numbers, signed invites | Capture, encoding and decoding on macOS and Linux |
 | Windows camera capture, H.264 encoding and decoding, Opus audio | Veil's own echo cancellation (Windows' is used where the device offers it) |
-| MLS group keys, the host's lobby | The desktop app (`veil-app`) |
+| MLS group keys, the host's lobby | The desktop app joined to real calls (today it runs a labelled demo) |
 | Per-frame encryption with a layer marker | Signed organisation policy, OIDC or SAML identity |
 | QUIC links pinned to device keys | Metrics export (OpenTelemetry) |
 | Rendezvous, hole punching, relay | Compliance recording, federation, gateways |
@@ -72,7 +72,13 @@ every crate except `veil-media`. That crate sets `deny` instead, and only its Wi
 module allows it. The rest of `veil-media` is safe Rust.
 
 **Native code in dependencies:** `ring` (used by `rustls` and `quinn` for TLS) is written partly
-in C and assembly. It is licensed Apache-2.0 and ISC.
+in C and assembly. It is licensed Apache-2.0 and ISC. The desktop app (`veil-app`) draws with
+`eframe`, `winit` and `wgpu`, which call the operating system's window and graphics APIs
+(DirectX 12 or Vulkan on Windows) through their own `unsafe` code; Veil's own app code has none.
+
+**Fonts and icons:** none are bundled. `veil-app` reads the system's own UI, symbol and icon
+fonts at start-up (Segoe UI and Segoe Fluent Icons or Segoe MDL2 Assets on Windows). egui's
+bundled fonts are turned off because their licences are outside the allow list.
 
 **In `veil-media`:**
 - Camera and screen capture and hardware video encoding are only available through each

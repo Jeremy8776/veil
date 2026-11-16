@@ -161,7 +161,20 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   silence (about 430 ms here) and, `--ignored`, reads 50 microphone frames:
   `cargo test -j 8 -p veil-media --test wasapi -- --ignored --nocapture`.
 
-Tests: `cargo test -j 8 --workspace` (213 tests, two ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
+- `veil-app`, the desktop interface (`eframe` 0.37 with `wgpu`), demo only. Run it with
+  `cargo run -j 8 -p veil-app --release`. Screens (`src/screens/`): home, pre-join, call (top
+  bar, gallery or speaker stage, control bar), side panels (people and lobby, chat, security),
+  and the end screen. `model.rs` is the call state the screens read; `demo.rs` fills it with
+  four simulated people who take turns speaking, a knock in the lobby at 8 s, and a chat
+  message at 14 s, behind a banner. `media.rs` runs your real camera (`MfCamera`, converted to
+  RGBA at half size in `convert.rs`) and microphone (`WasapiCapture`, for the meter and your
+  speaking ring) on threads; muting or stopping video closes the device. Ctrl+Shift+M mutes,
+  Ctrl+Shift+O toggles video. Fonts and icons come from Windows (`theme.rs`, `icons.rs`), none
+  bundled; icon codepoints were checked against both Segoe icon fonts by rendering them.
+  Tests: 20 unit tests (grid layout, NV12 conversion, meter, model, demo timeline).
+  Not yet looked at by a person: the app has not been run on screen by anyone but its tests.
+
+Tests: `cargo test -j 8 --workspace` (233 tests, two ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -212,6 +225,8 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
   than the ladder's capture rate (say 4K at 30 only) is used at 1080p60 if it offers that;
   the app must still fit the ladder to the mode it gets (`Ladder::up_to`).
 - libopus is built without SSE, AVX or NEON (`veil-media/build.rs`).
+- `veil-app` converts camera pictures to RGBA on the CPU (`convert.rs`), shows only your own
+  video, and simulates everyone else (`demo.rs`). Screen sharing says it is not built yet.
 - The jitter buffer catches up by skipping packets, which clicks; time-stretch instead if it
   is audible (`veil-media/src/jitter.rs`).
 - WASAPI uses the default communications device only; a lost device is an error and the app
@@ -257,4 +272,6 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
    15/11/2026: `unsafe` FFI and libopus are allowed in `veil-media` only, under the rules in
    `docs/TRANSPARENCY.md` section 5 (one `ffi` module per OS, `// SAFETY:` on every block,
    `clippy::undocumented_unsafe_blocks` denied, each module listed in that table).
-3. `veil-app`: `egui` and `wgpu` interface.
+3. `veil-app`: the interface is built as a demo (see above). Next: Jeremy runs it and reports
+   what to change; then wire it to `veil-call` (start or join, lobby events, plan publishing)
+   and `veil-media` (encode, seal, send; receive, gate, decode, play), replacing `demo.rs`.
