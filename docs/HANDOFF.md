@@ -261,7 +261,8 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   App messages are now signed by the sender's device key, bound to the frame id
   (`app_msg.rs`, tests `a_member_cannot_speak_as_another` and
   `a_signed_message_cannot_move_to_another_frame`). Video and sound are still only
-  group-authenticated (TRANSPARENCY.md, known leaks). Open from that audit: L1 to L4.
+  group-authenticated (TRANSPARENCY.md, known leaks). Open from that audit: L2 to L4.
+  L1 (CI actions on floating tags) fixed 16/11/2026: pinned to commit SHAs.
 - Second audit, M1, fixed 16/11/2026: `KeyRing` kept the previous epoch open for 2 s after
   every change, so a member removed by that change could still inject video and sound under
   the old key. Every member can derive every sender's key from the epoch secret, so the old
