@@ -40,6 +40,7 @@ impl Session {
     }
 
     pub fn on_keys(&mut self, keys: EpochKeys) {
+        self.media.members(keys.roster.iter().map(|(_, d)| *d));
         self.leaf = keys
             .roster
             .iter()

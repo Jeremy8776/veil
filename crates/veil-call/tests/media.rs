@@ -16,7 +16,7 @@ use veil_net::{Node, NodeAddr};
 use veil_rendezvous::RendezvousServer;
 use veil_rendezvous::socket::RELAY_PEER;
 use veil_security::invite::Invite;
-use veil_security::{Identity, SecurityError};
+use veil_security::{Identity, PublicId, SecurityError};
 use veil_topology::{NodeId, NodeKind, Policy, plan};
 
 const ROOM: [u8; 16] = [6; 16];
@@ -212,8 +212,10 @@ impl Call {
         for party in &mut self.parties[1..] {
             all.push(next_member_routes(party.member.as_mut().unwrap()).await);
         }
+        let roster: Vec<PublicId> = self.parties[0].keys.roster.iter().map(|(_, d)| *d).collect();
         let mut applying = Vec::new();
         for (mut media, routed) in sessions.drain(..).zip(all) {
+            media.members(roster.iter().copied());
             assert_eq!(matches!(routed, Routes::Forwarder { .. }), forwarded);
             applying.push(tokio::spawn(async move {
                 let failed = within(media.apply(routed)).await;

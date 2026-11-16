@@ -369,7 +369,8 @@ async fn serve(link: Link, state: Shared, limits: Limits, only_host: Option<Publ
     let video = {
         let (link, state) = (link.clone(), state.clone());
         tokio::spawn(async move {
-            while let Ok((frame_id, sealed)) = link.recv_frame().await {
+            let mut frames = veil_net::FrameReader::new(&link);
+            while let Ok((frame_id, sealed)) = frames.recv().await {
                 fan_out_video(&state, &key, me, frame_id, sealed, limits.queue_bytes);
             }
         })

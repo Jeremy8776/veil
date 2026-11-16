@@ -252,6 +252,21 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   then dropped in the app's order): 123 ms for the call, 113 ms for the devices (16/11/2026).
   Not yet run by a person: two copies of the app calling each other with real devices. Use
   headphones: there is no echo cancellation of Veil's own.
+- Audit low findings, fixed 16/11/2026:
+  - L3, rendezvous: a request for a key that is not in the room gets no answer, the same as
+    a member that declines, and request limits count it the same way. `PeerNotInRoom` is now
+    sent only when a member asks for itself.
+  - L1, early media links (`veil-call/src/media/links.rs`): only a lower key may wait. Members
+    of the newest epoch share 16 places; any other key one of 4. `MediaSession::members(roster)`
+    must be called on every new epoch, before applying its routes (the app, `veil-probe` and
+    `tests/media.rs` do). So an old invite holder cannot crowd out members.
+  - L2, video frames: `veil_net::FrameReader` reads up to 16 frame streams at once, drops a
+    frame not complete within 2 s, and grows memory only as bytes arrive. Media sessions and
+    the forwarder use it; `Link::recv_frame` stays for tests (`tests/frames.rs`).
+  - L7, CI: `.github/workflows/ci.yml` runs clippy and tests on Windows, `cargo audit` and
+    the licence check on Linux. `.cargo/audit.toml` lists the advisories accepted and why.
+  Still open: M4 (device keys last one call), L4 (names are self-chosen), L5 (wait for an
+  eframe release with quick-xml 0.41), L6 (compare vendored libopus with the xiph release).
 
 Tests: `cargo test -j 8 --workspace` (233 tests, two ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
@@ -272,7 +287,6 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 
 - Relay sessions are capped at 16 Mbit/s each (`veil-rendezvous/src/limit.rs`), but there is
   no fair queuing and no total cap for the server. Needed before relaying for many strangers.
-- Video frames are read one at a time on the receiver; stale frames are not reset.
 - Congestion control is quinn's loss-based default; real-time video needs a delay-based one.
 - Every forwarder in a cascade receives every stream (topology planner).
 - The host is the only MLS committer, so the call ends when the host leaves (`group.rs`).

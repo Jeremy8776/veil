@@ -1,0 +1,49 @@
+# Tests, lints, licences and known advisories on every push and pull request.
+# Windows only: veil-media and veil-app use Media Foundation and WASAPI. Tests marked
+# `#[ignore]` need a camera, microphone or open ports and are not run here.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked
+      - name: Tests
+        run: cargo test --workspace --locked
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Advisories
+        run: cargo audit
+      - name: Licences
+        run: python3 tools/licences.py --check

@@ -247,28 +247,18 @@ impl Link {
         stream.finish().map_err(|e| NetError::Closed(e.to_string()))
     }
 
-    /// Receives the next video frame as `(frame_id, sealed)`.
-    // shortcut: frames are read one stream at a time, so one stalled frame delays the next on
-    // the receiver. Upgrade to concurrent readers that reset stale streams with the media
-    // pipeline.
+    /// Receives the next video frame as `(frame_id, sealed)`, one stream at a time. For
+    /// tests and simple tools: a peer that never finishes a stream stalls it. Media readers
+    /// use [`crate::FrameReader`], which reads frames side by side with a deadline.
     pub async fn recv_frame(&self) -> Result<(u32, Vec<u8>), NetError> {
-        let mut stream = self
+        let stream = self
             .conn
             .accept_uni()
             .await
             .map_err(|e| NetError::Closed(e.to_string()))?;
-        let closed = |e: quinn::ReadExactError| NetError::Closed(e.to_string());
-        let mut head = [0u8; 8];
-        stream.read_exact(&mut head).await.map_err(closed)?;
-        let frame_id = u32::from_be_bytes([head[0], head[1], head[2], head[3]]);
-        let len = usize::try_from(u32::from_be_bytes([head[4], head[5], head[6], head[7]]))
-            .map_err(|_| NetError::TooLarge)?;
-        if len > MAX_SEALED_FRAME {
-            return Err(NetError::TooLarge);
-        }
-        let mut sealed = vec![0u8; len];
-        stream.read_exact(&mut sealed).await.map_err(closed)?;
-        Ok((frame_id, sealed))
+        crate::frames::read_whole(stream)
+            .await
+            .ok_or(NetError::Protocol("bad video frame stream"))
     }
 
     /// Sends one small packet (an audio frame) as a single unreliable datagram.

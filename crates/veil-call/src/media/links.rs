@@ -1,8 +1,12 @@
 //! Setting up one media link: dialling a member, and accepting the links members dial.
 //!
 //! Invariants (see the parent module): an accepted link is used only once the routes expect
-//! its peer; an early one waits up to `EARLY_WAIT`, and at most `MAX_EARLY` wait at once.
+//! its peer; an early one waits up to `EARLY_WAIT`. Only a lower key may wait (a higher key's
+//! link is never used: this member dials it). Members of the newest epoch this session was
+//! told about ([`super::MediaSession::members`]) share `MAX_EARLY` places; any other key gets
+//! one of `MAX_EARLY_UNKNOWN`, so someone holding an old invite cannot crowd members out.
 
+use std::collections::HashSet;
 use std::net::SocketAddr;
 
 use tokio::sync::mpsc;
@@ -11,7 +15,7 @@ use veil_net::Node;
 use veil_net::control::Control;
 use veil_security::PublicId;
 
-use super::{Carrier, Ctx, EARLY_WAIT, Extra, MAX_EARLY, State};
+use super::{Carrier, Ctx, EARLY_WAIT, Extra, MAX_EARLY, MAX_EARLY_UNKNOWN, State};
 use crate::CallError;
 use crate::inbound::Inbound;
 use crate::node::{Path, dial};
@@ -79,7 +83,7 @@ pub(super) async fn run_inbox(
                     accept(&ctx, &mut state, inbound);
                 } else {
                     adopt_early(&ctx, &mut state);
-                    if state.early.len() < MAX_EARLY {
+                    if may_wait(ctx.me, &state.members, state.early.keys(), peer) {
                         state.early.insert(peer, (inbound, Instant::now()));
                     }
                 }
@@ -93,5 +97,65 @@ pub(super) async fn run_inbox(
             }
         }
         ctx.changed();
+    }
+}
+
+/// Whether an early link from `peer` may wait, given the keys already waiting.
+fn may_wait<'a>(
+    me: PublicId,
+    members: &HashSet<PublicId>,
+    waiting: impl Iterator<Item = &'a PublicId>,
+    peer: PublicId,
+) -> bool {
+    if peer.0 >= me.0 {
+        return false;
+    }
+    let (mut known, mut unknown) = (0, 0);
+    for key in waiting.filter(|k| **k != peer) {
+        if members.contains(key) {
+            known += 1;
+        } else {
+            unknown += 1;
+        }
+    }
+    if members.contains(&peer) {
+        known < MAX_EARLY
+    } else {
+        unknown < MAX_EARLY_UNKNOWN
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(byte: u8) -> PublicId {
+        PublicId([byte; 32])
+    }
+
+    #[test]
+    fn strangers_cannot_crowd_out_members() {
+        let me = key(200);
+        let members: HashSet<PublicId> = [key(1), key(2)].into();
+        let strangers: Vec<PublicId> = (10..10 + MAX_EARLY_UNKNOWN as u8).map(key).collect();
+        assert!(!may_wait(me, &members, strangers.iter(), key(99)), "stranger pool full");
+        assert!(may_wait(me, &members, strangers.iter(), key(1)), "a member still waits");
+        assert!(may_wait(me, &members, strangers[1..].iter(), key(99)));
+    }
+
+    #[test]
+    fn a_higher_key_never_waits() {
+        let members: HashSet<PublicId> = [key(9)].into();
+        assert!(!may_wait(key(5), &members, std::iter::empty(), key(9)));
+        assert!(!may_wait(key(5), &members, std::iter::empty(), key(5)));
+    }
+
+    #[test]
+    fn members_share_the_large_pool() {
+        let me = key(250);
+        let members: HashSet<PublicId> = (0..=MAX_EARLY as u8).map(key).collect();
+        let waiting: Vec<PublicId> = (0..MAX_EARLY as u8).map(key).collect();
+        assert!(!may_wait(me, &members, waiting.iter(), key(MAX_EARLY as u8)));
+        assert!(may_wait(me, &members, waiting.iter(), key(0)), "a key already waiting is replaced");
     }
 }

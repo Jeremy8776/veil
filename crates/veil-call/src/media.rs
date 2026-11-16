@@ -14,7 +14,8 @@
 //!   accepts. Both still dial for a punch, but the higher key's dial is only for its NAT.
 //! - An accepted media link is used only if its pinned key is a member the current routes
 //!   expect. One that arrives early (before this member's epoch change) waits up to
-//!   [`EARLY_WAIT`]; past that, or past [`MAX_EARLY`] links, it is closed.
+//!   [`EARLY_WAIT`]; past that it is closed. Places to wait are kept for the epoch's members
+//!   ([`MediaSession::members`]); other keys share [`MAX_EARLY_UNKNOWN`] (`media/links.rs`).
 //! - Frames are never opened or changed: the media pipeline seals and opens them.
 //!
 //! shortcut: a forwarder link is direct only. Forwarders run on reachable nodes; upgrade with
@@ -47,6 +48,9 @@ use links::{adopt_early, open_media, run_inbox};
 /// How long an early media link may wait for this member's routes to expect it.
 pub const EARLY_WAIT: Duration = Duration::from_secs(10);
 const MAX_EARLY: usize = 16;
+/// Early links from keys not in the newest known roster, all together. A member that is one
+/// epoch behind its peer needs these; anyone with an old invite can fill them.
+const MAX_EARLY_UNKNOWN: usize = 4;
 const INCOMING: usize = 1_024;
 
 /// A sealed packet as it arrived, or a request about this member's own video.
@@ -118,6 +122,8 @@ struct State {
     /// Members that dial this one, so their links are accepted.
     expected: HashSet<PublicId>,
     early: HashMap<PublicId, (Inbound, Instant)>,
+    /// The newest epoch's members, from [`MediaSession::members`].
+    members: HashSet<PublicId>,
     next_id: u64,
 }
 
@@ -128,6 +134,8 @@ struct Ctx {
     incoming: mpsc::Sender<Incoming>,
     closed: mpsc::Sender<(PublicId, u64)>,
     changes: Arc<watch::Sender<u64>>,
+    /// This member's device key.
+    me: PublicId,
 }
 
 impl Ctx {
@@ -208,6 +216,7 @@ impl MediaSession {
             incoming: incoming_tx,
             closed: closed_tx,
             changes: Arc::new(watch::channel(0).0),
+            me,
         };
         let inbox_task = tokio::spawn(run_inbox(ctx.clone(), inbox, closed_rx));
         Self {
@@ -219,6 +228,14 @@ impl MediaSession {
             ctx,
             incoming,
             inbox_task,
+        }
+    }
+
+    /// The members of the newest epoch (`EpochKeys::roster`). Call it on every new epoch,
+    /// before applying that epoch's routes: their early links are kept ahead of other keys'.
+    pub fn members(&self, devices: impl IntoIterator<Item = PublicId>) {
+        if let Some(mut state) = self.ctx.lock() {
+            state.members = devices.into_iter().collect();
         }
     }
 

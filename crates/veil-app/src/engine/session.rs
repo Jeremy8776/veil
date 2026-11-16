@@ -121,6 +121,7 @@ impl Session {
 
     /// A new epoch: new keys, and the people list follows the roster.
     pub fn on_keys(&mut self, keys: EpochKeys) {
+        self.media.members(keys.roster.iter().map(|(_, d)| *d));
         match &mut self.ring {
             Some(ring) => ring.rotate(keys.epoch, keys.receiver, Instant::now()),
             None => self.ring = Some(KeyRing::new(keys.epoch, keys.receiver)),

@@ -11,14 +11,15 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 use veil_forward::protocol::ServerMsg;
-use veil_net::FramedRecv;
+use veil_net::{FrameReader, FramedRecv};
 use veil_net::control::{Control, MAX_APP_LEN};
 use veil_security::PublicId;
 
 use super::{Carrier, Ctx, Incoming, Media};
 
 pub(super) async fn video(carrier: Arc<Carrier>, via: PublicId, id: u64, ctx: Ctx) {
-    while let Ok((frame_id, sealed)) = carrier.link().recv_frame().await {
+    let mut frames = FrameReader::new(carrier.link());
+    while let Ok((frame_id, sealed)) = frames.recv().await {
         let media = Media::Video { frame_id, sealed };
         if ctx.incoming.send(Incoming { via, media }).await.is_err() {
             return;

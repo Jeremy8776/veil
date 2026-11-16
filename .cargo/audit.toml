@@ -1,0 +1,10 @@
+# Advisories `cargo audit` (CI) accepts, each with the reason. Remove an entry as soon as the
+# dependency it names is upgraded.
+[advisories]
+ignore = [
+    # quick-xml 0.38.4: comes in only through eframe's Linux back end (wayland scanner) and
+    # runs only at build time. Not in the Windows build. Upgrade eframe once it brings
+    # quick-xml 0.41.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]

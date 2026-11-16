@@ -46,6 +46,8 @@ The rendezvous passes on a member's address only after that member agrees. A req
 introduction or a relay session goes to the member first, and the member's app agrees only
 if its current routes expect the one asking (the host agrees to anyone holding the invite).
 A relay-only member never agrees to an introduction.
+The asker gets the same silence whether the member declines or is not there, so the
+rendezvous never says who is online.
 
 **Known leaks:**
 - Packet sizes and timing show when someone speaks or moves. Padding is planned, not built.

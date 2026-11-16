@@ -83,6 +83,8 @@ pub enum ServerMsg {
 pub enum Refusal {
     NotRegistered,
     AlreadyRegistered,
+    /// Sent only for a request naming the asker itself. A key that is absent gets no answer,
+    /// like a member that declines, so the server never says who is online.
     PeerNotInRoom,
     TooManyAddrs,
     /// A server limit was reached (rooms, members, sessions or open requests).

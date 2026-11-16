@@ -121,16 +121,14 @@ async fn members_of_another_room_are_not_introduced() {
     let server = start_server();
     let mut a = host(server, room_tag(&[1; 16])).await;
     let stranger = host(server, room_tag(&[2; 16])).await;
+    // No answer at all, the same as a member that declines: the server does not say
+    // whether the key is online.
     let result = with_timeout(a.client.introduce(stranger.identity.public())).await;
-    assert!(matches!(
-        result,
-        Err(RendezvousError::Refused(Refusal::PeerNotInRoom))
-    ));
+    assert!(matches!(result, Err(RendezvousError::Timeout)), "{result:?}");
     let relay = with_timeout(a.client.open_relay(stranger.identity.public())).await;
-    assert!(matches!(
-        relay,
-        Err(RendezvousError::Refused(Refusal::PeerNotInRoom))
-    ));
+    assert!(matches!(relay, Err(RendezvousError::Timeout)), "{relay:?}");
+    let me = with_timeout(a.client.introduce(a.identity.public())).await;
+    assert!(matches!(me, Err(RendezvousError::Refused(Refusal::PeerNotInRoom))), "{me:?}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -279,7 +277,7 @@ async fn only_keys_the_host_allows_may_register() {
     // The host closes the pass (it declined the joiner): the joiner is dropped from the room.
     owner.client.allow(Vec::new(), Vec::new()).await.unwrap();
     let gone = with_timeout(owner.client.introduce(joiner.identity.public())).await;
-    assert!(matches!(gone, Err(RendezvousError::Refused(Refusal::PeerNotInRoom))), "{gone:?}");
+    assert!(matches!(gone, Err(RendezvousError::Timeout)), "{gone:?}");
     let back = register(server, Identity::generate(), room, owner_key, Some(pass)).await;
     assert!(matches!(back, Err(RendezvousError::Refused(Refusal::NotAllowed))));
 }

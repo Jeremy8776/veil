@@ -340,18 +340,16 @@ fn ask(
     if kind == Ask::Relay && s.relay_disabled {
         return refuse(Refusal::RelayDisabled);
     }
-    let Some(key) = room else {
+    let Some(r) = room.and_then(|key| s.rooms.get(&key)).filter(|r| r.members.contains_key(&me))
+    else {
         return refuse(Refusal::NotRegistered);
     };
-    let theirs = s
-        .rooms
-        .get(key)
-        .filter(|r| r.members.contains_key(&me))
-        .and_then(|r| r.members.get(&peer));
-    let Some(theirs) = theirs.filter(|_| peer != me) else {
+    if peer == me {
         return refuse(Refusal::PeerNotInRoom);
-    };
-    let their_box = theirs.outbox.clone();
+    }
+    let their_box = r.members.get(&peer).map(|theirs| theirs.outbox.clone());
+    // Every check below depends on the asker alone, and a request to an absent key is
+    // recorded like any other, so no reply or limit tells the asker whether `peer` is here.
     let now = Instant::now();
     s.requests.retain(|_, at| now.duration_since(*at) < REQUEST_TTL);
     let mine = s.requests.keys().filter(|(from, ..)| *from == me).count();
@@ -362,7 +360,9 @@ fn ask(
         return refuse(Refusal::Full);
     }
     s.requests.insert((me, peer, kind), now);
-    vec![(their_box, ServerMsg::Request { from: me, kind })]
+    // An absent key gets no request and the asker no answer: the same as a member that
+    // declines by staying silent.
+    their_box.map_or_else(Vec::new, |to| vec![(to, ServerMsg::Request { from: me, kind })])
 }
 
 /// `me` agrees to `from`'s request: now the introduction or relay session goes ahead.
