@@ -13,10 +13,11 @@
 
 use std::sync::Mutex;
 
-use chacha20poly1305::ChaCha20Poly1305;
+use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
 use hkdf::Hkdf;
+use getrandom::SysRng;
 use hmac::{Hmac, Mac};
 use hpke::aead::ChaCha20Poly1305 as HpkeChaCha;
 use hpke::kdf::HkdfSha256;
@@ -31,7 +32,7 @@ use openmls_traits::types::{
     HpkeConfig, HpkeKdfType, HpkeKemType, HpkeKeyPair, KemOutput, SignatureScheme,
 };
 use rand_chacha::ChaCha20Rng;
-use rand_core::{OsRng, RngCore, SeedableRng, TryRngCore};
+use rand_core::{Rng, SeedableRng, TryRng};
 use sha2::{Digest, Sha256};
 use tls_codec::SecretVLBytes;
 use zeroize::Zeroizing;
@@ -65,7 +66,7 @@ impl VeilCrypto {
     /// Seeds the generator from the operating system. Fails only if the OS has no randomness.
     pub fn new() -> Result<Self, CryptoError> {
         let mut seed = Zeroizing::new([0u8; 32]);
-        OsRng
+        SysRng
             .try_fill_bytes(seed.as_mut())
             .map_err(|_| CryptoError::InsufficientRandomness)?;
         Ok(Self {
@@ -95,14 +96,13 @@ fn check_hash(hash: HashType) -> Result<(), CryptoError> {
     }
 }
 
-fn chacha(alg: AeadType, key: &[u8], nonce: &[u8]) -> Result<ChaCha20Poly1305, CryptoError> {
+fn chacha(alg: AeadType, key: &[u8], nonce: &[u8]) -> Result<(ChaCha20Poly1305, Nonce), CryptoError> {
     if alg != AeadType::ChaCha20Poly1305 {
         return Err(CryptoError::UnsupportedAeadAlgorithm);
     }
-    if nonce.len() != 12 {
-        return Err(CryptoError::InvalidLength);
-    }
-    ChaCha20Poly1305::new_from_slice(key).map_err(|_| CryptoError::InvalidLength)
+    let nonce = Nonce::try_from(nonce).map_err(|_| CryptoError::InvalidLength)?;
+    let cipher = ChaCha20Poly1305::new_from_slice(key).map_err(|_| CryptoError::InvalidLength)?;
+    Ok((cipher, nonce))
 }
 
 fn hpke_public(bytes: &[u8]) -> Result<<X25519HkdfSha256 as hpke::Kem>::PublicKey, CryptoError> {
@@ -139,7 +139,7 @@ impl OpenMlsCrypto for VeilCrypto {
     fn hmac(&self, hash: HashType, key: &[u8], message: &[u8]) -> Result<SecretVLBytes, CryptoError> {
         check_hash(hash)?;
         let mut mac =
-            <Hmac<Sha256> as Mac>::new_from_slice(key).map_err(|_| CryptoError::InvalidLength)?;
+            <Hmac<Sha256> as KeyInit>::new_from_slice(key).map_err(|_| CryptoError::InvalidLength)?;
         mac.update(message);
         Ok(mac.finalize().into_bytes().as_slice().into())
     }
@@ -172,8 +172,9 @@ impl OpenMlsCrypto for VeilCrypto {
         nonce: &[u8],
         aad: &[u8],
     ) -> Result<Vec<u8>, CryptoError> {
-        chacha(alg, key, nonce)?
-            .encrypt(nonce.into(), Payload { msg: data, aad })
+        let (cipher, nonce) = chacha(alg, key, nonce)?;
+        cipher
+            .encrypt(&nonce, Payload { msg: data, aad })
             .map_err(|_| CryptoError::CryptoLibraryError)
     }
 
@@ -185,8 +186,9 @@ impl OpenMlsCrypto for VeilCrypto {
         nonce: &[u8],
         aad: &[u8],
     ) -> Result<Vec<u8>, CryptoError> {
-        chacha(alg, key, nonce)?
-            .decrypt(nonce.into(), Payload { msg: ct_tag, aad })
+        let (cipher, nonce) = chacha(alg, key, nonce)?;
+        cipher
+            .decrypt(&nonce, Payload { msg: ct_tag, aad })
             .map_err(|_| CryptoError::AeadDecryptionError)
     }
 
@@ -237,7 +239,7 @@ impl OpenMlsCrypto for VeilCrypto {
         check_hpke(&config)?;
         let pk = hpke_public(pk_r)?;
         let (enc, ciphertext) = self.with_rng(|rng| {
-            hpke::single_shot_seal::<HpkeChaCha, HkdfSha256, X25519HkdfSha256, _>(
+            hpke::single_shot_seal_with_rng::<HpkeChaCha, HkdfSha256, X25519HkdfSha256>(
                 &OpModeS::Base,
                 &pk,
                 info,
@@ -287,7 +289,7 @@ impl OpenMlsCrypto for VeilCrypto {
         let pk = hpke_public(pk_r)?;
         let (enc, context) = self
             .with_rng(|rng| {
-                hpke::setup_sender::<HpkeChaCha, HkdfSha256, X25519HkdfSha256, _>(
+                hpke::setup_sender_with_rng::<HpkeChaCha, HkdfSha256, X25519HkdfSha256>(
                     &OpModeS::Base,
                     &pk,
                     info,

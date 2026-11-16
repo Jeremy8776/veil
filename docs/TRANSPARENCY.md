@@ -134,6 +134,11 @@ The code is `crates/veil-app/src/firewall.rs`.
   licences (GPL, LGPL, MPL) are kept out so anyone can reuse any part of Veil. For this reason
   Veil writes its own MLS crypto backend instead of using `openmls_rust_crypto` (which pulls in
   MPL-2.0 code), and does not use FFmpeg (LGPL).
+- Encryption, signing and hashing come from the RustCrypto crates (`chacha20poly1305`, `hkdf`,
+  `hmac`, `sha2`, `ed25519-dalek`) and `hpke`. Known-answer tests
+  (`crates/veil-security/tests/known_answers.rs`, `crates/veil-group/tests/crypto_known_answers.rs`)
+  pin the exact bytes of frames, safety numbers, invite links and MLS crypto, so a library
+  upgrade cannot silently change what goes on the wire.
 
 ## 5. Code Rust cannot check
 

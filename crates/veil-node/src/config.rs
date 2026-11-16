@@ -92,10 +92,10 @@ impl Config {
         }
         let text = std::fs::read_to_string(path).map_err(|e| NodeError::Io(path.into(), e))?;
         let mut config = Self::parse(&text)?;
-        if config.identity_file.is_relative() {
-            if let Some(dir) = path.parent() {
-                config.identity_file = dir.join(&config.identity_file);
-            }
+        if config.identity_file.is_relative()
+            && let Some(dir) = path.parent()
+        {
+            config.identity_file = dir.join(&config.identity_file);
         }
         Ok(config)
     }
@@ -105,10 +105,11 @@ impl Config {
         if self.rendezvous.is_none() && self.forwarder.is_none() {
             return bad("turn on at least one role: [rendezvous] or [forwarder]");
         }
-        if let (Some(r), Some(f)) = (&self.rendezvous, &self.forwarder) {
-            if r.listen.port() != 0 && r.listen.port() == f.listen.port() {
-                return bad("each role needs its own port");
-            }
+        if let (Some(r), Some(f)) = (&self.rendezvous, &self.forwarder)
+            && r.listen.port() != 0
+            && r.listen.port() == f.listen.port()
+        {
+            return bad("each role needs its own port");
         }
         if let Some(f) = &self.forwarder {
             let limits = f.limits();

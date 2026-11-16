@@ -205,12 +205,12 @@ async fn serve(link: Link, state: Shared) {
     }
 
     if let Some(mut s) = lock(&state) {
-        if let Some(key) = room {
-            if let Some(r) = s.rooms.get_mut(&key) {
-                r.members.remove(&me);
-                if r.members.is_empty() {
-                    s.rooms.remove(&key);
-                }
+        if let Some(key) = room
+            && let Some(r) = s.rooms.get_mut(&key)
+        {
+            r.members.remove(&me);
+            if r.members.is_empty() {
+                s.rooms.remove(&key);
             }
         }
         s.forget(me);

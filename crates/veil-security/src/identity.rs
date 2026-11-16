@@ -6,7 +6,8 @@
 use std::fmt;
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
-use rand_core::{CryptoRngCore, OsRng};
+use getrandom::SysRng;
+use rand_core::{CryptoRng, UnwrapErr};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -19,15 +20,17 @@ pub struct Identity {
 
 impl Identity {
     /// Generates a new identity from the operating system's random source.
+    /// Panics only if the operating system has no randomness to give.
     pub fn generate() -> Self {
-        Self::generate_with(&mut OsRng)
+        Self::generate_with(&mut UnwrapErr(SysRng))
     }
 
     /// Generates a new identity from the given random source.
-    pub fn generate_with<R: CryptoRngCore + ?Sized>(rng: &mut R) -> Self {
-        Self {
-            key: SigningKey::generate(rng),
-        }
+    /// The secret is 32 bytes straight from `rng`, as `SigningKey::generate` does.
+    pub fn generate_with<R: CryptoRng + ?Sized>(rng: &mut R) -> Self {
+        let mut secret = Zeroizing::new([0u8; 32]);
+        rng.fill_bytes(secret.as_mut());
+        Self::from_secret(&secret)
     }
 
     /// Restores an identity from its 32-byte secret.

@@ -257,8 +257,10 @@ impl WasapiCapture {
             let bytes = unsafe { std::slice::from_raw_parts(data, samples * 4) };
             self.pending.extend(
                 bytes
-                    .chunks_exact(4)
-                    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|b| f32::from_le_bytes(*b)),
             );
         }
         // SAFETY: releases exactly the frames GetBuffer gave.
@@ -317,8 +319,8 @@ impl WasapiPlayback {
             // SAFETY: `data` is writable for `pcm.len() * 4` bytes (one 4-byte sample per
             // item) until ReleaseBuffer, and the device buffer cannot overlap `pcm`.
             let bytes = unsafe { std::slice::from_raw_parts_mut(data, pcm.len() * 4) };
-            for (out, sample) in bytes.chunks_exact_mut(4).zip(pcm) {
-                out.copy_from_slice(&sample.to_le_bytes());
+            for (out, sample) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(pcm) {
+                *out = sample.to_le_bytes();
             }
         }
         // SAFETY: releases exactly the frames GetBuffer gave, now written.

@@ -116,7 +116,7 @@ impl Schedule {
         let stale = self
             .last_key
             .is_some_and(|at| now.duration_since(at) >= KEYFRAME_EVERY);
-        let aligned = self.phase % period(self.ladder.levels()) == 0;
+        let aligned = self.phase.is_multiple_of(period(self.ladder.levels()));
         let keyframe = ((self.key_due && gap_ok) || stale) && aligned;
         if keyframe {
             self.phase = 0;

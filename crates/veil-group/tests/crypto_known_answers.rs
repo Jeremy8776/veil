@@ -69,7 +69,31 @@ fn hpke_key_derivation_is_fixed() {
     let c = VeilCrypto::new().unwrap();
     let pair = c.derive_hpke_keypair(SUITE, &[7; 32]).unwrap();
     assert_eq!(hex(&pair.public), "5fd47633b5e43fca7bad1bfbe424feacb175d9d4d4a30f166dbd30636f0b446b");
-    assert_eq!(hex(pair.private.as_ref()), "896615161d5c4dab6be99bb69b180f22c86eb0ac1b8912e958ed5dd08813573b");
+    // hpke 0.15 stores the private key clamped, as RFC 9180 section 7.1.2 asks. hpke 0.13
+    // stored the same scalar unclamped (`UNCLAMPED_PRIVATE`). X25519 clamps on use, so both
+    // encodings are the same key: same public key, and both open the same ciphertexts (see
+    // `old_unclamped_private_key_still_opens`). Private keys never leave the device.
+    assert_eq!(hex(pair.private.as_ref()), CLAMPED_PRIVATE);
+    let mut clamped = unhex(UNCLAMPED_PRIVATE);
+    clamped[0] &= 0xF8;
+    clamped[31] = (clamped[31] & 0x7F) | 0x40;
+    assert_eq!(hex(&clamped), CLAMPED_PRIVATE);
+}
+
+const UNCLAMPED_PRIVATE: &str = "896615161d5c4dab6be99bb69b180f22c86eb0ac1b8912e958ed5dd08813573b";
+const CLAMPED_PRIVATE: &str = "886615161d5c4dab6be99bb69b180f22c86eb0ac1b8912e958ed5dd08813577b";
+
+#[test]
+fn old_unclamped_private_key_still_opens() {
+    let c = VeilCrypto::new().unwrap();
+    let sealed = HpkeCiphertext {
+        kem_output: unhex(SEALED_KEM).into(),
+        ciphertext: unhex(SEALED_CT).into(),
+    };
+    let opened = c
+        .hpke_open(SUITE, &sealed, &unhex(UNCLAMPED_PRIVATE), b"info", b"aad")
+        .unwrap();
+    assert_eq!(opened, b"hello");
 }
 
 // Sealing is randomised, so these pin the receiver side: a ciphertext and an encapsulation made

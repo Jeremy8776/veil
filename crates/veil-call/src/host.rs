@@ -21,7 +21,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rand_core::OsRng;
+use getrandom::SysRng;
+use getrandom::rand_core::UnwrapErr;
 use tokio::sync::{mpsc, oneshot, watch};
 use veil_group::{Group, GroupError, Knock, Lobby};
 use veil_net::control::{Control, RefuseReason};
@@ -338,8 +339,9 @@ impl Actor {
         relay: Option<String>,
         expires_unix: u64,
     ) -> Result<String, CallError> {
-        let mut invite = Invite::new(&self.identity, addrs, relay, expires_unix, &mut OsRng)
-            .map_err(GroupError::Security)?;
+        let mut invite =
+            Invite::new(&self.identity, addrs, relay, expires_unix, &mut UnwrapErr(SysRng))
+                .map_err(GroupError::Security)?;
         // The invite names this call's room, not the fresh id `Invite::new` drew.
         invite.room_id = self.lobby.room_id();
         self.lobby.add_invite(&invite)?;

@@ -26,7 +26,8 @@ fn fingerprint(key: &PublicId) -> String {
             .finalize();
     }
     let mut out = String::with_capacity(30);
-    for chunk in hash[..30].chunks_exact(5) {
+    let (chunks, _) = hash[..30].as_chunks::<5>();
+    for chunk in chunks {
         let value = chunk.iter().fold(0u64, |acc, b| (acc << 8) | u64::from(*b));
         // Writing to a String cannot fail.
         let _ = write!(out, "{:05}", value % 100_000);
