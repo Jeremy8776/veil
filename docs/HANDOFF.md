@@ -324,7 +324,7 @@ Firewall first (found 16/11/2026, first two-machine run of `veil-app` failed to 
 Windows blocks inbound UDP for a program with no rule, and this PC's Wi-Fi is a Public
 network. `veil-probe.exe` and `veil-node.exe` have Allow rules; `veil-app.exe` had none. Add one
 on each machine (admin PowerShell, path to that machine's build):
-`New-NetFirewallRule -DisplayName "Veil app" -Direction Inbound -Program <path>	argeteleaseeil-app.exe -Protocol UDP -Action Allow -Profile Private,Public`.
+`New-NetFirewallRule -DisplayName "Veil app" -Direction Inbound -Program <path>\target\release\veil-app.exe -Protocol UDP -Action Allow -Profile Private,Public`.
 A guest that cannot reach the host now says the host's firewall may be blocking Veil.
 Users do not type that command: the host's pre-join screen checks the rules in the background
 (`firewall.rs`, about 0.7 s of PowerShell) and, if none lets guests in, shows "Allow guests",
