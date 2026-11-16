@@ -19,6 +19,7 @@ mod devices;
 mod engine;
 mod firewall;
 mod icons;
+mod keystore;
 mod layout;
 mod media;
 mod model;

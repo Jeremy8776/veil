@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use eframe::egui;
+use veil_security::PublicId;
 
 use crate::convert::Rgba;
 use crate::media::lock;
@@ -32,6 +33,7 @@ const SPEAKING: f32 = 0.45;
 #[derive(Clone, Debug)]
 pub struct Person {
     pub id: u32,
+    pub device: PublicId,
     pub name: String,
     pub is_host: bool,
     pub safety: String,
@@ -41,6 +43,7 @@ pub struct Person {
 #[derive(Clone, Debug)]
 pub struct Knocker {
     pub id: u32,
+    pub device: PublicId,
     pub name: String,
     pub safety: String,
     pub since: Instant,
@@ -185,8 +188,15 @@ impl Shared {
 }
 
 /// Copies the engine's view into the screens' call. Your own entry is left to the interface
-/// (devices, hand); everyone else is rebuilt from the view each time.
-pub fn apply(view: &View, seen: &Seen, call: &mut Call, now: Instant) {
+/// (devices, hand); everyone else is rebuilt from the view each time. `verified` says
+/// whether you marked a device as verified.
+pub fn apply(
+    view: &View,
+    seen: &Seen,
+    verified: impl Fn(&PublicId) -> bool,
+    call: &mut Call,
+    now: Instant,
+) {
     call.status = view.status.clone();
     call.invite.clone_from(&view.invite);
     call.epoch = view.epoch;
@@ -212,6 +222,7 @@ pub fn apply(view: &View, seen: &Seen, call: &mut Call, now: Instant) {
             speaking: heard.is_some_and(|h| h.level > SPEAKING),
             path: person.path,
             safety: person.safety.clone(),
+            verified: verified(&person.device),
         });
     }
     call.lobby = view
@@ -222,6 +233,7 @@ pub fn apply(view: &View, seen: &Seen, call: &mut Call, now: Instant) {
             name: k.name.clone(),
             since: k.since,
             safety: k.safety.clone(),
+            verified: verified(&k.device),
         })
         .collect();
 }
@@ -238,6 +250,7 @@ mod tests {
             people: vec![
                 Person {
                     id: 1,
+                    device: PublicId([1; 32]),
                     name: "Host".into(),
                     is_host: true,
                     safety: "12345".into(),
@@ -245,6 +258,7 @@ mod tests {
                 },
                 Person {
                     id: 2,
+                    device: PublicId([2; 32]),
                     name: "Guest ab12cd34".into(),
                     is_host: false,
                     safety: "67890".into(),
@@ -253,6 +267,7 @@ mod tests {
             ],
             lobby: vec![Knocker {
                 id: 3,
+                device: PublicId([3; 32]),
                 name: "Guest".into(),
                 safety: "11111".into(),
                 since: now,
@@ -280,7 +295,7 @@ mod tests {
                 level: 0.9,
             },
         );
-        apply(&view(now), &seen, &mut call, now);
+        apply(&view(now), &seen, |d| *d == PublicId([3; 32]), &mut call, now);
         assert_eq!(call.status, CallStatus::Live);
         assert_eq!(call.epoch, 3);
         assert_eq!(call.participants.len(), 3);
@@ -291,16 +306,17 @@ mod tests {
         assert!(!guest.camera && guest.muted && !guest.speaking);
         assert_eq!(call.lobby.len(), 1);
         assert_eq!(call.lobby[0].safety, "11111");
+        assert!(call.lobby[0].verified && !call.participants[1].verified);
     }
 
     #[test]
     fn someone_who_left_disappears_and_you_stay() {
         let now = Instant::now();
         let mut call = Call::live("Call".into(), "Jo", true, now);
-        apply(&view(now), &Seen::default(), &mut call, now);
+        apply(&view(now), &Seen::default(), |_| false, &mut call, now);
         let mut later = view(now);
         later.people.remove(1);
-        apply(&later, &Seen::default(), &mut call, now);
+        apply(&later, &Seen::default(), |_| false, &mut call, now);
         assert_eq!(call.participants.len(), 2);
         assert_eq!(call.you().map(|p| p.name.as_str()), Some("Jo"));
     }

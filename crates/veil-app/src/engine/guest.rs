@@ -27,6 +27,7 @@ use super::view::Shared;
 use crate::model::{Action, CallStatus};
 
 pub async fn run(
+    identity: Identity,
     invite: Invite,
     config: NetConfig,
     your_name: &str,
@@ -34,7 +35,6 @@ pub async fn run(
     pipes: Pipes,
     mut commands: UnboundedReceiver<Command>,
 ) -> Result<(), String> {
-    let identity = Identity::generate();
     let me = identity.public();
     let bind = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
     let node = Node::bind(&identity, bind).map_err(|e| format!("Cannot open the network: {e}"))?;

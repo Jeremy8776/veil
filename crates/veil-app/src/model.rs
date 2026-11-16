@@ -13,6 +13,8 @@
 //!   once, as MLS would.
 //! - In a real call a chat message shows at once and is queued as [`Action::Chat`]; the
 //!   engine seals it and sends it to everyone in the call.
+//! - Verified is your own label for a device key you compared safety numbers with. It is
+//!   kept between calls and never lets anyone in by itself.
 
 use std::time::{Duration, Instant};
 
@@ -52,6 +54,8 @@ pub struct Participant {
     pub path: LinkPath,
     /// Safety number in groups of five digits.
     pub safety: String,
+    /// You marked this device as verified, in this call or an earlier one.
+    pub verified: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -61,6 +65,8 @@ pub struct Waiting {
     pub since: Instant,
     /// Safety number with this person, to compare before letting them in. Empty in a demo.
     pub safety: String,
+    /// You verified this device in an earlier call. The host still decides.
+    pub verified: bool,
 }
 
 /// Where a call stands.
@@ -82,6 +88,8 @@ pub enum Action {
     Decline(u32),
     Remove(u32),
     Chat(String),
+    /// Mark a person's device as verified (`true`) or forget it (`false`).
+    Verify(u32, bool),
 }
 
 #[derive(Clone, Debug)]
@@ -130,6 +138,7 @@ impl Call {
                 speaking: false,
                 path: LinkPath::Direct,
                 safety: String::new(),
+                verified: false,
             }],
             lobby: Vec::new(),
             chat: Vec::new(),
@@ -178,6 +187,7 @@ impl Call {
             hand_raised: false,
             speaking: false,
             path: LinkPath::Relayed,
+            verified: waiting.verified,
         });
         self.epoch += 1;
     }
@@ -206,6 +216,23 @@ impl Call {
         self.participants.retain(|p| p.is_you || p.id != id);
         if self.participants.len() != before {
             self.epoch += 1;
+        }
+    }
+
+    /// Marks someone in the call or the lobby as verified, or forgets them. The label shows
+    /// at once; in a real call the engine saves it.
+    pub fn set_verified(&mut self, id: u32, verified: bool) {
+        let mut found = false;
+        for p in self.participants.iter_mut().filter(|p| !p.is_you && p.id == id) {
+            p.verified = verified;
+            found = true;
+        }
+        for w in self.lobby.iter_mut().filter(|w| w.id == id) {
+            w.verified = verified;
+            found = true;
+        }
+        if found && !self.demo {
+            self.outbox.push(Action::Verify(id, verified));
         }
     }
 
@@ -274,6 +301,7 @@ mod tests {
             name: "Priya Shah".into(),
             since: now,
             safety: String::new(),
+            verified: false,
         });
         let epoch = call.epoch;
         call.admit(99);
@@ -287,6 +315,7 @@ mod tests {
             name: "Sam".into(),
             since: now,
             safety: String::new(),
+            verified: false,
         });
         call.decline(100);
         assert!(call.lobby.is_empty());
@@ -301,6 +330,7 @@ mod tests {
             name: "Priya".into(),
             since: now,
             safety: String::new(),
+            verified: false,
         });
         call.admit(99);
         assert_eq!(call.lobby.len(), 1);
@@ -332,6 +362,7 @@ mod tests {
             name: "Guest".into(),
             since: now,
             safety: String::new(),
+            verified: false,
         });
         call.admit(7);
         assert!(call.lobby.is_empty());
@@ -374,5 +405,27 @@ mod tests {
     fn clock_formats() {
         assert_eq!(clock(Duration::from_secs(65)), "01:05");
         assert_eq!(clock(Duration::from_secs(3_725)), "1:02:05");
+    }
+}
+
+#[cfg(test)]
+mod verify_tests {
+    use super::*;
+
+    #[test]
+    fn verifying_labels_at_once_and_queues_for_the_engine() {
+        let now = Instant::now();
+        let mut call = Call::live("Call".into(), "Jo", true, now);
+        call.lobby.push(Waiting {
+            id: 4,
+            name: "Guest".into(),
+            since: now,
+            safety: String::new(),
+            verified: false,
+        });
+        call.set_verified(4, true);
+        assert!(call.lobby[0].verified);
+        call.set_verified(0, true);
+        assert_eq!(call.outbox, [Action::Verify(4, true)], "not yourself");
     }
 }

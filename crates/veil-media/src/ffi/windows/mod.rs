@@ -26,12 +26,14 @@ mod audio_devices;
 mod camera;
 mod decoder;
 mod enumerate;
+mod protect;
 mod sample;
 
 pub use audio::{WasapiCapture, WasapiPlayback};
 pub use audio_devices::{AudioDevice, microphones, speakers};
 pub use camera::{CameraInfo, MfCamera, cameras};
 pub use decoder::MfDecoder;
+pub use protect::{protect, unprotect};
 
 use std::mem::ManuallyDrop;
 use std::time::{Duration, Instant};

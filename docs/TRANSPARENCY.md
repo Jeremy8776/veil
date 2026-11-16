@@ -49,6 +49,16 @@ A relay-only member never agrees to an introduction.
 The asker gets the same silence whether the member declines or is not there, so the
 rendezvous never says who is online.
 
+**Kept on your device** (desktop app, Windows, in `%LOCALAPPDATA%\Veil`):
+- `device.key`: your device key. The same key is used for every call, so a safety number
+  you checked once still holds next time. Sealed with Windows DPAPI, so the file opens only
+  for your Windows user; a copy on another computer gives nothing. Anyone who controls your
+  signed-in account can still use it. "New device key" on the home screen replaces it.
+- `verified.keys`: the device keys you marked as verified, sealed the same way. Verified is
+  a label for the host; it never lets anyone in.
+- The same key in every call means anyone who meets you in two calls can tell it is the same
+  device. Before 16/11/2026 every call used a new key.
+
 **Known leaks:**
 - Packet sizes and timing show when someone speaks or moves. Padding is planned, not built.
 - Fixed 16/11/2026: Opus now runs at a constant bitrate, so every voice packet is the same
@@ -134,6 +144,7 @@ bundled fonts are turned off because their licences are outside the allow list.
 | `veil-media/src/ffi/windows/decoder.rs` | Microsoft's H.264 decoder transform (`CoCreateInstance` of `CLSID_MSH264DecoderMFT`, `IMFTransform`, `ICodecAPI` low latency, media types, `GetBlob` for the display area) and the shared NV12 copy in `sample.rs` | Decoding other members' video on Windows, on the CPU. The bitstream comes from another member and is parsed by Windows' decoder, so that decoder is part of the attack surface. Veil refuses any decoded size above 4K before allocating for it, and copies each picture out of the locked buffer within the bounds Windows reports |
 | `veil-media/src/ffi/windows/audio.rs`, `audio_devices.rs` | WASAPI (`IMMDeviceEnumerator` `EnumAudioEndpoints`, `GetDevice`, `GetDefaultAudioEndpoint`, each device's `GetId` and friendly name through `OpenPropertyStore`, `PropVariantToStringAlloc`, `PropVariantClear`, `CoTaskMemFree`, `IAudioClient` and `IAudioClient2` in shared, event-driven mode, `IAudioCaptureClient`, `IAudioRenderClient`, `CreateEventW`, `WaitForSingleObject`, `CloseHandle`) | Microphone and speakers on Windows, 48 kHz float, converted by Windows. Samples are copied byte by byte within the frame count WASAPI gives. The streams use the communications category, so Windows may apply the device's own echo cancellation and noise suppression. Device names and ids stay on this device; nothing about them is sent |
 | `veil-media/src/ffi/windows/camera.rs` | Media Foundation capture (`MFEnumDeviceSources`, the camera's `IMFMediaSource`, `MFCreateSourceReaderFromMediaSource`, `IMFSourceReader::ReadSample`, `IMF2DBuffer2::Lock2DSize`) | Camera pictures on Windows, converted to NV12 by Windows' own video processing. Each picture is copied out of the locked buffer, within the bounds Windows reports, before it is used. The camera's name stays on the device; nothing about it is sent |
+| `veil-media/src/ffi/windows/protect.rs` | DPAPI (`CryptProtectData`, `CryptUnprotectData` with `CRYPTPROTECT_UI_FORBIDDEN` and a per-purpose label as extra entropy, `LocalFree`) | Sealing `veil-app`'s saved device key and verified list to the signed-in Windows user. It sits in `veil-media` only because all of Veil's `unsafe` code does |
 | `veil-media/src/ffi/opus.rs` (every platform) | libopus: `opus_encoder_create`, `opus_encode_float`, `opus_encoder_ctl`, `opus_decoder_create`, `opus_decode_float`, the matching `_destroy` calls, `opus_get_version_string` | Opus audio. Every buffer is a Rust slice whose length is the count passed to libopus, and packet lengths are checked before decoding. Each state is freed once, on drop |
 
 ## 6. Known shortcuts

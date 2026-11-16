@@ -10,11 +10,13 @@
 //!   while that view exists.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, TextureHandle, TextureOptions};
 
 use crate::engine::{Engine, Role};
+use crate::keystore::{self, KeyStore};
 use crate::media::LocalMedia;
 use crate::model::{Call, CallStatus};
 use crate::screens::call::CallView;
@@ -55,6 +57,10 @@ pub struct VeilApp {
     pub remote: HashMap<u32, TextureHandle>,
     /// Whether Windows lets guests reach you, checked before you host.
     pub firewall: crate::firewall::Firewall,
+    /// Your device key and the keys you verified, kept between calls.
+    pub keys: Arc<Mutex<KeyStore>>,
+    /// "New device key" was clicked once and waits for a second click.
+    pub confirm_new_key: bool,
     ctx: egui::Context,
 }
 
@@ -78,6 +84,8 @@ impl VeilApp {
             demo: false,
             remote: HashMap::new(),
             firewall: crate::firewall::Firewall::new(),
+            keys: Arc::new(Mutex::new(KeyStore::open(keystore::default_dir()))),
+            confirm_new_key: false,
             ctx: ctx.clone(),
         }
     }
@@ -110,7 +118,8 @@ impl VeilApp {
                 }
             };
             let speaker = self.media.choice().speaker.clone();
-            match Engine::start(role, name.clone(), speaker, self.ctx.clone()) {
+            let keys = self.keys.clone();
+            match Engine::start(role, name.clone(), speaker, keys, self.ctx.clone()) {
                 Ok(engine) => {
                     self.media.set_taps(Some(engine.taps()));
                     let title = if host {

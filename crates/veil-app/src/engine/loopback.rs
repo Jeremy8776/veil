@@ -65,7 +65,7 @@ fn feed(taps: &[Taps], n: u64) {
 #[ignore = "opens ports, the H.264 encoder and the speaker"]
 fn loopback_host_admits_a_guest_and_both_see_and_hear_each_other() {
     let ctx = egui::Context::default();
-    let host = Engine::start(Role::Host, "Hana Host".into(), None, ctx.clone()).unwrap();
+    let host = Engine::start(Role::Host, "Hana Host".into(), None, fresh_keys(), ctx.clone()).unwrap();
     let mut host_call = Call::live("Call".into(), "Hana Host", true, Instant::now());
     wait_for("an invite", &host, &mut host_call, |c| !c.invite.is_empty());
     let now = SystemTime::now()
@@ -77,7 +77,7 @@ fn loopback_host_admits_a_guest_and_both_see_and_hear_each_other() {
     println!("invite: {}", host_call.invite);
 
     let guest =
-        Engine::start(Role::Guest(Box::new(invite)), "Gil Guest".into(), None, ctx).unwrap();
+        Engine::start(Role::Guest(Box::new(invite)), "Gil Guest".into(), None, fresh_keys(), ctx).unwrap();
     let mut guest_call = Call::live("Call".into(), "Gil Guest", false, Instant::now());
     wait_for("the lobby", &guest, &mut guest_call, |c| {
         c.status == CallStatus::Lobby
@@ -187,7 +187,7 @@ fn loopback_leaving_a_call_with_devices_on_is_quick() {
     let mut media = crate::media::LocalMedia::new(ctx.clone());
     media.set_camera(true);
     media.set_mic(true);
-    let engine = Engine::start(Role::Host, "Host".into(), None, ctx).unwrap();
+    let engine = Engine::start(Role::Host, "Host".into(), None, fresh_keys(), ctx).unwrap();
     media.set_taps(Some(engine.taps()));
     std::thread::sleep(Duration::from_secs(3));
     let start = Instant::now();
@@ -196,4 +196,9 @@ fn loopback_leaving_a_call_with_devices_on_is_quick() {
     let start = Instant::now();
     drop(media);
     println!("devices closed in {:?}", start.elapsed());
+}
+
+/// A key that lasts this test only: nothing is saved.
+fn fresh_keys() -> std::sync::Arc<std::sync::Mutex<crate::keystore::KeyStore>> {
+    std::sync::Arc::new(std::sync::Mutex::new(crate::keystore::KeyStore::open(None)))
 }

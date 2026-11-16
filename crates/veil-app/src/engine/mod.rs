@@ -10,6 +10,8 @@
 //! - `audio_out.rs`, a thread that orders, decodes, mixes and plays everyone's sound.
 //!
 //! Your camera and microphone threads (`media.rs`) feed the engine through [`Taps`].
+//! Every call uses your saved device key (`keystore.rs`), and [`Engine::act`] saves the keys
+//! you mark as verified there.
 //!
 //! Invariants:
 //! - On the interface thread the engine only takes short locks (`sync`, `act`,
@@ -33,7 +35,7 @@ mod view;
 mod wanted;
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::time::{Duration, Instant};
 
@@ -43,6 +45,7 @@ use tokio::sync::mpsc;
 use veil_security::invite::Invite;
 
 use crate::convert::Rgba;
+use crate::keystore::KeyStore;
 use crate::media::{Worker, lock};
 use crate::model::{Action, Call, CallStatus};
 pub use view::Shared;
@@ -86,20 +89,23 @@ pub struct Engine {
     task: Option<tokio::task::JoinHandle<()>>,
     commands: mpsc::UnboundedSender<Command>,
     shared: Arc<Shared>,
+    keys: Arc<Mutex<KeyStore>>,
     taps: Taps,
     _workers: Vec<Worker>,
 }
 
 impl Engine {
-    /// Starts the call. `your_name` is sent to the other members, sealed. `speaker` is a
-    /// device id from the pre-join picker, `None` for the default. Fails only if the async
-    /// runtime cannot start.
+    /// Starts the call with your device key from `keys`. `your_name` is sent to the other
+    /// members, sealed. `speaker` is a device id from the pre-join picker, `None` for the
+    /// default. Fails only if the async runtime cannot start.
     pub fn start(
         role: Role,
         your_name: String,
         speaker: Option<String>,
+        keys: Arc<Mutex<KeyStore>>,
         ctx: egui::Context,
     ) -> Result<Self, String> {
+        let identity = lock(&keys).identity();
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .thread_name("veil-call")
@@ -134,10 +140,13 @@ impl Engine {
         let task = runtime.spawn(async move {
             let shared = task_shared.clone();
             let result = match role {
-                Role::Host => host::run(config, &your_name, task_shared, pipes, commands_rx).await,
+                Role::Host => {
+                    let shared = task_shared;
+                    host::run(identity, config, &your_name, shared, pipes, commands_rx).await
+                }
                 Role::Guest(invite) => {
                     let (shared, name) = (task_shared, &your_name);
-                    guest::run(*invite, config, name, shared, pipes, commands_rx).await
+                    guest::run(identity, *invite, config, name, shared, pipes, commands_rx).await
                 }
             };
             let reason = match result {
@@ -151,6 +160,7 @@ impl Engine {
             task: Some(task),
             commands,
             shared,
+            keys,
             taps: Taps {
                 video: video_tx,
                 audio: sound_tx,
@@ -166,6 +176,19 @@ impl Engine {
     /// Hands a host's decision, or a chat message, to the session. Admitting or declining
     /// takes the person out of the lobby at once, so a second click cannot repeat it.
     pub fn act(&self, action: Action) {
+        if let Action::Verify(id, verified) = action {
+            let view = lock(&self.shared.view);
+            let people = view.people.iter().map(|p| (p.id, p.device));
+            let device = people
+                .chain(view.lobby.iter().map(|k| (k.id, k.device)))
+                .find(|(i, _)| *i == id)
+                .map(|(_, d)| d);
+            drop(view);
+            if let Some(device) = device {
+                lock(&self.keys).set_verified(device, verified);
+            }
+            return;
+        }
         if let Action::Admit(id) | Action::Decline(id) = action {
             self.shared.update(|view| view.lobby.retain(|k| k.id != id));
         }
@@ -182,7 +205,9 @@ impl Engine {
     pub fn sync(&self, call: &mut Call, now: Instant) {
         let view: View = lock(&self.shared.view).clone();
         let seen = self.shared.seen();
-        view::apply(&view, &seen, call, now);
+        let keys = lock(&self.keys);
+        view::apply(&view, &seen, |d| keys.is_verified(d), call, now);
+        drop(keys);
         for (from, text) in self.shared.take_chat() {
             call.receive(from, text, now);
         }

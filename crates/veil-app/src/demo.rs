@@ -39,6 +39,7 @@ pub fn call(your_name: &str, is_host: bool, now: Instant) -> Call {
         speaking: false,
         path: LinkPath::Direct,
         safety: safety_number(1),
+        verified: false,
     }];
     for (i, (name, muted, camera, path)) in PEOPLE.iter().enumerate() {
         let id = 2 + i as u32;
@@ -53,6 +54,7 @@ pub fn call(your_name: &str, is_host: bool, now: Instant) -> Call {
             speaking: false,
             path: *path,
             safety: safety_number(id),
+            verified: false,
         });
     }
     Call {
@@ -93,6 +95,7 @@ pub fn tick(call: &mut Call, now: Instant) {
             name: String::from("Priya Shah"),
             since: now,
             safety: String::new(),
+            verified: false,
         });
         call.next_id += 1;
     }

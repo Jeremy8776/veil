@@ -45,13 +45,13 @@ use crate::model::{Action, CallStatus};
 const INVITE_LIFETIME: Duration = Duration::from_secs(3_600);
 
 pub async fn run(
+    identity: Identity,
     config: NetConfig,
     your_name: &str,
     shared: Arc<Shared>,
     pipes: Pipes,
     mut commands: UnboundedReceiver<Command>,
 ) -> Result<(), String> {
-    let identity = Identity::generate();
     let me = identity.public();
     // A fresh key's public half is 32 random-looking bytes; its first 16 make a room id.
     let room_id: [u8; 16] = Identity::generate().public().0[..16]
@@ -105,6 +105,7 @@ pub async fn run(
                     knocks.push((id, device));
                     let knocker = Knocker {
                         id,
+                        device,
                         name: session.name_for(&device),
                         safety: session.safety_with(&device),
                         since: Instant::now(),
@@ -158,8 +159,8 @@ async fn act(host: &HostHandle, ids: &Ids, knocks: &mut Vec<(u32, PublicId)>, ac
             Some(device) => host.remove(device).await,
             None => return,
         },
-        // The session sends chat; see `run`.
-        Action::Chat(_) => return,
+        // The session sends chat (see `run`); the engine saves verified keys.
+        Action::Chat(_) | Action::Verify(..) => return,
     };
     if let Err(e) = result {
         eprintln!("veil-app: {action:?} failed: {e}");

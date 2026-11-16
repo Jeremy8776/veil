@@ -265,7 +265,14 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
     the forwarder use it; `Link::recv_frame` stays for tests (`tests/frames.rs`).
   - L7, CI: `.github/workflows/ci.yml` runs clippy and tests on Windows, `cargo audit` and
     the licence check on Linux. `.cargo/audit.toml` lists the advisories accepted and why.
-  Still open: M4 (device keys last one call), L4 (names are self-chosen), L5 (wait for an
+  - M4, saved device key (16/11/2026, `veil-app/src/keystore.rs`): one device key for every
+    call in `%LOCALAPPDATA%\Veil\device.key`, and the keys you mark as verified in
+    `verified.keys`, both sealed with DPAPI (`veil_media::protect`, `ffi/windows/protect.rs`).
+    A file that does not open is moved to `*.unreadable` and a fresh one started. The lobby
+    shows "Verified" or "New device"; Security has Mark verified and Forget
+    (`Action::Verify`, saved by `Engine::act`); Home has "New device key" (two clicks).
+    Verified never admits anyone. Off Windows nothing is saved yet (`shortcut:`).
+  Still open: L4 (names are self-chosen), L5 (wait for an
   eframe release with quick-xml 0.41), L6 (compare vendored libopus with the xiph release).
 
 Tests: `cargo test -j 8 --workspace` (233 tests, two ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.

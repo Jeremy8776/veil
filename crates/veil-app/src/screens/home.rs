@@ -77,7 +77,35 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
             app.demo = true;
             start(app, true);
         }
+        device_key(app, ui);
     });
+}
+
+/// Your device key's short form, a way to replace it, and any trouble saving it.
+fn device_key(app: &mut VeilApp, ui: &mut egui::Ui) {
+    let (short, problem) = {
+        let keys = crate::media::lock(&app.keys);
+        (crate::engine::short(&keys.public()), keys.problem.clone())
+    };
+    ui.add_space(4.0);
+    let label = if app.confirm_new_key { "Confirm new device key" } else { "New device key" };
+    let colour = if app.confirm_new_key { theme::WARN } else { MUTED };
+    let button = ui
+        .add(egui::Button::new(RichText::new(label).small().color(colour)).frame(false))
+        .on_hover_text(format!(
+            "This device is {short}. A new key means people who verified you see a new              device. Use it if you think your key was copied."
+        ));
+    if button.clicked() {
+        if app.confirm_new_key {
+            crate::media::lock(&app.keys).renew();
+            app.confirm_new_key = false;
+        } else {
+            app.confirm_new_key = true;
+        }
+    }
+    if let Some(problem) = problem {
+        ui.label(RichText::new(problem).small().color(theme::WARN));
+    }
 }
 
 /// Reads an invite link, or says plainly what is wrong with it.

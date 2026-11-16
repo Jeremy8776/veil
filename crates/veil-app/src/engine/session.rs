@@ -147,6 +147,7 @@ impl Session {
             .iter()
             .map(|(id, device)| Person {
                 id: *id,
+                device: *device,
                 name: self.name_for(device),
                 is_host: *device == self.host,
                 safety: self.safety_with(device),

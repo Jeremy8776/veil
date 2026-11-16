@@ -7,6 +7,7 @@
 //! - In a real call, chat is sealed on this device and sent to everyone in the call.
 //! - A person in the lobby shows their safety number on hover, so the host can compare it
 //!   before letting them in.
+//! - "Verified" is only a label for a device you compared before. The host still admits.
 
 use std::time::Instant;
 
@@ -91,11 +92,23 @@ Compare it with them before letting them in.",
                         ));
                     }
                     let waited = clock(now.saturating_duration_since(waiting.since));
-                    ui.label(
-                        RichText::new(format!("Waiting {waited}"))
-                            .small()
-                            .color(MUTED),
-                    );
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("Waiting {waited}"))
+                                .small()
+                                .color(MUTED),
+                        );
+                        if waiting.verified {
+                            verified_tag(ui).on_hover_text(
+                                "You verified this device in an earlier call.                                  You still decide whether to let them in.",
+                            );
+                        } else if !waiting.safety.is_empty() {
+                            ui.label(RichText::new("New device").small().color(theme::WARN))
+                                .on_hover_text(
+                                    "You have not verified this device.                                      Compare the safety number before letting them in.",
+                                );
+                        }
+                    });
                 });
             });
             ui.horizontal(|ui| {
@@ -123,7 +136,12 @@ Compare it with them before letting them in.",
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         let you = if person.is_you { " (You)" } else { "" };
-                        ui.label(format!("{}{you}", person.name));
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{}{you}", person.name));
+                            if person.verified {
+                                verified_tag(ui).on_hover_text("You verified this device.");
+                            }
+                        });
                         if person.is_host {
                             ui.label(RichText::new("Host").small().color(MUTED));
                         }
@@ -246,6 +264,7 @@ fn chat(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
 }
 
 fn security(view: &mut CallView, ui: &mut egui::Ui) {
+    let mut change = None;
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
         Icon::Shield.paint(ui.painter(), rect.center(), 18.0, theme::SPEAKING);
@@ -285,8 +304,40 @@ fn security(view: &mut CallView, ui: &mut egui::Ui) {
                 for row in groups.chunks(4) {
                     ui.label(RichText::new(row.join("  ")).monospace().size(13.0));
                 }
+                ui.horizontal(|ui| {
+                    if person.verified {
+                        verified_tag(ui).on_hover_text("Kept for future calls on this device.");
+                        let forget = ui
+                            .small_button("Forget")
+                            .on_hover_text("Stop treating this device as verified.");
+                        if forget.clicked() {
+                            change = Some((person.id, false));
+                        }
+                    } else {
+                        let mark = ui.small_button("Mark verified").on_hover_text(
+                            "Only after the numbers match over another channel.                              Kept for future calls.",
+                        );
+                        if mark.clicked() {
+                            change = Some((person.id, true));
+                        }
+                    }
+                });
             }
         });
+    if let Some((id, verified)) = change {
+        view.call.set_verified(id, verified);
+    }
+}
+
+/// A small green "Verified" label with a shield.
+fn verified_tag(ui: &mut egui::Ui) -> egui::Response {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        let (rect, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
+        Icon::Shield.paint(ui.painter(), rect.center(), 11.0, theme::SPEAKING);
+        ui.label(RichText::new("Verified").small().color(theme::SPEAKING));
+    })
+    .response
 }
 
 fn path_label(ui: &mut egui::Ui, path: LinkPath) {
