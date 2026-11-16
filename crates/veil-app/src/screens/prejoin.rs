@@ -38,7 +38,8 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
                     ui.horizontal(|ui| toggles(app, ui));
                 });
                 ui.add_space(16.0);
-                details(app, ui, host);
+                // Its own column: inside the row, a card would lay its contents out sideways.
+                ui.vertical(|ui| details(app, ui, host));
             });
         });
 }
