@@ -235,7 +235,13 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
     a large call stays a mesh. Fixed on the way: a 5th person used to make the plan
     infeasible, and the error ended the host's call; now no forwarder means a mesh of any
     size, and a failed plan only leaves the old routes. Not yet run with 5 real copies.
-  Tests: 44 unit tests, plus `engine/loopback.rs` (ignored: it opens ports, the encoder and the
+  - Layer subscriptions (16/11/2026, `wanted.rs`): the call screen reports each other
+    person's tile width in physical pixels (`Engine::watch`). A tile up to 720 px wide asks
+    for the lowest spatial layer at every frame rate, a wider one (the speaker stage, a big
+    gallery tile) for everything, and someone off screen for the lowest. The session sends
+    the request with `MediaSession::subscribe` on its 1 s tick when it changes, and again
+    after every new route. In a mesh it does nothing.
+  Tests: 46 unit tests, plus `engine/loopback.rs` (ignored: it opens ports, the encoder and the
   speaker): two engines on localhost, the guest knocks, the host admits, both show the same
   safety number and epoch, synthetic 720p pictures and silence go both ways until each side
   decodes the other's video and hears packets, each shows the other's chosen name, a chat
@@ -304,8 +310,9 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 - `veil-app`'s own forwarder is reachable on the host's network only, and the host's uplink
   carries every stream to every member. Set `VEIL_FORWARDER` for large internet calls
   (`engine/host.rs`).
-- `veil-app` does not subscribe to layers yet, so through a forwarder every receiver still
-  gets every layer of every sender. Subscribe small tiles to `Wanted::THUMB`.
+- `veil-app` asks for two sizes only, small or everything (`engine/wanted.rs`). A tile that
+  shrinks holds its last large picture for about a second before the small layer takes over
+  (`engine/video_in.rs`).
 - `veil-app` applies routes on the session task, so media pauses while a new member's link
   is dialled (`engine/host.rs`).
 - The jitter buffer catches up by skipping packets, which clicks; time-stretch instead if it
@@ -372,4 +379,4 @@ starts outbound; the installer should add the rule for release builds.
 3. `veil-app`: wired to real calls (see above). Next: Jeremy runs two copies on this machine
    (with headphones): New call in one, copy the invite from People, Join in the other, Admit.
    Names and chat are sent (16/11/2026). A forwarder carries calls of 5 or more
-   (16/11/2026). Then: layer subscriptions by tile size, and a 5-person test.
+   (16/11/2026), asking for layers by tile size. Then: a 5-person test.

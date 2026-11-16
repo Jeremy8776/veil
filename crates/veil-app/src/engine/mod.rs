@@ -30,6 +30,7 @@ mod session;
 mod video_in;
 mod video_out;
 mod view;
+mod wanted;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -169,6 +170,12 @@ impl Engine {
             self.shared.update(|view| view.lobby.retain(|k| k.id != id));
         }
         let _ = self.commands.send(Command::Act(action));
+    }
+
+    /// Reports each other person's tile width in physical pixels, so a call through a
+    /// forwarder asks only for the layers those tiles need (`wanted.rs`).
+    pub fn watch(&self, tiles: Vec<(u32, f32)>) {
+        self.shared.set_tiles(tiles);
     }
 
     /// Copies the engine's view of the call into `call`.

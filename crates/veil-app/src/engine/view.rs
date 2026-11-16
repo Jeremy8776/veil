@@ -84,6 +84,8 @@ pub struct Shared {
     heard: Mutex<HashMap<u32, Heard>>,
     /// Chat that arrived, as (sender's name, text), not yet in the interface's call.
     chat: Mutex<Vec<(String, String)>>,
+    /// Each other person's tile on screen, as (participant id, width in physical pixels).
+    tiles: Mutex<Vec<(u32, f32)>>,
     ctx: egui::Context,
 }
 
@@ -100,8 +102,18 @@ impl Shared {
             pictures: Mutex::default(),
             heard: Mutex::default(),
             chat: Mutex::default(),
+            tiles: Mutex::default(),
             ctx,
         }
+    }
+
+    /// The interface's tiles this frame. Does not repaint: the session reads it on its tick.
+    pub fn set_tiles(&self, tiles: Vec<(u32, f32)>) {
+        *lock(&self.tiles) = tiles;
+    }
+
+    pub fn tiles(&self) -> Vec<(u32, f32)> {
+        lock(&self.tiles).clone()
     }
 
     /// Changes the view and asks the interface to draw it.

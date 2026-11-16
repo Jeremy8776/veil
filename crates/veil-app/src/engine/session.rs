@@ -5,7 +5,8 @@
 //! schedule chose) and each Opus frame, sends them through the `MediaSession`, and opens what
 //! arrives: video goes to the decoder thread, sound to the playback thread. Keyframe requests
 //! go both ways. Names and chat go both ways as sealed app messages (`names.rs` decides when
-//! your name is sent); received chat waits in [`Shared`] for the interface. [`Session::pump`]
+//! your name is sent); received chat waits in [`Shared`] for the interface. Through a
+//! forwarder it asks for the layers each tile needs (`wanted.rs`). [`Session::pump`]
 //! does one of these jobs per call, so the host and guest loops can wait on it next to their
 //! own events.
 //!
@@ -25,6 +26,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time::{Interval, MissedTickBehavior, interval};
 use veil_call::{AppMessage, EpochKeys, Incoming, KeyRing, Media, MediaSession, Path, Routes};
+use veil_forward::Wanted;
 use veil_media::{AudioHeader, AudioSettings, OpusEncoder};
 use veil_security::PublicId;
 use veil_security::frame::{FrameSender, frame_layer};
@@ -35,6 +37,7 @@ use super::names::{Announcer, Names};
 use super::video_in::VideoIn;
 use super::video_out::{Encoded, VideoControl};
 use super::view::{Person, Shared};
+use super::wanted;
 use super::{Ids, micros_since, short};
 use crate::model::LinkPath;
 
@@ -62,6 +65,9 @@ pub struct Session {
     others: Vec<(u32, PublicId)>,
     names: Names,
     announcer: Announcer,
+    /// The layer request last sent to the forwarder; `None` after new routes, so it is sent
+    /// again (a new forwarder link starts with every layer).
+    subscribed: Option<Vec<(PublicId, Wanted)>>,
     opus: Option<OpusEncoder>,
     audio_seq: u32,
     frame_id: u32,
@@ -93,6 +99,7 @@ impl Session {
             others: Vec::new(),
             names: Names::default(),
             announcer: Announcer::new(your_name),
+            subscribed: None,
             opus: None,
             audio_seq: 0,
             frame_id: 0,
@@ -168,6 +175,22 @@ impl Session {
         self.announcer.restart(Instant::now());
         self.refresh_paths();
         self.announce().await;
+        self.subscribed = None;
+        self.subscribe().await;
+    }
+
+    /// Asks the forwarder for the layers the tiles on screen need, if that changed. Does
+    /// nothing in a mesh. At most once a second (the tick), so a quick change of speaker
+    /// does not ask senders for a keyframe each time.
+    async fn subscribe(&mut self) {
+        let request = wanted::request(&self.others, &self.shared.tiles());
+        if request.is_empty() || self.subscribed.as_ref() == Some(&request) {
+            return;
+        }
+        match self.media.subscribe(&request).await {
+            Ok(()) => self.subscribed = Some(request),
+            Err(e) => eprintln!("veil-app: cannot ask for layers: {e}"),
+        }
     }
 
     /// Does one job: media in, media out, a keyframe request, or the once-a-second refresh.
@@ -180,6 +203,7 @@ impl Session {
             _ = self.tick.tick() => {
                 self.refresh_paths();
                 self.announce().await;
+                self.subscribe().await;
             }
         }
     }

@@ -184,10 +184,19 @@ impl CallView {
             area.min.y += banner(ui, area, text, colour) + GAP;
         }
         let people = &self.call.participants;
+        // Each other person's tile width, so the engine asks only for the layers it needs.
+        let scale = ui.ctx().pixels_per_point();
+        let mut tiles: Vec<(u32, f32)> = Vec::new();
+        let mut show = |person: &Participant, rect: Rect| {
+            if !person.is_you {
+                tiles.push((person.id, rect.width() * scale));
+            }
+            draw(app, ui, rect, person);
+        };
         match self.view {
             View::Gallery => {
                 for (person, rect) in people.iter().zip(layout::gallery(people.len(), area, GAP)) {
-                    draw(app, ui, rect, person);
+                    show(person, rect);
                 }
             }
             View::Speaker => {
@@ -196,12 +205,15 @@ impl CallView {
                     people.iter().filter(|p| Some(p.id) != focus).collect();
                 let (stage, strip) = layout::speaker(others.len(), area, GAP);
                 if let Some(person) = people.iter().find(|p| Some(p.id) == focus) {
-                    draw(app, ui, stage, person);
+                    show(person, stage);
                 }
                 for (person, rect) in others.iter().zip(strip) {
-                    draw(app, ui, rect, person);
+                    show(person, rect);
                 }
             }
+        }
+        if let Some(engine) = &self.engine {
+            engine.watch(tiles);
         }
         if self.waiting_for_guests() {
             self.invite_card(ui, area);
