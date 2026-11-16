@@ -56,14 +56,7 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
             }
         });
         ui.add_space(16.0);
-        ui.label(
-            RichText::new(
-                "Pictures and sound are encrypted on your device. Servers that help connect a \
-                 call carry only sealed packets.",
-            )
-            .small()
-            .color(MUTED),
-        );
+        ui.label(RichText::new("End-to-end encrypted").small().color(MUTED));
     });
 }
 

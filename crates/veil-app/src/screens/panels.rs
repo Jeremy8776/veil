@@ -170,7 +170,7 @@ fn status_icons(ui: &mut egui::Ui, person: &Participant) {
 fn chat(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     if view.call.demo {
         ui.label(
-            RichText::new("Demo call: messages stay on this screen.")
+            RichText::new("Demo: messages stay here.")
                 .small()
                 .color(theme::WARN),
         );
@@ -234,34 +234,25 @@ fn security(view: &mut CallView, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
         Icon::Shield.paint(ui.painter(), rect.center(), 18.0, theme::SPEAKING);
-        ui.label(RichText::new("End-to-end encrypted").color(theme::SPEAKING));
+        ui.label(RichText::new("End-to-end encrypted").color(theme::SPEAKING))
+            .on_hover_text("Encrypted on each device. Relays and forwarders cannot open it.");
+        let epoch = format!("Key {}", view.call.epoch);
+        ui.label(RichText::new(epoch).small().color(MUTED))
+            .on_hover_text("A new key starts whenever someone joins or leaves.");
     });
-    ui.label(
-        RichText::new(
-            "Pictures and sound are encrypted on each device. Relays and forwarders carry only \
-             sealed packets they cannot open.",
-        )
-        .color(MUTED),
-    );
-    ui.label(
-        RichText::new(format!("Key epoch {}", view.call.epoch))
-            .small()
-            .color(MUTED),
-    );
-    if view.call.demo {
-        ui.label(
-            RichText::new("Demo call: these numbers are made up.")
-                .small()
-                .color(theme::WARN),
-        );
-    }
     ui.add_space(4.0);
-    section(ui, "Compare safety numbers");
-    ui.label(
-        RichText::new("Read each number to that person over another channel. If they match, nobody is in between.")
-            .small()
-            .color(MUTED),
-    );
+    ui.horizontal(|ui| {
+        section(ui, "Safety numbers");
+        if view.call.demo {
+            ui.label(RichText::new("demo").small().color(theme::WARN))
+                .on_hover_text("Made up for the demo call.");
+        }
+        let (rect, response) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+        Icon::Info.paint(ui.painter(), rect.center(), 12.0, MUTED);
+        response.on_hover_text(
+            "Compare with each person over another channel. A match means nobody is in between.",
+        );
+    });
     ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {

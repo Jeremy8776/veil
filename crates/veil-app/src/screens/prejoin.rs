@@ -121,9 +121,9 @@ fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
         }
         ui.add_space(6.0);
         let note = if host {
-            "You are the host. People with your invite wait in the lobby until you let them in."
+            "You let people in from the lobby."
         } else {
-            "The host lets you in from the lobby. Compare safety numbers once you are in."
+            "The host lets you in."
         };
         ui.label(RichText::new(note).small().color(MUTED));
     });

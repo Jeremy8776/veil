@@ -171,7 +171,7 @@ fn banner(ui: &egui::Ui, area: Rect) -> f32 {
     painter.text(
         pos2(rect.left() + 34.0, rect.center().y),
         Align2::LEFT_CENTER,
-        "Demo call: the other people are simulated. Your camera and microphone are real and stay on this device.",
+        "Demo: other people are simulated.",
         FontId::proportional(13.0),
         theme::WARN,
     );
