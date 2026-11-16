@@ -32,7 +32,8 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   forwarder `NodeAddr`) into `Routes::Mesh` or `Routes::Forwarder`. `MediaSession` (`media.rs`)
   applies routes, keeps one link per pair (lower key dials; a punch dial-back is closed), holds
   early inbound links up to 10 s until the routes expect them, and sends and receives sealed
-  frames and audio. `KeyRing` (`keyring.rs`) opens the previous epoch for 2 s after a change.
+  frames and audio. `KeyRing` (`keyring.rs`) opens the previous epoch for 2 s after a change,
+  or not at all when the change removed a device.
   `CallNode::set_relay_only` hides the participant's address from other members.
 - Plan distribution (`veil-call/src/call_plan.rs`): the host plans each epoch and calls
   `HostHandle::publish_plan(plan, directory)`. The actor refuses a directory that does not list
@@ -260,8 +261,15 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   App messages are now signed by the sender's device key, bound to the frame id
   (`app_msg.rs`, tests `a_member_cannot_speak_as_another` and
   `a_signed_message_cannot_move_to_another_frame`). Video and sound are still only
-  group-authenticated (TRANSPARENCY.md, known leaks). Open from that audit: M1 (a removed
-  member's 2 s grace on the old epoch), L1 to L4.
+  group-authenticated (TRANSPARENCY.md, known leaks). Open from that audit: L1 to L4.
+- Second audit, M1, fixed 16/11/2026: `KeyRing` kept the previous epoch open for 2 s after
+  every change, so a member removed by that change could still inject video and sound under
+  the old key. Every member can derive every sender's key from the epoch secret, so the old
+  epoch cannot be limited to the leaves that stay. `KeyRing::new` and `rotate` now take the
+  epoch's roster; if a device in the old roster is missing from the new one, the old receiver
+  is dropped at once. Joins keep the grace. Tests: `keyring.rs`
+  (`a_removal_closes_the_previous_epoch_at_once`) and `tests/media.rs`
+  (`a_removed_member_gets_no_grace_on_the_old_epoch`).
 - Audit low findings, fixed 16/11/2026:
   - L3, rendezvous: a request for a key that is not in the room gets no answer, the same as
     a member that declines, and request limits count it the same way. `PeerNotInRoom` is now
