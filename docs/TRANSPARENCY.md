@@ -131,7 +131,8 @@ bundled fonts are turned off because their licences are outside the allow list.
   Calling them needs `unsafe` foreign-function calls. These libraries ship with the operating
   system; Veil does not bundle them.
 - Opus audio means the libopus C library (BSD-3-Clause). Its sources are in
-  `crates/veil-media/vendor/opus` (version, origin and what was left out in `VENDORED.md`),
+  `crates/veil-media/vendor/opus` (version, origin, what was left out, and a file-by-file
+  check against xiph.org's release tarball in `VENDORED.md`),
   and `build.rs` compiles them with the `cc` crate. The deep-learning features are not built.
 - Rules for that code:
   - `unsafe` is allowed only in `veil-media`, and only inside one `ffi` module per platform,

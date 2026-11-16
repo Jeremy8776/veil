@@ -6,8 +6,13 @@ libopus 1.6.1, BSD-3-Clause (see `COPYING`). Built by `crates/veil-media/build.r
 ## Where it came from
 
 The release sources bundled in the `opusic-sys` 0.7.7 crate from crates.io (checksum verified
-by cargo). That crate patches only `CMakeLists.txt`, which is not kept here. The C sources
-have not yet been compared against the tarball from downloads.xiph.org.
+by cargo). That crate patches only `CMakeLists.txt`, which is not kept here.
+
+Checked 16/11/2026 against `opus-1.6.1.tar.gz` from downloads.xiph.org/releases/opus/ (SHA-256
+`6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1`, as in xiph's
+`SHA256SUMS.txt`). Every file here except this one is identical to the tarball's, ignoring
+line endings. The tarball's C files not kept here are the ones listed below, plus three
+cmake feature probes (`cmake/*.c`).
 
 ## What was left out
 

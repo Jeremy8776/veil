@@ -275,8 +275,9 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   - L4, names (`veil-app/src/engine/names.rs::labels`): a name that anyone else in the call
     shows, you included, gets that person's key prefix in people, lobby and chat. Names match
     ignoring case, spacing and a copied "(prefix)". Look-alike letters are a `shortcut:`.
-  Still open: L5 (wait for an
-  eframe release with quick-xml 0.41), L6 (compare vendored libopus with the xiph release).
+  - L6, vendored libopus: every file matches xiph's `opus-1.6.1.tar.gz` (checksum and
+    method in `crates/veil-media/vendor/opus/VENDORED.md`).
+  Still open: L5 (wait for an eframe release with quick-xml 0.41).
 
 Tests: `cargo test -j 8 --workspace` (233 tests, two ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
@@ -347,8 +348,6 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
   where the device has none.
 - H.264 decoding is on the CPU; the GPU path needs a D3D11 device manager
   (`veil-media/src/ffi/windows/decoder.rs`).
-- The vendored libopus has not been compared against the xiph.org release tarball
-  (`vendor/opus/VENDORED.md`).
 
 ## Not yet tested
 
