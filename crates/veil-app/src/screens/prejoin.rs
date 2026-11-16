@@ -4,6 +4,7 @@
 use eframe::egui::{self, Align, Layout, RichText, Sense, vec2};
 
 use crate::app::VeilApp;
+use crate::devices::{self, Device};
 use crate::icons::Icon;
 use crate::theme::{self, MUTED};
 use crate::widgets::{self, ControlState, Tile, Tone, card, control, level_meter, pill};
@@ -105,12 +106,43 @@ fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
         ui.set_width(320.0);
         ui.label(RichText::new(app.name.trim()).font(theme::bold(18.0)));
         ui.add_space(4.0);
-        device(ui, Icon::Video, "Camera", &camera_status(app));
-        device(ui, Icon::Mic, "Microphone", &mic_status(app));
+        let choice = app.media.choice().clone();
+        let lists = &app.devices;
+        if let Some(id) = picker(
+            ui,
+            Icon::Video,
+            "Camera",
+            &lists.cameras,
+            choice.camera.as_deref(),
+            "Default camera",
+        ) {
+            app.media.choose_camera(id);
+        }
+        status(ui, app.media.camera_error());
+        if let Some(id) = picker(
+            ui,
+            Icon::Mic,
+            "Microphone",
+            &lists.mics,
+            choice.mic.as_deref(),
+            "Windows default",
+        ) {
+            app.media.choose_mic(id);
+        }
+        status(ui, app.media.mic_error());
         if app.media.mic_on() {
             level_meter(ui, app.level, 280.0);
         }
-        device(ui, Icon::Volume, "Speaker", "Default communications device");
+        if let Some(id) = picker(
+            ui,
+            Icon::Volume,
+            "Speaker",
+            &lists.speakers,
+            choice.speaker.as_deref(),
+            "Windows default",
+        ) {
+            app.media.choose_speaker(id);
+        }
         ui.add_space(12.0);
         let action = if host { "Start call" } else { "Join now" };
         if pill(ui, Some(Icon::Video), action, Tone::Primary, 280.0).clicked() {
@@ -129,37 +161,37 @@ fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
     });
 }
 
-fn device(ui: &mut egui::Ui, icon: Icon, kind: &str, status: &str) {
+/// A labelled drop-down of devices. Returns the new choice when it changed (`Some(None)` for
+/// the default).
+fn picker(
+    ui: &mut egui::Ui,
+    icon: Icon,
+    kind: &str,
+    list: &[Device],
+    chosen: Option<&str>,
+    default: &str,
+) -> Option<Option<String>> {
+    let mut picked = chosen.map(str::to_string);
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
         icon.paint(ui.painter(), rect.center(), 15.0, MUTED);
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            ui.label(RichText::new(kind).small().color(MUTED));
-            ui.label(status);
-        });
+        ui.label(RichText::new(kind).small().color(MUTED));
     });
+    egui::ComboBox::from_id_salt(kind)
+        .width(280.0)
+        .selected_text(devices::label(list, chosen, default))
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut picked, None, default);
+            for device in list {
+                ui.selectable_value(&mut picked, Some(device.id.clone()), &device.name);
+            }
+        });
+    (picked.as_deref() != chosen).then_some(picked)
 }
 
-fn camera_status(app: &VeilApp) -> String {
-    if let Some(error) = app.media.camera_error() {
-        return error;
-    }
-    if !app.want_camera {
-        return String::from("Off");
-    }
-    app.media
-        .camera_name()
-        .unwrap_or_else(|| String::from("Starting…"))
-}
-
-fn mic_status(app: &VeilApp) -> String {
-    if let Some(error) = app.media.mic_error() {
-        return error;
-    }
-    if app.want_mic {
-        String::from("Default communications microphone")
-    } else {
-        String::from("Muted")
+/// A device error, in short, under its picker.
+fn status(ui: &mut egui::Ui, error: Option<String>) {
+    if let Some(error) = error {
+        ui.label(RichText::new(error).small().color(theme::DANGER_HOVER));
     }
 }

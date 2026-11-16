@@ -35,6 +35,8 @@ pub struct VeilApp {
     /// What you chose on the pre-join screen, kept for the call.
     pub want_camera: bool,
     pub want_mic: bool,
+    /// Devices on this machine, read when the pre-join screen opens.
+    pub devices: crate::devices::DeviceLists,
 }
 
 impl VeilApp {
@@ -52,11 +54,13 @@ impl VeilApp {
             level: 0.0,
             want_camera: true,
             want_mic: true,
+            devices: crate::devices::DeviceLists::default(),
         }
     }
 
     /// Opens the pre-join screen with your devices on, as you last chose.
     pub fn go_pre_join(&mut self, host: bool) {
+        self.devices = crate::devices::DeviceLists::load();
         self.media.set_camera(self.want_camera);
         self.media.set_mic(self.want_mic);
         self.screen = Screen::PreJoin { host };

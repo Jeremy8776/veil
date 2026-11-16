@@ -171,7 +171,13 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   speaking ring) on threads; muting or stopping video closes the device. Ctrl+Shift+M mutes,
   Ctrl+Shift+O toggles video. Fonts and icons come from Windows (`theme.rs`, `icons.rs`), none
   bundled; icon codepoints were checked against both Segoe icon fonts by rendering them.
-  Tests: 20 unit tests (grid layout, NV12 conversion, meter, model, demo timeline).
+  Device choice (asked 16/11/2026): `veil_media::microphones()` and `speakers()` list active
+  WASAPI devices (`audio_devices.rs`), `WasapiCapture::open` and `WasapiPlayback::open` take
+  a device id or `None` for the default. In the app, `devices.rs` reads cameras, microphones
+  and speakers when pre-join opens, and pre-join has a drop-down for each; changing camera or
+  microphone reopens it. The speaker choice is stored for when playback is wired in.
+  Tests: 21 unit tests (grid layout, NV12 conversion, meter, model, demo timeline, device
+  labels); `tests/wasapi.rs` lists devices and opens a speaker by id.
   Not yet looked at by a person: the app has not been run on screen by anyone but its tests.
 
 Tests: `cargo test -j 8 --workspace` (233 tests, two ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
@@ -229,8 +235,8 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
   video, and simulates everyone else (`demo.rs`). Screen sharing says it is not built yet.
 - The jitter buffer catches up by skipping packets, which clicks; time-stretch instead if it
   is audible (`veil-media/src/jitter.rs`).
-- WASAPI uses the default communications device only; a lost device is an error and the app
-  opens again (`veil-media/src/ffi/windows/audio.rs`). No echo cancellation of Veil's own
+- A lost audio device is an error and the app opens it again, and an open default device
+  does not follow a change of Windows' default (`veil-media/src/ffi/windows/audio.rs`). No echo cancellation of Veil's own
   where the device has none.
 - H.264 decoding is on the CPU; the GPU path needs a D3D11 device manager
   (`veil-media/src/ffi/windows/decoder.rs`).

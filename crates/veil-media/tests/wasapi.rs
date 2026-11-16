@@ -7,12 +7,26 @@
 
 use std::time::{Duration, Instant};
 
-use veil_media::{AudioSettings, MediaError, WasapiCapture, WasapiPlayback};
+use veil_media::{AudioSettings, MediaError, WasapiCapture, WasapiPlayback, microphones, speakers};
+
+#[test]
+fn devices_are_listed_and_can_be_opened_by_id() {
+    let outputs = speakers().unwrap();
+    eprintln!("speakers: {outputs:?}");
+    eprintln!("microphones: {:?}", microphones().unwrap());
+    let Some(first) = outputs.first() else {
+        eprintln!("skipped: no speakers on this machine");
+        return;
+    };
+    let settings = AudioSettings::voice();
+    WasapiPlayback::open(&settings, Some(&first.id)).unwrap();
+    assert!(WasapiPlayback::open(&settings, Some("not-a-device")).is_err());
+}
 
 #[test]
 fn playback_keeps_pace_with_the_device() {
     let settings = AudioSettings::voice();
-    let mut speakers = match WasapiPlayback::open(&settings) {
+    let mut speakers = match WasapiPlayback::open(&settings, None) {
         Ok(speakers) => speakers,
         Err(MediaError::Unavailable(what)) => {
             eprintln!("skipped: no {what} on this machine");
@@ -40,7 +54,7 @@ fn playback_keeps_pace_with_the_device() {
 #[ignore = "turns the microphone on"]
 fn microphone_gives_whole_frames_in_real_time() {
     let settings = AudioSettings::voice();
-    let mut microphone = WasapiCapture::open(&settings).unwrap();
+    let mut microphone = WasapiCapture::open(&settings, None).unwrap();
     let start = Instant::now();
     let mut peak = 0.0f32;
     for _ in 0..50 {

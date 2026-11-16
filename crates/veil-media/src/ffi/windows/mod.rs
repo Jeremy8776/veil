@@ -22,12 +22,14 @@
 #![allow(unsafe_code)]
 
 mod audio;
+mod audio_devices;
 mod camera;
 mod decoder;
 mod enumerate;
 mod sample;
 
 pub use audio::{WasapiCapture, WasapiPlayback};
+pub use audio_devices::{AudioDevice, microphones, speakers};
 pub use camera::{CameraInfo, MfCamera, cameras};
 pub use decoder::MfDecoder;
 

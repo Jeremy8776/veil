@@ -17,6 +17,7 @@ use std::thread::JoinHandle;
 use eframe::egui;
 
 use crate::convert::Rgba;
+use crate::devices::Choice;
 
 /// What the interface reads from the workers.
 #[derive(Default)]
@@ -25,7 +26,6 @@ struct Shared {
     picture_seq: AtomicU64,
     /// Microphone level, 0 to 1, as `f32` bits.
     level: AtomicU32,
-    camera_name: Mutex<Option<String>>,
     camera_error: Mutex<Option<String>>,
     mic_error: Mutex<Option<String>>,
 }
@@ -69,6 +69,8 @@ pub struct LocalMedia {
     camera: Option<Worker>,
     mic: Option<Worker>,
     seen_seq: u64,
+    /// Which devices to open; `None` is the default.
+    choice: Choice,
 }
 
 impl LocalMedia {
@@ -79,6 +81,7 @@ impl LocalMedia {
             camera: None,
             mic: None,
             seen_seq: 0,
+            choice: Choice::default(),
         }
     }
 
@@ -101,7 +104,10 @@ impl LocalMedia {
         }
         *lock(&self.shared.camera_error) = None;
         let (shared, ctx) = (self.shared.clone(), self.ctx.clone());
-        self.camera = Some(Worker::spawn(move |stop| camera_loop(&shared, &ctx, &stop)));
+        let id = self.choice.camera.clone();
+        self.camera = Some(Worker::spawn(move |stop| {
+            camera_loop(&shared, &ctx, &stop, id.as_deref());
+        }));
     }
 
     pub fn set_mic(&mut self, on: bool) {
@@ -115,7 +121,43 @@ impl LocalMedia {
         }
         *lock(&self.shared.mic_error) = None;
         let (shared, ctx) = (self.shared.clone(), self.ctx.clone());
-        self.mic = Some(Worker::spawn(move |stop| mic_loop(&shared, &ctx, &stop)));
+        let id = self.choice.mic.clone();
+        self.mic = Some(Worker::spawn(move |stop| {
+            mic_loop(&shared, &ctx, &stop, id.as_deref());
+        }));
+    }
+
+    pub fn choice(&self) -> &Choice {
+        &self.choice
+    }
+
+    /// Switches to another camera; an open camera is closed and the new one opened.
+    pub fn choose_camera(&mut self, id: Option<String>) {
+        if self.choice.camera == id {
+            return;
+        }
+        self.choice.camera = id;
+        if self.camera_on() {
+            self.set_camera(false);
+            self.set_camera(true);
+        }
+    }
+
+    /// Switches to another microphone, reopening it if it is on.
+    pub fn choose_mic(&mut self, id: Option<String>) {
+        if self.choice.mic == id {
+            return;
+        }
+        self.choice.mic = id;
+        if self.mic_on() {
+            self.set_mic(false);
+            self.set_mic(true);
+        }
+    }
+
+    /// Remembers the speaker for the call; nothing plays before it is wired in.
+    pub fn choose_speaker(&mut self, id: Option<String>) {
+        self.choice.speaker = id;
     }
 
     /// The newest camera picture, if one arrived since the last call.
@@ -130,10 +172,6 @@ impl LocalMedia {
 
     pub fn level(&self) -> f32 {
         f32::from_bits(self.shared.level.load(Ordering::Relaxed))
-    }
-
-    pub fn camera_name(&self) -> Option<String> {
-        lock(&self.shared.camera_name).clone()
     }
 
     pub fn camera_error(&self) -> Option<String> {
@@ -156,14 +194,14 @@ pub fn meter(samples: &[f32]) -> f32 {
 }
 
 #[cfg(windows)]
-fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool) {
+fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Option<&str>) {
     use veil_media::{CameraMode, MfCamera};
     let want = CameraMode {
         width: 1_280,
         height: 720,
         fps: 30,
     };
-    let mut camera = match MfCamera::open(None, want) {
+    let mut camera = match MfCamera::open(id, want) {
         Ok(camera) => camera,
         Err(e) => {
             *lock(&shared.camera_error) = Some(e.to_string());
@@ -171,7 +209,6 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool) {
             return;
         }
     };
-    *lock(&shared.camera_name) = Some(camera.name().to_string());
     while !stop.load(Ordering::Relaxed) {
         let picture = match camera.read() {
             Ok(Some(picture)) => picture,
@@ -193,9 +230,9 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool) {
 }
 
 #[cfg(windows)]
-fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool) {
+fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Option<&str>) {
     use veil_media::{AudioSettings, WasapiCapture};
-    let mut mic = match WasapiCapture::open(&AudioSettings::voice()) {
+    let mut mic = match WasapiCapture::open(&AudioSettings::voice(), id) {
         Ok(mic) => mic,
         Err(e) => {
             *lock(&shared.mic_error) = Some(e.to_string());
@@ -226,12 +263,12 @@ fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool) {
 }
 
 #[cfg(not(windows))]
-fn camera_loop(shared: &Shared, _ctx: &egui::Context, _stop: &AtomicBool) {
+fn camera_loop(shared: &Shared, _ctx: &egui::Context, _stop: &AtomicBool, _id: Option<&str>) {
     *lock(&shared.camera_error) = Some("camera capture is Windows only so far".into());
 }
 
 #[cfg(not(windows))]
-fn mic_loop(shared: &Shared, _ctx: &egui::Context, _stop: &AtomicBool) {
+fn mic_loop(shared: &Shared, _ctx: &egui::Context, _stop: &AtomicBool, _id: Option<&str>) {
     *lock(&shared.mic_error) = Some("microphone capture is Windows only so far".into());
 }
 

@@ -48,6 +48,6 @@ pub use simulcast::{RungEncoder, Simulcast};
 
 #[cfg(windows)]
 pub use ffi::windows::{
-    CameraInfo, MediaFoundationEncoder, MfCamera, MfDecoder, MfRung, WasapiCapture, WasapiPlayback,
-    cameras, media_foundation,
+    AudioDevice, CameraInfo, MediaFoundationEncoder, MfCamera, MfDecoder, MfRung, WasapiCapture,
+    WasapiPlayback, cameras, media_foundation, microphones, speakers,
 };

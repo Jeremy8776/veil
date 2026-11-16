@@ -19,20 +19,18 @@
 //! - Field order matters: the client is stopped and released before its event handle is
 //!   closed, then COM is shut down.
 //!
-//! shortcut: the default device only, and a lost device (a headset unplugged) is an error the
-//! app must handle by opening again. Add device choice and follow-the-default when the app has
-//! a settings screen.
+//! shortcut: a lost device (a headset unplugged) is an error the app must handle by opening
+//! again, and an open default device does not follow a change of Windows' default.
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::Media::Audio::{
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_SHAREMODE_SHARED,
     AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
     AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, AudioCategory_Communications, AudioClientProperties,
-    EDataFlow, IAudioCaptureClient, IAudioClient, IAudioClient2, IAudioRenderClient,
-    IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
-    WAVEFORMATEXTENSIBLE_0, eCapture, eCommunications, eRender,
+    EDataFlow, IAudioCaptureClient, IAudioClient, IAudioClient2, IAudioRenderClient, WAVEFORMATEX,
+    WAVEFORMATEXTENSIBLE, WAVEFORMATEXTENSIBLE_0, eCapture, eRender,
 };
-use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
+use windows::Win32::System::Com::CLSCTX_ALL;
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 use windows::core::{GUID, Interface};
 
@@ -77,17 +75,13 @@ struct Endpoint {
 impl Endpoint {
     fn open(
         flow: EDataFlow,
+        device: Option<&str>,
         settings: &AudioSettings,
         fail: fn(&'static str) -> MediaError,
     ) -> Result<Self, MediaError> {
         settings.check()?;
-        // SAFETY: the class id is a static GUID and no outer object is passed.
-        let devices: IMMDeviceEnumerator =
-            unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }
-                .map_err(|_| fail("device list"))?;
-        // SAFETY: `devices` is live; the flow and role are plain values.
-        let device = unsafe { devices.GetDefaultAudioEndpoint(flow, eCommunications) }
-            .map_err(|_| MediaError::Unavailable("audio device"))?;
+        let device =
+            super::audio_devices::find(&super::audio_devices::enumerator()?, flow, device)?;
         // SAFETY: `device` is live; no activation parameters are passed.
         let client: IAudioClient =
             unsafe { device.Activate(CLSCTX_ALL, None) }.map_err(|_| fail("activate"))?;
@@ -203,10 +197,12 @@ pub struct WasapiCapture {
 }
 
 impl WasapiCapture {
-    /// Opens and starts the microphone. [`MediaError::Unavailable`] means there is none.
-    pub fn open(settings: &AudioSettings) -> Result<Self, MediaError> {
+    /// Opens and starts a microphone: `device` is an id from [`super::microphones`], or `None`
+    /// for the default communications microphone. [`MediaError::Unavailable`] means there is
+    /// no such device.
+    pub fn open(settings: &AudioSettings, device: Option<&str>) -> Result<Self, MediaError> {
         let runtime = Runtime::start()?;
-        let endpoint = Endpoint::open(eCapture, settings, MediaError::Capture)?;
+        let endpoint = Endpoint::open(eCapture, device, settings, MediaError::Capture)?;
         // SAFETY: the client is initialised for capture.
         let capture: IAudioCaptureClient =
             unsafe { endpoint.client.GetService() }.map_err(|_| MediaError::Capture("service"))?;
@@ -280,10 +276,11 @@ pub struct WasapiPlayback {
 }
 
 impl WasapiPlayback {
-    /// Opens the speakers. Playback starts with the first frame written.
-    pub fn open(settings: &AudioSettings) -> Result<Self, MediaError> {
+    /// Opens a speaker: `device` is an id from [`super::speakers`], or `None` for the default
+    /// communications device. Playback starts with the first frame written.
+    pub fn open(settings: &AudioSettings, device: Option<&str>) -> Result<Self, MediaError> {
         let runtime = Runtime::start()?;
-        let endpoint = Endpoint::open(eRender, settings, MediaError::Playback)?;
+        let endpoint = Endpoint::open(eRender, device, settings, MediaError::Playback)?;
         // SAFETY: the client is initialised for rendering.
         let render: IAudioRenderClient =
             unsafe { endpoint.client.GetService() }.map_err(|_| MediaError::Playback("service"))?;

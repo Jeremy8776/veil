@@ -15,6 +15,7 @@
 mod app;
 mod convert;
 mod demo;
+mod devices;
 mod icons;
 mod layout;
 mod media;
