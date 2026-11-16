@@ -89,7 +89,7 @@ pub async fn run(
         view.status = CallStatus::Live;
     });
     let media = call.media().map_err(|e| e.to_string())?;
-    let mut session = Session::new(media, me, me, your_name, shared.clone(), pipes);
+    let mut session = Session::new(media, &identity, me, your_name, shared.clone(), pipes);
     let mut knocks: Vec<(u32, PublicId)> = Vec::new();
     loop {
         tokio::select! {

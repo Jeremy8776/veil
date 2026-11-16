@@ -449,7 +449,8 @@ async fn app_messages_reach_every_member_in_a_mesh_and_through_a_forwarder() {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let message = AppMessage::chat("hello from party 1").unwrap();
-        let sealed = message.seal(&mut call.parties[1].keys.sender).unwrap();
+        let party = &mut call.parties[1];
+        let sealed = message.seal(&mut party.keys.sender, party.node.identity()).unwrap();
         assert!(within(sessions[1].send_app(&sealed)).await >= 1);
         let leaf = call.directory(1, None).me.0;
         for i in [0, 2] {
@@ -461,7 +462,8 @@ async fn app_messages_reach_every_member_in_a_mesh_and_through_a_forwarder() {
             assert_eq!(packet, sealed, "passed on unchanged (forwarded: {forwarded})");
             let (sender, plain) = call.parties[i].keys.receiver.decrypt(&packet).unwrap();
             assert_eq!(sender, leaf);
-            assert_eq!(AppMessage::decode(&plain).unwrap(), message);
+            let device = call.parties[1].node.identity().public();
+            assert_eq!(AppMessage::open(&packet, &plain, &device).unwrap(), message);
         }
         let too_big = vec![0; veil_net::control::MAX_APP_LEN + 1];
         assert_eq!(sessions[1].send_app(&too_big).await, 0);

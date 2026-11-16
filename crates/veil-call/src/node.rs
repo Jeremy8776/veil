@@ -188,7 +188,8 @@ impl CallNode {
         ))
     }
 
-    pub(crate) fn identity(&self) -> &Identity {
+    /// This node's device key, which also signs its names and chat (`AppMessage::seal`).
+    pub fn identity(&self) -> &Identity {
         &self.identity
     }
 

@@ -90,6 +90,11 @@ rendezvous never says who is online.
   key, not from a name.
 - Chat message sizes are not padded, so a relay or forwarder sees roughly how long each
   message is.
+- Video and sound prove only that a member of the call sent them, not which member. Every
+  member holds the call's shared key, so a member who changes their own copy of Veil could
+  send video or sound that shows in another member's tile. Relays and forwarders cannot.
+  Names and chat are different: each is signed with the sender's device key, so no member
+  can send one as someone else (fixed 16/11/2026).
 - Keyframe requests are not authenticated end to end. A forwarder or member can ask a sender
   for keyframes at will. That costs the sender bandwidth, but no more than one keyframe per
   500 ms, and it reveals nothing.

@@ -28,7 +28,7 @@ use tokio::time::{Interval, MissedTickBehavior, interval};
 use veil_call::{AppMessage, EpochKeys, Incoming, KeyRing, Media, MediaSession, Path, Routes};
 use veil_forward::Wanted;
 use veil_media::{AudioHeader, AudioSettings, OpusEncoder};
-use veil_security::PublicId;
+use veil_security::{Identity, PublicId};
 use veil_security::frame::{FrameSender, frame_layer};
 use veil_security::safety::safety_number;
 
@@ -54,6 +54,8 @@ pub struct Pipes {
 
 pub struct Session {
     pub media: MediaSession,
+    /// This device's key, which signs every name and chat message it sends.
+    identity: Identity,
     me: PublicId,
     host: PublicId,
     pub ids: Ids,
@@ -80,7 +82,7 @@ pub struct Session {
 impl Session {
     pub fn new(
         media: MediaSession,
-        me: PublicId,
+        identity: &Identity,
         host: PublicId,
         your_name: &str,
         shared: Arc<Shared>,
@@ -90,7 +92,8 @@ impl Session {
         tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
         Self {
             media,
-            me,
+            identity: Identity::from_secret(&identity.secret_bytes()),
+            me: identity.public(),
             host,
             ids: Ids::default(),
             sender: None,
@@ -232,7 +235,7 @@ impl Session {
         let Some(sender) = &mut self.sender else {
             return;
         };
-        match message.seal(sender) {
+        match message.seal(sender, &self.identity) {
             Ok(sealed) => {
                 self.media.send_app(&sealed).await;
             }
@@ -358,7 +361,8 @@ impl Session {
     }
 
     /// Opens a name or chat message and shows it. Anything that does not open, comes from a
-    /// leaf outside this epoch or fails the checks is dropped.
+    /// leaf outside this epoch, is not signed by that leaf's device or fails the checks is
+    /// dropped.
     fn on_app(&mut self, sealed: &[u8]) {
         let Some(ring) = &mut self.ring else { return };
         let Ok((leaf, plain)) = ring.open(sealed, Instant::now()) else {
@@ -370,7 +374,7 @@ impl Session {
         let Some(&(_, device)) = self.others.iter().find(|(i, _)| *i == id) else {
             return;
         };
-        match AppMessage::decode(&plain) {
+        match AppMessage::open(sealed, &plain, &device) {
             Ok(AppMessage::Name(name)) => {
                 if self.names.set(device, name.clone()) {
                     self.shared.update(|view| {

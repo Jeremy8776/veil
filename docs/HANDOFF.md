@@ -42,9 +42,12 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   get `MemberEvent::Routes`, or `MemberEvent::PlanRefused` (old routes stand). The app applies
   the routes to its `MediaSession`.
 - App messages (`veil-call/src/app_msg.rs`, 16/11/2026): `AppMessage::Name` and `Chat`,
-  plaintext `veil-app` plus version 1 plus postcard, sealed with the epoch's `FrameSender`
-  (`AppMessage::seal`), so the sender is the authenticated leaf index and replays hit the
-  frame replay window. Checked both ways: names 1 to 64 characters, chat 1 to 2,000, no
+  plaintext `veil-app` plus version 2, an Ed25519 signature by the sender's device key over
+  the frame id (key id and counter) and the body, then the postcard body, sealed with the
+  epoch's `FrameSender` (`AppMessage::seal`). The receiver opens it with `AppMessage::open`
+  and the roster's device key for the frame's leaf, so the sender is the signing device, not
+  just a leaf index any member could claim, and replays hit the frame replay window.
+  Checked both ways: names 1 to 64 characters, chat 1 to 2,000, no
   control characters (chat may hold line breaks and tabs), no bidirectional overrides; a
   sealed message is at most `veil_net::control::MAX_APP_LEN` (16 KiB). In a mesh it goes as
   `Control::App` on each media link's control stream (`MediaSession::send_app`, received as
@@ -252,6 +255,13 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   then dropped in the app's order): 123 ms for the call, 113 ms for the devices (16/11/2026).
   Not yet run by a person: two copies of the app calling each other with real devices. Use
   headphones: there is no echo cancellation of Veil's own.
+- Second audit, H1, fixed 16/11/2026: every member holds the epoch secret, so any member
+  could seal a name or chat message under another member's leaf and it showed as theirs.
+  App messages are now signed by the sender's device key, bound to the frame id
+  (`app_msg.rs`, tests `a_member_cannot_speak_as_another` and
+  `a_signed_message_cannot_move_to_another_frame`). Video and sound are still only
+  group-authenticated (TRANSPARENCY.md, known leaks). Open from that audit: M1 (a removed
+  member's 2 s grace on the old epoch), L1 to L4.
 - Audit low findings, fixed 16/11/2026:
   - L3, rendezvous: a request for a key that is not in the room gets no answer, the same as
     a member that declines, and request limits count it the same way. `PeerNotInRoom` is now
