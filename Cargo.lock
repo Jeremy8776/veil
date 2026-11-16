@@ -3823,6 +3823,7 @@ dependencies = [
  "eframe",
  "tokio",
  "veil-call",
+ "veil-forward",
  "veil-media",
  "veil-net",
  "veil-rendezvous",

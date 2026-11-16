@@ -10,6 +10,7 @@ license.workspace = true
 [dependencies]
 tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "sync"] }
 veil-call = { path = "../veil-call" }
+veil-forward = { path = "../veil-forward" }
 veil-media = { path = "../veil-media" }
 veil-net = { path = "../veil-net" }
 veil-rendezvous = { path = "../veil-rendezvous" }

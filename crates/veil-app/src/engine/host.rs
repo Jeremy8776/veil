@@ -6,10 +6,20 @@
 //! decisions go to `HostHandle::decide` and `remove`, chat goes to the session, and after
 //! every `HostEvent::Keys` the host plans the epoch and publishes it with `publish_plan`.
 //!
+//! The forwarder for calls above 4 people is `VEIL_FORWARDER` if set. Otherwise, when the
+//! host also runs its own rendezvous, it runs its own forwarder on a third port, reachable
+//! at the same LAN address. With a `veil-node` rendezvous and no `VEIL_FORWARDER`, guests may
+//! be anywhere, so the host offers no forwarder and the call stays a mesh.
+//!
 //! Invariants:
 //! - Each invite has a one-time token, so a fresh one is made after every knock.
 //! - The rendezvous sees addresses and a room hash only, never keys or media
-//!   (`docs/ARCHITECTURE.md` section 2), and lives exactly as long as the call.
+//!   (`docs/ARCHITECTURE.md` section 2), and lives exactly as long as the call. The forwarder
+//!   sees sealed frames only, and admits only devices on the host's signed roster ticket.
+//!
+//! shortcut: the host's own forwarder is reachable on its own network only, and the host's
+//! uplink then carries every stream to every member. Set `VEIL_FORWARDER` to a public
+//! `veil-node` for large calls across the internet.
 //!
 //! shortcut: applying routes waits for dials (a few seconds for a hole punch) and holds this
 //! loop meanwhile, so media pauses briefly when someone joins. Move `MediaSession::apply` to
@@ -21,6 +31,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc::UnboundedReceiver;
 use veil_call::{CallNode, HostEvent, HostHandle};
+use veil_forward::{ForwarderServer, Limits};
 use veil_net::{Node, NodeAddr};
 use veil_rendezvous::RendezvousServer;
 use veil_security::{Identity, PublicId};
@@ -52,7 +63,12 @@ pub async fn run(
     let lan = lan_ip();
     let rendezvous = match config.rendezvous {
         Some(addr) => addr,
-        None => own_rendezvous(lan)?,
+        None => own_server(lan, Own::Rendezvous)?,
+    };
+    let forwarder = match (config.forwarder, config.rendezvous) {
+        (Some(addr), _) => Some(addr),
+        (None, None) => Some(own_server(lan, Own::Forwarder)?),
+        (None, Some(_)) => None,
     };
     let (host, mut events) = HostHandle::start(&identity, room_id).map_err(|e| e.to_string())?;
     let mut call = CallNode::start(
@@ -110,11 +126,14 @@ pub async fn run(
                 Some(HostEvent::Keys(keys)) => {
                     let roster = keys.roster.clone();
                     session.on_keys(keys);
+                    // A plan that fails leaves the old routes standing; the call goes on.
                     if roster.len() > 1 {
-                        let (plan, directory) = plan_for(&roster, me, &addrs)?;
-                        match host.publish_plan(plan, directory).await {
-                            Ok(routes) => session.on_routes(routes).await,
-                            Err(e) => eprintln!("veil-app: cannot publish the plan: {e}"),
+                        match plan_for(&roster, me, &addrs, forwarder) {
+                            Ok((plan, directory)) => match host.publish_plan(plan, directory).await {
+                                Ok(routes) => session.on_routes(routes).await,
+                                Err(e) => eprintln!("veil-app: cannot publish the plan: {e}"),
+                            },
+                            Err(e) => eprintln!("veil-app: {e}"),
                         }
                     }
                 }
@@ -147,19 +166,35 @@ async fn act(host: &HostHandle, ids: &Ids, knocks: &mut Vec<(u32, PublicId)>, ac
     }
 }
 
-/// Runs a rendezvous and relay on a port of its own, reachable at this machine's LAN
-/// address (or this machine only, without one).
-fn own_rendezvous(lan: Option<IpAddr>) -> Result<NodeAddr, String> {
+#[derive(Clone, Copy)]
+enum Own {
+    /// Rendezvous and relay.
+    Rendezvous,
+    Forwarder,
+}
+
+/// Runs a rendezvous (with relay) or a forwarder on a port of its own, with a key of its own,
+/// reachable at this machine's LAN address (or this machine only, without one). It lives as
+/// long as the call's runtime.
+fn own_server(lan: Option<IpAddr>, kind: Own) -> Result<NodeAddr, String> {
+    let what = match kind {
+        Own::Rendezvous => "rendezvous",
+        Own::Forwarder => "forwarder",
+    };
     let identity = Identity::generate();
     let node = Node::bind(&identity, SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0))
-        .map_err(|e| format!("Cannot open the rendezvous: {e}"))?;
-    let server = RendezvousServer::new(node);
-    let port = server.local_addr().map_err(|e| e.to_string())?.port();
+        .map_err(|e| format!("Cannot open the {what}: {e}"))?;
+    let port = node.local_addr().map_err(|e| e.to_string())?.port();
     let addr = NodeAddr {
-        key: server.id(),
+        key: node.id(),
         addr: SocketAddr::new(lan.unwrap_or(Ipv4Addr::LOCALHOST.into()), port),
     };
-    tokio::spawn(server.run());
+    match kind {
+        Own::Rendezvous => drop(tokio::spawn(RendezvousServer::new(node).run())),
+        Own::Forwarder => drop(tokio::spawn(
+            ForwarderServer::new(node, Limits::default()).run(),
+        )),
+    }
     Ok(addr)
 }
 

@@ -227,7 +227,15 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
     the session seals it and sends it; received chat goes through `Shared::take_chat` into
     `Call::receive` (counted unread). The name field takes 64 characters, chat 2,000.
     Raised hands are still local only.
-  Tests: 40 unit tests, plus `engine/loopback.rs` (ignored: it opens ports, the encoder and the
+  - Forwarder (16/11/2026): up to 4 people the call is a mesh; from 5 the host plans every
+    member through a forwarder (`plan.rs`, `Policy::mesh_max`). The forwarder is
+    `VEIL_FORWARDER=KEY@IP:PORT` (a `veil-node`) if set; otherwise, when the host runs its own
+    rendezvous, it also runs its own `ForwarderServer` on a third port at its LAN address
+    (`host.rs::own_server`). With `VEIL_RENDEZVOUS` and no `VEIL_FORWARDER` there is none and
+    a large call stays a mesh. Fixed on the way: a 5th person used to make the plan
+    infeasible, and the error ended the host's call; now no forwarder means a mesh of any
+    size, and a failed plan only leaves the old routes. Not yet run with 5 real copies.
+  Tests: 44 unit tests, plus `engine/loopback.rs` (ignored: it opens ports, the encoder and the
   speaker): two engines on localhost, the guest knocks, the host admits, both show the same
   safety number and epoch, synthetic 720p pictures and silence go both ways until each side
   decodes the other's video and hears packets, each shows the other's chosen name, a chat
@@ -292,8 +300,12 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 - libopus is built without SSE, AVX or NEON (`veil-media/build.rs`).
 - `veil-app` converts camera and decoded pictures to RGBA on the CPU (`convert.rs`). Screen
   sharing says it is not built yet.
-- `veil-app` plans every call as a mesh on assumed capacities (`engine/plan.rs`); no
-  forwarder yet, so large calls will not fit.
+- `veil-app` plans on assumed capacities, by people count alone (`engine/plan.rs`).
+- `veil-app`'s own forwarder is reachable on the host's network only, and the host's uplink
+  carries every stream to every member. Set `VEIL_FORWARDER` for large internet calls
+  (`engine/host.rs`).
+- `veil-app` does not subscribe to layers yet, so through a forwarder every receiver still
+  gets every layer of every sender. Subscribe small tiles to `Wanted::THUMB`.
 - `veil-app` applies routes on the session task, so media pauses while a new member's link
   is dialled (`engine/host.rs`).
 - The jitter buffer catches up by skipping packets, which clicks; time-stretch instead if it
@@ -359,5 +371,5 @@ starts outbound; the installer should add the rule for release builds.
    `clippy::undocumented_unsafe_blocks` denied, each module listed in that table).
 3. `veil-app`: wired to real calls (see above). Next: Jeremy runs two copies on this machine
    (with headphones): New call in one, copy the invite from People, Join in the other, Admit.
-   Names and chat are sent (16/11/2026). Then: a forwarder in the plan for larger calls, and
-   the same test across two machines.
+   Names and chat are sent (16/11/2026). A forwarder carries calls of 5 or more
+   (16/11/2026). Then: layer subscriptions by tile size, and a 5-person test.
