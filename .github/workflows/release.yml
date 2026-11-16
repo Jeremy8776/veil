@@ -1,10 +1,11 @@
-# Release builds for Windows.
+# Release builds for Windows, Linux and macOS.
 #
-# A tag `vX.Y.Z` builds veil-app, veil-node and veil-probe, packs them with the licences into
-# one zip, writes SHA256SUMS.txt, and creates a DRAFT GitHub release with both files. Nothing
-# reaches anyone until Jeremy reads the draft and presses Publish. A manual run
-# (workflow_dispatch) builds and uploads the zip as a workflow artifact only, and publishes
-# nothing: use it to check a build before tagging.
+# A tag `vX.Y.Z` builds veil-app, veil-node and veil-probe on each platform, packs them with
+# the licences into one archive per platform (zip on Windows, tar.gz elsewhere), writes
+# SHA256SUMS.txt for all of them, and creates a DRAFT GitHub release. Nothing reaches anyone
+# until Jeremy reads the draft and presses Publish. A manual run (workflow_dispatch) builds
+# and uploads the archives as workflow artifacts only, and publishes nothing: use it to check
+# a build before tagging.
 #
 # Hardening:
 # - Every action is pinned to a commit SHA (the version is in the comment).
@@ -14,9 +15,13 @@
 # - Build provenance (`gh attestation verify`) once the repository is public; GitHub offers
 #   attestations for private repositories on Enterprise plans only.
 #
-# shortcut: a zip, not an installer, and unsigned (Windows SmartScreen warns "unknown
-# publisher"). An installer should also add the firewall rule (docs/HANDOFF.md, firewall).
-# Add one with code signing before a wide release.
+# shortcut: archives, not installers, and unsigned (Windows SmartScreen warns "unknown
+# publisher", macOS Gatekeeper blocks until the user allows it). An installer should also add
+# the firewall rule (docs/HANDOFF.md, firewall). Add installers with code signing and macOS
+# notarisation before a wide release.
+# shortcut: macOS is Apple Silicon only. Add an x86_64-apple-darwin row if Intel Macs matter.
+# Camera and microphone capture are Windows only so far (veil-app/src/media.rs), so the Linux
+# and macOS builds can join calls but not send video or audio.
 name: Release
 
 on:
@@ -37,7 +42,16 @@ env:
 
 jobs:
   build:
-    runs-on: windows-2025
+    strategy:
+      matrix:
+        include:
+          - os: windows-2025
+            platform: windows-x64
+          - os: ubuntu-24.04
+            platform: linux-x64
+          - os: macos-15
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -49,6 +63,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: "1.98.1"
+      # Headers for eframe's X11 and Wayland back ends.
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
       - name: Version
         id: version
         shell: pwsh
@@ -66,14 +87,16 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          PLATFORM: ${{ matrix.platform }}
         run: |
-          $name = "veil-$env:VERSION-windows-x64"
+          $name = "veil-$env:VERSION-$env:PLATFORM"
+          $exe = if ($IsWindows) { '.exe' } else { '' }
           $stage = Join-Path 'dist' $name
           New-Item -ItemType Directory -Force $stage | Out-Null
           $files = @(
-            'target/release/veil-app.exe',
-            'target/release/veil-node.exe',
-            'target/release/veil-probe.exe',
+            "target/release/veil-app$exe",
+            "target/release/veil-node$exe",
+            "target/release/veil-probe$exe",
             'LICENSE-MIT',
             'LICENSE-APACHE',
             'README.md',
@@ -84,15 +107,24 @@ jobs:
             if (-not (Test-Path $f)) { throw "missing $f" }
             Copy-Item $f $stage
           }
-          Compress-Archive -Path "$stage/*" -DestinationPath "dist/$name.zip"
+          if ($IsWindows) {
+            $archive = "$name.zip"
+            Compress-Archive -Path "$stage/*" -DestinationPath "dist/$archive"
+          } else {
+            # tar keeps the executable bit, which a zip made by Compress-Archive drops.
+            $archive = "$name.tar.gz"
+            tar -czf "dist/$archive" -C dist $name
+            if ($LASTEXITCODE -ne 0) { throw 'tar failed' }
+          }
           Remove-Item -Recurse $stage
-          $hash = (Get-FileHash -Algorithm SHA256 "dist/$name.zip").Hash.ToLower()
-          # LF and no BOM, so `sha256sum -c` reads it on Linux and on users' machines.
-          [IO.File]::WriteAllText("$PWD/dist/SHA256SUMS.txt", "$hash  $name.zip`n")
-          Get-Content dist/SHA256SUMS.txt
+          $hash = (Get-FileHash -Algorithm SHA256 "dist/$archive").Hash.ToLower()
+          # LF and no BOM, so `sha256sum -c` reads it. The publish job joins these into
+          # SHA256SUMS.txt.
+          [IO.File]::WriteAllText("$PWD/dist/$archive.sha256", "$hash  $archive`n")
+          Get-Content "dist/$archive.sha256"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release
+          name: release-${{ matrix.platform }}
           path: dist/
           if-no-files-found: error
           retention-days: 14
@@ -109,22 +141,27 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release
+          pattern: release-*
+          merge-multiple: true
           path: dist
       - name: Check files
         env:
           VERSION: ${{ needs.build.outputs.version }}
         run: |
           set -euo pipefail
-          zip="dist/veil-${VERSION}-windows-x64.zip"
-          test -s "$zip"
-          test -s dist/SHA256SUMS.txt
-          (cd dist && sha256sum -c SHA256SUMS.txt)
+          cd dist
+          test -s "veil-${VERSION}-windows-x64.zip"
+          test -s "veil-${VERSION}-linux-x64.tar.gz"
+          test -s "veil-${VERSION}-macos-arm64.tar.gz"
+          cat ./*.sha256 > SHA256SUMS.txt
+          rm ./*.sha256
+          test "$(wc -l < SHA256SUMS.txt)" -eq 3
+          sha256sum -c SHA256SUMS.txt
       - name: Provenance
         if: github.event.repository.private == false
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: dist/*.zip
+          subject-path: dist/veil-*
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}
