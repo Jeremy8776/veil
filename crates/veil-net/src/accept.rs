@@ -11,8 +11,10 @@
 //! - Each handshake gets [`HANDSHAKE_TIMEOUT`], then it is dropped.
 //! - When more than half the handshake slots are busy, a connection whose address is not
 //!   yet proven gets a QUIC Retry first, so spoofed addresses cannot hold slots.
-//! - At most [`MAX_LINKS_PER_IP`] links (handshaking or live) per remote IP and
-//!   [`MAX_LINKS`] in all. A slot is freed when its connection closes.
+//! - At most [`MAX_LINKS_PER_IP`] links (handshaking or live) per remote address block and
+//!   [`MAX_LINKS`] in all. A slot is freed when its connection closes. A block is one IPv4
+//!   address, or one IPv6 /64: a single home or host is usually given a whole /64, so
+//!   counting each IPv6 address apart would let one machine take every slot.
 //! - The task ends when the endpoint closes; `Node` aborts it when dropped.
 
 use std::collections::HashMap;
@@ -32,7 +34,23 @@ pub const MAX_LINKS: usize = 8_192;
 /// Finished links waiting for `Node::accept`.
 const READY: usize = 64;
 
-/// Live link counts, per remote IP and in all.
+/// The address block a remote IP is counted under: the IPv4 address itself (an IPv4-mapped
+/// IPv6 address counts as its IPv4 address), or the /64 an IPv6 address belongs to.
+pub(crate) fn block(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V4(v4) => IpAddr::V4(v4),
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => {
+                let mut octets = v6.octets();
+                octets[8..].fill(0);
+                IpAddr::V6(octets.into())
+            }
+        },
+    }
+}
+
+/// Live link counts, per remote address block (see [`block`]) and in all.
 #[derive(Default)]
 pub(crate) struct Counts {
     per_ip: HashMap<IpAddr, usize>,
@@ -46,8 +64,9 @@ pub(crate) struct Slot {
 }
 
 impl Slot {
-    /// Takes a slot for `ip`, or `None` if that IP or the node is full.
+    /// Takes a slot for `ip`, or `None` if its address block or the node is full.
     pub(crate) fn take(counts: &Arc<Mutex<Counts>>, ip: IpAddr) -> Option<Self> {
+        let ip = block(ip);
         let mut c = counts.lock().ok()?;
         let mine = c.per_ip.get(&ip).copied().unwrap_or(0);
         if mine >= MAX_LINKS_PER_IP || c.total >= MAX_LINKS {
@@ -148,5 +167,28 @@ mod tests {
             .map(|c| (c.total, c.per_ip.len()))
             .unwrap_or_default();
         assert_eq!(c, (0, 0), "every dropped slot is counted out");
+    }
+
+    #[test]
+    fn one_ipv6_slash_64_shares_one_cap() {
+        let counts = Arc::new(Mutex::new(Counts::default()));
+        let held: Vec<Slot> = (0..MAX_LINKS_PER_IP)
+            .filter_map(|i| {
+                let host = u64::try_from(i).unwrap_or(0) + 1;
+                let ip = std::net::Ipv6Addr::from((0x2001_0db8_0000_0001_u128 << 64) | u128::from(host));
+                Slot::take(&counts, IpAddr::V6(ip))
+            })
+            .collect();
+        assert_eq!(held.len(), MAX_LINKS_PER_IP);
+        let same_64: IpAddr = "2001:db8:0:1:ffff::9".parse().unwrap_or(IpAddr::from([0; 4]));
+        let next_64: IpAddr = "2001:db8:0:2::1".parse().unwrap_or(IpAddr::from([0; 4]));
+        assert!(Slot::take(&counts, same_64).is_none(), "the /64 is capped");
+        assert!(Slot::take(&counts, next_64).is_some(), "another /64 is not");
+    }
+
+    #[test]
+    fn mapped_ipv4_counts_as_ipv4() {
+        let mapped: IpAddr = "::ffff:192.0.2.7".parse().unwrap_or(IpAddr::from([0; 4]));
+        assert_eq!(block(mapped), IpAddr::from([192, 0, 2, 7]));
     }
 }
