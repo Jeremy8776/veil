@@ -20,6 +20,10 @@
 //! host key); only listed devices join, epochs only move forward, and a newer ticket (on a
 //! join or a later `Ticket` message from any member) drops members it no longer lists.
 //!
+//! Serving one host: a participant's own forwarder runs for its own call only
+//! ([`ForwarderServer::only_host`]). It refuses tickets signed by any other key, so strangers
+//! who find its port cannot use the participant's upload for their own rooms.
+//!
 //! shortcut: no forwarder-to-forwarder cascade yet; one forwarder serves a whole room.
 
 use std::collections::{HashMap, HashSet};
@@ -116,6 +120,7 @@ pub struct ForwarderServer {
     node: Node,
     state: Shared,
     limits: Limits,
+    only_host: Option<PublicId>,
 }
 
 impl ForwarderServer {
@@ -124,7 +129,15 @@ impl ForwarderServer {
             node,
             state: Shared::default(),
             limits,
+            only_host: None,
         }
+    }
+
+    /// Serves only rooms whose tickets `host` signed. For a forwarder a participant runs for
+    /// its own call.
+    pub fn only_host(mut self, host: PublicId) -> Self {
+        self.only_host = Some(host);
+        self
     }
 
     pub fn id(&self) -> PublicId {
@@ -139,7 +152,7 @@ impl ForwarderServer {
     pub async fn run(self) {
         while let Some(incoming) = self.node.accept().await {
             if let Ok(link) = incoming {
-                tokio::spawn(serve(link, self.state.clone(), self.limits));
+                tokio::spawn(serve(link, self.state.clone(), self.limits, self.only_host));
             }
         }
     }
@@ -287,7 +300,7 @@ async fn refuse(link: &Link, out: &mut FramedSend, refusal: Refusal) {
     let _ = tokio::time::timeout(REFUSAL_LINGER, link.quic().closed()).await;
 }
 
-async fn serve(link: Link, state: Shared, limits: Limits) {
+async fn serve(link: Link, state: Shared, limits: Limits, only_host: Option<PublicId>) {
     let link = Arc::new(link);
     // A link that does not join promptly is dropped, so idle links cannot pile up.
     let joined = tokio::time::timeout(JOIN_WAIT, async {
@@ -305,6 +318,10 @@ async fn serve(link: Link, state: Shared, limits: Limits) {
         refuse(&link, &mut out, Refusal::BadTicket).await;
         return;
     };
+    if only_host.is_some_and(|host| host != ticket.host) {
+        refuse(&link, &mut out, Refusal::NotServed).await;
+        return;
+    }
     let key = (ticket.room_tag, ticket.host);
     let me = link.peer();
     let (video_tx, mut video_rx) = mpsc::channel::<Frame>(VIDEO_QUEUE);

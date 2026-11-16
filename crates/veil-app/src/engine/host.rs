@@ -33,7 +33,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use veil_call::{CallNode, HostEvent, HostHandle};
 use veil_forward::{ForwarderServer, Limits};
 use veil_net::{Node, NodeAddr};
-use veil_rendezvous::RendezvousServer;
+use veil_rendezvous::{RendezvousServer, room_tag};
 use veil_security::{Identity, PublicId};
 
 use super::plan::{NetConfig, advertised, lan_ip, plan_for};
@@ -63,11 +63,11 @@ pub async fn run(
     let lan = lan_ip();
     let rendezvous = match config.rendezvous {
         Some(addr) => addr,
-        None => own_server(lan, Own::Rendezvous)?,
+        None => own_server(lan, Own::Rendezvous, &identity, room_id)?,
     };
     let forwarder = match (config.forwarder, config.rendezvous) {
         (Some(addr), _) => Some(addr),
-        (None, None) => Some(own_server(lan, Own::Forwarder)?),
+        (None, None) => Some(own_server(lan, Own::Forwarder, &identity, room_id)?),
         (None, Some(_)) => None,
     };
     let (host, mut events) = HostHandle::start(&identity, room_id).map_err(|e| e.to_string())?;
@@ -76,7 +76,7 @@ pub async fn run(
         node,
         room_id,
         Some(rendezvous),
-        Some(host.clone()),
+        host.clone(),
     )
     .await;
     if !call.has_rendezvous() {
@@ -176,7 +176,14 @@ enum Own {
 /// Runs a rendezvous (with relay) or a forwarder on a port of its own, with a key of its own,
 /// reachable at this machine's LAN address (or this machine only, without one). It lives as
 /// long as the call's runtime.
-fn own_server(lan: Option<IpAddr>, kind: Own) -> Result<NodeAddr, String> {
+/// Starts a rendezvous or forwarder for this call only: it serves `host`'s room `room_id` and
+/// refuses everyone else's, so strangers who find its port cannot use this upload.
+fn own_server(
+    lan: Option<IpAddr>,
+    kind: Own,
+    host: &Identity,
+    room_id: [u8; 16],
+) -> Result<NodeAddr, String> {
     let what = match kind {
         Own::Rendezvous => "rendezvous",
         Own::Forwarder => "forwarder",
@@ -190,9 +197,15 @@ fn own_server(lan: Option<IpAddr>, kind: Own) -> Result<NodeAddr, String> {
         addr: SocketAddr::new(lan.unwrap_or(Ipv4Addr::LOCALHOST.into()), port),
     };
     match kind {
-        Own::Rendezvous => drop(tokio::spawn(RendezvousServer::new(node).run())),
+        Own::Rendezvous => drop(tokio::spawn(
+            RendezvousServer::new(node)
+                .only_room(room_tag(&room_id), host.public())
+                .run(),
+        )),
         Own::Forwarder => drop(tokio::spawn(
-            ForwarderServer::new(node, Limits::default()).run(),
+            ForwarderServer::new(node, Limits::default())
+                .only_host(host.public())
+                .run(),
         )),
     }
     Ok(addr)

@@ -47,7 +47,7 @@ use veil_security::frame::{FrameReceiver, FrameSender};
 
 pub use app_msg::{AppError, AppMessage};
 pub use call_plan::{CallPlan, Layout};
-pub use host::{HostEvent, HostHandle};
+pub use host::{Allowed, HostEvent, HostHandle};
 pub use keyring::KeyRing;
 pub use media::{Incoming, Media, MediaSession};
 pub use member::{MemberEvent, MemberHandle, join};

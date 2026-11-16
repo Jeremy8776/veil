@@ -186,6 +186,24 @@ async fn only_devices_on_a_valid_ticket_may_join() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_forwarder_for_one_host_refuses_other_hosts() {
+    let mine = Room::new(9);
+    let node = Node::bind(&Identity::generate(), localhost()).unwrap();
+    let server = ForwarderServer::new(node, Limits::default()).only_host(mine.host.public());
+    let forwarder = (server.local_addr().unwrap(), server.id());
+    tokio::spawn(server.run());
+
+    let stranger_room = Room::new(9);
+    let stranger = Identity::generate();
+    assert!(matches!(
+        join_as(forwarder, &stranger, &stranger_room.ticket(0, &[&stranger])).await,
+        Err(ForwardError::Refused(Refusal::NotServed))
+    ));
+    let member = Identity::generate();
+    assert!(join_as(forwarder, &member, &mine.ticket(0, &[&member])).await.is_ok());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_ticket_from_another_host_opens_a_separate_room() {
     let forwarder = start(Limits::default());
     let room = Room::new(9);

@@ -225,7 +225,7 @@ mod tests {
         let node = Node::bind(&me, localhost()).unwrap();
         let addr = node.local_addr().unwrap();
         let (host, mut events) = HostHandle::start(&me, ROOM).unwrap();
-        let mut call = CallNode::start(&me, node, ROOM, Some(rendezvous), Some(host.clone())).await;
+        let mut call = CallNode::start(&me, node, ROOM, Some(rendezvous), host.clone()).await;
         let mut hosting = Session::new(call.media().unwrap(), me.public());
         hosting.on_keys(host_keys(&mut events).await);
 

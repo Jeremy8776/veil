@@ -15,6 +15,10 @@
 //! Invariants:
 //! - The server never learns room ids. Members register under [`room_tag`], a hash of the
 //!   room id, which only invite holders can compute.
+//! - A room is named by its tag and its host's key, and only the host opens it. Anyone else
+//!   must be on the host's allow list or show an open lobby pass; when the host's lists
+//!   change, anyone they no longer cover is dropped.
+//! - Relayed bytes are capped per session and for the whole server.
 //! - Introductions and relay sessions only join two keys registered in the same room, and
 //!   only once the asked member accepts. Until then the asker learns nothing about it.
 //! - A relay session forwards only between its two members. Anyone else's packets are dropped.
@@ -33,6 +37,7 @@
 pub mod client;
 pub mod limit;
 pub mod protocol;
+mod room;
 pub mod server;
 pub mod socket;
 

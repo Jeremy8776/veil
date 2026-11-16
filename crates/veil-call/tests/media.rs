@@ -97,7 +97,7 @@ impl Call {
         let node = Node::bind(&identity, localhost()).unwrap();
         let addr = node.local_addr().unwrap();
         let (host, mut events) = HostHandle::start(&identity, ROOM).unwrap();
-        let node = CallNode::start(&identity, node, ROOM, relay, Some(host.clone())).await;
+        let node = CallNode::start(&identity, node, ROOM, relay, host.clone()).await;
         assert_eq!(node.has_rendezvous(), relay.is_some());
         let keys = next_host_keys(&mut events).await;
         let parties = vec![Party { node, keys, member: None }];

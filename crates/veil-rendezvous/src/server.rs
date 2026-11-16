@@ -10,6 +10,18 @@
 //! to fill their relay slots. Requests expire after `REQUEST_TTL`; each member may have
 //! `MAX_REQUESTS_PER_MEMBER` open and hold `MAX_SESSIONS_PER_MEMBER` relay sessions.
 //! A link must open its control stream within `CONTROL_WAIT`, or it is closed.
+//!
+//! Admission: a room is named by its tag and its host's key, and only the host may open it.
+//! Everyone else must be on the host's allow list (`ClientMsg::Allow`: members, and joiners
+//! waiting in its lobby) or show one of the lobby passes the host opened, one key per pass.
+//! When the host's lists change, anyone they no longer cover is dropped from the room, with
+//! their relay sessions and requests. So a person the host declined or removed cannot come
+//! back with throwaway keys and fill the room.
+//!
+//! Serving one call: a participant's own server serves its own room only
+//! ([`RendezvousServer::only_room`]), so strangers cannot use its upload as a relay.
+//! Bandwidth: each session has its own cap and the server has one for all of them together
+//! (`limit.rs`).
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -20,10 +32,11 @@ use tokio::sync::mpsc;
 use veil_net::{Link, NetError, Node};
 use veil_security::PublicId;
 
-use crate::limit::Bucket;
+use crate::limit::{Bucket, TOTAL_BURST, TOTAL_RATE};
+use crate::room::{Member, Room, RoomKey};
 use crate::protocol::{
-    Ask, ClientMsg, MAX_ADDRS, Refusal, STREAM_HEADER, ServerMsg, parse_stream_header,
-    split_session,
+    Ask, ClientMsg, MAX_ADDRS, MAX_PASSES, Refusal, STREAM_HEADER, ServerMsg,
+    parse_stream_header, split_session,
 };
 
 pub const MAX_ROOMS: usize = 10_000;
@@ -38,12 +51,6 @@ pub const REQUEST_TTL: Duration = Duration::from_secs(10);
 const OUTBOX: usize = 64;
 /// A link that opens no control stream in this time is dropped.
 const CONTROL_WAIT: Duration = Duration::from_secs(10);
-
-struct Member {
-    addrs: Vec<SocketAddr>,
-    outbox: mpsc::Sender<ServerMsg>,
-    conn: quinn::Connection,
-}
 
 /// A relay session between exactly two members. Generic so routing can be unit tested.
 #[derive(Clone)]
@@ -69,14 +76,39 @@ impl<T> Session<T> {
     }
 }
 
-#[derive(Default)]
 struct State {
-    rooms: HashMap<[u8; 32], HashMap<PublicId, Member>>,
+    rooms: HashMap<RoomKey, Room>,
     sessions: HashMap<u32, Session<quinn::Connection>>,
     /// Requests waiting for their target: (from, to, kind) to when asked.
     requests: HashMap<(PublicId, PublicId, Ask), Instant>,
     next_session: u32,
     relay_disabled: bool,
+    /// When set, the only room this server serves.
+    only_room: Option<RoomKey>,
+    /// Every relayed byte, all sessions together.
+    total: Bucket,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            rooms: HashMap::new(),
+            sessions: HashMap::new(),
+            requests: HashMap::new(),
+            next_session: 0,
+            relay_disabled: false,
+            only_room: None,
+            total: Bucket::with_rate(TOTAL_RATE, TOTAL_BURST, Instant::now()),
+        }
+    }
+}
+
+impl State {
+    /// Drops `key`'s relay sessions and requests.
+    fn forget(&mut self, key: PublicId) {
+        self.sessions.retain(|_, session| !session.involves(key));
+        self.requests.retain(|(from, to, _), _| *from != key && *to != key);
+    }
 }
 
 type Shared = Arc<Mutex<State>>;
@@ -104,6 +136,24 @@ impl RendezvousServer {
     pub fn without_relay(self) -> Self {
         if let Some(mut s) = lock(&self.state) {
             s.relay_disabled = true;
+        }
+        self
+    }
+
+    /// Serves only the room `room_tag` hosted by `host`; any other registration is refused
+    /// with [`Refusal::UnknownRoom`]. For a server a participant runs for its own call.
+    pub fn only_room(self, room_tag: [u8; 32], host: PublicId) -> Self {
+        if let Some(mut s) = lock(&self.state) {
+            s.only_room = Some((room_tag, host));
+        }
+        self
+    }
+
+    /// Caps all relayed bytes together at `bytes_per_second` (default
+    /// [`crate::limit::TOTAL_RATE`]), with a tenth of a second of burst.
+    pub fn with_total_rate(self, bytes_per_second: f64) -> Self {
+        if let Some(mut s) = lock(&self.state) {
+            s.total = Bucket::with_rate(bytes_per_second, bytes_per_second / 10.0, Instant::now());
         }
         self
     }
@@ -145,7 +195,7 @@ async fn serve(link: Link, state: Shared) {
     let datagrams = tokio::spawn(forward_datagrams(conn.clone(), me, state.clone(), buckets.clone()));
     let streams = tokio::spawn(forward_streams(conn, me, state.clone(), buckets));
 
-    let mut room: Option<[u8; 32]> = None;
+    let mut room: Option<RoomKey> = None;
     while let Ok(message) = input.recv::<ClientMsg>().await {
         let replies = handle(message, &link, &mut room, &outbox, &state);
         for (to, reply) in replies {
@@ -155,16 +205,15 @@ async fn serve(link: Link, state: Shared) {
     }
 
     if let Some(mut s) = lock(&state) {
-        if let Some(tag) = room {
-            if let Some(members) = s.rooms.get_mut(&tag) {
-                members.remove(&me);
-                if members.is_empty() {
-                    s.rooms.remove(&tag);
+        if let Some(key) = room {
+            if let Some(r) = s.rooms.get_mut(&key) {
+                r.members.remove(&me);
+                if r.members.is_empty() {
+                    s.rooms.remove(&key);
                 }
             }
         }
-        s.sessions.retain(|_, session| !session.involves(me));
-        s.requests.retain(|(from, to, _), _| *from != me && *to != me);
+        s.forget(me);
     }
     writer.abort();
     datagrams.abort();
@@ -176,7 +225,7 @@ type Outgoing = Vec<(mpsc::Sender<ServerMsg>, ServerMsg)>;
 fn handle(
     message: ClientMsg,
     link: &Link,
-    room: &mut Option<[u8; 32]>,
+    room: &mut Option<RoomKey>,
     outbox: &mpsc::Sender<ServerMsg>,
     state: &Shared,
 ) -> Outgoing {
@@ -189,6 +238,8 @@ fn handle(
     match message {
         ClientMsg::Register {
             room_tag,
+            host,
+            pass,
             local_addrs,
         } => {
             if room.is_some() {
@@ -197,30 +248,52 @@ fn handle(
             if local_addrs.len() > MAX_ADDRS {
                 return refuse(Refusal::TooManyAddrs);
             }
-            if !s.rooms.contains_key(&room_tag) && s.rooms.len() >= MAX_ROOMS {
-                return refuse(Refusal::Full);
+            let key = (room_tag, host);
+            if s.only_room.is_some_and(|only| only != key) {
+                return refuse(Refusal::UnknownRoom);
             }
-            let members = s.rooms.entry(room_tag).or_default();
-            if members.contains_key(&me) {
+            let is_host = me == host;
+            if !s.rooms.contains_key(&key) {
+                // Only the host opens its room.
+                if !is_host {
+                    return refuse(Refusal::UnknownRoom);
+                }
+                if s.rooms.len() >= MAX_ROOMS {
+                    return refuse(Refusal::Full);
+                }
+                s.rooms.insert(key, Room::new());
+            }
+            let Some(r) = s.rooms.get_mut(&key) else {
+                return refuse(Refusal::UnknownRoom);
+            };
+            if r.members.contains_key(&me) {
                 return refuse(Refusal::AlreadyRegistered);
             }
-            if members.len() >= MAX_MEMBERS_PER_ROOM {
+            // A key on the allow list needs no pass, and keeps none it might have shown.
+            let pass = pass.filter(|_| !is_host && !r.allowed.contains(&me));
+            if !r.entitled(host, me, pass.as_ref()) || pass.as_ref().is_some_and(|p| r.pass_taken(p)) {
+                return refuse(Refusal::NotAllowed);
+            }
+            if r.members.len() >= MAX_MEMBERS_PER_ROOM {
                 return refuse(Refusal::Full);
             }
             let observed = link.remote_addr();
             let mut addrs = vec![observed];
             addrs.extend(local_addrs.into_iter().filter(|a| *a != observed));
-            members.insert(
+            r.members.insert(
                 me,
                 Member {
                     addrs,
                     outbox: outbox.clone(),
                     conn: link.quic().clone(),
+                    pass,
                 },
             );
-            *room = Some(room_tag);
+            *room = Some(key);
             vec![(outbox.clone(), ServerMsg::Registered { observed })]
         }
+
+        ClientMsg::Allow { members, passes } => allow(&mut s, room, me, members, passes, outbox),
 
         ClientMsg::Introduce { peer } => ask(&mut s, room, me, peer, Ask::Introduce, outbox),
         ClientMsg::OpenRelay { peer } => ask(&mut s, room, me, peer, Ask::Relay, outbox),
@@ -228,10 +301,36 @@ fn handle(
     }
 }
 
+/// The host replaces its room's allow list and open passes. Members they no longer cover are
+/// dropped from the room, with their sessions and requests.
+fn allow(
+    s: &mut State,
+    room: &Option<RoomKey>,
+    me: PublicId,
+    members: Vec<PublicId>,
+    passes: Vec<[u8; 32]>,
+    outbox: &mpsc::Sender<ServerMsg>,
+) -> Outgoing {
+    let refuse = |r| vec![(outbox.clone(), ServerMsg::Refused(r))];
+    let Some(key) = room.filter(|(_, host)| *host == me) else {
+        return refuse(Refusal::NotAllowed);
+    };
+    if members.len() > MAX_MEMBERS_PER_ROOM || passes.len() > MAX_PASSES {
+        return refuse(Refusal::Full);
+    }
+    let Some(r) = s.rooms.get_mut(&key) else {
+        return Vec::new();
+    };
+    for device in r.allow(key.1, members, passes) {
+        s.forget(device);
+    }
+    vec![(outbox.clone(), ServerMsg::Allowed)]
+}
+
 /// Records `me`'s request and asks `peer`. Nothing about `peer` reaches `me` yet.
 fn ask(
     s: &mut State,
-    room: &Option<[u8; 32]>,
+    room: &Option<RoomKey>,
     me: PublicId,
     peer: PublicId,
     kind: Ask,
@@ -241,14 +340,14 @@ fn ask(
     if kind == Ask::Relay && s.relay_disabled {
         return refuse(Refusal::RelayDisabled);
     }
-    let Some(tag) = room else {
+    let Some(key) = room else {
         return refuse(Refusal::NotRegistered);
     };
     let theirs = s
         .rooms
-        .get(tag)
-        .filter(|members| members.contains_key(&me))
-        .and_then(|members| members.get(&peer));
+        .get(key)
+        .filter(|r| r.members.contains_key(&me))
+        .and_then(|r| r.members.get(&peer));
     let Some(theirs) = theirs.filter(|_| peer != me) else {
         return refuse(Refusal::PeerNotInRoom);
     };
@@ -271,7 +370,7 @@ fn ask(
 /// so a stray answer cannot fail an unrelated wait on the client.
 fn accept(
     s: &mut State,
-    room: &Option<[u8; 32]>,
+    room: &Option<RoomKey>,
     from: PublicId,
     me: PublicId,
     kind: Ask,
@@ -280,10 +379,10 @@ fn accept(
         .requests
         .remove(&(from, me, kind))
         .is_some_and(|at| at.elapsed() < REQUEST_TTL);
-    let Some(tag) = room.filter(|_| fresh) else {
+    let Some(key) = room.filter(|_| fresh) else {
         return Vec::new();
     };
-    let Some(members) = s.rooms.get(&tag) else {
+    let Some(members) = s.rooms.get(&key).map(|r| &r.members) else {
         return Vec::new();
     };
     let (Some(asker), Some(mine)) = (members.get(&from), members.get(&me)) else {
@@ -355,6 +454,11 @@ fn route(state: &Shared, session: u32, from: PublicId) -> Option<quinn::Connecti
     s.sessions.get(&session)?.other(from).cloned()
 }
 
+/// Whether the server's total relay budget has room for `bytes` now.
+fn within_total(state: &Shared, bytes: usize) -> bool {
+    lock(state).is_some_and(|mut s| s.total.take(bytes, Instant::now()))
+}
+
 /// One member's bandwidth buckets, by relay session (`limit.rs`). Only sessions the member
 /// is in get one, so there are at most `MAX_SESSIONS_PER_MEMBER`.
 type Buckets = Arc<Mutex<HashMap<u32, Bucket>>>;
@@ -376,6 +480,7 @@ async fn forward_datagrams(conn: quinn::Connection, me: PublicId, state: Shared,
         };
         if let Some(target) = route(&state, session, me)
             && within_limit(&buckets, session, datagram.len())
+            && within_total(&state, datagram.len())
         {
             let _ = target.send_datagram(datagram);
         }
@@ -394,7 +499,7 @@ async fn forward_streams(conn: quinn::Connection, me: PublicId, state: Shared, b
             let Some(target) = route(&state, session, me) else {
                 return;
             };
-            if !within_limit(&buckets, session, len) {
+            if !within_limit(&buckets, session, len) || !within_total(&state, len) {
                 return;
             }
             let mut packet = vec![0u8; len];

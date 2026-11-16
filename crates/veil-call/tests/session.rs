@@ -46,7 +46,7 @@ async fn start_call() -> Call {
     let node = Node::bind(&identity, localhost()).unwrap();
     let addr = node.local_addr().unwrap();
     let (host, mut events) = HostHandle::start(&identity, [4; 16]).unwrap();
-    let node = CallNode::start(&identity, node, [4; 16], None, Some(host.clone())).await;
+    let node = CallNode::start(&identity, node, [4; 16], None, host.clone()).await;
     let keys = next_keys(&mut events).await;
     assert_eq!(keys.epoch, 0);
     Call { _node: node, host, events, addr, keys }

@@ -41,7 +41,7 @@ pub async fn run(
     let rendezvous = config.rendezvous;
     let mut call = match rendezvous {
         // A configured rendezvous wins over the invite's, for networks the host's cannot reach.
-        Some(addr) => CallNode::start(&identity, node, invite.room_id, Some(addr), None).await,
+        Some(addr) => CallNode::for_invite_via(&identity, node, &invite, Some(addr)).await,
         None => CallNode::for_invite(&identity, node, &invite).await,
     };
     shared.update(|view| view.status = CallStatus::Lobby);

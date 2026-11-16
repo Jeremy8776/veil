@@ -10,7 +10,9 @@
 //!   route whatever links arrive on it, exactly like links on the real socket.
 //!
 //! Invariants:
-//! - The room is registered under `room_tag(room_id)`, never the id itself.
+//! - The room is registered under `room_tag(room_id)`, never the id itself, and named by its
+//!   host's key. The host opens it and keeps the rendezvous node's allow list current from its
+//!   session's [`Allowed`]; a joiner registers with its invite's lobby pass ([`Seat`]).
 //! - Every relayed link is the two participants' own pinned QUIC link. The relay carries
 //!   ciphertext and never holds keys.
 //! - A punch dial-back is never kept. The peer that asked dials the link that is used; the
@@ -27,7 +29,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinSet;
 use veil_net::{Node, NodeAddr};
 use veil_rendezvous::protocol::ServerMsg;
@@ -35,7 +37,17 @@ use veil_rendezvous::{Ask, Punch, RendezvousClient, punch, room_tag};
 use veil_security::{Identity, PublicId};
 
 use crate::CallError;
+use crate::host::Allowed;
 use crate::inbound::Router;
+
+/// How this participant registers in the call's rendezvous room.
+pub(crate) enum Seat {
+    /// The host: opens the room and keeps its allow list current.
+    Host(watch::Receiver<Allowed>),
+    /// A joiner: registers in `host`'s room with its invite's lobby pass. Once admitted it is
+    /// on the host's allow list, so the pass is no longer needed.
+    Guest { host: PublicId, pass: [u8; 32] },
+}
 
 const COMMANDS: usize = 16;
 /// Relay sessions other members opened to this one. Sixteen is the call's size limit.
@@ -85,16 +97,28 @@ impl Presence {
         server: NodeAddr,
         router: Router,
         consent: Arc<Consent>,
+        seat: Seat,
     ) -> Result<(Self, tokio::task::JoinHandle<()>), CallError> {
         let mut client = RendezvousClient::connect(&node, &[server.addr], server.key)
             .await
             .map_err(CallError::Rendezvous)?;
         let local = node.local_addr()?;
         let locals = if local.ip().is_unspecified() { Vec::new() } else { vec![local] };
+        let (host, pass, mut allowed) = match seat {
+            Seat::Host(allowed) => (identity.public(), None, Some(allowed)),
+            Seat::Guest { host, pass } => (host, Some(pass), None),
+        };
         client
-            .register(room_tag(&router.room_id), locals)
+            .register(room_tag(&router.room_id), host, pass, locals)
             .await
             .map_err(CallError::Rendezvous)?;
+        if let Some(allowed) = allowed.as_mut() {
+            let now = allowed.borrow_and_update().clone();
+            client
+                .allow(now.members, now.passes)
+                .await
+                .map_err(CallError::Rendezvous)?;
+        }
         let policy = consent.clone();
         client.set_consent(Arc::new(move |from, kind| policy.allows(from, kind)));
         let (commands, rx) = mpsc::channel(COMMANDS);
@@ -106,6 +130,7 @@ impl Presence {
             relayed: JoinSet::new(),
             consent: consent.clone(),
             waiting: VecDeque::new(),
+            allowed,
         };
         Ok((Self { commands, consent }, tokio::spawn(actor.run(rx))))
     }
@@ -152,6 +177,17 @@ struct Actor {
     consent: Arc<Consent>,
     /// Requests not yet allowed, oldest first, with when they came.
     waiting: VecDeque<(PublicId, Ask, Instant)>,
+    /// The host's allow list, while this participant hosts.
+    allowed: Option<watch::Receiver<Allowed>>,
+}
+
+/// The host's next allow list. Never resolves for a joiner.
+async fn next_allowed(allowed: &mut Option<watch::Receiver<Allowed>>) -> Option<Allowed> {
+    let Some(rx) = allowed.as_mut() else {
+        return std::future::pending().await;
+    };
+    rx.changed().await.ok()?;
+    Some(rx.borrow_and_update().clone())
 }
 
 impl Actor {
@@ -166,6 +202,14 @@ impl Actor {
                     Some(notice) => self.notice(notice).await,
                     // The rendezvous link closed. Requests now fail with `Closed`.
                     None => break,
+                },
+                allowed = next_allowed(&mut self.allowed) => match allowed {
+                    // A refused or lost update leaves the last list standing.
+                    Some(now) => {
+                        let _ = self.client.allow(now.members, now.passes).await;
+                    }
+                    // The host session ended.
+                    None => self.allowed = None,
                 },
             }
         }

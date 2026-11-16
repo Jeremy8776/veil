@@ -45,15 +45,17 @@ async fn one_node_serves_rendezvous_and_forwarding_with_one_key() {
     let mut client = with_timeout(RendezvousClient::connect(&member, &[parsed.addr], parsed.key))
         .await
         .unwrap();
-    with_timeout(client.register(room, vec![])).await.unwrap();
+    // The member opens its own room, then lets `other` in.
+    with_timeout(client.register(room, member_id.public(), None, vec![])).await.unwrap();
 
     let other = Identity::generate();
+    with_timeout(client.allow(vec![other.public()], vec![])).await.unwrap();
     let other_node = Node::bind(&other, "127.0.0.1:0".parse().unwrap()).unwrap();
     let mut other_client =
         with_timeout(RendezvousClient::connect(&other_node, &[parsed.addr], parsed.key))
             .await
             .unwrap();
-    with_timeout(other_client.register(room, vec![])).await.unwrap();
+    with_timeout(other_client.register(room, member_id.public(), None, vec![])).await.unwrap();
     assert!(matches!(
         with_timeout(client.open_relay(other.public())).await,
         Err(RendezvousError::Refused(Refusal::RelayDisabled))

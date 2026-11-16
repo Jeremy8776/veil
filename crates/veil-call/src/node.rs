@@ -19,12 +19,12 @@ use tokio::task::JoinHandle;
 use veil_net::{Link, Node, NodeAddr};
 use veil_rendezvous::punch;
 use veil_rendezvous::socket::RELAY_PEER;
-use veil_security::invite::Invite;
+use veil_security::invite::{Invite, lobby_pass};
 use veil_security::{Identity, PublicId};
 
 use crate::host::HostHandle;
 use crate::inbound::{Inbound, Router};
-use crate::presence::{Consent, Presence};
+use crate::presence::{Consent, Presence, Seat};
 use crate::{CallError, media};
 
 /// Incoming media links waiting for the media session.
@@ -71,14 +71,27 @@ impl Drop for CallNode {
 }
 
 impl CallNode {
-    /// Starts routing links on `node` for the call `room_id`. A host passes its session so
-    /// joiners reach it; `rendezvous` is the call's rendezvous and relay node, if any.
+    /// The host's node for the call `room_id`: joiners reach `host`, its session.
+    /// `rendezvous` is the call's rendezvous and relay node, if any; the host opens its room
+    /// there and keeps the room's allow list current.
     pub async fn start(
         identity: &Identity,
         node: Node,
         room_id: [u8; 16],
         rendezvous: Option<NodeAddr>,
+        host: HostHandle,
+    ) -> Self {
+        let seat = Seat::Host(host.allowed());
+        Self::launch(identity, node, room_id, rendezvous, Some(host), seat).await
+    }
+
+    async fn launch(
+        identity: &Identity,
+        node: Node,
+        room_id: [u8; 16],
+        rendezvous: Option<NodeAddr>,
         host: Option<HostHandle>,
+        seat: Seat,
     ) -> Self {
         let node = Arc::new(node);
         let (media_tx, media_rx) = mpsc::channel(MEDIA_INBOX);
@@ -95,7 +108,7 @@ impl CallNode {
         let mut presence = None;
         if let Some(server) = rendezvous
             && let Ok((handle, task)) =
-                Presence::start(identity, node.clone(), server, router, consent.clone()).await
+                Presence::start(identity, node.clone(), server, router, consent.clone(), seat).await
         {
             presence = Some(handle);
             tasks.push(task);
@@ -116,7 +129,22 @@ impl CallNode {
     /// the rendezvous node when it holds a `key@ip:port` address.
     pub async fn for_invite(identity: &Identity, node: Node, invite: &Invite) -> Self {
         let rendezvous = invite.relay.as_deref().and_then(|r| r.parse::<NodeAddr>().ok());
-        Self::start(identity, node, invite.room_id, rendezvous, None).await
+        Self::for_invite_via(identity, node, invite, rendezvous).await
+    }
+
+    /// Starts a joiner's node for the call an invite names, with `rendezvous` as the
+    /// rendezvous node. It registers in the host's room with the invite's lobby pass.
+    pub async fn for_invite_via(
+        identity: &Identity,
+        node: Node,
+        invite: &Invite,
+        rendezvous: Option<NodeAddr>,
+    ) -> Self {
+        let seat = Seat::Guest {
+            host: invite.host,
+            pass: lobby_pass(&invite.join_token),
+        };
+        Self::launch(identity, node, invite.room_id, rendezvous, None, seat).await
     }
 
     pub fn id(&self) -> PublicId {

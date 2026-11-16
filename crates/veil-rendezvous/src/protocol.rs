@@ -11,6 +11,8 @@ use sha2::{Digest, Sha256};
 use veil_security::PublicId;
 
 pub const MAX_ADDRS: usize = 8;
+/// Most lobby passes a host may have open in its room at once.
+pub const MAX_PASSES: usize = 64;
 pub const SESSION_HEADER: usize = 4;
 pub const STREAM_HEADER: usize = 6;
 
@@ -25,10 +27,21 @@ pub fn room_tag(room_id: &[u8; 16]) -> [u8; 32] {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ClientMsg {
-    /// Join a room's directory with the addresses this node listens on locally.
+    /// Join a room's directory with the addresses this node listens on locally. A room is
+    /// named by its tag and its host's key. The host registers with its own key and no pass;
+    /// anyone else must be on the host's allow list, or show a lobby pass the host opened.
     Register {
         room_tag: [u8; 32],
+        host: PublicId,
+        pass: Option<[u8; 32]>,
         local_addrs: Vec<SocketAddr>,
+    },
+    /// Host only: who may be in the room. `members` may register at any time; each of
+    /// `passes` (see `veil_security::invite::lobby_pass`) lets one key register while it stays
+    /// open. Replaces the previous lists, and anyone they no longer cover is dropped.
+    Allow {
+        members: Vec<PublicId>,
+        passes: Vec<[u8; 32]>,
     },
     /// Ask to be introduced to another member for a simultaneous dial. The peer is asked
     /// first ([`ServerMsg::Request`]); nobody's address moves until it accepts.
@@ -62,6 +75,8 @@ pub enum ServerMsg {
     /// [`ClientMsg::Accept`], or not at all to refuse.
     Request { from: PublicId, kind: Ask },
     Refused(Refusal),
+    /// The host's `Allow` took effect.
+    Allowed,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +89,10 @@ pub enum Refusal {
     Full,
     /// This node runs rendezvous without the relay role.
     RelayDisabled,
+    /// The host's allow list does not cover this key, and it showed no open lobby pass.
+    NotAllowed,
+    /// The room's host is not registered, or this node serves another call only.
+    UnknownRoom,
 }
 
 pub fn session_packet(session: u32, packet: &[u8]) -> Vec<u8> {

@@ -9,6 +9,10 @@
 //! `Admitted` or `Refused` -> `KeyPackage` -> `Welcome` to the joiner and `Commit` to every
 //! existing member -> [`HostEvent::Joined`] and [`HostEvent::Keys`].
 //!
+//! Rendezvous admission: after every change the actor publishes [`Allowed`] (members, joiners
+//! in the lobby, and the lobby passes of open invites). The host's presence task hands it to
+//! the rendezvous node, which then drops anyone it no longer covers.
+//!
 //! After each [`HostEvent::Keys`] the app plans the epoch's layout and calls
 //! [`HostHandle::publish_plan`]. The actor checks the plan lists exactly this epoch's members,
 //! signs it, and queues it behind the epoch's commit, so every member reads the commit first.
@@ -18,10 +22,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rand_core::OsRng;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use veil_group::{Group, GroupError, Knock, Lobby};
 use veil_net::control::{Control, RefuseReason};
 use veil_net::{FramedRecv, FramedSend, Link, Node};
+use veil_rendezvous::protocol::MAX_PASSES;
 use veil_security::invite::Invite;
 use veil_security::{Identity, PublicId};
 use veil_topology::Plan;
@@ -34,6 +39,15 @@ use crate::{CallError, CallPlan, EpochKeys, now_unix};
 const OUTBOX: usize = 64;
 const COMMANDS: usize = 64;
 const LINGER: Duration = Duration::from_secs(2);
+
+/// Who the host lets into its room on the rendezvous node.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Allowed {
+    /// Group members and joiners waiting in, or approved from, the lobby.
+    pub members: Vec<PublicId>,
+    /// Lobby passes of the invites still open (`veil_security::invite::lobby_pass`).
+    pub passes: Vec<[u8; 32]>,
+}
 
 #[derive(Debug)]
 pub enum HostEvent {
@@ -78,6 +92,7 @@ enum Internal {
 #[derive(Clone)]
 pub struct HostHandle {
     commands: mpsc::Sender<Command>,
+    allowed: watch::Receiver<Allowed>,
 }
 
 impl HostHandle {
@@ -94,6 +109,7 @@ impl HostHandle {
         let _ = events.send(HostEvent::Keys(EpochKeys::from_group(&group)?));
         let (commands, commands_rx) = mpsc::channel(COMMANDS);
         let (internal, internal_rx) = mpsc::channel(COMMANDS);
+        let (allowed_tx, allowed) = watch::channel(Allowed::default());
         let actor = Actor {
             identity: Identity::from_secret(&identity.secret_bytes()),
             group,
@@ -102,9 +118,15 @@ impl HostHandle {
             events,
             internal,
             next_link: 0,
+            allowed: allowed_tx,
         };
         tokio::spawn(actor.run(commands_rx, internal_rx));
-        Ok((Self { commands }, events_rx))
+        Ok((Self { commands, allowed }, events_rx))
+    }
+
+    /// Who may be in the host's rendezvous room, updated after every change.
+    pub(crate) fn allowed(&self) -> watch::Receiver<Allowed> {
+        self.allowed.clone()
     }
 
     async fn send(&self, command: Command) -> Result<(), CallError> {
@@ -167,6 +189,7 @@ struct Actor {
     events: mpsc::UnboundedSender<HostEvent>,
     internal: mpsc::Sender<Internal>,
     next_link: u64,
+    allowed: watch::Sender<Allowed>,
 }
 
 impl Actor {
@@ -184,7 +207,27 @@ impl Actor {
                 },
                 Some(event) = internal.recv() => self.internal(event),
             }
+            self.publish_allowed();
         }
+    }
+
+    /// Publishes who may be in the rendezvous room, if that changed.
+    fn publish_allowed(&mut self) {
+        let mut members: Vec<PublicId> = self.group.members().into_iter().map(|(_, d)| d).collect();
+        members.extend(self.lobby.seated());
+        members.sort();
+        members.dedup();
+        let next = Allowed {
+            members,
+            passes: self.lobby.passes(now_unix(), MAX_PASSES),
+        };
+        self.allowed.send_if_modified(|current| {
+            let changed = *current != next;
+            if changed {
+                *current = next;
+            }
+            changed
+        });
     }
 
     fn emit(&self, event: HostEvent) {

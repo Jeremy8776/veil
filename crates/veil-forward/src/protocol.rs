@@ -55,4 +55,6 @@ pub enum Refusal {
     NotListed,
     /// The room has already seen a ticket from a later epoch.
     StaleTicket,
+    /// This forwarder serves one host's calls only, and the ticket names another host.
+    NotServed,
 }

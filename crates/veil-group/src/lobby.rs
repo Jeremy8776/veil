@@ -15,13 +15,16 @@
 //! - An unknown token and a burnt one get the same answer (`TokenUsed`), so a guesser learns
 //!   nothing about which tokens exist.
 //! - The device that knocked is the device that must sign the key package.
+//! - Each unused, unexpired token has a lobby pass ([`Lobby::passes`]) the host gives the
+//!   rendezvous node, so joiners can register there before they knock. Burning the token
+//!   closes its pass.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use sha2::{Digest, Sha256};
 use veil_net::control::{Control, RefuseReason};
 use veil_security::PublicId;
-use veil_security::invite::Invite;
+use veil_security::invite::{Invite, lobby_pass};
 
 use crate::group::{Admission, Group, MAX_MEMBERS};
 use crate::GroupError;
@@ -35,8 +38,8 @@ pub struct Knock {
 /// A joiner who disconnects while waiting must be [`Lobby::forget`]-ed, or it keeps its seat.
 pub struct Lobby {
     room_id: [u8; 16],
-    /// Token hash to expiry (Unix seconds).
-    tokens: BTreeMap<[u8; 32], u64>,
+    /// Token hash to expiry (Unix seconds) and the token's lobby pass.
+    tokens: BTreeMap<[u8; 32], (u64, [u8; 32])>,
     waiting: BTreeSet<PublicId>,
     approved: BTreeSet<PublicId>,
 }
@@ -64,9 +67,25 @@ impl Lobby {
         if invite.room_id != self.room_id {
             return Err(GroupError::Refused(RefuseReason::UnknownRoom));
         }
-        self.tokens
-            .insert(token_hash(&invite.join_token), invite.expires_unix);
+        self.tokens.insert(
+            token_hash(&invite.join_token),
+            (invite.expires_unix, lobby_pass(&invite.join_token)),
+        );
         Ok(())
+    }
+
+    /// Lobby passes of the tokens still open at `now_unix`, at most `max`, the latest
+    /// expiring first. Expired tokens are forgotten here.
+    pub fn passes(&mut self, now_unix: u64, max: usize) -> Vec<[u8; 32]> {
+        self.tokens.retain(|_, (expires, _)| now_unix < *expires);
+        let mut open: Vec<(u64, [u8; 32])> = self.tokens.values().copied().collect();
+        open.sort_by_key(|(expires, _)| std::cmp::Reverse(*expires));
+        open.into_iter().take(max).map(|(_, pass)| pass).collect()
+    }
+
+    /// Joiners waiting for the host or approved and not yet in the group.
+    pub fn seated(&self) -> Vec<PublicId> {
+        self.waiting.iter().chain(&self.approved).copied().collect()
     }
 
     /// Checks a joiner's `Hello`. `device` is the key the QUIC link was pinned to.
@@ -83,7 +102,7 @@ impl Lobby {
         if *room_id != self.room_id {
             return Err(GroupError::Refused(RefuseReason::UnknownRoom));
         }
-        let expires = self
+        let (expires, _) = self
             .tokens
             .remove(&token_hash(join_token))
             .ok_or(GroupError::Refused(RefuseReason::TokenUsed))?;

@@ -5,7 +5,7 @@ use rand_core_06::OsRng;
 use veil_group::{Applied, Group, GroupError, Joiner, Lobby};
 use veil_net::control::{Control, RefuseReason};
 use veil_security::SecurityError;
-use veil_security::invite::Invite;
+use veil_security::invite::{Invite, lobby_pass};
 use veil_security::{Identity, PublicId};
 
 const NOW: u64 = 1_800_000_000;
@@ -154,6 +154,26 @@ fn join_token_works_once() {
         host.lobby.knock(&hello, second, &host.group, NOW),
         Err(GroupError::Refused(RefuseReason::TokenUsed))
     );
+}
+
+#[test]
+fn a_knock_closes_its_pass_and_seats_the_joiner() {
+    let mut host = Host::new();
+    let invite = host.invite();
+    assert_eq!(host.lobby.passes(NOW, 64), vec![lobby_pass(&invite.join_token)]);
+    let joiner = Identity::generate().public();
+    let knock = host.lobby.knock(&Host::hello(&invite), joiner, &host.group, NOW).unwrap();
+    assert!(host.lobby.passes(NOW, 64).is_empty(), "the burnt token's pass is closed");
+    assert_eq!(host.lobby.seated(), vec![joiner], "the waiting joiner stays allowed");
+    host.lobby.decline(knock);
+    assert!(host.lobby.seated().is_empty(), "a declined joiner is allowed no longer");
+}
+
+#[test]
+fn expired_passes_close() {
+    let mut host = Host::new();
+    host.invite();
+    assert_eq!(host.lobby.passes(NOW + 60, 64), Vec::<[u8; 32]>::new());
 }
 
 #[test]

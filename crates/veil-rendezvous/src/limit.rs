@@ -9,8 +9,12 @@
 //! - A session may send [`RATE`] bytes per second on average and [`BURST`] at once.
 //! - The bucket is refilled from elapsed time only, so no timer runs per session.
 //!
-//! shortcut: a cap, not fair queuing. Sessions do not share spare capacity, and the server
-//! does not bound its total. Add both before running a relay for many strangers.
+//! The server also keeps one bucket for all relayed bytes ([`TOTAL_RATE`] by default), so the
+//! sum of every session cannot exceed what its operator offered.
+//!
+//! shortcut: caps, not fair queuing. Sessions do not share spare capacity, and when the total
+//! is spent the first packets to arrive win. Add fair queuing before running a relay for many
+//! strangers.
 
 use std::time::{Duration, Instant};
 
@@ -21,17 +25,31 @@ pub const IDLE: Duration = Duration::from_secs(30);
 pub const RATE: f64 = 2_000_000.0;
 /// One keyframe's worth at once.
 pub const BURST: f64 = 1_000_000.0;
+/// Every relay session on one server together: 1 Gbit/s.
+pub const TOTAL_RATE: f64 = 125_000_000.0;
+/// A tenth of a second of [`TOTAL_RATE`].
+pub const TOTAL_BURST: f64 = TOTAL_RATE / 10.0;
 
 pub struct Bucket {
     tokens: f64,
     last: Instant,
+    rate: f64,
+    burst: f64,
 }
 
 impl Bucket {
+    /// One session's bucket: [`RATE`] and [`BURST`].
     pub fn new(now: Instant) -> Self {
+        Self::with_rate(RATE, BURST, now)
+    }
+
+    /// A full bucket that refills at `rate` bytes per second, holding at most `burst`.
+    pub fn with_rate(rate: f64, burst: f64, now: Instant) -> Self {
         Self {
-            tokens: BURST,
+            tokens: burst,
             last: now,
+            rate,
+            burst,
         }
     }
 
@@ -45,7 +63,7 @@ impl Bucket {
     pub fn take(&mut self, bytes: usize, now: Instant) -> bool {
         let elapsed = now.saturating_duration_since(self.last).as_secs_f64();
         self.last = now;
-        self.tokens = (self.tokens + elapsed * RATE).min(BURST);
+        self.tokens = (self.tokens + elapsed * self.rate).min(self.burst);
         // Exact for any packet a relay carries (at most 64 KiB).
         let cost = bytes as f64;
         if cost > self.tokens {

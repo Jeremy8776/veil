@@ -30,20 +30,43 @@ struct Member {
     identity: Identity,
     node: Node,
     client: RendezvousClient,
+    /// For a host: the keys it has allowed into its room so far.
+    allowed: Vec<PublicId>,
 }
 
-async fn member(server: (SocketAddr, PublicId), room: [u8; 32]) -> Member {
-    let identity = Identity::generate();
+async fn register(
+    server: (SocketAddr, PublicId),
+    identity: Identity,
+    room: [u8; 32],
+    host: PublicId,
+    pass: Option<[u8; 32]>,
+) -> Result<Member, RendezvousError> {
     let node = Node::bind(&identity, localhost()).unwrap();
     let mut client = RendezvousClient::connect(&node, &[server.0], server.1).await.unwrap();
     let local = node.local_addr().unwrap();
-    let observed = client.register(room, vec![local]).await.unwrap();
+    let observed = client.register(room, host, pass, vec![local]).await?;
     assert_eq!(observed, local, "server reflects the address it sees");
-    Member {
+    Ok(Member {
         identity,
         node,
         client,
-    }
+        allowed: Vec::new(),
+    })
+}
+
+/// The room's host: it opens the room.
+async fn host(server: (SocketAddr, PublicId), room: [u8; 32]) -> Member {
+    let identity = Identity::generate();
+    let key = identity.public();
+    register(server, identity, room, key, None).await.unwrap()
+}
+
+/// Another member: the host allows its key first.
+async fn guest(server: (SocketAddr, PublicId), room: [u8; 32], host: &mut Member) -> Member {
+    let identity = Identity::generate();
+    host.allowed.push(identity.public());
+    host.client.allow(host.allowed.clone(), Vec::new()).await.unwrap();
+    register(server, identity, room, host.identity.public(), None).await.unwrap()
 }
 
 /// `m` waits for `from`'s request of `kind` and accepts it.
@@ -63,8 +86,8 @@ async fn with_timeout<T>(f: impl std::future::Future<Output = T>) -> T {
 async fn introduction_lets_two_members_connect_directly() {
     let server = start_server();
     let room = room_tag(&[1; 16]);
-    let mut a = member(server, room).await;
-    let mut b = member(server, room).await;
+    let mut a = host(server, room).await;
+    let mut b = guest(server, room, &mut a).await;
     let b_key = b.identity.public();
     let a_key = a.identity.public();
 
@@ -96,8 +119,8 @@ async fn introduction_lets_two_members_connect_directly() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn members_of_another_room_are_not_introduced() {
     let server = start_server();
-    let mut a = member(server, room_tag(&[1; 16])).await;
-    let stranger = member(server, room_tag(&[2; 16])).await;
+    let mut a = host(server, room_tag(&[1; 16])).await;
+    let stranger = host(server, room_tag(&[2; 16])).await;
     let result = with_timeout(a.client.introduce(stranger.identity.public())).await;
     assert!(matches!(
         result,
@@ -114,8 +137,8 @@ async fn members_of_another_room_are_not_introduced() {
 async fn relay_carries_a_pinned_end_to_end_link() {
     let server = start_server();
     let room = room_tag(&[7; 16]);
-    let mut a = member(server, room).await;
-    let mut b = member(server, room).await;
+    let mut a = host(server, room).await;
+    let mut b = guest(server, room, &mut a).await;
     let a_key = a.identity.public();
     let b_key = b.identity.public();
 
@@ -172,8 +195,8 @@ async fn relay_carries_a_pinned_end_to_end_link() {
 async fn relayed_dial_to_the_wrong_key_fails() {
     let server = start_server();
     let room = room_tag(&[5; 16]);
-    let mut a = member(server, room).await;
-    let mut b = member(server, room).await;
+    let mut a = host(server, room).await;
+    let mut b = guest(server, room, &mut a).await;
     let a_key = a.identity.public();
     let (session, ()) = tokio::join!(
         with_timeout(a.client.open_relay(b.identity.public())),
@@ -199,8 +222,8 @@ async fn relay_can_be_turned_off() {
     let addr = (server.local_addr().unwrap(), server.id());
     tokio::spawn(server.run());
     let room = room_tag(&[6; 16]);
-    let mut a = member(addr, room).await;
-    let mut b = member(addr, room).await;
+    let mut a = host(addr, room).await;
+    let mut b = guest(addr, room, &mut a).await;
     assert!(matches!(
         with_timeout(a.client.open_relay(b.identity.public())).await,
         Err(RendezvousError::Refused(Refusal::RelayDisabled))
@@ -218,8 +241,8 @@ async fn relay_can_be_turned_off() {
 async fn an_unanswered_request_reveals_nothing() {
     let server = start_server();
     let room = room_tag(&[8; 16]);
-    let mut asker = member(server, room).await;
-    let mut target = member(server, room).await;
+    let mut asker = host(server, room).await;
+    let mut target = guest(server, room, &mut asker).await;
     let (asker_key, target_key) = (asker.identity.public(), target.identity.public());
 
     // The target is asked but does not accept: the asker gets no address, only a timeout.
@@ -232,4 +255,52 @@ async fn an_unanswered_request_reveals_nothing() {
     target.client.accept(asker_key, Ask::Relay).await.unwrap();
     let quiet = tokio::time::timeout(Duration::from_millis(300), asker.client.next_event()).await;
     assert!(quiet.is_err(), "nothing reaches the asker: {quiet:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn only_keys_the_host_allows_may_register() {
+    let server = start_server();
+    let room = room_tag(&[9; 16]);
+    let mut owner = host(server, room).await;
+    let owner_key = owner.identity.public();
+
+    let stranger = register(server, Identity::generate(), room, owner_key, None).await;
+    assert!(matches!(stranger, Err(RendezvousError::Refused(Refusal::NotAllowed))));
+    let unhosted = register(server, Identity::generate(), room, PublicId([7; 32]), None).await;
+    assert!(matches!(unhosted, Err(RendezvousError::Refused(Refusal::UnknownRoom))));
+
+    // A lobby pass lets one key in at a time.
+    let pass = [4; 32];
+    owner.client.allow(Vec::new(), vec![pass]).await.unwrap();
+    let joiner = register(server, Identity::generate(), room, owner_key, Some(pass)).await.unwrap();
+    let second = register(server, Identity::generate(), room, owner_key, Some(pass)).await;
+    assert!(matches!(second, Err(RendezvousError::Refused(Refusal::NotAllowed))));
+
+    // The host closes the pass (it declined the joiner): the joiner is dropped from the room.
+    owner.client.allow(Vec::new(), Vec::new()).await.unwrap();
+    let gone = with_timeout(owner.client.introduce(joiner.identity.public())).await;
+    assert!(matches!(gone, Err(RendezvousError::Refused(Refusal::PeerNotInRoom))), "{gone:?}");
+    let back = register(server, Identity::generate(), room, owner_key, Some(pass)).await;
+    assert!(matches!(back, Err(RendezvousError::Refused(Refusal::NotAllowed))));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_server_for_one_call_refuses_other_rooms() {
+    let owner = Identity::generate();
+    let room = room_tag(&[3; 16]);
+    let node = Node::bind(&Identity::generate(), localhost()).unwrap();
+    let server = RendezvousServer::new(node).only_room(room, owner.public());
+    let addr = (server.local_addr().unwrap(), server.id());
+    tokio::spawn(server.run());
+
+    let other = Identity::generate();
+    let other_key = other.public();
+    let refused = register(addr, other, room_tag(&[4; 16]), other_key, None).await;
+    assert!(matches!(refused, Err(RendezvousError::Refused(Refusal::UnknownRoom))));
+    let squatter = Identity::generate();
+    let squatter_key = squatter.public();
+    let refused = register(addr, squatter, room, squatter_key, None).await;
+    assert!(matches!(refused, Err(RendezvousError::Refused(Refusal::UnknownRoom))));
+    let owner_key = owner.public();
+    assert!(register(addr, owner, room, owner_key, None).await.is_ok());
 }

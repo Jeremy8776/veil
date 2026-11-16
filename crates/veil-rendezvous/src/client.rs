@@ -94,15 +94,21 @@ impl RendezvousClient {
         self.link.peer()
     }
 
-    /// Registers in a room. Returns the public address the server sees.
+    /// Registers in `host`'s room. The host passes its own key and no pass; anyone else needs
+    /// to be on the host's allow list or show an open lobby pass. Returns the public address
+    /// the server sees.
     pub async fn register(
         &mut self,
         room_tag: [u8; 32],
+        host: PublicId,
+        pass: Option<[u8; 32]>,
         local_addrs: Vec<SocketAddr>,
     ) -> Result<SocketAddr, RendezvousError> {
         self.out
             .send(&ClientMsg::Register {
                 room_tag,
+                host,
+                pass,
                 local_addrs,
             })
             .await?;
@@ -113,6 +119,18 @@ impl RendezvousClient {
             ServerMsg::Registered { observed } => Ok(observed),
             _ => Err(RendezvousError::Closed),
         }
+    }
+
+    /// Host only: replaces who may be in the room (see [`ClientMsg::Allow`]). The server drops
+    /// anyone the new lists no longer cover. Returns once the server has applied them.
+    pub async fn allow(
+        &mut self,
+        members: Vec<PublicId>,
+        passes: Vec<[u8; 32]>,
+    ) -> Result<(), RendezvousError> {
+        self.out.send(&ClientMsg::Allow { members, passes }).await?;
+        self.answer(|m| matches!(m, ServerMsg::Allowed)).await?;
+        Ok(())
     }
 
     /// Asks to be introduced to `peer`. The peer is asked first ([`ServerMsg::Request`]);

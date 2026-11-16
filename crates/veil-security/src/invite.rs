@@ -21,6 +21,19 @@ pub const MAX_ADDRS: usize = 8;
 pub const MAX_ADDR_LEN: usize = 255;
 const SIGNATURE_LEN: usize = 64;
 const DOMAIN: &[u8] = b"veil-invite-v1";
+const PASS_DOMAIN: &[u8] = b"veil-lobby-pass-v1";
+
+/// The lobby pass for a join token: what a joiner shows the rendezvous node to register in
+/// the host's room before it knocks. A one-way hash, so the node that sees the pass cannot
+/// knock with the token itself.
+pub fn lobby_pass(join_token: &[u8; 16]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    Sha256::new()
+        .chain_update(PASS_DOMAIN)
+        .chain_update(join_token)
+        .finalize()
+        .into()
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Invite {
@@ -207,6 +220,14 @@ mod tests {
     fn oversized_link_is_refused_before_decoding() {
         let link = format!("{PREFIX}{}", "A".repeat(MAX_LINK_LEN));
         assert_eq!(Invite::from_link(&link, NOW), Err(SecurityError::TooLarge));
+    }
+
+    #[test]
+    fn lobby_pass_is_stable_and_hides_the_token() {
+        let token = [9u8; 16];
+        assert_eq!(lobby_pass(&token), lobby_pass(&token));
+        assert_ne!(lobby_pass(&token), lobby_pass(&[8u8; 16]));
+        assert!(!lobby_pass(&token).windows(16).any(|w| w == token));
     }
 
     #[test]

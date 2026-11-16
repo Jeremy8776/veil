@@ -36,7 +36,7 @@ pub async fn run(args: HostArgs) -> Result<(), String> {
         node,
         room_id,
         args.rendezvous,
-        Some(host.clone()),
+        host.clone(),
     )
     .await;
     println!(
