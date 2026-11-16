@@ -10,9 +10,11 @@
 //! - `label` is mixed in as DPAPI's extra entropy, so a blob sealed for one purpose does not
 //!   open for another.
 //! - Windows never shows a prompt (`CRYPTPROTECT_UI_FORBIDDEN`).
-//! - Every buffer Windows allocates is copied out and freed exactly once with `LocalFree`.
+//! - Every buffer Windows allocates is copied out, wiped and freed exactly once with
+//!   `LocalFree`, so an opened secret does not linger in freed memory.
 
 use windows::Win32::Foundation::{HLOCAL, LocalFree};
+use zeroize::Zeroize;
 use windows::Win32::Security::Cryptography::{
     CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData,
 };
@@ -84,17 +86,19 @@ fn blob(data: &[u8]) -> Result<CRYPT_INTEGER_BLOB, MediaError> {
     })
 }
 
-/// Copies DPAPI's output buffer and frees it.
+/// Copies DPAPI's output buffer, wipes it and frees it.
 fn take(output: CRYPT_INTEGER_BLOB) -> Vec<u8> {
     if output.pbData.is_null() {
         return Vec::new();
     }
     let len = usize::try_from(output.cbData).unwrap_or(0);
     // SAFETY: on success DPAPI set `pbData` to a buffer of `cbData` bytes that it allocated
-    // with `LocalAlloc` and that nothing else references.
-    let copied = unsafe { std::slice::from_raw_parts(output.pbData, len) }.to_vec();
+    // with `LocalAlloc` and that nothing else references, so this is the only view of it.
+    let buffer = unsafe { std::slice::from_raw_parts_mut(output.pbData, len) };
+    let copied = buffer.to_vec();
+    buffer.zeroize();
     // SAFETY: the buffer came from DPAPI's `LocalAlloc`, is freed here once, and is not
-    // used after.
+    // used after (`buffer` is not touched past this point).
     unsafe {
         LocalFree(Some(HLOCAL(output.pbData.cast())));
     }

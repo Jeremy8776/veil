@@ -8,16 +8,23 @@
 //!
 //! Invariants:
 //! - Verified never admits anyone: it is a label for the host, who still decides.
-//! - A file that does not open (another user, corrupt) is moved aside to `*.unreadable`,
-//!   never deleted, and a fresh one is started. The reason is kept for the home screen.
-//! - Files are written to a temporary name and renamed, so a crash never leaves half a key.
+//! - A saved file is never overwritten unless it opened, was missing, or was moved aside.
+//!   A file that does not open (another user, corrupt) is moved to `*.unreadable` (or
+//!   `*.unreadable.2` and on, never over an earlier one) and a fresh one is started. A file
+//!   that cannot be read or moved (locked, no permission) is left as it is, and that run's
+//!   key or list is kept in memory only. The reason is kept for the home screen.
+//! - Files are written to a temporary name, flushed to disk and renamed, so a crash never
+//!   leaves half a key.
+//! - Opened key bytes are wiped once copied into the store.
 //! - With no `LOCALAPPDATA`, or off Windows, nothing is saved: the key lasts one run.
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use veil_security::{Identity, PublicId};
+use zeroize::Zeroize;
 
 const KEY_FILE: &str = "device.key";
 const TRUSTED_FILE: &str = "verified.keys";
@@ -25,6 +32,8 @@ const KEY_LABEL: &[u8] = b"veil device key v1";
 const TRUSTED_LABEL: &[u8] = b"veil verified keys v1";
 /// Keys you may mark as verified. Far more than anyone calls.
 pub const MAX_TRUSTED: usize = 10_000;
+/// Set-aside copies kept per file before Veil stops moving files aside.
+const MAX_ASIDE: u32 = 20;
 
 /// Where Veil keeps its files, if anywhere.
 pub fn default_dir() -> Option<PathBuf> {
@@ -37,34 +46,47 @@ pub struct KeyStore {
     dir: Option<PathBuf>,
     secret: [u8; 32],
     trusted: BTreeSet<PublicId>,
+    /// False while a key file Veil could not read is still in place: saving would replace it.
+    save_key: bool,
+    /// The same, for the verified list.
+    save_trusted: bool,
     /// Something that went wrong reading or writing, for the home screen.
     pub problem: Option<String>,
+}
+
+/// Why a file was not loaded.
+struct Problem {
+    message: String,
+    /// The file is still where it was, so it must not be written over.
+    in_place: bool,
 }
 
 impl KeyStore {
     /// Opens the store in `dir`, making a device key on first use.
     pub fn open(dir: Option<PathBuf>) -> Self {
         let mut problem = None;
-        let secret = match dir.as_deref().map(load_key) {
-            Some(Ok(Some(secret))) => Some(secret),
-            Some(Ok(None)) | None => None,
-            Some(Err(e)) => {
-                problem = Some(e);
-                None
+        let (secret, save_key) = match dir.as_deref().map(load_key) {
+            Some(Ok(secret)) => (secret, true),
+            None => (None, true),
+            Some(Err(p)) => {
+                problem = Some(p.message);
+                (None, !p.in_place)
             }
         };
-        let trusted = match dir.as_deref().map(load_trusted) {
-            Some(Ok(keys)) => keys,
-            Some(Err(e)) => {
-                problem.get_or_insert(e);
-                BTreeSet::new()
+        let (trusted, save_trusted) = match dir.as_deref().map(load_trusted) {
+            Some(Ok(keys)) => (keys, true),
+            None => (BTreeSet::new(), true),
+            Some(Err(p)) => {
+                problem.get_or_insert(p.message);
+                (BTreeSet::new(), !p.in_place)
             }
-            None => BTreeSet::new(),
         };
         let mut store = Self {
             dir,
             secret: [0; 32],
             trusted,
+            save_key,
+            save_trusted,
             problem,
         };
         match secret {
@@ -84,12 +106,22 @@ impl KeyStore {
     }
 
     /// Makes a new device key and saves it. People who verified the old one see you as new.
+    /// While an unreadable key file is in place the new key is kept for this run only.
     pub fn renew(&mut self) {
         let fresh = Identity::generate();
         self.secret = *fresh.secret_bytes();
-        if let Some(dir) = &self.dir
-            && let Err(e) = save(dir, KEY_FILE, &self.secret, KEY_LABEL)
-        {
+        let Some(dir) = &self.dir else { return };
+        if !self.save_key {
+            // Keep the first, more specific, reason if there is one.
+            self.problem.get_or_insert_with(|| {
+                format!(
+                    "{KEY_FILE} could not be read or moved, so it was left as it is. \
+                     This run uses a key that is not saved."
+                )
+            });
+            return;
+        }
+        if let Err(e) = save(dir, KEY_FILE, &self.secret, KEY_LABEL) {
             self.problem = Some(format!("Your device key could not be saved: {e}"));
         }
     }
@@ -105,13 +137,21 @@ impl KeyStore {
         } else {
             self.trusted.remove(&key)
         };
+        let Some(dir) = &self.dir else { return };
         if !changed {
             return;
         }
+        if !self.save_trusted {
+            self.problem.get_or_insert_with(|| {
+                format!(
+                    "{TRUSTED_FILE} could not be read or moved, so it was left as it is. \
+                     Changes to your verified list last this run only."
+                )
+            });
+            return;
+        }
         let bytes: Vec<u8> = self.trusted.iter().flat_map(|k| k.0).collect();
-        if let Some(dir) = &self.dir
-            && let Err(e) = save(dir, TRUSTED_FILE, &bytes, TRUSTED_LABEL)
-        {
+        if let Err(e) = save(dir, TRUSTED_FILE, &bytes, TRUSTED_LABEL) {
             self.problem = Some(format!("Your verified list could not be saved: {e}"));
         }
     }
@@ -120,22 +160,24 @@ impl KeyStore {
 impl Drop for KeyStore {
     fn drop(&mut self) {
         // Best effort: the key also sits in the identity copies handed to calls.
-        self.secret = [0; 32];
+        self.secret.zeroize();
     }
 }
 
 /// `Ok(None)` when there is no key yet.
-fn load_key(dir: &Path) -> Result<Option<[u8; 32]>, String> {
-    let Some(bytes) = load(dir, KEY_FILE, KEY_LABEL)? else {
+fn load_key(dir: &Path) -> Result<Option<[u8; 32]>, Problem> {
+    let Some(mut bytes) = load(dir, KEY_FILE, KEY_LABEL)? else {
         return Ok(None);
     };
-    match <[u8; 32]>::try_from(bytes.as_slice()) {
+    let secret = <[u8; 32]>::try_from(bytes.as_slice());
+    bytes.zeroize();
+    match secret {
         Ok(secret) => Ok(Some(secret)),
         Err(_) => Err(set_aside(dir, KEY_FILE, "has the wrong length")),
     }
 }
 
-fn load_trusted(dir: &Path) -> Result<BTreeSet<PublicId>, String> {
+fn load_trusted(dir: &Path) -> Result<BTreeSet<PublicId>, Problem> {
     let Some(bytes) = load(dir, TRUSTED_FILE, TRUSTED_LABEL)? else {
         return Ok(BTreeSet::new());
     };
@@ -146,12 +188,20 @@ fn load_trusted(dir: &Path) -> Result<BTreeSet<PublicId>, String> {
 }
 
 /// Reads and opens `name`. A missing file is `Ok(None)`; one that does not open is moved
-/// aside and reported.
-fn load(dir: &Path, name: &str, label: &[u8]) -> Result<Option<Vec<u8>>, String> {
+/// aside; one that cannot be read is left in place. Both are reported.
+fn load(dir: &Path, name: &str, label: &[u8]) -> Result<Option<Vec<u8>>, Problem> {
     let sealed = match fs::read(dir.join(name)) {
         Ok(sealed) => sealed,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("{name} could not be read: {e}")),
+        Err(e) => {
+            return Err(Problem {
+                message: format!(
+                    "{name} could not be read ({e}), so it was left as it is and nothing \
+                     will replace it this run."
+                ),
+                in_place: true,
+            });
+        }
     };
     match unseal(&sealed, label) {
         Ok(bytes) => Ok(Some(bytes)),
@@ -159,19 +209,42 @@ fn load(dir: &Path, name: &str, label: &[u8]) -> Result<Option<Vec<u8>>, String>
     }
 }
 
-/// Moves a bad file out of the way, keeping it, and says what happened.
-fn set_aside(dir: &Path, name: &str, why: &str) -> String {
-    let aside = dir.join(format!("{name}.unreadable"));
-    let moved = fs::rename(dir.join(name), &aside).is_ok();
-    let kept = if moved { " It was kept as" } else { " It could not be moved to" };
-    format!("{name} {why}, so a new one was started.{kept} {}.", aside.display())
+/// Moves a bad file out of the way to a name not yet used, keeping it, and says what
+/// happened. A rename on Windows replaces its target, so an earlier copy is never reused.
+fn set_aside(dir: &Path, name: &str, why: &str) -> Problem {
+    let free = (1..=MAX_ASIDE)
+        .map(|n| match n {
+            1 => dir.join(format!("{name}.unreadable")),
+            n => dir.join(format!("{name}.unreadable.{n}")),
+        })
+        .find(|path| !path.exists());
+    match free {
+        Some(aside) if fs::rename(dir.join(name), &aside).is_ok() => Problem {
+            message: format!(
+                "{name} {why}, so a new one was started. It was kept as {}.",
+                aside.display()
+            ),
+            in_place: false,
+        },
+        _ => Problem {
+            message: format!(
+                "{name} {why} and could not be moved aside, so it was left as it is and \
+                 nothing will replace it this run."
+            ),
+            in_place: true,
+        },
+    }
 }
 
 fn save(dir: &Path, name: &str, bytes: &[u8], label: &[u8]) -> Result<(), String> {
     let sealed = seal(bytes, label)?;
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let temp = dir.join(format!("{name}.new"));
-    fs::write(&temp, sealed).map_err(|e| e.to_string())?;
+    let mut file = fs::File::create(&temp).map_err(|e| e.to_string())?;
+    file.write_all(&sealed).map_err(|e| e.to_string())?;
+    // On disk before the rename, so a crash never leaves the name on an empty file.
+    file.sync_all().map_err(|e| e.to_string())?;
+    drop(file);
     fs::rename(&temp, dir.join(name)).map_err(|e| e.to_string())
 }
 
@@ -254,6 +327,37 @@ mod tests {
         assert!(store.problem.as_deref().is_some_and(|p| p.contains("unreadable")));
         assert!(dir.join("device.key.unreadable").exists(), "kept, not deleted");
         assert_eq!(KeyStore::open(Some(dir.clone())).public(), store.public());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_second_bad_file_does_not_replace_the_first() {
+        let dir = temp_dir("twice");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(KEY_FILE), b"first").unwrap();
+        drop(KeyStore::open(Some(dir.clone())));
+        fs::write(dir.join(KEY_FILE), b"second").unwrap();
+        drop(KeyStore::open(Some(dir.clone())));
+        assert_eq!(fs::read(dir.join("device.key.unreadable")).unwrap(), b"first");
+        assert_eq!(fs::read(dir.join("device.key.unreadable.2")).unwrap(), b"second");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_is_never_written_over() {
+        let dir = temp_dir("locked");
+        fs::create_dir_all(&dir).unwrap();
+        // A directory where the files should be: reading fails with an error that is not
+        // "not found", as a locked or forbidden file would.
+        fs::create_dir_all(dir.join(KEY_FILE)).unwrap();
+        fs::create_dir_all(dir.join(TRUSTED_FILE)).unwrap();
+        let mut store = KeyStore::open(Some(dir.clone()));
+        assert!(store.problem.as_deref().is_some_and(|p| p.contains("left as it is")));
+        store.renew();
+        store.set_verified(Identity::generate().public(), true);
+        assert!(dir.join(KEY_FILE).is_dir(), "the key's place was not written over");
+        assert!(dir.join(TRUSTED_FILE).is_dir(), "the list's place was not written over");
+        assert!(!dir.join(format!("{KEY_FILE}.new")).exists());
         let _ = fs::remove_dir_all(&dir);
     }
 

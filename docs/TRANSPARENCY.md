@@ -56,6 +56,10 @@ rendezvous never says who is online.
   signed-in account can still use it. "New device key" on the home screen replaces it.
 - `verified.keys`: the device keys you marked as verified, sealed the same way. Verified is
   a label for the host; it never lets anyone in.
+- Veil never writes over a saved file it could not open. One that does not open for your
+  user is kept as `*.unreadable` (then `.unreadable.2` and on); one that cannot be read at
+  all, for example while it is locked, is left as it is, and that run's key or list is not
+  saved.
 - The same key in every call means anyone who meets you in two calls can tell it is the same
   device. Before 16/11/2026 every call used a new key.
 

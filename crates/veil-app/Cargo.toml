@@ -16,6 +16,7 @@ veil-net = { path = "../veil-net" }
 veil-rendezvous = { path = "../veil-rendezvous" }
 veil-security = { path = "../veil-security" }
 veil-topology = { path = "../veil-topology" }
+zeroize = "1.8.1"
 # No default features: egui's bundled fonts carry licences outside the allow list
 # (tools/licences.py), so the app loads the operating system's own fonts at start-up.
 eframe = { version = "0.37", default-features = false, features = [

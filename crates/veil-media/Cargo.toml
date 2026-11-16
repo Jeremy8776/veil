@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 veil-security = { path = "../veil-security" }
+zeroize = "1.8.1"
 
 [build-dependencies]
 # Builds the vendored libopus (vendor/opus) without cmake.

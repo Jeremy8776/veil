@@ -3819,6 +3819,7 @@ dependencies = [
  "veil-rendezvous",
  "veil-security",
  "veil-topology",
+ "zeroize",
 ]
 
 [[package]]
@@ -3881,6 +3882,7 @@ dependencies = [
  "cc",
  "veil-security",
  "windows",
+ "zeroize",
 ]
 
 [[package]]

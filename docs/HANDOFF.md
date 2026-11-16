@@ -268,7 +268,11 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   - M4, saved device key (16/11/2026, `veil-app/src/keystore.rs`): one device key for every
     call in `%LOCALAPPDATA%\Veil\device.key`, and the keys you mark as verified in
     `verified.keys`, both sealed with DPAPI (`veil_media::protect`, `ffi/windows/protect.rs`).
-    A file that does not open is moved to `*.unreadable` and a fresh one started. The lobby
+    A file that does not open is moved to `*.unreadable` (`.2` and on, never over an earlier
+    one) and a fresh one started. Reviewed 16/11/2026: a file that could not be read (locked,
+    no permission) used to be written over by the fresh key; now it is left in place and that
+    run's key or list stays in memory. Writes are flushed before the rename, and DPAPI's
+    output buffer and the opened key bytes are wiped. The lobby
     shows "Verified" or "New device"; Security has Mark verified and Forget
     (`Action::Verify`, saved by `Engine::act`); Home has "New device key" (two clicks).
     Verified never admits anyone. Off Windows nothing is saved yet (`shortcut:`).
