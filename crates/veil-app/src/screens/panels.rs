@@ -65,9 +65,8 @@ fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
         ui.available_width(),
     )
     .on_hover_text("Works once and for an hour. A new link is made after each use.");
-    if copy.clicked() && !view.call.invite.is_empty() {
-        ui.ctx().copy_text(view.call.invite.clone());
-        view.notify("Invite link copied");
+    if copy.clicked() {
+        view.copy_invite(ui.ctx());
     }
     ui.add_space(8.0);
     let mut admit = None;

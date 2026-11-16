@@ -6,6 +6,8 @@
 //!   nothing is captured while you appear off.
 //! - Shortcuts: Ctrl+Shift+M mutes or unmutes, Ctrl+Shift+O starts or stops video.
 //! - A demo call always shows its banner.
+//! - The host's invite is up front: an Invite button in the top bar, and a card on the stage
+//!   while nobody else has joined.
 //! - A real call reads the engine once per frame, before drawing, and hands it the host's
 //!   decisions from the model's outbox. It ends when the engine says so.
 
@@ -23,7 +25,7 @@ use crate::layout;
 use crate::model::{Call, CallStatus, Participant, clock};
 use crate::screens::panels::{self, Panel};
 use crate::theme::{self, GAP, MUTED, PAGE, SURFACE};
-use crate::widgets::{self, ControlState, Tile, Tone, control, pill};
+use crate::widgets::{self, ControlState, Tile, Tone, card, control, pill};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -55,6 +57,60 @@ impl CallView {
 
     pub fn notify(&mut self, text: &str) {
         self.notice = Some((text.to_string(), Instant::now()));
+    }
+
+    /// Puts the invite link on the clipboard and says so.
+    pub fn copy_invite(&mut self, ctx: &egui::Context) {
+        if self.call.invite.is_empty() {
+            self.notify("The invite link is not ready yet.");
+        } else {
+            ctx.copy_text(self.call.invite.clone());
+            self.notify("Invite link copied");
+        }
+    }
+
+    /// The host is alone in a real call: show the invite where it cannot be missed.
+    fn waiting_for_guests(&self) -> bool {
+        self.call.is_host
+            && !self.call.demo
+            && self.call.status == CallStatus::Live
+            && self.call.participants.len() < 2
+    }
+
+    /// A card on the stage with the invite link and a copy button.
+    fn invite_card(&mut self, ui: &mut egui::Ui, area: Rect) {
+        let width = 460.0f32.min(area.width() - 32.0);
+        let rect = Rect::from_min_size(
+            pos2(area.center().x - width / 2.0, area.bottom() - 250.0),
+            vec2(width, 170.0),
+        );
+        let mut copy = false;
+        ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+            card().show(ui, |ui| {
+                ui.set_width(width - 40.0);
+                ui.label(RichText::new("Invite someone").font(theme::bold(16.0)));
+                ui.label(
+                    RichText::new("Send them this link. It works once, for an hour.")
+                        .small()
+                        .color(MUTED),
+                );
+                ui.add_space(4.0);
+                let mut link = self.call.invite.as_str();
+                ui.add(egui::TextEdit::singleline(&mut link).desired_width(f32::INFINITY));
+                ui.add_space(4.0);
+                copy = pill(
+                    ui,
+                    Some(Icon::Copy),
+                    "Copy invite link",
+                    Tone::Primary,
+                    width - 40.0,
+                )
+                .clicked();
+            });
+        });
+        if copy {
+            self.copy_invite(ui.ctx());
+        }
     }
 
     /// Draws the call. Returns false when you leave.
@@ -147,6 +203,9 @@ impl CallView {
                 }
             }
         }
+        if self.waiting_for_guests() {
+            self.invite_card(ui, area);
+        }
         if let Some((text, at)) = &self.notice {
             if now.duration_since(*at) < Duration::from_secs(3) {
                 toast(ui, area, text);
@@ -165,10 +224,7 @@ impl CallView {
             _ if self.call.demo => Some(("Demo: other people are simulated.", theme::WARN)),
             CallStatus::Connecting => Some(("Starting the call…", MUTED)),
             CallStatus::Lobby => Some(("Waiting for the host to let you in.", MUTED)),
-            CallStatus::Live if alone && self.call.is_host => Some((
-                "Nobody else is here yet. Copy the invite link from People.",
-                MUTED,
-            )),
+            CallStatus::Live if alone && self.call.is_host => None,
             CallStatus::Live if alone => Some(("Connecting to the others…", MUTED)),
             CallStatus::Live | CallStatus::Ended(_) => None,
         }
@@ -255,6 +311,13 @@ fn top_bar(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
                     };
                     if widgets::icon_button(ui, icon, label).clicked() {
                         view.view = next;
+                    }
+                    if view.call.is_host && !view.call.demo {
+                        let invite = pill(ui, Some(Icon::Link), "Invite", Tone::Quiet, 104.0)
+                            .on_hover_text("Copy the invite link. It works once, for an hour.");
+                        if invite.clicked() {
+                            view.copy_invite(ui.ctx());
+                        }
                     }
                     ui.label(
                         RichText::new(format!("{} people", view.call.participants.len()))
