@@ -30,6 +30,14 @@ windows = { version = "0.62", features = [
     "Win32_System_Variant",
 ] }
 
+[target."cfg(not(windows))".dependencies]
+cpal = "0.18.2"
+openh264 = { version = "0.9.10", default-features = false, features = ["source"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+v4l = "0.14.0"
+zune-jpeg = "0.5.15"
+
 # The workspace forbids `unsafe`; this crate only denies it, so the one `ffi` module per OS can
 # allow it (docs/TRANSPARENCY.md section 5). Keep the rest in step with the workspace table.
 [lints.rust]
