@@ -61,6 +61,8 @@ pub struct VeilApp {
     pub keys: Arc<Mutex<KeyStore>>,
     /// "New device key" was clicked once and waits for a second click.
     pub confirm_new_key: bool,
+    /// Whether a newer Veil is out (`update.rs`).
+    pub updates: crate::update::Updates,
     ctx: egui::Context,
 }
 
@@ -86,6 +88,7 @@ impl VeilApp {
             firewall: crate::firewall::Firewall::new(),
             keys: Arc::new(Mutex::new(KeyStore::open(keystore::default_dir()))),
             confirm_new_key: false,
+            updates: crate::update::Updates::start(keystore::default_dir(), ctx),
             ctx: ctx.clone(),
         }
     }

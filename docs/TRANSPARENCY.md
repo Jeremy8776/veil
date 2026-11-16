@@ -62,6 +62,17 @@ rendezvous never says who is online.
   saved.
 - The same key in every call means anyone who meets you in two calls can tell it is the same
   device. Before 16/11/2026 every call used a new key.
+- `no-update-check`: present only if you turned the update check off.
+
+**Update check** (desktop app, from 16/11/2026, `veil-app/src/update.rs`):
+- Once per start the app asks `api.github.com` for Veil's latest release, over HTTPS. It
+  sends the User-Agent `veil-app/<version>` and nothing about you; GitHub sees your IP
+  address and that a copy of Veil started, as it would for any website.
+- If a newer version is out, the home screen shows "Update available" with a link to the
+  release page. Veil never downloads or runs anything itself: you download and install it.
+- The link is built from the version number alone, never taken from GitHub's answer.
+- Untick "Check for updates" on the home screen and no request is made at all, now or on
+  later starts.
 
 **Known leaks:**
 - Packet sizes and timing show when someone speaks or moves. Padding is planned, not built.

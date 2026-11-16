@@ -140,7 +140,7 @@ fn allow_script(netsh: &str, args: &str) -> String {
 
 /// A program in Windows' own folder, by full path, so nothing earlier on the search path
 /// (or beside Veil) can stand in for it.
-fn system_program(system_root: Option<&str>, relative: &str) -> String {
+pub(crate) fn system_program(system_root: Option<&str>, relative: &str) -> String {
     let root = system_root
         .filter(|r| !r.is_empty())
         .unwrap_or(r"C:\Windows")

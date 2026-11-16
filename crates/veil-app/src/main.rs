@@ -25,6 +25,7 @@ mod media;
 mod model;
 mod screens;
 mod theme;
+mod update;
 mod widgets;
 
 use eframe::egui;

@@ -78,6 +78,44 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
             start(app, true);
         }
         device_key(app, ui);
+        updates(app, ui);
+    });
+}
+
+/// This build's version, a link when a newer one is out, and the check's off switch.
+fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
+    use crate::update::{self, Status};
+    ui.add_space(4.0);
+    let status = app.updates.status();
+    if let Status::Available(version) = status {
+        let link = ui
+            .add(
+                egui::Button::new(
+                    RichText::new(format!("Update available: {version}")).small().color(theme::WARN),
+                )
+                .frame(false),
+            )
+            .on_hover_text("Opens the release page. Veil never downloads anything itself.");
+        if link.clicked() {
+            update::open(version);
+        }
+    }
+    let mut on = app.updates.enabled();
+    let mut text = format!("Veil {}", update::VERSION);
+    if status == Status::UpToDate {
+        text.push_str(" · up to date");
+    }
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(text).small().color(MUTED));
+        let toggle = ui
+            .checkbox(&mut on, RichText::new("Check for updates").small().color(MUTED))
+            .on_hover_text(
+                "Asks GitHub once per start whether a newer Veil is out. GitHub sees your IP \
+                 address. Nothing is downloaded.",
+            );
+        if toggle.changed() {
+            app.updates.set_enabled(on, ui.ctx());
+        }
     });
 }
 

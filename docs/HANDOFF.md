@@ -293,6 +293,31 @@ Tests: `cargo test -j 8 --workspace` (233 tests, two ignored; `veil-media` alone
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
+## Releases (from 16/11/2026)
+
+`.github/workflows/release.yml`. A tag `vX.Y.Z` builds `veil-app`, `veil-node` and
+`veil-probe` on `windows-2025` with Rust 1.98.1 and no cache, packs them with the licences,
+README, `docs/DEPENDENCIES.md` and the node's example config into
+`veil-X.Y.Z-windows-x64.zip`, writes `SHA256SUMS.txt`, and creates a **draft** release.
+Build provenance is attested once the repository is public. Actions are pinned to SHAs.
+
+1. Bump `version` in the workspace `Cargo.toml`, run the tests, commit and push to `main`.
+   The tag must equal the version or the build fails.
+2. Optional dry run, publishes nothing: `gh workflow run release.yml --ref main`, then fetch
+   the zip from the run's artifacts.
+3. Tag and push (needs Jeremy's yes): `git tag vX.Y.Z` then `git push origin vX.Y.Z`.
+4. Read the draft on GitHub, then Publish. Only a published, non-pre-release release is seen
+   by the app's update check, so publishing is what tells every copy of Veil.
+5. Check from outside: the zip starts with `PK`, `sha256sum -c SHA256SUMS.txt` passes.
+
+The update check (`veil-app/src/update.rs`) asks
+`api.github.com/repos/Jeremy8776/veil/releases/latest` once per start, notify only. It gets
+404 while the repository is private, which shows nothing.
+`cargo test -j 8 -p veil-app update -- --ignored --nocapture` makes the real request.
+
+Builds are unsigned zips (SmartScreen warns). An installer should add the firewall rule
+(see the firewall section below) and sign the binaries (`shortcut:` in `release.yml`).
+
 ## Licence note
 
 Run `python tools/licences.py --check` after any `Cargo.lock` change; it regenerates nothing

@@ -1,0 +1,139 @@
+# Release builds for Windows.
+#
+# A tag `vX.Y.Z` builds veil-app, veil-node and veil-probe, packs them with the licences into
+# one zip, writes SHA256SUMS.txt, and creates a DRAFT GitHub release with both files. Nothing
+# reaches anyone until Jeremy reads the draft and presses Publish. A manual run
+# (workflow_dispatch) builds and uploads the zip as a workflow artifact only, and publishes
+# nothing: use it to check a build before tagging.
+#
+# Hardening:
+# - Every action is pinned to a commit SHA (the version is in the comment).
+# - No build cache: a release is built from a clean toolchain, so a poisoned cache from
+#   another branch cannot reach it.
+# - Only the publish job can write to the repository, and only on a tag.
+# - Build provenance (`gh attestation verify`) once the repository is public; GitHub offers
+#   attestations for private repositories on Enterprise plans only.
+#
+# shortcut: a zip, not an installer, and unsigned (Windows SmartScreen warns "unknown
+# publisher"). An installer should also add the firewall rule (docs/HANDOFF.md, firewall).
+# Add one with code signing before a wide release.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The same toolchain as ci.yml and local builds.
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: "1.98.1"
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $meta = cargo metadata --format-version 1 --no-deps --locked | ConvertFrom-Json
+          $version = ($meta.packages | Where-Object name -eq 'veil-app').version
+          if (-not $version) { throw 'veil-app has no version' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match the workspace version v$version"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Build
+        run: cargo build --release --locked -p veil-app -p veil-node -p veil-probe
+      - name: Package
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $name = "veil-$env:VERSION-windows-x64"
+          $stage = Join-Path 'dist' $name
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          $files = @(
+            'target/release/veil-app.exe',
+            'target/release/veil-node.exe',
+            'target/release/veil-probe.exe',
+            'LICENSE-MIT',
+            'LICENSE-APACHE',
+            'README.md',
+            'docs/DEPENDENCIES.md',
+            'crates/veil-node/veil-node.example.toml'
+          )
+          foreach ($f in $files) {
+            if (-not (Test-Path $f)) { throw "missing $f" }
+            Copy-Item $f $stage
+          }
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/$name.zip"
+          Remove-Item -Recurse $stage
+          $hash = (Get-FileHash -Algorithm SHA256 "dist/$name.zip").Hash.ToLower()
+          # LF and no BOM, so `sha256sum -c` reads it on Linux and on users' machines.
+          [IO.File]::WriteAllText("$PWD/dist/SHA256SUMS.txt", "$hash  $name.zip`n")
+          Get-Content dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: dist
+      - name: Check files
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          zip="dist/veil-${VERSION}-windows-x64.zip"
+          test -s "$zip"
+          test -s dist/SHA256SUMS.txt
+          (cd dist && sha256sum -c SHA256SUMS.txt)
+      - name: Provenance
+        if: github.event.repository.private == false
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.zip
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release create "$TAG" dist/* \
+            --repo "$REPO" \
+            --draft \
+            --verify-tag \
+            --title "Veil $TAG" \
+            --generate-notes
