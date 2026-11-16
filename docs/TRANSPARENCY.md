@@ -95,6 +95,10 @@ rendezvous never says who is online.
   send video or sound that shows in another member's tile. Relays and forwarders cannot.
   Names and chat are different: each is signed with the sender's device key, so no member
   can send one as someone else (fixed 16/11/2026).
+- After the key changes, frames sealed under the previous key are still accepted for 2 s, so
+  video and sound already in flight are not lost. When the change removed someone, that
+  window is closed: the previous key stops working at once, because the removed member still
+  holds it (fixed 16/11/2026). Members who stay may lose a moment of video or sound.
 - Keyframe requests are not authenticated end to end. A forwarder or member can ask a sender
   for keyframes at will. That costs the sender bandwidth, but no more than one keyframe per
   500 ms, and it reveals nothing.

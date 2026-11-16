@@ -52,9 +52,10 @@ impl Session {
             keys.roster.len(),
             self.leaf.map_or_else(|| "?".into(), |l| l.to_string()),
         );
+        let members = keys.roster.iter().map(|(_, d)| *d);
         match &mut self.ring {
-            Some(ring) => ring.rotate(keys.epoch, keys.receiver, Instant::now()),
-            None => self.ring = Some(KeyRing::new(keys.epoch, keys.receiver)),
+            Some(ring) => ring.rotate(keys.epoch, keys.receiver, members, Instant::now()),
+            None => self.ring = Some(KeyRing::new(keys.epoch, keys.receiver, members)),
         }
         self.sender = Some(keys.sender);
     }

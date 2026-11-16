@@ -388,19 +388,51 @@ async fn relay_only_members_exchange_media_through_the_relay() {
 async fn a_frame_sealed_before_an_epoch_change_opens_in_the_grace_period() {
     let mut call = Call::start(None).await;
     call.admit_direct().await;
-    let mut ring = KeyRing::new(call.parties[0].keys.epoch, take_receiver(&mut call.parties[0].keys));
+    let mut ring = new_ring(&mut call.parties[0].keys);
     let late = call.parties[1].keys.sender.encrypt(b"sealed in epoch 1").unwrap();
     let too_late = call.parties[1].keys.sender.encrypt(b"also epoch 1").unwrap();
 
     call.admit_direct().await;
     let changed = Instant::now();
-    ring.rotate(call.parties[0].keys.epoch, take_receiver(&mut call.parties[0].keys), changed);
+    rotate(&mut ring, &mut call.parties[0].keys, changed);
     assert_eq!(ring.epoch(), 2);
     assert_eq!(ring.open(&late, changed).unwrap().1, b"sealed in epoch 1");
     let fresh = call.parties[2].keys.sender.encrypt(b"epoch 2").unwrap();
     assert_eq!(ring.open(&fresh, changed).unwrap().1, b"epoch 2");
     let after = changed + veil_call::keyring::GRACE;
     assert_eq!(ring.open(&too_late, after), Err(SecurityError::UnknownKey));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_removed_member_gets_no_grace_on_the_old_epoch() {
+    let mut call = Call::start(None).await;
+    call.admit_direct().await;
+    call.admit_direct().await;
+    let mut ring = new_ring(&mut call.parties[0].keys);
+    let mut removed = call.parties.remove(2);
+    let stays = call.parties[1].keys.sender.encrypt(b"in flight").unwrap();
+
+    call.host.remove(removed.node.id()).await.unwrap();
+    call.parties[0].keys = next_host_keys(&mut call.events).await;
+    let changed = Instant::now();
+    rotate(&mut ring, &mut call.parties[0].keys, changed);
+    // The removed member still holds the old epoch's keys and seals after the change.
+    let injected = removed.keys.sender.encrypt(b"injected").unwrap();
+    assert_eq!(ring.open(&injected, changed), Err(SecurityError::UnknownKey));
+    // So is a frame from a member who stays: the price of closing the window.
+    assert_eq!(ring.open(&stays, changed), Err(SecurityError::UnknownKey));
+}
+
+/// A ring opened with a party's receiver and roster.
+fn new_ring(keys: &mut EpochKeys) -> KeyRing {
+    let members: Vec<PublicId> = keys.roster.iter().map(|(_, d)| *d).collect();
+    KeyRing::new(keys.epoch, take_receiver(keys), members)
+}
+
+/// Moves a ring to a party's new epoch.
+fn rotate(ring: &mut KeyRing, keys: &mut EpochKeys, now: Instant) {
+    let members: Vec<PublicId> = keys.roster.iter().map(|(_, d)| *d).collect();
+    ring.rotate(keys.epoch, take_receiver(keys), members, now);
 }
 
 /// Moves a party's receiver into a ring, leaving a receiver that opens nothing.
