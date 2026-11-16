@@ -7,7 +7,8 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
-base64 = "0.23.1"
+# Scalar engine only: SIMD (`simd-unsafe`) is unsafe code and gains nothing on 32-byte keys.
+base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 bytes = "1.7"
 ed25519-dalek = "3.0.0"
 postcard = { version = "1.0.10", default-features = false, features = ["alloc"] }
