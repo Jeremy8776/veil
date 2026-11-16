@@ -23,6 +23,7 @@
     clippy::unreachable
 )]
 
+pub mod accept;
 pub mod control;
 pub mod endpoint;
 pub mod error;

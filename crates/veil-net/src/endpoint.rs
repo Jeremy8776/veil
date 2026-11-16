@@ -18,10 +18,11 @@ use bytes::Bytes;
 use quinn::{IdleTimeout, TransportConfig};
 use rustls::pki_types::CertificateDer;
 use rustls::sign::CertifiedKey;
+use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use veil_security::{Identity, PublicId};
 
-use crate::{NetError, control, tls};
+use crate::{NetError, accept, control, tls};
 
 /// Largest sealed video frame: the security layer's frame limit plus its header and tag.
 pub const MAX_SEALED_FRAME: usize = veil_security::frame::MAX_FRAME_LEN
@@ -57,11 +58,20 @@ fn transport(initial_mtu: u16) -> Result<Arc<TransportConfig>, NetError> {
 }
 
 /// A bound endpoint for one device identity. Must be created inside a Tokio runtime.
+/// Incoming handshakes run on their own tasks, with limits (`accept.rs`).
 pub struct Node {
     endpoint: quinn::Endpoint,
     key: Arc<CertifiedKey>,
     id: PublicId,
     mtu: u16,
+    ready: tokio::sync::Mutex<mpsc::Receiver<Link>>,
+    acceptor: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for Node {
+    fn drop(&mut self) {
+        self.acceptor.abort();
+    }
 }
 
 impl Node {
@@ -70,12 +80,19 @@ impl Node {
         let mut server = quinn::ServerConfig::with_crypto(Arc::new(tls::server_config(key.clone())?));
         server.transport_config(transport(INITIAL_MTU)?);
         let endpoint = quinn::Endpoint::server(server, addr)?;
-        Ok(Self {
+        Ok(Self::new(endpoint, key, identity.public(), INITIAL_MTU))
+    }
+
+    fn new(endpoint: quinn::Endpoint, key: Arc<CertifiedKey>, id: PublicId, mtu: u16) -> Self {
+        let (ready, acceptor) = accept::start(endpoint.clone());
+        Self {
             endpoint,
             key,
-            id: identity.public(),
-            mtu: INITIAL_MTU,
-        })
+            id,
+            mtu,
+            ready: tokio::sync::Mutex::new(ready),
+            acceptor,
+        }
     }
 
     /// Binds to a virtual socket instead of UDP. Used for relayed links: the virtual socket
@@ -94,12 +111,7 @@ impl Node {
             socket,
             Arc::new(quinn::TokioRuntime),
         )?;
-        Ok(Self {
-            endpoint,
-            key,
-            id: identity.public(),
-            mtu: RELAYED_MTU,
-        })
+        Ok(Self::new(endpoint, key, identity.public(), RELAYED_MTU))
     }
 
     pub fn id(&self) -> PublicId {
@@ -152,13 +164,10 @@ impl Node {
         Err(NetError::Connect(last_error))
     }
 
-    /// Waits for the next incoming link. `None` once the endpoint is closed.
+    /// Waits for the next link whose handshake finished. `None` once the endpoint is closed.
+    /// Failed handshakes are dropped by the accept task, so every item is `Ok`.
     pub async fn accept(&self) -> Option<Result<Link, NetError>> {
-        let incoming = self.endpoint.accept().await?;
-        Some(match incoming.await {
-            Ok(conn) => Link::new(conn),
-            Err(e) => Err(NetError::Connect(e.to_string())),
-        })
+        self.ready.lock().await.recv().await.map(Ok)
     }
 
     pub fn close(&self) {
@@ -173,7 +182,7 @@ pub struct Link {
 }
 
 impl Link {
-    fn new(conn: quinn::Connection) -> Result<Self, NetError> {
+    pub(crate) fn new(conn: quinn::Connection) -> Result<Self, NetError> {
         let peer = conn
             .peer_identity()
             .and_then(|any| any.downcast::<Vec<CertificateDer<'static>>>().ok())
