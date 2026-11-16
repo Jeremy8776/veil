@@ -16,8 +16,10 @@ pub enum MediaError {
     Decoder(&'static str),
     /// This machine has no usable platform media component. The text names it.
     Unavailable(&'static str),
-    /// The platform camera failed. The text names the step.
+    /// The platform camera or microphone failed. The text names the step.
     Capture(&'static str),
+    /// The platform speakers failed. The text names the step.
+    Playback(&'static str),
 }
 
 impl fmt::Display for MediaError {
@@ -29,7 +31,8 @@ impl fmt::Display for MediaError {
             Self::Encoder(step) => write!(f, "encoder failed: {step}"),
             Self::Decoder(step) => write!(f, "decoder failed: {step}"),
             Self::Unavailable(what) => write!(f, "not available on this machine: {what}"),
-            Self::Capture(step) => write!(f, "camera failed: {step}"),
+            Self::Capture(step) => write!(f, "capture failed: {step}"),
+            Self::Playback(step) => write!(f, "playback failed: {step}"),
         }
     }
 }

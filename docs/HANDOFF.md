@@ -141,8 +141,27 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   Test: `tests/mf_decoder.rs` decodes the software and hardware encoders' Thumb and Hd output
   (sizes, timestamps, Hd luma within 6 levels on average), a switch from Thumb to Hd at a
   keyframe, and bad input (no picture, then recovery at a keyframe).
+- Audio jitter buffer (`veil-media/src/jitter.rs`, OS-independent). `JitterBuffer::push(header,
+  packet, arrival_us)` and, once per frame on the playback clock, `pop()`: `Packet` to decode,
+  `Recover(next)` for `OpusDecoder::recover` (FEC), `Conceal`, or `Wait` (silence while
+  filling). Target delay is the decaying worst arrival jitter in frames plus one, 1 to 10. A
+  missing packet is waited for (one concealed frame, the delay grows) until packets up to the
+  target depth after it arrive; then it is lost. A backlog over twice the target plus two is
+  skipped down to the target. 200 ms with nothing to play refills. Sequence numbers wrap; at
+  most 64 packets held; a jump of 64 or more resets.
+- Windows microphone and speakers (`ffi/windows/audio.rs`). `WasapiCapture::open(&settings)` and
+  `read()` (one frame, interleaved float, waits on the device), `WasapiPlayback::open` and
+  `write(frame)` (waits while two frames are queued, so it paces the caller; about 40 ms on the
+  device) and `queued_ms()`. Default communications device, shared mode, Windows converts to
+  48 kHz float; communications category, so Windows applies the device's echo cancellation
+  where it has one. New `MediaError::Playback`.
+  Tests: `jitter.rs` unit tests; `tests/opus.rs` sends a tone over a simulated network (10 to
+  50 ms delay, every 7th packet lost) through the buffer and decoder: all 8 losses rebuilt
+  from FEC, 3 frames concealed while the delay grows. `tests/wasapi.rs` plays 25 frames of
+  silence (about 430 ms here) and, `--ignored`, reads 50 microphone frames:
+  `cargo test -j 8 -p veil-media --test wasapi -- --ignored --nocapture`.
 
-Tests: `cargo test -j 8 --workspace` (199 tests, one ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
+Tests: `cargo test -j 8 --workspace` (213 tests, two ignored; `veil-media` alone: `cargo test -j 8 -p veil-media`), `cargo clippy -j 8 --workspace --all-targets`.
 Every test runs on localhost. Hole punching across real home routers is not yet tested.
 `veil-group` needs Rust 1.91 (openmls); the other crates still build on 1.85.
 
@@ -193,6 +212,11 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
   than the ladder's capture rate (say 4K at 30 only) is used at 1080p60 if it offers that;
   the app must still fit the ladder to the mode it gets (`Ladder::up_to`).
 - libopus is built without SSE, AVX or NEON (`veil-media/build.rs`).
+- The jitter buffer catches up by skipping packets, which clicks; time-stretch instead if it
+  is audible (`veil-media/src/jitter.rs`).
+- WASAPI uses the default communications device only; a lost device is an error and the app
+  opens again (`veil-media/src/ffi/windows/audio.rs`). No echo cancellation of Veil's own
+  where the device has none.
 - H.264 decoding is on the CPU; the GPU path needs a D3D11 device manager
   (`veil-media/src/ffi/windows/decoder.rs`).
 - Opus runs at a variable bitrate, which can leak words through packet sizes; no constant
@@ -227,8 +251,9 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
 1. Two-machine test over the real internet with `veil-probe` (steps above). Needs Jeremy's
    machines and a public box.
 2. `veil-media`, continued: the core, keyframe requests, the Windows H.264 encoder and
-   Windows camera capture, Opus and the H.264 decoder are done (see above). Next: audio
-   capture and playback (WASAPI) with a jitter buffer. Decided
+   Windows camera capture, Opus, the H.264 decoder, the jitter buffer and WASAPI are done
+   (see above). Windows media is complete for a first call. Not yet run: the microphone test
+   (`--ignored`). macOS and Linux back ends come later. Decided
    15/11/2026: `unsafe` FFI and libopus are allowed in `veil-media` only, under the rules in
    `docs/TRANSPARENCY.md` section 5 (one `ffi` module per OS, `// SAFETY:` on every block,
    `clippy::undocumented_unsafe_blocks` denied, each module listed in that table).

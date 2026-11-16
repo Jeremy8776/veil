@@ -4,7 +4,10 @@
 use std::f32::consts::TAU;
 
 use veil_media::audio::MAX_FRAME_SAMPLES;
-use veil_media::{AudioSettings, MediaError, OpusDecoder, OpusEncoder, opus_version};
+use veil_media::{
+    AudioHeader, AudioSettings, JitterBuffer, MediaError, OpusDecoder, OpusEncoder, Playout,
+    opus_version,
+};
 
 /// `frames` frames of a 440 Hz tone at half scale, mono 48 kHz.
 fn tone(settings: &AudioSettings, frames: usize) -> Vec<Vec<f32>> {
@@ -119,5 +122,61 @@ fn bad_input_is_refused() -> Result<(), MediaError> {
     // The decoder still works after refusing.
     let packet = encoder.encode(&[0.0; 960])?;
     assert_eq!(decoder.decode(&packet)?.len(), 960);
+    Ok(())
+}
+
+/// A tone sent over a simulated network (10 to 50 ms delay, every 7th packet lost) through the
+/// jitter buffer: every tick of the playback clock yields one frame, losses are rebuilt from
+/// FEC, and the tone keeps most of its level.
+#[test]
+fn the_jitter_buffer_feeds_the_decoder_through_loss() -> Result<(), MediaError> {
+    let settings = AudioSettings::voice();
+    let n = settings.frame_samples();
+    let mut encoder = OpusEncoder::new(&settings)?;
+    let mut decoder = OpusDecoder::new(&settings)?;
+    let mut buffer = JitterBuffer::new(settings.frame_ms);
+    let mut arrivals: Vec<(u64, AudioHeader, Vec<u8>)> = Vec::new();
+    for (seq, frame) in tone(&settings, 60).iter().enumerate() {
+        let header = AudioHeader {
+            sequence: seq as u32,
+            timestamp_us: seq as u64 * 20_000,
+        };
+        let delay = 10_000 + (seq as u64 * 37 % 5) * 10_000;
+        let packet = encoder.encode(frame)?;
+        if seq % 7 != 3 {
+            arrivals.push((header.timestamp_us + delay, header, packet));
+        }
+    }
+    arrivals.sort_by_key(|a| a.0);
+    let mut arrivals = arrivals.into_iter().peekable();
+    let (mut recovered, mut concealed, mut played) = (0, 0, Vec::new());
+    for tick in 0..70u64 {
+        let now = tick * 20_000;
+        while let Some((at, header, packet)) = arrivals.next_if(|a| a.0 <= now) {
+            buffer.push(header, &packet, at);
+        }
+        let pcm = match buffer.pop() {
+            Playout::Packet(p) => decoder.decode(&p)?.to_vec(),
+            Playout::Recover(next) => {
+                recovered += 1;
+                decoder.recover(&next, n)?.to_vec()
+            }
+            Playout::Conceal => {
+                // After tick 60 the sender has stopped; only count gaps while it sends.
+                concealed += u32::from(tick < 60);
+                decoder.conceal(n)?.to_vec()
+            }
+            Playout::Wait => vec![0.0; n],
+        };
+        assert_eq!(pcm.len(), n);
+        played.extend(pcm);
+    }
+    eprintln!("recovered {recovered}, concealed {concealed}");
+    assert!(recovered >= 6, "only {recovered} frames rebuilt from FEC");
+    // Only while the delay grows to cover the jitter (target 3 frames): every loss is rebuilt.
+    assert!(concealed <= 4, "{concealed} frames concealed");
+    // Skip the start, while the buffer fills and the decoder settles.
+    let level = rms(&played[n * 10..n * 60]);
+    assert!(level > 0.25, "tone level {level:.3}");
     Ok(())
 }

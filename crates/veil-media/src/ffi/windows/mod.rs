@@ -1,5 +1,6 @@
 //! Windows Media Foundation: H.264 encoding, one encoder transform per simulcast rung, H.264
-//! decoding (`decoder.rs`) and camera capture (`camera.rs`).
+//! decoding (`decoder.rs`), camera capture (`camera.rs`), and microphone and speakers through
+//! WASAPI (`audio.rs`).
 //!
 //! Purpose: the [`RungEncoder`] behind [`MediaFoundationEncoder`]. It prefers a hardware
 //! encoder (GPU, through `MFTEnumEx`) and falls back to Microsoft's software H.264 encoder,
@@ -20,11 +21,13 @@
 
 #![allow(unsafe_code)]
 
+mod audio;
 mod camera;
 mod decoder;
 mod enumerate;
 mod sample;
 
+pub use audio::{WasapiCapture, WasapiPlayback};
 pub use camera::{CameraInfo, MfCamera, cameras};
 pub use decoder::MfDecoder;
 
