@@ -105,31 +105,37 @@ fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
         ui,
         &format!("In this call ({})", view.call.participants.len()),
     );
-    ScrollArea::vertical().show(ui, |ui| {
-        for person in &view.call.participants {
-            ui.horizontal(|ui| {
-                person_avatar(ui, &person.name);
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    let you = if person.is_you { " (You)" } else { "" };
-                    ui.label(format!("{}{you}", person.name));
-                    if person.is_host {
-                        ui.label(RichText::new("Host").small().color(MUTED));
-                    }
-                });
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if view.call.is_host
-                        && !person.is_you
-                        && widgets::icon_button(ui, Icon::Close, &format!("Remove {}", person.name))
+    ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for person in &view.call.participants {
+                ui.horizontal(|ui| {
+                    person_avatar(ui, &person.name);
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        let you = if person.is_you { " (You)" } else { "" };
+                        ui.label(format!("{}{you}", person.name));
+                        if person.is_host {
+                            ui.label(RichText::new("Host").small().color(MUTED));
+                        }
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if view.call.is_host
+                            && !person.is_you
+                            && widgets::icon_button(
+                                ui,
+                                Icon::Close,
+                                &format!("Remove {}", person.name),
+                            )
                             .clicked()
-                    {
-                        remove = Some(person.id);
-                    }
-                    status_icons(ui, person);
+                        {
+                            remove = Some(person.id);
+                        }
+                        status_icons(ui, person);
+                    });
                 });
-            });
-        }
-    });
+            }
+        });
     if let Some(id) = admit {
         view.call.admit(id);
         view.notify("Admitted. A new key epoch started.");
@@ -256,23 +262,25 @@ fn security(view: &mut CallView, ui: &mut egui::Ui) {
             .small()
             .color(MUTED),
     );
-    ScrollArea::vertical().show(ui, |ui| {
-        for person in view.call.participants.iter().filter(|p| !p.is_you) {
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                person_avatar(ui, &person.name);
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 2.0;
-                    ui.label(&person.name);
-                    path_label(ui, person.path);
+    ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for person in view.call.participants.iter().filter(|p| !p.is_you) {
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    person_avatar(ui, &person.name);
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        ui.label(&person.name);
+                        path_label(ui, person.path);
+                    });
                 });
-            });
-            let groups: Vec<&str> = person.safety.split(' ').collect();
-            for row in groups.chunks(4) {
-                ui.label(RichText::new(row.join("  ")).monospace().size(13.0));
+                let groups: Vec<&str> = person.safety.split(' ').collect();
+                for row in groups.chunks(4) {
+                    ui.label(RichText::new(row.join("  ")).monospace().size(13.0));
+                }
             }
-        }
-    });
+        });
 }
 
 fn path_label(ui: &mut egui::Ui, path: LinkPath) {
