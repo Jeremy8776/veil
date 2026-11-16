@@ -31,6 +31,11 @@ Check dependency licences (fails on a licence that is not allowed, or a stale li
 python tools/licences.py --check
 ```
 
+## Security
+
+Report a hole privately through the repository's Security tab, not in a public issue.
+See [SECURITY.md](SECURITY.md).
+
 ## Licence
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT licence](LICENSE-MIT),

@@ -317,7 +317,14 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 `veil-probe` on `windows-2025` with Rust 1.98.1 and no cache, packs them with the licences,
 README, `docs/DEPENDENCIES.md` and the node's example config into
 `veil-X.Y.Z-windows-x64.zip`, writes `SHA256SUMS.txt`, and creates a **draft** release.
-Build provenance is attested once the repository is public. Actions are pinned to SHAs.
+Build provenance is attested once the repository is public. Actions are pinned to SHAs, in
+`ci.yml` too from 16/11/2026 (second audit, L1).
+
+Going public (16/11/2026): no secrets in history; workflows hold no secrets and give a
+read-only token. `SECURITY.md` asks for private reports. Commits from this checkout use the
+GitHub noreply address from 16/11/2026. After
+the switch: turn on private vulnerability reporting, protect `main`, and keep approval
+required for workflow runs from outside contributors.
 
 1. Bump `version` in the workspace `Cargo.toml`, run the tests, commit and push to `main`.
    The tag must equal the version or the build fails.

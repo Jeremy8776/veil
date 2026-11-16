@@ -21,7 +21,8 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 | The desktop app in a real call: host, lobby, guest, video and sound both ways, names and chat | |
 
 [ARCHITECTURE.md](ARCHITECTURE.md) describes the whole design, including the planned parts.
-[HANDOFF.md](HANDOFF.md) says what is done and what is next.
+[HANDOFF.md](HANDOFF.md) says what is done and what is next. To report a hole, see
+[SECURITY.md](../SECURITY.md).
 
 ## 2. What other parties can see
 
