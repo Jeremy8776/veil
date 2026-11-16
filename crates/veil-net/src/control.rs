@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::NetError;
 
 pub const MAX_CONTROL_LEN: usize = 64 * 1024;
+/// The largest sealed app message (names, chat) a member or forwarder passes on. Larger ones
+/// are dropped unread.
+pub const MAX_APP_LEN: usize = 16 * 1024;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum Control {
@@ -36,6 +39,9 @@ pub enum Control {
     /// Member to member on a media link: the receiver cannot decode the sender until its
     /// next keyframe.
     KeyframeRequest,
+    /// Member to member on a media link: an app message (a name or chat) sealed with the
+    /// sender's frame key for this epoch. At most [`MAX_APP_LEN`] bytes.
+    App(Vec<u8>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]

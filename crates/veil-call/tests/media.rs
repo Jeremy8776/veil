@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc::UnboundedReceiver;
 use veil_call::{
-    CallError, CallNode, Directory, EpochKeys, HostEvent, HostHandle, KeyRing, Media,
+    AppMessage, CallError, CallNode, Directory, EpochKeys, HostEvent, HostHandle, KeyRing, Media,
     MediaSession, MemberEvent, MemberHandle, Path, Peer, Routes, join,
 };
 use veil_forward::{ForwarderServer, Limits};
@@ -422,5 +422,36 @@ async fn keyframe_requests_reach_the_sender_in_a_mesh_and_through_a_forwarder() 
         next_keyframe_request(&mut sessions[0]).await;
         let quiet = tokio::time::timeout(Duration::from_millis(300), sessions[1].recv()).await;
         assert!(quiet.is_err(), "only the named sender is asked (forwarded: {forwarded})");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn app_messages_reach_every_member_in_a_mesh_and_through_a_forwarder() {
+    for forwarded in [false, true] {
+        let forwarder = forwarded.then(start_forwarder);
+        let rendezvous = (!forwarded).then(start_rendezvous);
+        let mut call = Call::start(rendezvous).await;
+        call.admit_direct().await;
+        call.admit_direct().await;
+        let mut sessions = call.media(forwarded, forwarder).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let message = AppMessage::chat("hello from party 1").unwrap();
+        let sealed = message.seal(&mut call.parties[1].keys.sender).unwrap();
+        assert!(within(sessions[1].send_app(&sealed)).await >= 1);
+        let leaf = call.directory(1, None).me.0;
+        for i in [0, 2] {
+            let packet = loop {
+                if let Media::App(packet) = within(sessions[i].recv()).await.unwrap().media {
+                    break packet;
+                }
+            };
+            assert_eq!(packet, sealed, "passed on unchanged (forwarded: {forwarded})");
+            let (sender, plain) = call.parties[i].keys.receiver.decrypt(&packet).unwrap();
+            assert_eq!(sender, leaf);
+            assert_eq!(AppMessage::decode(&plain).unwrap(), message);
+        }
+        let too_big = vec![0; veil_net::control::MAX_APP_LEN + 1];
+        assert_eq!(sessions[1].send_app(&too_big).await, 0);
     }
 }

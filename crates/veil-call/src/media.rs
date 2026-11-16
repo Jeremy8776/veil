@@ -6,7 +6,8 @@
 //! [`MediaSession::send_audio`], and everything that arrives comes out of
 //! [`MediaSession::recv`]. Frames stay sealed here; open them with a [`crate::KeyRing`].
 //! [`MediaSession::request_keyframe`] asks one sender for a keyframe: on the media link's
-//! control stream in a mesh, through the forwarder otherwise.
+//! control stream in a mesh, through the forwarder otherwise. [`MediaSession::send_app`]
+//! sends a sealed app message (names, chat; see [`crate::app_msg`]) the same way to everyone.
 //!
 //! Invariants:
 //! - One link per pair of members: the member with the lower device key dials, the other
@@ -20,7 +21,6 @@
 //! relay fallback if forwarders behind NAT become common.
 
 use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -29,17 +29,20 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::Instant;
 use veil_forward::{ForwarderClient, Wanted};
-use veil_net::control::Control;
+use veil_net::control::{Control, MAX_APP_LEN};
 use veil_net::{FramedRecv, FramedSend, Link, Node, NodeAddr};
 use veil_security::PublicId;
 
 use crate::inbound::Inbound;
-use crate::node::{Path, dial};
+use crate::node::Path;
 use crate::presence::Presence;
 use crate::routes::{Peer, Routes};
 use crate::CallError;
 
+mod links;
 mod read;
+
+use links::{adopt_early, open_media, run_inbox};
 
 /// How long an early media link may wait for this member's routes to expect it.
 pub const EARLY_WAIT: Duration = Duration::from_secs(10);
@@ -55,6 +58,9 @@ pub enum Media {
     /// a forwarder or member can send it at will, so the sender limits how often it obeys
     /// (`veil_media::Schedule::request_keyframe`).
     KeyframeRequest,
+    /// A sealed app message (a name or chat). Open it with the `KeyRing`, then
+    /// [`crate::AppMessage::decode`].
+    App(Vec<u8>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -366,6 +372,29 @@ impl MediaSession {
             .count()
     }
 
+    /// Sends one sealed app message to every member: on each member link's control stream in
+    /// a mesh, through the forwarder otherwise. Returns how many links took it. A message
+    /// over `MAX_APP_LEN` is not sent.
+    pub async fn send_app(&self, sealed: &[u8]) -> usize {
+        if sealed.len() > MAX_APP_LEN {
+            return 0;
+        }
+        let mut sent = 0;
+        for carrier in self.carriers() {
+            let ok = match &*carrier {
+                Carrier::Member { control, .. } => {
+                    let message = Control::App(sealed.to_vec());
+                    control.lock().await.send(&message).await.is_ok()
+                }
+                Carrier::Forwarder(client) => client.send_app(sealed).await.is_ok(),
+            };
+            if ok {
+                sent += 1;
+            }
+        }
+        sent
+    }
+
     /// Asks the forwarder for at most these layers from each named member, for example
     /// [`Wanted::THUMB`] for a small tile. Does nothing without a forwarder link.
     ///
@@ -408,83 +437,5 @@ impl MediaSession {
     /// The next packet from any link. `None` once the session has stopped.
     pub async fn recv(&mut self) -> Option<Incoming> {
         self.incoming.recv().await
-    }
-}
-
-/// Dials a member and opens the media control stream.
-async fn open_media(
-    node: &Node,
-    presence: Option<&Presence>,
-    peer: &Peer,
-    relay_only: bool,
-    room_id: [u8; 16],
-) -> Result<(Carrier, Path, Extra), CallError> {
-    let addrs: &[SocketAddr] = &peer.addrs;
-    let dialled = dial(node, presence, peer.device, addrs, relay_only).await?;
-    let (mut out, input) = dialled.link.open_control().await?.split();
-    out.send(&Control::Media { room_id }).await?;
-    let extra = Extra {
-        input: Some(input),
-        via: dialled.via,
-    };
-    Ok((Carrier::member(dialled.link, out), dialled.path, extra))
-}
-
-/// Moves early links whose peer is now expected into the link set; drops stale ones.
-fn adopt_early(ctx: &Ctx, state: &mut State) {
-    let now = Instant::now();
-    state.early.retain(|_, (_, at)| now.duration_since(*at) < EARLY_WAIT);
-    let ready: Vec<PublicId> = state
-        .early
-        .keys()
-        .filter(|p| state.expected.contains(p))
-        .copied()
-        .collect();
-    for peer in ready {
-        if let Some((inbound, _)) = state.early.remove(&peer) {
-            accept(ctx, state, inbound);
-        }
-    }
-}
-
-fn accept(ctx: &Ctx, state: &mut State, inbound: Inbound) {
-    let peer = inbound.link.peer();
-    let path = if inbound.via.is_some() { Path::Relayed } else { Path::Direct };
-    let extra = Extra {
-        input: Some(inbound.input),
-        via: inbound.via,
-    };
-    ctx.adopt(state, peer, Carrier::member(inbound.link, inbound.out), path, extra);
-}
-
-async fn run_inbox(
-    ctx: Ctx,
-    mut inbox: mpsc::Receiver<Inbound>,
-    mut closed: mpsc::Receiver<(PublicId, u64)>,
-) {
-    loop {
-        tokio::select! {
-            inbound = inbox.recv() => {
-                let Some(inbound) = inbound else { break };
-                let Some(mut state) = ctx.lock() else { break };
-                let peer = inbound.link.peer();
-                if state.expected.contains(&peer) {
-                    accept(&ctx, &mut state, inbound);
-                } else {
-                    adopt_early(&ctx, &mut state);
-                    if state.early.len() < MAX_EARLY {
-                        state.early.insert(peer, (inbound, Instant::now()));
-                    }
-                }
-            }
-            gone = closed.recv() => {
-                let Some((peer, id)) = gone else { break };
-                let Some(mut state) = ctx.lock() else { break };
-                if state.links.get(&peer).is_some_and(|e| e.id == id) {
-                    state.links.remove(&peer);
-                }
-            }
-        }
-        ctx.changed();
     }
 }

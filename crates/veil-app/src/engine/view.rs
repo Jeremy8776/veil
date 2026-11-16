@@ -1,8 +1,9 @@
 //! What the engine knows about the call, shared between its threads and the interface.
 //!
-//! Purpose: the session task writes [`View`] (status, invite, people, lobby, key epoch), the
-//! decoder thread writes pictures and the playback thread writes what it heard. [`apply`]
-//! turns all of that into the screens' [`Call`], once per interface frame.
+//! Purpose: the session task writes [`View`] (status, invite, people, lobby, key epoch) and
+//! queues chat that arrived, the decoder thread writes pictures and the playback thread
+//! writes what it heard. [`apply`] turns all of that into the screens' [`Call`], once per
+//! interface frame, and [`Shared::take_chat`] hands over new messages once.
 //!
 //! Invariants:
 //! - Each lock is held only to copy or replace a value, never across a wait.
@@ -19,6 +20,8 @@ use crate::convert::Rgba;
 use crate::media::lock;
 use crate::model::{Call, CallStatus, LinkPath, Participant, Waiting};
 
+/// Chat messages that may wait for the interface; more drop the oldest.
+const CHAT_QUEUE: usize = 256;
 /// No sound for this long shows someone as muted.
 const QUIET: Duration = Duration::from_secs(1);
 /// No picture for this long shows someone's camera as off.
@@ -79,6 +82,8 @@ pub struct Shared {
     pub view: Mutex<View>,
     pictures: Mutex<HashMap<u32, Picture>>,
     heard: Mutex<HashMap<u32, Heard>>,
+    /// Chat that arrived, as (sender's name, text), not yet in the interface's call.
+    chat: Mutex<Vec<(String, String)>>,
     ctx: egui::Context,
 }
 
@@ -94,6 +99,7 @@ impl Shared {
             }),
             pictures: Mutex::default(),
             heard: Mutex::default(),
+            chat: Mutex::default(),
             ctx,
         }
     }
@@ -130,6 +136,22 @@ impl Shared {
 
     pub fn forget_heard(&self, id: u32) {
         lock(&self.heard).remove(&id);
+    }
+
+    /// Queues a chat message that arrived for the interface.
+    pub fn push_chat(&self, from: String, text: String) {
+        let mut chat = lock(&self.chat);
+        if chat.len() >= CHAT_QUEUE {
+            chat.remove(0);
+        }
+        chat.push((from, text));
+        drop(chat);
+        self.ctx.request_repaint();
+    }
+
+    /// Chat that arrived since the last call.
+    pub fn take_chat(&self) -> Vec<(String, String)> {
+        std::mem::take(&mut *lock(&self.chat))
     }
 
     pub fn take_pictures(&self) -> Vec<(u32, Rgba)> {

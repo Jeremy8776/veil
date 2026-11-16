@@ -46,7 +46,7 @@ impl ForwarderClient {
                 input: Mutex::new(input),
             }),
             ServerMsg::Refused(refusal) => Err(ForwardError::Refused(refusal)),
-            ServerMsg::KeyframeRequest => Err(ForwardError::Closed),
+            ServerMsg::KeyframeRequest | ServerMsg::App(_) => Err(ForwardError::Closed),
         }
     }
 
@@ -67,6 +67,12 @@ impl ForwarderClient {
     /// Tells the forwarder this member needs a keyframe from `sender`.
     pub async fn request_keyframe(&self, sender: PublicId) -> Result<(), ForwardError> {
         let message = ClientMsg::KeyframeRequest(sender);
+        Ok(self.control.lock().await.send(&message).await?)
+    }
+
+    /// Sends a sealed app message to every other member of the room.
+    pub async fn send_app(&self, sealed: &[u8]) -> Result<(), ForwardError> {
+        let message = ClientMsg::App(sealed.to_vec());
         Ok(self.control.lock().await.send(&message).await?)
     }
 

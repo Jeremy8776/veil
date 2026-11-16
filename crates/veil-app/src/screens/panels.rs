@@ -4,7 +4,7 @@
 //! Invariants:
 //! - Only the host sees Admit, Decline and Remove.
 //! - In a demo call, chat and safety numbers say they are not real.
-//! - In a real call, chat says it stays on this device: messages are not sent yet.
+//! - In a real call, chat is sealed on this device and sent to everyone in the call.
 //! - A person in the lobby shows their safety number on hover, so the host can compare it
 //!   before letting them in.
 
@@ -177,12 +177,17 @@ fn status_icons(ui: &mut egui::Ui, person: &Participant) {
 }
 
 fn chat(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
-    let note = if view.call.demo {
-        "Demo: messages stay here."
+    if view.call.demo {
+        ui.label(
+            RichText::new("Demo: messages stay here.")
+                .small()
+                .color(theme::WARN),
+        );
     } else {
-        "Not sent yet: messages stay on this device."
-    };
-    ui.label(RichText::new(note).small().color(theme::WARN));
+        ui.label(RichText::new("Encrypted").small().color(MUTED)).on_hover_text(
+            "Sent to everyone in the call, encrypted on your device.              Relays and forwarders cannot read it. Not kept after the call.",
+        );
+    }
     let input_h = 44.0;
     let list_h = (ui.available_height() - input_h - 8.0).max(80.0);
     ScrollArea::vertical()
@@ -227,6 +232,7 @@ fn chat(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
         let field = ui.add(
             TextEdit::singleline(&mut view.draft)
                 .hint_text("Type a message")
+                .char_limit(veil_call::app_msg::MAX_CHAT_CHARS)
                 .desired_width(ui.available_width() - 40.0),
         );
         let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));

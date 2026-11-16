@@ -104,7 +104,7 @@ impl VeilApp {
                 }
             };
             let speaker = self.media.choice().speaker.clone();
-            match Engine::start(role, speaker, self.ctx.clone()) {
+            match Engine::start(role, name.clone(), speaker, self.ctx.clone()) {
                 Ok(engine) => {
                     self.media.set_taps(Some(engine.taps()));
                     let title = if host {

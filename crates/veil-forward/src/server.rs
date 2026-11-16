@@ -13,6 +13,9 @@
 //! forwarder ask the sender itself. Each member's control queue is bounded; when it is full,
 //! requests are dropped (the sender coalesces them anyway).
 //!
+//! App messages: a member's sealed `App` (names, chat) goes unchanged to every other member's
+//! control queue. The forwarder holds no keys, so it cannot open them; it sees only their size.
+//!
 //! Admission: `Join` carries a host-signed [`RosterTicket`]. Rooms are keyed by (room tag,
 //! host key); only listed devices join, epochs only move forward, and a newer ticket (on a
 //! join or a later `Ticket` message from any member) drops members it no longer lists.
@@ -26,6 +29,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use bytes::Bytes;
 use tokio::sync::mpsc;
+use veil_net::control::MAX_APP_LEN;
 use veil_net::{FramedSend, Link, NetError, Node};
 use veil_security::PublicId;
 use veil_security::frame::frame_layer;
@@ -230,6 +234,23 @@ fn request_keyframe(state: &Shared, key: &RoomKey, me: PublicId, id: u64, sender
     }
 }
 
+/// Passes a sealed app message from member `me` (this link `id`) to everyone else in the
+/// room. Too large, or from a replaced link, it is dropped; a full control queue drops it
+/// for that receiver only.
+fn fan_out_app(state: &Shared, key: &RoomKey, me: PublicId, id: u64, sealed: Vec<u8>) {
+    if sealed.len() > MAX_APP_LEN {
+        return;
+    }
+    let Some(s) = lock(state) else { return };
+    let Some(room) = s.rooms.get(key) else { return };
+    if !room.members.get(&me).is_some_and(|m| m.id == id) {
+        return;
+    }
+    for (_, member) in room.members.iter().filter(|(device, _)| **device != me) {
+        let _ = member.control.try_send(ServerMsg::App(sealed.clone()));
+    }
+}
+
 fn leave(state: &Shared, key: &RoomKey, me: PublicId, id: u64) {
     if let Some(mut s) = lock(state)
         && let Some(room) = s.rooms.get_mut(key)
@@ -344,6 +365,7 @@ async fn serve(link: Link, state: Shared, limits: Limits) {
             ClientMsg::Ticket(sealed) => update(&state, &key, &sealed),
             ClientMsg::Subscribe(request) => subscribe(&state, &key, me, id, &request),
             ClientMsg::KeyframeRequest(sender) => request_keyframe(&state, &key, me, id, sender),
+            ClientMsg::App(sealed) => fan_out_app(&state, &key, me, id, sealed),
             ClientMsg::Join { .. } => {}
         }
     }

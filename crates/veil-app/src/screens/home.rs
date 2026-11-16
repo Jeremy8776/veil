@@ -29,6 +29,7 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
             ui.add(
                 TextEdit::singleline(&mut app.name)
                     .hint_text("How others see you")
+                    .char_limit(veil_call::app_msg::MAX_NAME_CHARS)
                     .desired_width(f32::INFINITY),
             );
             ui.add_space(8.0);

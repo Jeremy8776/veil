@@ -1,17 +1,18 @@
 //! Reader tasks for one media link: video frames, audio datagrams, and control messages.
 //!
 //! Invariants:
-//! - Video waits for room in the incoming queue; audio and keyframe requests never wait, so a
-//!   full queue drops them. A member flooding requests can therefore not stall video.
-//! - Only `KeyframeRequest` is read from the control stream after the link's first message.
-//!   Anything else is ignored.
+//! - Video and app messages wait for room in the incoming queue; audio and keyframe requests
+//!   never wait, so a full queue drops them. A member flooding requests can therefore not
+//!   stall video. An app message waits only on its own link's control stream.
+//! - Only `KeyframeRequest` and `App` (up to `MAX_APP_LEN`) are read from the control stream
+//!   after the link's first message. Anything else is ignored.
 
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
 use veil_forward::protocol::ServerMsg;
 use veil_net::FramedRecv;
-use veil_net::control::Control;
+use veil_net::control::{Control, MAX_APP_LEN};
 use veil_security::PublicId;
 
 use super::{Carrier, Ctx, Incoming, Media};
@@ -39,11 +40,19 @@ pub(super) async fn audio(carrier: Arc<Carrier>, via: PublicId, incoming: mpsc::
 /// A member link's control stream.
 pub(super) async fn member_control(mut input: FramedRecv, via: PublicId, incoming: mpsc::Sender<Incoming>) {
     while let Ok(message) = input.recv::<Control>().await {
-        if message == Control::KeyframeRequest {
-            let _ = incoming.try_send(Incoming {
-                via,
-                media: Media::KeyframeRequest,
-            });
+        match message {
+            Control::KeyframeRequest => {
+                let _ = incoming.try_send(Incoming {
+                    via,
+                    media: Media::KeyframeRequest,
+                });
+            }
+            Control::App(sealed) => {
+                if !pass_app(&incoming, via, sealed).await {
+                    return;
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -54,11 +63,29 @@ pub(super) async fn forwarder_control(carrier: Arc<Carrier>, via: PublicId, inco
         return;
     };
     while let Ok(message) = client.recv().await {
-        if message == ServerMsg::KeyframeRequest {
-            let _ = incoming.try_send(Incoming {
-                via,
-                media: Media::KeyframeRequest,
-            });
+        match message {
+            ServerMsg::KeyframeRequest => {
+                let _ = incoming.try_send(Incoming {
+                    via,
+                    media: Media::KeyframeRequest,
+                });
+            }
+            ServerMsg::App(sealed) => {
+                if !pass_app(&incoming, via, sealed).await {
+                    return;
+                }
+            }
+            ServerMsg::Joined { .. } | ServerMsg::Refused(_) => {}
         }
     }
+}
+
+/// Queues an app message for the session, dropping one over `MAX_APP_LEN`. Returns `false`
+/// once the session has stopped.
+async fn pass_app(incoming: &mpsc::Sender<Incoming>, via: PublicId, sealed: Vec<u8>) -> bool {
+    if sealed.len() > MAX_APP_LEN {
+        return true;
+    }
+    let media = Media::App(sealed);
+    incoming.send(Incoming { via, media }).await.is_ok()
 }

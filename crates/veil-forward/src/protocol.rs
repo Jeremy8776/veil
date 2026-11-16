@@ -22,6 +22,9 @@ pub enum ClientMsg {
     /// This member cannot decode the named sender until its next keyframe. The forwarder
     /// passes the request on without saying who asked.
     KeyframeRequest(PublicId),
+    /// A sealed app message (a name or chat) for every other member of the room. The
+    /// forwarder cannot open it and passes it on unchanged, up to `veil_net::MAX_APP_LEN`.
+    App(Vec<u8>),
 }
 
 /// Forwarder to member.
@@ -33,6 +36,9 @@ pub enum ServerMsg {
     /// Someone in the room needs a keyframe from this member: a receiver lost the stream, or
     /// raised its subscription.
     KeyframeRequest,
+    /// Another member's sealed app message, unchanged. It does not say who sent it: the
+    /// sender index inside the sealed message does, once opened.
+    App(Vec<u8>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]

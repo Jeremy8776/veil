@@ -41,6 +41,16 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   epoch's commit. Members check it against the invite's host key, room and their own epoch and
   get `MemberEvent::Routes`, or `MemberEvent::PlanRefused` (old routes stand). The app applies
   the routes to its `MediaSession`.
+- App messages (`veil-call/src/app_msg.rs`, 16/11/2026): `AppMessage::Name` and `Chat`,
+  plaintext `veil-app` plus version 1 plus postcard, sealed with the epoch's `FrameSender`
+  (`AppMessage::seal`), so the sender is the authenticated leaf index and replays hit the
+  frame replay window. Checked both ways: names 1 to 64 characters, chat 1 to 2,000, no
+  control characters (chat may hold line breaks and tabs), no bidirectional overrides; a
+  sealed message is at most `veil_net::control::MAX_APP_LEN` (16 KiB). In a mesh it goes as
+  `Control::App` on each media link's control stream (`MediaSession::send_app`, received as
+  `Media::App`); through a forwarder as `ClientMsg::App`, which the forwarder passes unread
+  to every other member as `ServerMsg::App` (dropped if a member's control queue is full).
+  Tested in `tests/media.rs`, mesh and forwarded.
 - Roster tickets (`veil-forward/src/ticket.rs`): a forwarded `CallPlan` carries a host-signed
   `RosterTicket` (room tag, host key, epoch, every member's device key). `Join` must carry one
   and the forwarder admits only listed devices. Forwarder rooms are keyed by (room tag, host
@@ -209,13 +219,20 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
     picture for two seconds shows their camera off.
   - `media.rs` hands camera pictures and microphone frames to the engine through `Taps`
     (bounded; a full queue drops).
-  Names and chat are not sent yet: people show as "Host" or "Guest" plus a key prefix, and
-  chat says it stays on this device. Raised hands are local only.
-  Tests: 33 unit tests, plus `engine/loopback.rs` (ignored: it opens ports, the encoder and the
+  - Names and chat (16/11/2026): `Engine::start` takes your name. `names.rs` keeps the names
+    others sent, by device (until then "Host", or "Guest" and a key prefix; the lobby always
+    shows the key prefix, since a knocker is not a member yet), and sends yours once a second
+    for 5 s after each key epoch, new routes or new link, so a member that changes epoch a
+    moment later still gets it. `Call::send` shows your message and queues `Action::Chat`;
+    the session seals it and sends it; received chat goes through `Shared::take_chat` into
+    `Call::receive` (counted unread). The name field takes 64 characters, chat 2,000.
+    Raised hands are still local only.
+  Tests: 37 unit tests, plus `engine/loopback.rs` (ignored: it opens ports, the encoder and the
   speaker): two engines on localhost, the guest knocks, the host admits, both show the same
   safety number and epoch, synthetic 720p pictures and silence go both ways until each side
-  decodes the other's video and hears packets, then the guest leaves. Passed 16/11/2026 in
-  1.8 s (host link Punched, guest link Direct):
+  decodes the other's video and hears packets, each shows the other's chosen name, a chat
+  message goes each way, then the guest leaves. Passed 16/11/2026 in 1.9 s (host link
+  Punched, guest link Direct):
   `cargo test -j 8 -p veil-app loopback -- --ignored --nocapture`. The same filter runs
   `loopback_leaving_a_call_with_devices_on_is_quick` (camera, microphone and a hosted call,
   then dropped in the app's order): 123 ms for the call, 113 ms for the devices (16/11/2026).
@@ -279,8 +296,6 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
   forwarder yet, so large calls will not fit.
 - `veil-app` applies routes on the session task, so media pauses while a new member's link
   is dialled (`engine/host.rs`).
-- `veil-app` sends no names or chat between members; a protocol message for both is needed
-  (`engine/session.rs` names people by key prefix).
 - The jitter buffer catches up by skipping packets, which clicks; time-stretch instead if it
   is audible (`veil-media/src/jitter.rs`).
 - A lost audio device is an error and the app opens it again, and an open default device
@@ -328,5 +343,5 @@ workspace `Cargo.toml`; each crate has `license.workspace = true`).
    `clippy::undocumented_unsafe_blocks` denied, each module listed in that table).
 3. `veil-app`: wired to real calls (see above). Next: Jeremy runs two copies on this machine
    (with headphones): New call in one, copy the invite from People, Join in the other, Admit.
-   Then: send names and chat (a sealed app message in `veil-call`), a forwarder in the plan
-   for larger calls, and the same test across two machines.
+   Names and chat are sent (16/11/2026). Then: a forwarder in the plan for larger calls, and
+   the same test across two machines.

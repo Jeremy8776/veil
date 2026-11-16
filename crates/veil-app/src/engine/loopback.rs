@@ -2,7 +2,8 @@
 //!
 //! Purpose: proves the glue without a window or devices. The host starts, the guest joins from
 //! its invite and waits in the lobby, the host admits, and both feed synthetic pictures and
-//! silence into their taps. Each must then see the other's video decoded and hear packets.
+//! silence into their taps. Each must then see the other's video decoded and hear packets,
+//! show the name the other chose, and receive the other's chat message.
 //!
 //! Ignored by default: it opens UDP ports (Windows may ask about the firewall), the GPU or
 //! software H.264 encoder, and the default speaker (it plays silence). Run it with
@@ -64,8 +65,8 @@ fn feed(taps: &[Taps], n: u64) {
 #[ignore = "opens ports, the H.264 encoder and the speaker"]
 fn loopback_host_admits_a_guest_and_both_see_and_hear_each_other() {
     let ctx = egui::Context::default();
-    let host = Engine::start(Role::Host, None, ctx.clone()).unwrap();
-    let mut host_call = Call::live("Call".into(), "Host", true, Instant::now());
+    let host = Engine::start(Role::Host, "Hana Host".into(), None, ctx.clone()).unwrap();
+    let mut host_call = Call::live("Call".into(), "Hana Host", true, Instant::now());
     wait_for("an invite", &host, &mut host_call, |c| !c.invite.is_empty());
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -75,8 +76,9 @@ fn loopback_host_admits_a_guest_and_both_see_and_hear_each_other() {
     let invite = Invite::from_link(&first_invite, now).unwrap();
     println!("invite: {}", host_call.invite);
 
-    let guest = Engine::start(Role::Guest(Box::new(invite)), None, ctx).unwrap();
-    let mut guest_call = Call::live("Call".into(), "Guest", false, Instant::now());
+    let guest =
+        Engine::start(Role::Guest(Box::new(invite)), "Gil Guest".into(), None, ctx).unwrap();
+    let mut guest_call = Call::live("Call".into(), "Gil Guest", false, Instant::now());
     wait_for("the lobby", &guest, &mut guest_call, |c| {
         c.status == CallStatus::Lobby
     });
@@ -128,6 +130,50 @@ fn loopback_host_admits_a_guest_and_both_see_and_hear_each_other() {
         "video and sound both ways (pictures waiting: {pictures:?})"
     );
 
+    // Names: each side shows the name the other chose, not "Host" or "Guest" and a key.
+    wait_for("the host's name", &guest, &mut guest_call, |c| {
+        c.participants.get(1).is_some_and(|p| p.name == "Hana Host")
+    });
+    wait_for("the guest's name", &host, &mut host_call, |c| {
+        c.participants.get(1).is_some_and(|p| p.name == "Gil Guest")
+    });
+
+    // Chat, both ways, through the interface's own path (`Call::send`, then the outbox).
+    let send = |engine: &Engine, call: &mut Call, text: &str| {
+        call.send(text, Instant::now());
+        for action in call.outbox.drain(..) {
+            engine.act(action);
+        }
+    };
+    let got = |from: &'static str, text: &'static str| {
+        move |c: &Call| {
+            c.chat
+                .iter()
+                .any(|m| !m.mine && m.from == from && m.text == text)
+        }
+    };
+    send(&host, &mut host_call, "Hello from the host");
+    wait_for(
+        "the host's chat",
+        &guest,
+        &mut guest_call,
+        got("Hana Host", "Hello from the host"),
+    );
+    send(
+        &guest,
+        &mut guest_call,
+        "Hello back
+from the guest",
+    );
+    let back = got(
+        "Gil Guest",
+        "Hello back
+from the guest",
+    );
+    wait_for("the guest's chat", &host, &mut host_call, back);
+    assert_eq!((host_call.unread, guest_call.unread), (1, 1));
+    println!("names and chat crossed both ways");
+
     drop(guest);
     wait_for("the guest to leave", &host, &mut host_call, |c| {
         c.participants.len() == 1
@@ -141,7 +187,7 @@ fn loopback_leaving_a_call_with_devices_on_is_quick() {
     let mut media = crate::media::LocalMedia::new(ctx.clone());
     media.set_camera(true);
     media.set_mic(true);
-    let engine = Engine::start(Role::Host, None, ctx).unwrap();
+    let engine = Engine::start(Role::Host, "Host".into(), None, ctx).unwrap();
     media.set_taps(Some(engine.taps()));
     std::thread::sleep(Duration::from_secs(3));
     let start = Instant::now();

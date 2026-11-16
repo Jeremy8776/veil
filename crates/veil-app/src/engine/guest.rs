@@ -24,11 +24,12 @@ use super::Command;
 use super::plan::NetConfig;
 use super::session::{Pipes, Session};
 use super::view::Shared;
-use crate::model::CallStatus;
+use crate::model::{Action, CallStatus};
 
 pub async fn run(
     invite: Invite,
     config: NetConfig,
+    your_name: &str,
     shared: Arc<Shared>,
     pipes: Pipes,
     mut commands: UnboundedReceiver<Command>,
@@ -50,12 +51,13 @@ pub async fn run(
     };
     shared.update(|view| view.status = CallStatus::Live);
     let media = call.media().map_err(|e| e.to_string())?;
-    let mut session = Session::new(media, me, invite.host, shared.clone(), pipes);
+    let mut session = Session::new(media, me, invite.host, your_name, shared.clone(), pipes);
     loop {
         tokio::select! {
             command = commands.recv() => match command {
                 None | Some(Command::Leave) => return Ok(()),
-                // Only the host decides; the interface offers a guest nothing to act on.
+                Some(Command::Act(Action::Chat(text))) => session.send_chat(&text).await,
+                // Only the host decides; the interface offers a guest nothing else to act on.
                 Some(Command::Act(_)) => {}
             },
             event = member.events.recv() => match event {

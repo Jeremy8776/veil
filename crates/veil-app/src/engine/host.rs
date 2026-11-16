@@ -3,8 +3,8 @@
 //! Purpose: starts the network node and, unless a `veil-node` rendezvous is configured, a
 //! rendezvous of the host's own on a second port, so guests can find each other and fall
 //! back to a relay. Then runs the host's loop: knocks become the lobby, the interface's
-//! decisions go to `HostHandle::decide` and `remove`, and after every `HostEvent::Keys` the
-//! host plans the epoch and publishes it with `publish_plan`.
+//! decisions go to `HostHandle::decide` and `remove`, chat goes to the session, and after
+//! every `HostEvent::Keys` the host plans the epoch and publishes it with `publish_plan`.
 //!
 //! Invariants:
 //! - Each invite has a one-time token, so a fresh one is made after every knock.
@@ -35,6 +35,7 @@ const INVITE_LIFETIME: Duration = Duration::from_secs(3_600);
 
 pub async fn run(
     config: NetConfig,
+    your_name: &str,
     shared: Arc<Shared>,
     pipes: Pipes,
     mut commands: UnboundedReceiver<Command>,
@@ -72,12 +73,13 @@ pub async fn run(
         view.status = CallStatus::Live;
     });
     let media = call.media().map_err(|e| e.to_string())?;
-    let mut session = Session::new(media, me, me, shared.clone(), pipes);
+    let mut session = Session::new(media, me, me, your_name, shared.clone(), pipes);
     let mut knocks: Vec<(u32, PublicId)> = Vec::new();
     loop {
         tokio::select! {
             command = commands.recv() => match command {
                 None | Some(Command::Leave) => return Ok(()),
+                Some(Command::Act(Action::Chat(text))) => session.send_chat(&text).await,
                 Some(Command::Act(action)) => act(&host, &session.ids, &mut knocks, action).await,
             },
             event = events.recv() => match event {
@@ -137,6 +139,8 @@ async fn act(host: &HostHandle, ids: &Ids, knocks: &mut Vec<(u32, PublicId)>, ac
             Some(device) => host.remove(device).await,
             None => return,
         },
+        // The session sends chat; see `run`.
+        Action::Chat(_) => return,
     };
     if let Err(e) = result {
         eprintln!("veil-app: {action:?} failed: {e}");

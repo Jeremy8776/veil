@@ -4,16 +4,19 @@
 //! receiving. It seals each encoded picture (`FrameSender::encrypt_layer`, with the layer the
 //! schedule chose) and each Opus frame, sends them through the `MediaSession`, and opens what
 //! arrives: video goes to the decoder thread, sound to the playback thread. Keyframe requests
-//! go both ways. [`Session::pump`] does one of these jobs per call, so the host and guest
-//! loops can wait on it next to their own events.
+//! go both ways. Names and chat go both ways as sealed app messages (`names.rs` decides when
+//! your name is sent); received chat waits in [`Shared`] for the interface. [`Session::pump`]
+//! does one of these jobs per call, so the host and guest loops can wait on it next to their
+//! own events.
 //!
 //! Invariants:
-//! - Who sent a frame is its authenticated sender index (MLS leaf), never the link it came on.
+//! - Who sent a frame or message is its authenticated sender index (MLS leaf), never the link
+//!   it came on.
 //! - Nothing is sent before the first epoch's keys; nothing is encoded while you are alone.
 //! - Full queues to the decoder and playback threads drop the packet; this task never blocks
 //!   on them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::SyncSender;
@@ -21,13 +24,14 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 use tokio::time::{Interval, MissedTickBehavior, interval};
-use veil_call::{EpochKeys, Incoming, KeyRing, Media, MediaSession, Path, Routes};
+use veil_call::{AppMessage, EpochKeys, Incoming, KeyRing, Media, MediaSession, Path, Routes};
 use veil_media::{AudioHeader, AudioSettings, OpusEncoder};
 use veil_security::PublicId;
 use veil_security::frame::{FrameSender, frame_layer};
 use veil_security::safety::safety_number;
 
 use super::audio_out::AudioIn;
+use super::names::{Announcer, Names};
 use super::video_in::VideoIn;
 use super::video_out::{Encoded, VideoControl};
 use super::view::{Person, Shared};
@@ -56,6 +60,8 @@ pub struct Session {
     leaves: HashMap<u32, u32>,
     /// This epoch's other members, in roster order.
     others: Vec<(u32, PublicId)>,
+    names: Names,
+    announcer: Announcer,
     opus: Option<OpusEncoder>,
     audio_seq: u32,
     frame_id: u32,
@@ -70,6 +76,7 @@ impl Session {
         media: MediaSession,
         me: PublicId,
         host: PublicId,
+        your_name: &str,
         shared: Arc<Shared>,
         pipes: Pipes,
     ) -> Self {
@@ -84,6 +91,8 @@ impl Session {
             ring: None,
             leaves: HashMap::new(),
             others: Vec::new(),
+            names: Names::default(),
+            announcer: Announcer::new(your_name),
             opus: None,
             audio_seq: 0,
             frame_id: 0,
@@ -94,15 +103,9 @@ impl Session {
         }
     }
 
-    /// How someone is named until names are sent: the host, or a guest by key.
-    // shortcut: names (and chat) are not sent between members. Add a sealed app message to
-    // `veil-call` and show the name each member chose.
+    /// The name `device` sent, or "Host" or "Guest" and a key prefix until it does.
     pub fn name_for(&self, device: &PublicId) -> String {
-        if *device == self.host {
-            String::from("Host")
-        } else {
-            format!("Guest {}", short(device))
-        }
+        self.names.of(device, &self.host)
     }
 
     pub fn safety_with(&self, device: &PublicId) -> String {
@@ -116,6 +119,7 @@ impl Session {
             None => self.ring = Some(KeyRing::new(keys.epoch, keys.receiver)),
         }
         self.sender = Some(keys.sender);
+        self.announcer.restart(Instant::now());
         self.leaves.clear();
         self.others.clear();
         for (leaf, device) in &keys.roster {
@@ -161,7 +165,9 @@ impl Session {
         }
         // Whoever just linked up needs a keyframe to start decoding.
         self.pipes.control.keyframe.store(true, Ordering::Relaxed);
+        self.announcer.restart(Instant::now());
         self.refresh_paths();
+        self.announce().await;
     }
 
     /// Does one job: media in, media out, a keyframe request, or the once-a-second refresh.
@@ -171,12 +177,47 @@ impl Session {
             Some(encoded) = self.pipes.encoded.recv() => self.send_video(encoded).await,
             Some(pcm) = self.pipes.sound.recv() => self.send_audio(&pcm),
             Some(id) = self.pipes.keyframes.recv() => self.ask_keyframe(id).await,
-            _ = self.tick.tick() => self.refresh_paths(),
+            _ = self.tick.tick() => {
+                self.refresh_paths();
+                self.announce().await;
+            }
         }
     }
 
-    fn refresh_paths(&self) {
+    /// Sends a chat message to everyone. Nothing goes out while you are alone.
+    pub async fn send_chat(&mut self, text: &str) {
+        match AppMessage::chat(text) {
+            Ok(message) => self.send_app(&message).await,
+            Err(e) => eprintln!("veil-app: chat not sent: {e}"),
+        }
+    }
+
+    /// Sends your name if the announcer says it is time.
+    async fn announce(&mut self) {
+        if let Some(message) = self.announcer.due(Instant::now()).cloned() {
+            self.send_app(&message).await;
+        }
+    }
+
+    async fn send_app(&mut self, message: &AppMessage) {
+        if self.others.is_empty() {
+            return;
+        }
+        let Some(sender) = &mut self.sender else {
+            return;
+        };
+        match message.seal(sender) {
+            Ok(sealed) => {
+                self.media.send_app(&sealed).await;
+            }
+            Err(e) => eprintln!("veil-app: cannot seal a message: {e}"),
+        }
+    }
+
+    fn refresh_paths(&mut self) {
         let paths: HashMap<PublicId, Path> = self.media.paths().into_iter().collect();
+        let linked: HashSet<PublicId> = paths.keys().copied().collect();
+        self.announcer.links(linked, Instant::now());
         let by_id: HashMap<u32, LinkPath> = self
             .others
             .iter()
@@ -249,6 +290,10 @@ impl Session {
                 self.pipes.control.keyframe.store(true, Ordering::Relaxed);
                 return;
             }
+            Media::App(sealed) => {
+                self.on_app(sealed);
+                return;
+            }
             Media::Video { sealed, .. } => (sealed.as_slice(), true),
             Media::Audio(bytes) => (bytes.as_ref(), false),
         };
@@ -284,6 +329,37 @@ impl Session {
             packet: opus.to_vec(),
             arrival_us: micros_since(self.clock),
         });
+    }
+
+    /// Opens a name or chat message and shows it. Anything that does not open, comes from a
+    /// leaf outside this epoch or fails the checks is dropped.
+    fn on_app(&mut self, sealed: &[u8]) {
+        let Some(ring) = &mut self.ring else { return };
+        let Ok((leaf, plain)) = ring.open(sealed, Instant::now()) else {
+            return;
+        };
+        let Some(&id) = self.leaves.get(&leaf) else {
+            return;
+        };
+        let Some(&(_, device)) = self.others.iter().find(|(i, _)| *i == id) else {
+            return;
+        };
+        match AppMessage::decode(&plain) {
+            Ok(AppMessage::Name(name)) => {
+                if self.names.set(device, name.clone()) {
+                    self.shared.update(|view| {
+                        for person in view.people.iter_mut().filter(|p| p.id == id) {
+                            person.name.clone_from(&name);
+                        }
+                    });
+                }
+            }
+            Ok(AppMessage::Chat(text)) => {
+                let from = self.name_for(&device);
+                self.shared.push_chat(from, text);
+            }
+            Err(e) => eprintln!("veil-app: dropped a message from {}: {e}", short(&device)),
+        }
     }
 
     async fn ask_keyframe(&mut self, id: u32) {

@@ -7,7 +7,7 @@
 //! as [`EpochKeys`]. The [`MediaSession`] then links the members as the topology plan says
 //! (see [`routes`]), and a [`KeyRing`] opens their frames across epoch changes. The host
 //! decides the layout for each epoch and sends it signed ([`CallPlan`]), so every member
-//! follows the same one.
+//! follows the same one. Names and chat travel as sealed [`AppMessage`]s on the same links.
 //!
 //! Invariants:
 //! - Only participants run this crate. Nodes (relays, forwarders, rendezvous) never hold group
@@ -26,6 +26,7 @@
     clippy::unreachable
 )]
 
+pub mod app_msg;
 pub mod call_plan;
 pub mod host;
 mod inbound;
@@ -44,6 +45,7 @@ use veil_net::control::RefuseReason;
 use veil_security::PublicId;
 use veil_security::frame::{FrameReceiver, FrameSender};
 
+pub use app_msg::{AppError, AppMessage};
 pub use call_plan::{CallPlan, Layout};
 pub use host::{HostEvent, HostHandle};
 pub use keyring::KeyRing;

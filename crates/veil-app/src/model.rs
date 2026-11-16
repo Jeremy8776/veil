@@ -11,6 +11,8 @@
 //! - In a real call those three only queue an [`Action`] for the engine. The people list
 //!   changes when the engine reports the new key epoch, never before. A demo call changes at
 //!   once, as MLS would.
+//! - In a real call a chat message shows at once and is queued as [`Action::Chat`]; the
+//!   engine seals it and sends it to everyone in the call.
 
 use std::time::{Duration, Instant};
 
@@ -73,12 +75,13 @@ pub enum CallStatus {
     Ended(String),
 }
 
-/// A host's decision, queued for the engine.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A host's decision, or a chat message, queued for the engine.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     Admit(u32),
     Decline(u32),
     Remove(u32),
+    Chat(String),
 }
 
 #[derive(Clone, Debug)]
@@ -102,7 +105,7 @@ pub struct Call {
     /// Other participants are simulated.
     pub demo: bool,
     pub status: CallStatus,
-    /// Decisions not yet handed to the engine. Always empty in a demo.
+    /// Decisions and chat not yet handed to the engine. Always empty in a demo.
     pub outbox: Vec<Action>,
     /// Chat messages not yet seen with the chat panel open.
     pub unread: usize,
@@ -218,6 +221,20 @@ impl Call {
             at: self.elapsed(now),
             text: text.to_string(),
         });
+        if !self.demo {
+            self.outbox.push(Action::Chat(text.to_string()));
+        }
+    }
+
+    /// A chat message from someone else, unread until the chat panel shows it.
+    pub fn receive(&mut self, from: String, text: String, now: Instant) {
+        self.chat.push(Message {
+            from,
+            mine: false,
+            at: self.elapsed(now),
+            text,
+        });
+        self.unread += 1;
     }
 
     /// Whoever should fill the stage in speaker view: the speaker, else the first other
@@ -334,6 +351,23 @@ mod tests {
         call.remove(9);
         assert_eq!(call.outbox, [Action::Admit(7), Action::Remove(9)]);
         assert_eq!(call.epoch, 0);
+    }
+
+    #[test]
+    fn live_chat_is_queued_for_the_engine_and_received_chat_is_unread() {
+        let now = Instant::now();
+        let mut call = Call::live("Call".into(), "Jo", false, now);
+        call.send(" hi all ", now);
+        assert_eq!(call.outbox, [Action::Chat("hi all".into())]);
+        assert!(call.chat[0].mine);
+        call.receive("Priya".into(), "hello".into(), now);
+        assert_eq!(call.unread, 1);
+        assert_eq!(call.chat[1].from, "Priya");
+        assert!(!call.chat[1].mine);
+
+        let mut demo = demo::call("Jo", true, now);
+        demo.send("hi", now);
+        assert!(demo.outbox.is_empty(), "a demo sends nothing");
     }
 
     #[test]

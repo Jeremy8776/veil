@@ -12,29 +12,30 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 |---|---|
 | Device keys, safety numbers, signed invites | Capture, encoding and decoding on macOS and Linux |
 | Windows camera capture, H.264 encoding and decoding, Opus audio | Veil's own echo cancellation (Windows' is used where the device offers it) |
-| MLS group keys, the host's lobby | Names and chat sent between members (the app shows a key prefix, and chat stays on your device) |
+| MLS group keys, the host's lobby | Raised hands sent between members (yours shows only on your screen) |
 | Per-frame encryption with a layer marker | Signed organisation policy, OIDC or SAML identity |
 | QUIC links pinned to device keys | Metrics export (OpenTelemetry) |
 | Rendezvous, hole punching, relay | Compliance recording, federation, gateways |
 | Forwarder with layer subscriptions | Padding against size analysis |
 | `veil-node`, `veil-probe` | An independent security audit |
-| The desktop app in a real call: host, lobby, guest, video and sound both ways | |
+| The desktop app in a real call: host, lobby, guest, video and sound both ways, names and chat | |
 
 [ARCHITECTURE.md](ARCHITECTURE.md) describes the whole design, including the planned parts.
 [HANDOFF.md](HANDOFF.md) says what is done and what is next.
 
 ## 2. What other parties can see
 
-Media is encrypted on the sender's device and opened only on members' devices. Relays,
-forwarders and rendezvous nodes never hold media keys. They can still see this:
+Media, display names and chat are encrypted on the sender's device and opened only on
+members' devices. Relays, forwarders and rendezvous nodes never hold these keys. They can still
+see this:
 
 | Party | Sees |
 |---|---|
 | The network | Which addresses talk to which, when, and how much |
 | Rendezvous node | Members' IP addresses, a hash of the room id, when people join |
 | Relay | Members' IP addresses, encrypted traffic volume and timing |
-| Forwarder | Members' device keys and the room hash (from the host's roster ticket), traffic volume and timing, and each video frame's layer marker: which resolution tier and frame-rate step it is, and whether it is a keyframe |
-| Other members | Your device key, and your IP address unless you use relay-only mode |
+| Forwarder | Members' device keys and the room hash (from the host's roster ticket), traffic volume and timing, and each video frame's layer marker: which resolution tier and frame-rate step it is, and whether it is a keyframe. Names and chat pass through it sealed: it sees when one is sent and how large it is, not who sent it or what it says |
+| Other members | Your device key, the display name you chose, your chat messages, and your IP address unless you use relay-only mode. Chat is not stored: it is gone when the call ends |
 | Anyone holding an invite link | The host's device key and the addresses in it: the host's LAN address and port, and any public address set in `VEIL_ADVERTISE`. The desktop app puts these in every invite so a guest can dial directly |
 
 When the desktop app hosts without a configured `veil-node`, it runs a rendezvous and relay of
@@ -47,6 +48,11 @@ table above), and it is the host's own machine.
   reveal some words even when encrypted. A constant-bitrate option is planned.
 - Layer markers show which tiers each sender sends and each receiver asks for, so a forwarder
   can tell whose tile is large on someone's screen.
+- A display name is whatever its owner typed. Veil does not check it, so someone can call
+  themselves by another person's name. Who someone is rests on the safety number; the host
+  badge comes from the invite's host key, not from a name.
+- Chat message sizes are not padded, so a relay or forwarder sees roughly how long each
+  message is.
 - Keyframe requests are not authenticated end to end. A forwarder or member can ask a sender
   for keyframes at will. That costs the sender bandwidth, but no more than one keyframe per
   500 ms, and it reveals nothing.

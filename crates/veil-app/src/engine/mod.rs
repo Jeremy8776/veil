@@ -24,6 +24,7 @@ mod audio_out;
 mod guest;
 mod host;
 mod loopback;
+mod names;
 pub mod plan;
 mod session;
 mod video_in;
@@ -89,9 +90,15 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Starts the call. `speaker` is a device id from the pre-join picker, `None` for the
-    /// default. Fails only if the async runtime cannot start.
-    pub fn start(role: Role, speaker: Option<String>, ctx: egui::Context) -> Result<Self, String> {
+    /// Starts the call. `your_name` is sent to the other members, sealed. `speaker` is a
+    /// device id from the pre-join picker, `None` for the default. Fails only if the async
+    /// runtime cannot start.
+    pub fn start(
+        role: Role,
+        your_name: String,
+        speaker: Option<String>,
+        ctx: egui::Context,
+    ) -> Result<Self, String> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .thread_name("veil-call")
@@ -126,9 +133,10 @@ impl Engine {
         let task = runtime.spawn(async move {
             let shared = task_shared.clone();
             let result = match role {
-                Role::Host => host::run(config, task_shared, pipes, commands_rx).await,
+                Role::Host => host::run(config, &your_name, task_shared, pipes, commands_rx).await,
                 Role::Guest(invite) => {
-                    guest::run(*invite, config, task_shared, pipes, commands_rx).await
+                    let (shared, name) = (task_shared, &your_name);
+                    guest::run(*invite, config, name, shared, pipes, commands_rx).await
                 }
             };
             let reason = match result {
@@ -154,8 +162,8 @@ impl Engine {
         self.taps.clone()
     }
 
-    /// Hands a host's decision to the session. Admitting or declining takes the person out
-    /// of the lobby at once, so a second click cannot repeat it.
+    /// Hands a host's decision, or a chat message, to the session. Admitting or declining
+    /// takes the person out of the lobby at once, so a second click cannot repeat it.
     pub fn act(&self, action: Action) {
         if let Action::Admit(id) | Action::Decline(id) = action {
             self.shared.update(|view| view.lobby.retain(|k| k.id != id));
@@ -168,6 +176,9 @@ impl Engine {
         let view: View = lock(&self.shared.view).clone();
         let seen = self.shared.seen();
         view::apply(&view, &seen, call, now);
+        for (from, text) in self.shared.take_chat() {
+            call.receive(from, text, now);
+        }
     }
 
     /// Pictures decoded since the last call, by participant id.
@@ -190,7 +201,7 @@ impl Drop for Engine {
     }
 }
 
-/// The first 8 hex digits of a key: enough to tell people apart until names are sent.
+/// The first 8 hex digits of a key: enough to tell people apart until their name arrives.
 pub fn short(key: &veil_security::PublicId) -> String {
     key.0.iter().take(4).map(|b| format!("{b:02x}")).collect()
 }
