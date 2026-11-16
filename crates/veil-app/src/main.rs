@@ -17,6 +17,7 @@ mod convert;
 mod demo;
 mod devices;
 mod engine;
+mod firewall;
 mod icons;
 mod layout;
 mod media;

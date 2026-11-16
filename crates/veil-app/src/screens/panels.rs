@@ -185,7 +185,8 @@ fn chat(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
         );
     } else {
         ui.label(RichText::new("Encrypted").small().color(MUTED)).on_hover_text(
-            "Sent to everyone in the call, encrypted on your device.              Relays and forwarders cannot read it. Not kept after the call.",
+            "Sent to everyone in the call, encrypted on your device. \
+             Relays and forwarders cannot read it. Not kept after the call.",
         );
     }
     let input_h = 44.0;

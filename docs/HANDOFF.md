@@ -227,7 +227,7 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
     the session seals it and sends it; received chat goes through `Shared::take_chat` into
     `Call::receive` (counted unread). The name field takes 64 characters, chat 2,000.
     Raised hands are still local only.
-  Tests: 37 unit tests, plus `engine/loopback.rs` (ignored: it opens ports, the encoder and the
+  Tests: 40 unit tests, plus `engine/loopback.rs` (ignored: it opens ports, the encoder and the
   speaker): two engines on localhost, the guest knocks, the host admits, both show the same
   safety number and epoch, synthetic 720p pictures and silence go both ways until each side
   decodes the other's video and hears packets, each shows the other's chosen name, a chat
@@ -326,6 +326,15 @@ network. `veil-probe.exe` and `veil-node.exe` have Allow rules; `veil-app.exe` h
 on each machine (admin PowerShell, path to that machine's build):
 `New-NetFirewallRule -DisplayName "Veil app" -Direction Inbound -Program <path>	argeteleaseeil-app.exe -Protocol UDP -Action Allow -Profile Private,Public`.
 A guest that cannot reach the host now says the host's firewall may be blocking Veil.
+Users do not type that command: the host's pre-join screen checks the rules in the background
+(`firewall.rs`, about 0.7 s of PowerShell) and, if none lets guests in, shows "Allow guests",
+which adds the same rule (name "Veil") through the Windows administrator prompt, then checks
+again. Only the host is checked: a guest's own links work without a rule, because hole
+punching makes its traffic look like replies. Not yet run by a person (it changes the
+firewall): press Allow guests on the host before the next two-machine test.
+`cargo test -j 8 -p veil-app firewall -- --ignored --nocapture` reads the rules only.
+A public `veil-node` (`VEIL_RENDEZVOUS`) removes the need for any rule, since every flow then
+starts outbound; the installer should add the rule for release builds.
 
 1. Public box: `veil-node` with rendezvous, relay and forwarder on (see the example TOML).
    It prints `rendezvous KEY@IP:PORT` and `forwarder KEY@IP:PORT`. It prints the listen address

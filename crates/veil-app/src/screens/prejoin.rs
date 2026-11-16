@@ -1,10 +1,12 @@
 //! Before joining: see yourself, check the microphone moves the meter, choose whether to come
-//! in muted or with the camera off.
+//! in muted or with the camera off. A host whose firewall would block guests gets an Allow
+//! button (`crate::firewall`).
 
 use eframe::egui::{self, Align, Layout, RichText, Sense, vec2};
 
 use crate::app::VeilApp;
 use crate::devices::{self, Device};
+use crate::firewall::State;
 use crate::icons::Icon;
 use crate::theme::{self, MUTED};
 use crate::widgets::{self, ControlState, Tile, Tone, card, control, level_meter, pill};
@@ -147,6 +149,9 @@ fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
         ) {
             app.media.choose_speaker(id);
         }
+        if host && !app.demo {
+            firewall(app, ui);
+        }
         ui.add_space(12.0);
         let action = if host { "Start call" } else { "Join now" };
         if pill(ui, Some(Icon::Video), action, Tone::Primary, 280.0).clicked() {
@@ -191,6 +196,33 @@ fn picker(
             }
         });
     (picked.as_deref() != chosen).then_some(picked)
+}
+
+/// For a host: whether guests can reach you, and the button that lets them.
+fn firewall(app: &VeilApp, ui: &mut egui::Ui) {
+    let (note, button) = match app.firewall.state() {
+        State::Unknown | State::Allowed => return,
+        State::Checking => ("Checking your firewall…", false),
+        State::Asking => ("Confirm in the Windows prompt", false),
+        State::Blocked => ("Your firewall may block guests", true),
+        State::Failed(_) => ("Could not allow Veil", true),
+    };
+    ui.add_space(8.0);
+    let colour = if button { theme::WARN } else { MUTED };
+    let label = ui.label(RichText::new(note).small().color(colour));
+    if let State::Failed(why) = app.firewall.state() {
+        label.on_hover_text(why);
+    }
+    if button {
+        let tip = "Adds one Windows firewall rule so guests can reach this call: Veil only, \
+                   network calls only. Windows asks you to confirm.";
+        if pill(ui, Some(Icon::Shield), "Allow guests", Tone::Quiet, 280.0)
+            .on_hover_text(tip)
+            .clicked()
+        {
+            app.firewall.allow(ui.ctx());
+        }
+    }
 }
 
 /// A device error, in short, under its picker.

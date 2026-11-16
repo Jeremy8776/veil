@@ -90,7 +90,8 @@ fn join_error(e: &CallError) -> String {
         // Windows blocks inbound UDP for an app with no firewall rule, which looks exactly
         // like this from the guest's side; the host's own invite lists only its addresses.
         CallError::Net(_) | CallError::Rendezvous(_) => format!(
-            "Could not reach the host. Its firewall may be blocking Veil: allow veil-app on              the host for private and public networks. ({e})"
+            "Could not reach the host. Its firewall may be blocking Veil: the host can press \
+             Allow guests before starting the call. ({e})"
         ),
         other => format!("Could not reach the call: {other}"),
     }
@@ -105,6 +106,7 @@ mod tests {
         assert_eq!(join_error(&CallError::Timeout), "The host did not answer.");
         assert!(join_error(&CallError::Closed).starts_with("Could not reach the call"));
         let unreachable = CallError::Net(veil_net::NetError::Timeout);
-        assert!(join_error(&unreachable).contains("firewall"));
+        let text = join_error(&unreachable);
+        assert!(text.contains("press Allow guests"), "one space at the line join: {text}");
     }
 }

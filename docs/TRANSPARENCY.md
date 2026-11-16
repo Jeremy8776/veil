@@ -67,6 +67,14 @@ address (192.0.2.1); no packet is sent. Addresses in the source
 code are from the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24,
 2001:db8::/32) and appear only in tests.
 
+**Your firewall.** On Windows, before you host, the app reads the firewall rules (PowerShell,
+`Get-NetFirewallApplicationFilter`, read only) to see whether guests can reach it. If not, it
+shows an "Allow guests" button. Only that button changes anything: it runs
+`netsh advfirewall firewall add rule name="Veil"` through Windows' administrator prompt, which
+you confirm or decline. The rule allows inbound UDP to this `veil-app.exe` only, on Private and
+Public networks. Remove it in Windows Defender Firewall (Inbound Rules, "Veil") at any time.
+The code is `crates/veil-app/src/firewall.rs`.
+
 ## 4. Dependencies and licences
 
 - Veil itself is licensed under either of [MIT](../LICENSE-MIT) or [Apache-2.0](../LICENSE-APACHE),

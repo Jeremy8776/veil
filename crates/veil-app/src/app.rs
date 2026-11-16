@@ -53,6 +53,8 @@ pub struct VeilApp {
     pub demo: bool,
     /// Everyone else's video in the current call, by participant id.
     pub remote: HashMap<u32, TextureHandle>,
+    /// Whether Windows lets guests reach you, checked before you host.
+    pub firewall: crate::firewall::Firewall,
     ctx: egui::Context,
 }
 
@@ -75,6 +77,7 @@ impl VeilApp {
             joining: None,
             demo: false,
             remote: HashMap::new(),
+            firewall: crate::firewall::Firewall::new(),
             ctx: ctx.clone(),
         }
     }
@@ -84,6 +87,9 @@ impl VeilApp {
         self.devices = crate::devices::DeviceLists::load();
         self.media.set_camera(self.want_camera);
         self.media.set_mic(self.want_mic);
+        if host && !self.demo {
+            self.firewall.check(&self.ctx);
+        }
         self.screen = Screen::PreJoin { host };
     }
 
