@@ -334,12 +334,11 @@ Windows through SignPath Foundation (`SIGNPATH_API_TOKEN` plus three `SIGNPATH_*
 not applied for yet, steps in `docs/CODE_SIGNING.md`), or a certificate of your own through
 `sign.ps1` (`WINDOWS_CERTIFICATE`/`_PASSWORD` or six `AZURE_*` values); macOS
 `APPLE_CERTIFICATE`/`_PASSWORD` and, for notarisation, `APPLE_ID`, `APPLE_PASSWORD`,
-`APPLE_TEAM_ID`; updates `VEIL_UPDATE_KEY`. **Release key, not set yet:** run
-`tools/release-key.sh` once (private key to `~/.veil/release-key.pem`, public half to
-`crates/veil-app/release-key.pub`, commit that), then
-`gh secret set VEIL_UPDATE_KEY --env release --repo Jeremy8776/veil < ~/.veil/release-key.pem`.
-Until then the app only links to the release page, and the workflow warns. Once the public
-key is committed, a tag without the secret fails. Actions are pinned to SHAs, in
+`APPLE_TEAM_ID`; updates `VEIL_UPDATE_KEY`. **Release key, made 17/11/2026** with
+`tools/release-key.sh`: the private key is on Jeremy's PC at `~/.veil/release-key.pem` (keep
+an offline copy) and in the `VEIL_UPDATE_KEY` secret; the public half is
+`crates/veil-app/release-key.pub`. A tag without the secret fails, because every copy from
+0.1.2 on refuses an unsigned release. Actions are pinned to SHAs, in
 `ci.yml` too from 16/11/2026 (second audit, L1).
 
 Going public (16/11/2026): no secrets in history; workflows hold no secrets and give a
@@ -473,8 +472,10 @@ the rule on the host and a guest then connected.
 `cargo test -j 8 -p veil-app firewall -- --ignored --nocapture` reads the rules only.
 A public `veil-node` (`VEIL_RENDEZVOUS`) removes the need for any rule, since every flow then
 starts outbound. The MSI (from 17/11/2026) adds the same rule for the installed
-`veil-app.exe` (`packaging/windows/veil.wxs`, WiX's firewall extension, two rules named "Veil",
+`veil-app.exe` (`packaging/windows/veil.wxs`, WiX's firewall extension, one rule named "Veil" for
 Private and Public) and removes it on uninstall, so the button does not show there.
+Tested by hand 17/11/2026: install, upgrade over an older MSI, and uninstall left nothing
+behind (folder, Start menu entry, firewall rule, registry).
 
 1. Public box: `veil-node` with rendezvous, relay and forwarder on (see the example TOML).
    It prints `rendezvous KEY@IP:PORT` and `forwarder KEY@IP:PORT`. It prints the listen address

@@ -93,9 +93,9 @@ rendezvous never says who is online.
 - Then: Windows hands the MSI to Windows Installer, which asks for permission and replaces
   Veil once it has closed. macOS copies `Veil.app` out of the disk image over this one and
   reopens it. Linux renames the new AppImage over this one and starts it.
-- Not yet active: no release key has been made, so `release-key.pub` is empty and every copy
-  shows the link only. The release workflow signs once the key is set
-  (`tools/release-key.sh`).
+- The release key was made on 17/11/2026 and is built into 0.1.2 and later. Its public half
+  is `b7979c9c23c5061f66fb8183de91a970ff9d981fb3a65797ca4914e9fd76f4a8`. Copies from 0.1.x
+  have no key and only link to the release page.
 
 **Signed installers** (from 17/11/2026, `packaging/`, `.github/workflows/release.yml`): the
 Windows programs and MSI are to be Authenticode-signed through SignPath Foundation's free
@@ -115,7 +115,7 @@ release file is listed in `SHA256SUMS.txt` with build provenance from GitHub.
 - A display name is whatever its owner typed. Veil does not check it, so someone can call
   themselves by another person's name. When two people in a call show the same name (case
   and spacing ignored), each gets the start of their device key after it, so they never look
-  alike. Letters that only look the same, such as Latin "a" and Cyrillic "а", are not caught.
+  alike. Letters that only look the same, such as Latin "a" and Cyrillic "Ð°", are not caught.
   Who someone is rests on the safety number; the host badge comes from the invite's host
   key, not from a name.
 - Chat message sizes are not padded, so a relay or forwarder sees roughly how long each
@@ -261,9 +261,8 @@ grep -rn "shortcut:" crates
   --ignored`) opens ports, the H.264 encoder and the speaker, so it also runs only on request.
 - A call between two copies of the desktop app with real cameras and microphones has not yet
   been run by a person.
-- The installers and the update install. The packaging runs in the release workflow, but no
-  one has yet installed the MSI, the DMG or the AppImage on a clean machine, and the
-  "Install" button has not run against a real signed release.
+- The DMG and the AppImage on real machines, and the "Install" button against a real signed
+  release. The MSI was installed, upgraded and uninstalled on Windows 11 on 17/11/2026.
 
 **Known shortcut in updates:** on Windows the checked MSI waits in your own folder until
 Windows Installer opens it, so a program already running as you could swap it in that
