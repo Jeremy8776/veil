@@ -80,6 +80,17 @@ async fn recv(input: &mut FramedRecv, wait: Duration) -> Result<Control, CallErr
 /// a rendezvous node (the invite's relay), a punched dial and then a relay session are tried.
 /// A relay-only node skips straight to the relay.
 pub async fn join(call: &CallNode, invite: &Invite) -> Result<MemberHandle, CallError> {
+    join_with(call, invite, || {}).await
+}
+
+/// [`join`], calling `knocked` once the host has been reached and asked to admit this device.
+/// Before that, the time goes on finding a path to the host (direct, punched, relayed); after
+/// it, on waiting for the host's decision. An interface shows the two differently.
+pub async fn join_with(
+    call: &CallNode,
+    invite: &Invite,
+    knocked: impl FnOnce(),
+) -> Result<MemberHandle, CallError> {
     if invite.room_id != call.room_id() {
         return Err(CallError::Protocol("a node started for this invite's room"));
     }
@@ -94,6 +105,7 @@ pub async fn join(call: &CallNode, invite: &Invite) -> Result<MemberHandle, Call
         join_token: invite.join_token,
     })
     .await?;
+    knocked();
     match recv(&mut input, LOBBY_WAIT).await? {
         Control::Admitted => {}
         Control::Refused(reason) => return Err(CallError::Refused(reason)),

@@ -6,8 +6,10 @@
 //! the `MediaSession`.
 //!
 //! Invariants:
-//! - Leaving while still in the lobby cancels the join; nothing was admitted, so nothing to
-//!   undo.
+//! - Leaving before admission (reaching the host, or in the lobby) cancels the join at once;
+//!   nothing was admitted, so nothing to undo.
+//! - The status is Connecting while a path to the host is found, and Lobby only once the
+//!   host has the knock, so "waiting for the host" is never shown while still dialling.
 //! - Being removed, or the host ending the call, ends it here with a reason the end screen
 //!   shows.
 
@@ -15,7 +17,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use tokio::sync::mpsc::UnboundedReceiver;
-use veil_call::{CallError, CallNode, MemberEvent, join};
+use veil_call::{CallError, CallNode, MemberEvent, join_with};
 use veil_net::Node;
 use veil_security::Identity;
 use veil_security::invite::Invite;
@@ -38,14 +40,24 @@ pub async fn run(
     let bind = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
     let node = Node::bind(&identity, bind).map_err(|e| format!("Cannot open the network: {e}"))?;
     let rendezvous = config.rendezvous;
-    let mut call = match rendezvous {
-        // A configured rendezvous wins over the invite's, for networks the host's cannot reach.
-        Some(addr) => CallNode::for_invite_via(&identity, node, &invite, Some(addr)).await,
-        None => CallNode::for_invite(&identity, node, &invite).await,
+    // Registering with the rendezvous and finding a path to the host can take half a minute
+    // over the internet, so Leave is honoured throughout, not only in the lobby.
+    let start = async {
+        match rendezvous {
+            // A configured rendezvous wins over the invite's, for networks the host's cannot
+            // reach.
+            Some(addr) => CallNode::for_invite_via(&identity, node, &invite, Some(addr)).await,
+            None => CallNode::for_invite(&identity, node, &invite).await,
+        }
     };
-    shared.update(|view| view.status = CallStatus::Lobby);
+    let mut call = tokio::select! {
+        call = start => call,
+        () = wait_for_leave(&mut commands) => return Ok(()),
+    };
+    // The status stays Connecting ("Reaching the host") until the host has the knock.
+    let knocked = || shared.update(|view| view.status = CallStatus::Lobby);
     let mut member = tokio::select! {
-        joined = join(&call, &invite) => joined.map_err(|e| join_error(&e))?,
+        joined = join_with(&call, &invite, knocked) => joined.map_err(|e| join_error(&e))?,
         () = wait_for_leave(&mut commands) => return Ok(()),
     };
     shared.update(|view| view.status = CallStatus::Live);
