@@ -284,6 +284,57 @@ async fn mesh_call_punches_links_and_every_member_opens_each_frame() {
     assert_eq!(call.parties[2].keys.receiver.decrypt(&incoming).unwrap().1, b"audio");
 }
 
+/// GHSA-rvhv-r5mr-2w3h: in a mesh a member's link carries only that member's frames, so one
+/// member cannot move another member's replay window at a receiver.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_mesh_link_cannot_carry_another_members_frames() {
+    let mut call = Call::start(Some(start_rendezvous())).await;
+    call.admit_direct().await;
+    call.admit_direct().await;
+    let mut sessions = call.media(false, None).await;
+    let mut ring = new_ring(&mut call.parties[0].keys);
+    let victim = call.parties[1].node.id();
+
+    // Party 2 sends a frame under party 1's leaf over its own link.
+    let stolen = call.parties[1]
+        .keys
+        .sender
+        .encrypt(b"under party 1")
+        .unwrap();
+    assert_eq!(sessions[2].send_audio(&stolen), 2);
+    let forged = loop {
+        let incoming = within(sessions[0].recv()).await.unwrap();
+        if let Media::Audio(packet) = incoming.media {
+            assert_eq!(packet.as_ref(), stolen.as_slice());
+            break incoming.via;
+        }
+    };
+    assert_eq!(forged, call.parties[2].node.id());
+    assert_eq!(
+        ring.open_from(&stolen, &forged, Instant::now()),
+        Err(SecurityError::UnknownKey)
+    );
+
+    // Party 1's own frames over its own link still open.
+    let genuine = call.parties[1]
+        .keys
+        .sender
+        .encrypt(b"from party 1")
+        .unwrap();
+    assert_eq!(sessions[1].send_audio(&genuine), 2);
+    let (via, packet) = loop {
+        let incoming = within(sessions[0].recv()).await.unwrap();
+        if let Media::Audio(packet) = incoming.media {
+            break (incoming.via, packet);
+        }
+    };
+    assert_eq!(via, victim);
+    assert_eq!(
+        ring.open_from(&packet, &via, Instant::now()).unwrap().1,
+        b"from party 1"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn forwarded_call_sends_each_frame_once_and_every_member_opens_it() {
     let forwarder = start_forwarder();
@@ -425,14 +476,14 @@ async fn a_removed_member_gets_no_grace_on_the_old_epoch() {
 
 /// A ring opened with a party's receiver and roster.
 fn new_ring(keys: &mut EpochKeys) -> KeyRing {
-    let members: Vec<PublicId> = keys.roster.iter().map(|(_, d)| *d).collect();
-    KeyRing::new(keys.epoch, take_receiver(keys), members)
+    let roster = keys.roster.clone();
+    KeyRing::new(keys.epoch, take_receiver(keys), roster)
 }
 
 /// Moves a ring to a party's new epoch.
 fn rotate(ring: &mut KeyRing, keys: &mut EpochKeys, now: Instant) {
-    let members: Vec<PublicId> = keys.roster.iter().map(|(_, d)| *d).collect();
-    ring.rotate(keys.epoch, take_receiver(keys), members, now);
+    let roster = keys.roster.clone();
+    ring.rotate(keys.epoch, take_receiver(keys), roster, now);
 }
 
 /// Moves a party's receiver into a ring, leaving a receiver that opens nothing.
@@ -492,10 +543,14 @@ async fn app_messages_reach_every_member_in_a_mesh_and_through_a_forwarder() {
                 }
             };
             assert_eq!(packet, sealed, "passed on unchanged (forwarded: {forwarded})");
-            let (sender, plain) = call.parties[i].keys.receiver.decrypt(&packet).unwrap();
-            assert_eq!(sender, leaf);
             let device = call.parties[1].node.identity().public();
-            assert_eq!(AppMessage::open(&packet, &plain, &device).unwrap(), message);
+            let receiver = &mut call.parties[i].keys.receiver;
+            let (sender, plain) = receiver.decrypt(&packet).unwrap();
+            assert_eq!(sender, leaf);
+            assert_eq!(
+                AppMessage::open(&packet, &plain, &device, receiver.binding()).unwrap(),
+                message
+            );
         }
         let too_big = vec![0; veil_net::control::MAX_APP_LEN + 1];
         assert_eq!(sessions[1].send_app(&too_big).await, 0);

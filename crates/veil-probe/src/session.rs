@@ -52,10 +52,10 @@ impl Session {
             keys.roster.len(),
             self.leaf.map_or_else(|| "?".into(), |l| l.to_string()),
         );
-        let members = keys.roster.iter().map(|(_, d)| *d);
+        let roster = keys.roster.iter().copied();
         match &mut self.ring {
-            Some(ring) => ring.rotate(keys.epoch, keys.receiver, members, Instant::now()),
-            None => self.ring = Some(KeyRing::new(keys.epoch, keys.receiver, members)),
+            Some(ring) => ring.rotate(keys.epoch, keys.receiver, roster, Instant::now()),
+            None => self.ring = Some(KeyRing::new(keys.epoch, keys.receiver, roster)),
         }
         self.sender = Some(keys.sender);
     }
@@ -95,7 +95,7 @@ impl Session {
             Media::KeyframeRequest | Media::App(_) => return,
         };
         let Some(ring) = &mut self.ring else { return };
-        let (from, plain) = match ring.open(packet, Instant::now()) {
+        let (from, plain) = match ring.open_from(packet, &incoming.via, Instant::now()) {
             Ok(opened) => opened,
             Err(e) => {
                 println!(

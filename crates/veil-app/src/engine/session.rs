@@ -25,7 +25,9 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 use tokio::time::{Interval, MissedTickBehavior, interval};
-use veil_call::{AppMessage, EpochKeys, Incoming, KeyRing, Media, MediaSession, Path, Routes};
+use veil_call::{
+    AppError, AppMessage, EpochKeys, Incoming, KeyRing, Media, MediaSession, Path, Routes,
+};
 use veil_forward::Wanted;
 use veil_media::{AudioHeader, AudioSettings, OpusEncoder};
 use veil_security::{Identity, PublicId};
@@ -125,10 +127,10 @@ impl Session {
     /// A new epoch: new keys, and the people list follows the roster.
     pub fn on_keys(&mut self, keys: EpochKeys) {
         self.media.members(keys.roster.iter().map(|(_, d)| *d));
-        let members = keys.roster.iter().map(|(_, d)| *d);
+        let roster = keys.roster.iter().copied();
         match &mut self.ring {
-            Some(ring) => ring.rotate(keys.epoch, keys.receiver, members, Instant::now()),
-            None => self.ring = Some(KeyRing::new(keys.epoch, keys.receiver, members)),
+            Some(ring) => ring.rotate(keys.epoch, keys.receiver, roster, Instant::now()),
+            None => self.ring = Some(KeyRing::new(keys.epoch, keys.receiver, roster)),
         }
         self.sender = Some(keys.sender);
         self.announcer.restart(Instant::now());
@@ -321,7 +323,7 @@ impl Session {
                 return;
             }
             Media::App(sealed) => {
-                self.on_app(sealed);
+                self.on_app(sealed, &incoming.via);
                 return;
             }
             Media::Video { sealed, .. } => (sealed.as_slice(), true),
@@ -336,7 +338,8 @@ impl Session {
         } else {
             None
         };
-        let Ok((leaf, plain)) = ring.open(packet, Instant::now()) else {
+        // A member's link may carry only that member's frames (GHSA-rvhv-r5mr-2w3h).
+        let Ok((leaf, plain)) = ring.open_from(packet, &incoming.via, Instant::now()) else {
             return;
         };
         let Some(&id) = self.leaves.get(&leaf) else {
@@ -362,21 +365,23 @@ impl Session {
     }
 
     /// Opens a name or chat message and shows it. Anything that does not open, comes from a
-    /// leaf outside this epoch, is not signed by that leaf's device or fails the checks is
+    /// leaf outside its epoch, is not signed by that leaf's device or fails the checks is
     /// dropped.
-    fn on_app(&mut self, sealed: &[u8]) {
+    fn on_app(&mut self, sealed: &[u8], via: &PublicId) {
         let Some(ring) = &mut self.ring else { return };
-        let Ok((leaf, plain)) = ring.open(sealed, Instant::now()) else {
+        let (device, message) = match ring.open_app(sealed, via, Instant::now()) {
+            Ok(opened) => opened,
+            Err(AppError::Unopened) => return,
+            Err(e) => {
+                eprintln!("veil-app: dropped a message via {}: {e}", short(via));
+                return;
+            }
+        };
+        let Some(&(id, _)) = self.others.iter().find(|(_, d)| *d == device) else {
             return;
         };
-        let Some(&id) = self.leaves.get(&leaf) else {
-            return;
-        };
-        let Some(&(_, device)) = self.others.iter().find(|(i, _)| *i == id) else {
-            return;
-        };
-        match AppMessage::open(sealed, &plain, &device) {
-            Ok(AppMessage::Name(name)) => {
+        match message {
+            AppMessage::Name(name) => {
                 if self.names.set(device, name.clone()) {
                     self.shared.update(|view| {
                         for person in view.people.iter_mut().filter(|p| p.id == id) {
@@ -385,10 +390,9 @@ impl Session {
                     });
                 }
             }
-            Ok(AppMessage::Chat(text)) => {
+            AppMessage::Chat(text) => {
                 self.shared.push_chat(device, text);
             }
-            Err(e) => eprintln!("veil-app: dropped a message from {}: {e}", short(&device)),
         }
     }
 
