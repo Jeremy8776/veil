@@ -36,10 +36,19 @@
             <fw:FirewallException Id="FirewallPrivate" Name="Veil" Protocol="udp" Scope="any" Profile="private" />
             <fw:FirewallException Id="FirewallPublic" Name="Veil" Protocol="udp" Scope="any" Profile="public" />
           </File>
-          <File Id="Marker" Source="$(BinDir)\installed-by-msi" />
-          <File Id="LicenceMit" Source="$(BinDir)\LICENSE-MIT" />
-          <File Id="LicenceApache" Source="$(BinDir)\LICENSE-APACHE" />
-          <File Id="Dependencies" Source="$(BinDir)\DEPENDENCIES.md" />
+        </Component>
+        <!-- One file per component, so WiX can make each component's id itself. -->
+        <Component Id="Marker" Bitness="always64">
+          <File Id="Marker" Source="$(BinDir)\installed-by-msi" KeyPath="yes" />
+        </Component>
+        <Component Id="LicenceMit" Bitness="always64">
+          <File Id="LicenceMit" Source="$(BinDir)\LICENSE-MIT" KeyPath="yes" />
+        </Component>
+        <Component Id="LicenceApache" Bitness="always64">
+          <File Id="LicenceApache" Source="$(BinDir)\LICENSE-APACHE" KeyPath="yes" />
+        </Component>
+        <Component Id="Dependencies" Bitness="always64">
+          <File Id="Dependencies" Source="$(BinDir)\DEPENDENCIES.md" KeyPath="yes" />
         </Component>
       </Directory>
     </StandardDirectory>
@@ -58,6 +67,10 @@
 
     <Feature Id="Main">
       <ComponentRef Id="App" />
+      <ComponentRef Id="Marker" />
+      <ComponentRef Id="LicenceMit" />
+      <ComponentRef Id="LicenceApache" />
+      <ComponentRef Id="Dependencies" />
       <ComponentRef Id="StartMenu" />
     </Feature>
   </Package>
