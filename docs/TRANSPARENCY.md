@@ -93,7 +93,7 @@ rendezvous never says who is online.
 - Then: Windows hands the MSI to Windows Installer, which asks for permission and replaces
   Veil once it has closed. macOS copies `Veil.app` out of the disk image over this one and
   reopens it. Linux renames the new AppImage over this one and starts it.
-- The release key was made on 17/11/2026 and is built into 0.2.0 and later. Its public half
+- The release key was made on 17/11/2026 and is built into 0.1.2 and later. Its public half
   is `b7979c9c23c5061f66fb8183de91a970ff9d981fb3a65797ca4914e9fd76f4a8`. Copies from 0.1.x
   have no key and only link to the release page.
 
@@ -115,7 +115,7 @@ release file is listed in `SHA256SUMS.txt` with build provenance from GitHub.
 - A display name is whatever its owner typed. Veil does not check it, so someone can call
   themselves by another person's name. When two people in a call show the same name (case
   and spacing ignored), each gets the start of their device key after it, so they never look
-  alike. Letters that only look the same, such as Latin "a" and Cyrillic "а", are not caught.
+  alike. Letters that only look the same, such as Latin "a" and Cyrillic "Ð°", are not caught.
   Who someone is rests on the safety number; the host badge comes from the invite's host
   key, not from a name.
 - Chat message sizes are not padded, so a relay or forwarder sees roughly how long each

@@ -2,7 +2,7 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
-## 0.2.0, not yet released
+## 0.1.2, 17/11/2026
 
 ### Added
 
@@ -11,8 +11,8 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   Linux. Signed where the release has certificates.
 - Updates: copies installed from the MSI, the DMG or the AppImage can install a newer release
   with one click. Veil checks the release's Ed25519 signature and each file's SHA-256 first.
-  0.2.0 is the first release that carries the release key, so copies from 0.1.x update by
-  hand once, to 0.2.0.
+  0.1.2 is the first release that carries the release key, so copies from 0.1.x update by
+  hand once, to 0.1.2.
 
 ### Fixed
 

@@ -338,7 +338,7 @@ not applied for yet, steps in `docs/CODE_SIGNING.md`), or a certificate of your 
 `tools/release-key.sh`: the private key is on Jeremy's PC at `~/.veil/release-key.pem` (keep
 an offline copy) and in the `VEIL_UPDATE_KEY` secret; the public half is
 `crates/veil-app/release-key.pub`. A tag without the secret fails, because every copy from
-0.2.0 on refuses an unsigned release. Actions are pinned to SHAs, in
+0.1.2 on refuses an unsigned release. Actions are pinned to SHAs, in
 `ci.yml` too from 16/11/2026 (second audit, L1).
 
 Going public (16/11/2026): no secrets in history; workflows hold no secrets and give a
