@@ -175,12 +175,9 @@ fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
 }
 
 /// The arrow beside a control that opens its device menu: the right half of a split
-/// button, joined to the control just drawn (no gap, a thin line between the two).
+/// button, joined to the control just drawn (`ControlState::split` leaves no gap after it).
 fn menu_button(ui: &mut egui::Ui, label: &str, hint: &str) -> egui::Response {
-    let gap = ui.spacing().item_spacing.x;
-    ui.spacing_mut().item_spacing.x = 0.0;
     let (rect, response) = ui.allocate_exact_size(vec2(MENU_W, 58.0), Sense::click());
-    ui.spacing_mut().item_spacing.x = gap;
     let response = response.on_hover_text(hint);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
     if ui.is_rect_visible(rect) {

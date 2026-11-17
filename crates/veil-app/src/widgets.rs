@@ -27,8 +27,8 @@ pub struct ControlState {
     pub selected: bool,
     /// A count to show in a badge, such as people waiting.
     pub badge: usize,
-    /// The left half of a split button: square right corners, so the menu arrow drawn next
-    /// to it joins on.
+    /// The left half of a split button: square right corners and no gap after it, so the
+    /// menu arrow drawn next joins on.
     pub split: bool,
 }
 
@@ -48,7 +48,14 @@ pub fn control_corners(split: bool) -> CornerRadius {
 
 /// A square call-bar button: icon above a short label.
 pub fn control(ui: &mut Ui, icon: Icon, label: &str, hint: &str, state: ControlState) -> Response {
+    // egui adds the item gap after a widget, so a split button drops it: the arrow drawn
+    // next joins on.
+    let gap = ui.spacing().item_spacing.x;
+    if state.split {
+        ui.spacing_mut().item_spacing.x = 0.0;
+    }
     let (rect, response) = ui.allocate_exact_size(vec2(68.0, 58.0), Sense::click());
+    ui.spacing_mut().item_spacing.x = gap;
     let response = response.on_hover_text(hint);
     response.widget_info(|| WidgetInfo::selected(Role::Button, true, state.selected, label));
     if ui.is_rect_visible(rect) {
