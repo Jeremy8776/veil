@@ -295,6 +295,16 @@ impl LocalMedia {
     }
 }
 
+/// Which device a log line is about, without its name or id (`log.rs` keeps names out): the
+/// one chosen in a picker, or the system default.
+pub(crate) fn which(id: Option<&str>) -> &'static str {
+    if id.is_some() {
+        "the chosen device"
+    } else {
+        "the system default"
+    }
+}
+
 /// Maps an RMS level to 0..1 on a 60 dB scale.
 pub fn meter(samples: &[f32]) -> f32 {
     if samples.is_empty() {
@@ -314,8 +324,12 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
         fps: 30,
     };
     let mut camera = match Camera::open(id, want) {
-        Ok(camera) => camera,
+        Ok(camera) => {
+            crate::note!("camera: opened {}", which(id));
+            camera
+        }
         Err(e) => {
+            crate::note!("camera: cannot open {}: {e}", which(id));
             *lock(&shared.camera_error) = Some(e.to_string());
             ctx.request_repaint();
             return;
@@ -383,8 +397,12 @@ fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Option<
     use veil_media::AudioSettings;
     use veil_media::platform::Microphone;
     let mut mic = match Microphone::open(&AudioSettings::voice(), id) {
-        Ok(mic) => mic,
+        Ok(mic) => {
+            crate::note!("microphone: opened {}", which(id));
+            mic
+        }
         Err(e) => {
+            crate::note!("microphone: cannot open {}: {e}", which(id));
             *lock(&shared.mic_error) = Some(e.to_string());
             ctx.request_repaint();
             return;
