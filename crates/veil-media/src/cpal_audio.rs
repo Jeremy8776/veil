@@ -104,6 +104,16 @@ fn pick(
         .ok_or(MediaError::Unavailable("48 kHz audio"))
 }
 
+/// Whether a stream error means the device is gone. An xrun is a glitch, a rerouted default
+/// device keeps playing, and a refused real-time priority only risks glitches; none of them
+/// should end a call's audio.
+fn is_fatal(error: &cpal::Error) -> bool {
+    !matches!(
+        error.kind(),
+        cpal::ErrorKind::Xrun | cpal::ErrorKind::DeviceChanged | cpal::ErrorKind::RealtimeDenied
+    )
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -178,7 +188,11 @@ where
     let from = usize::from(config.channels);
     let on_error = {
         let failed = failed.clone();
-        move |_| *lock(&failed) = true
+        move |error: cpal::Error| {
+            if is_fatal(&error) {
+                *lock(&failed) = true;
+            }
+        }
     };
     let mut floats = Vec::new();
     device
@@ -281,7 +295,11 @@ where
     let to = usize::from(config.channels);
     let on_error = {
         let queue = queue.clone();
-        move |_| lock(&queue).failed = true
+        move |error: cpal::Error| {
+            if is_fatal(&error) {
+                lock(&queue).failed = true;
+            }
+        }
     };
     let (mut call, mut device_samples) = (Vec::new(), Vec::new());
     device
@@ -308,4 +326,29 @@ where
             None,
         )
         .map_err(|_| MediaError::Unavailable("speaker format"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cpal::ErrorKind;
+
+    #[test]
+    fn glitches_and_reroutes_are_not_fatal() {
+        for kind in [ErrorKind::Xrun, ErrorKind::DeviceChanged, ErrorKind::RealtimeDenied] {
+            assert!(!is_fatal(&cpal::Error::new(kind)), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn losing_the_device_is_fatal() {
+        for kind in [
+            ErrorKind::DeviceNotAvailable,
+            ErrorKind::StreamInvalidated,
+            ErrorKind::BackendError,
+            ErrorKind::Other,
+        ] {
+            assert!(is_fatal(&cpal::Error::new(kind)), "{kind:?}");
+        }
+    }
 }
