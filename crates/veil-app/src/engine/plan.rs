@@ -3,12 +3,13 @@
 //! Purpose: pure helpers for `host.rs` and `guest.rs`, tested without a network.
 //! - [`NetConfig`]: optional settings for calls across the internet, saved from Settings >
 //!   Connection (`crate::connection`), each overridden by its environment variable if set.
-//!   `VEIL_RENDEZVOUS=KEY@IP:PORT` uses a `veil-node` rendezvous (and relay) instead of the
+//!   `VEIL_RENDEZVOUS=KEY@HOST:PORT` uses a `veil-node` rendezvous (and relay) instead of the
 //!   host's own; `VEIL_ADVERTISE=IP:PORT,...` adds addresses guests can dial directly (a public
 //!   IP with a forwarded port); `VEIL_PORT` fixes the host's port (default: any free port);
-//!   `VEIL_FORWARDER=KEY@IP:PORT` carries large calls through a `veil-node` forwarder.
+//!   `VEIL_FORWARDER=KEY@HOST:PORT` carries large calls through a `veil-node` forwarder.
 //! - [`parse_node`], [`parse_advertise`], [`parse_port`]: one field each, shared by both
-//!   sources, refusing addresses nobody can dial (`0.0.0.0`, port 0).
+//!   sources, refusing addresses nobody can dial (`0.0.0.0`, port 0). A node's host may be a
+//!   DNS name; `host.rs` and `guest.rs` resolve it when the call starts.
 //! - [`advertised`]: the invite's direct addresses. Each is given only if it can work.
 //! - [`plan_for`]: this epoch's members as a mesh, or, past `Policy::mesh_max` (4 people) and
 //!   with a forwarder known, every member through the forwarder.
@@ -25,7 +26,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 
 use veil_call::{Directory, Peer};
-use veil_net::NodeAddr;
+use veil_net::{NodeAddr, NodeName};
 use veil_security::PublicId;
 use veil_topology::{NodeId, NodeKind, Plan, Policy, plan};
 
@@ -36,8 +37,8 @@ const FORWARDER_ID: NodeId = NodeId(u32::MAX);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NetConfig {
-    pub rendezvous: Option<NodeAddr>,
-    pub forwarder: Option<NodeAddr>,
+    pub rendezvous: Option<NodeName>,
+    pub forwarder: Option<NodeName>,
     pub advertise: Vec<SocketAddr>,
     pub port: u16,
 }
@@ -88,17 +89,33 @@ impl NetConfig {
     }
 }
 
-/// A node as `KEY@IP:PORT`; blank is none. The address must be one a client can dial.
-pub fn parse_node(text: &str) -> Result<Option<NodeAddr>, String> {
+/// A node as `KEY@HOST:PORT`, the host an IP or a DNS name; blank is none. An IP must be one
+/// a client can dial. A name is checked again when it is resolved (`NodeName::resolve`).
+pub fn parse_node(text: &str) -> Result<Option<NodeName>, String> {
     let text = text.trim();
     if text.is_empty() {
         return Ok(None);
     }
-    let node: NodeAddr = text
-        .parse()
-        .map_err(|_| String::from("Use KEY@IP:PORT, as veil-node prints it."))?;
-    dialable(node.addr)?;
+    let node: NodeName = text.parse().map_err(|_| {
+        String::from("Use KEY@IP:PORT as veil-node prints it, or KEY@NAME:PORT.")
+    })?;
+    match node.addr() {
+        Some(addr) => dialable(addr)?,
+        None if node.port() == 0 => return Err(String::from("Port 0 cannot be dialled.")),
+        None => {}
+    }
     Ok(Some(node))
+}
+
+/// Resolves a configured node when a call starts. `role` names it in the error the user sees.
+pub async fn resolve(node: Option<&NodeName>, role: &str) -> Result<Option<NodeAddr>, String> {
+    let Some(node) = node else {
+        return Ok(None);
+    };
+    node.resolve()
+        .await
+        .map(Some)
+        .map_err(|e| format!("Cannot reach the {role} server in Settings > Connection: {e}"))
 }
 
 /// Addresses guests may dial, as `IP:PORT` separated by commas; blank is none.
@@ -263,6 +280,19 @@ mod tests {
         assert!(parse_advertise("").unwrap().is_empty());
         assert_eq!(parse_port("7710").unwrap(), 7710);
         assert_eq!(parse_port(" ").unwrap(), 0);
+    }
+
+    #[test]
+    fn nodes_may_be_named_by_dns() {
+        let ip = node_text("203.0.113.5:4433");
+        let key = ip.split_once('@').unwrap().0;
+        let text = format!("{key}@veil.example.org:4433");
+        let node = parse_node(&text).unwrap().unwrap();
+        assert_eq!(node.host_name(), Some("veil.example.org"));
+        assert_eq!(node.to_string(), text);
+        assert!(parse_node(&format!("{key}@veil.example.org:0")).is_err());
+        assert!(parse_node(&format!("{key}@veil.example.org")).is_err());
+        assert!(parse_node(&format!("{key}@veil_example.org:4433")).is_err());
     }
 
     #[test]

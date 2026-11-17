@@ -29,6 +29,7 @@ pub mod endpoint;
 pub mod error;
 pub mod frames;
 pub mod node_addr;
+pub mod node_name;
 pub mod tls;
 
 pub use control::Control;
@@ -36,3 +37,4 @@ pub use endpoint::{FramedRecv, FramedSend, Link, Node};
 pub use error::NetError;
 pub use frames::FrameReader;
 pub use node_addr::NodeAddr;
+pub use node_name::NodeName;

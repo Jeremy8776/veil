@@ -23,7 +23,7 @@ use veil_security::Identity;
 use veil_security::invite::Invite;
 
 use super::Command;
-use super::plan::NetConfig;
+use super::plan::{NetConfig, resolve};
 use super::session::{Pipes, Session};
 use super::view::Shared;
 use crate::model::{Action, CallStatus};
@@ -39,7 +39,7 @@ pub async fn run(
 ) -> Result<(), String> {
     let bind = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
     let node = Node::bind(&identity, bind).map_err(|e| format!("Cannot open the network: {e}"))?;
-    let rendezvous = config.rendezvous;
+    let rendezvous = resolve(config.rendezvous.as_ref(), "rendezvous").await?;
     // Registering with the rendezvous and finding a path to the host can take half a minute
     // over the internet, so Leave is honoured throughout, not only in the lobby.
     let start = async {

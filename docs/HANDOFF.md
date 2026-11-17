@@ -405,7 +405,6 @@ private keys never leave the device. OS randomness is `getrandom::SysRng`.
   an empty room after everyone leaves; it receives nothing, and is dropped as soon as a real
   member joins with a newer ticket. Add an expiry if empty-room squatting matters.
 - No forwarder-to-forwarder cascade yet: one forwarder per room (`veil-forward/src/server.rs`).
-- `NodeAddr` takes a literal IP only, no DNS names (`veil-net/src/node_addr.rs`).
 - A plan carries at most 128 members so it fits one control message (`call_plan.rs`).
 - The app must call `publish_plan` after each `HostEvent::Keys`; the session does not plan by
   itself. A member sees no routes for an epoch until the host publishes.
@@ -516,8 +515,11 @@ Work, in order:
    `parse_advertise`, `parse_port`; `0.0.0.0` and port 0 are refused). Each set `VEIL_*`
    variable still wins, and the screen says so. A bad file is reported, ignored, and moved to
    `connection.json.bak` on the next Save. Not yet run by hand.
-2. DNS names in `NodeAddr`, for self-hosted nodes on dynamic DNS and the default node. A
-   spoofed name can only stop a call: the pinned key still refuses any other server.
+2. Done 17/11/2026: DNS names for configured nodes (`veil_net::NodeName`, `KEY@HOST:PORT`).
+   Settings and `VEIL_RENDEZVOUS` / `VEIL_FORWARDER` take a name; `host.rs` and `guest.rs`
+   resolve it when the call starts (`plan::resolve`, 5 s limit, IPv4 first, `0.0.0.0` and
+   `::` refused), so invites and plans still carry literal addresses. A spoofed name can only
+   stop a call: the pinned key still refuses any other server. `veil-probe` still takes IPs.
 3. Port opening (decisions above), then its guide and reachability check.
 4. The two-machine internet test (below), with and without a mapped port.
 5. The optional default node.

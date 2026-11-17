@@ -4,8 +4,8 @@
 //! relay, forwarder or rendezvous node. This is the text form an operator copies from
 //! `veil-node` into an invite's relay field.
 //!
-//! shortcut: the address part must be a literal IP and port; DNS names are refused. Upgrade with
-//! `tokio::net::lookup_host` when nodes are published under host names.
+//! The address part is a literal IP and port, the form invites and plans carry. A node named
+//! by DNS in settings is [`crate::NodeName`], resolved to this form when a call starts.
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -17,7 +17,8 @@ use veil_security::PublicId;
 
 use crate::NetError;
 
-/// Longest accepted text form: 43 key characters, `@`, and an IPv6 address with port.
+/// Longest accepted text form: 43 key characters, `@`, and an IPv6 address or host name with
+/// port. [`crate::NodeName`] uses the same bound.
 pub const MAX_NODE_ADDR_LEN: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
