@@ -167,9 +167,14 @@ impl Speaker {
         if self.open.is_none() && Instant::now() >= self.retry_at {
             let device = self.playback.device();
             match Output::open(&self.settings, device.as_deref()) {
-                Ok(output) => self.open = Some(output),
+                Ok(output) => {
+                    let which = crate::media::which(device.as_deref());
+                    crate::note!("speaker: opened {which}");
+                    self.open = Some(output);
+                }
                 Err(e) => {
-                    crate::note!("cannot open the speaker: {e}");
+                    let which = crate::media::which(device.as_deref());
+                    crate::note!("speaker: cannot open {which}: {e}");
                     self.retry_at = Instant::now() + REOPEN_AFTER;
                 }
             }
