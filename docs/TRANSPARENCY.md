@@ -194,7 +194,9 @@ decoded by `zune-jpeg`, which is pure Rust.
 **Fonts and icons:** none are bundled. `veil-app` reads the system's own UI, symbol and icon
 fonts at start-up (Segoe UI and Segoe Fluent Icons or Segoe MDL2 Assets on Windows). Where
 there is no icon font (Linux, macOS), icons are drawn from vector strokes in code. egui's
-bundled fonts are turned off because their licences are outside the allow list.
+bundled fonts are turned off because their licences are outside the allow list. The one
+bundled image is Veil's own app icon (`crates/veil-app/assets`), made for Veil and under
+Veil's licence. On Windows, `build.rs` embeds it in the exe with `winresource`.
 
 **In `veil-media`:**
 - Camera capture is only available through each operating system's own APIs: Media Foundation
