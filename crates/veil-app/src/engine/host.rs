@@ -47,7 +47,7 @@ use super::reach::Checker;
 use super::router::{Event, Router};
 use super::session::{Pipes, Session};
 use super::view::{Knocker, Shared};
-use super::{Command, Ids};
+use super::{Command, Ids, short};
 use crate::model::{Action, CallStatus, Reachable, RouterPort};
 
 const INVITE_LIFETIME: Duration = Duration::from_secs(3_600);
@@ -138,7 +138,16 @@ pub async fn run(
                         }
                     });
                 }
-                Some(HostEvent::Joined { device, .. } | HostEvent::Left(device)) => {
+                // Joins and leaves go to the log, so a call across networks shows when the
+                // host heard of each.
+                Some(HostEvent::Joined { device, .. }) => {
+                    crate::note!("call: {} joined", short(&device));
+                    let id = session.ids.id(device);
+                    knocks.retain(|(_, d)| *d != device);
+                    shared.update(|view| view.lobby.retain(|k| k.id != id));
+                }
+                Some(HostEvent::Left(device)) => {
+                    crate::note!("call: {} left", short(&device));
                     let id = session.ids.id(device);
                     knocks.retain(|(_, d)| *d != device);
                     shared.update(|view| view.lobby.retain(|k| k.id != id));
