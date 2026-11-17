@@ -4,6 +4,7 @@
 //! Connection is `connection.rs`.
 
 pub mod call;
+pub mod call_menus;
 pub mod connection;
 pub mod controls;
 pub mod home;
