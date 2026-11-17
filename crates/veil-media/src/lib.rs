@@ -32,6 +32,7 @@ pub mod scale;
 pub mod schedule;
 pub mod simulcast;
 pub mod temporal;
+pub mod yuv;
 
 pub use audio::{AudioHeader, AudioSettings, Channels};
 pub use capture::{CameraMode, NativeMode, PixelFormat};
