@@ -489,6 +489,56 @@ behind (folder, Start menu entry, firewall rule, registry).
    `join LINK --relay-only` to test the relay, and with `host --forwarder KEY@IP:PORT` to test
    forwarding. Each invite is one use; the host prints a fresh one after every join.
 
+## 0.1.5 and 0.1.6 (17/11/2026)
+
+v0.1.6 is the published Latest release (tag `v0.1.6` = `4dbffc0`). All 8 packages pass
+`sha256sum -c` and the `SHA256SUMS.txt` signature verifies against `release-key.pub`.
+Windows and macOS packages are not code-signed. Releases go through a release PR (bump
+`Cargo.toml`, `cargo update -w --offline`, CHANGELOG), not an admin bypass.
+
+0.1.5 (`7a2de52`):
+- A guest dials a reachable host (#34). The lower device key used to dial every media link;
+  when that was the host, it dialled a guest with no open port and the punch timed out, so
+  the guest had no sound, video, name or chat (log: "cannot reach <guest>: rendezvous did
+  not answer in time"). `routes::dials` now picks the dialler from the shared plan: the
+  member without a known address dials the one with one, otherwise the lower key.
+  `Routes::Mesh` carries whether this member is reachable. Both ends need 0.1.5 or later.
+- Calmer Home (#35): no "Veil" title, content centred. The end screen and Settings >
+  Connection match.
+- Log lines (#36): the host logs "call: <key> joined" and "call: <key> left", and
+  "call: linking up took ..." when over a second. New tests: a guest leaving is seen by the
+  host, and the host leaving ends the guest's call (`veil-call/tests/session.rs`, loopback).
+- Invite time left (#37, `screens/invite.rs`, `engine/invites.rs`): "Expires in 42 min" on
+  the invite card, People and the Invite tooltip. A link that runs out unused is replaced.
+  "Keep links working until the call ends" makes 30-day links; the call ending still stops
+  them, because the lobby lives in the host's memory. Each link still admits one person.
+
+0.1.6 (`4dbffc0`):
+- Devices during a call (#38): the arrow beside Mute picks a microphone or speaker and sets
+  microphone (0 to 200%) and speaker (0 to 100%) volume; the arrow beside Stop video picks a
+  camera. The pickers are shared with pre-join (`widgets.rs`). A new speaker reaches the
+  playback thread through `Playback` (`volume.rs`) and reopens on the next 20 ms frame.
+- Stats overlay (#38), off by default: the signal button in the top bar or Ctrl+Shift+D.
+  Per person: path, QUIC round trip, loss, bit rate down and up, received video size and
+  frame rate, received sound level; your microphone level; a forwarder row.
+  `MediaSession::link_stats` reads QUIC counters only, so nothing new is sent.
+- Device log (#39): each microphone, camera or speaker open (or failure) is logged as chosen
+  or system default, without names or ids.
+
+Open from these releases:
+- **Leaves go unnoticed in calls across networks** (host or guest leaving). Cause unknown
+  and not confirmed by logs. On one machine both directions work. Ruled out: the host's
+  goodbye being lost at runtime shutdown. Suspect, unconfirmed: dials in
+  `MediaSession::apply` hold the call loop (the `engine/host.rs` shortcut). Next: a call
+  with Martin, both on 0.1.6; collect both `%LOCALAPPDATA%\Veil\logs\veil.log` files and
+  note which side left. Look for "call: <key> left", "call: linking up took" and
+  "cannot reach".
+- Not yet tested by hand: sound, video, names and chat across the internet with Martin
+  (#34); changing devices mid-call and the stats overlay (#38); the invite timer and
+  checkbox; the self-update Install button; Settings > Connection; the white icon on light
+  backgrounds; the reachability check across the internet (needs a public `veil-node`); CPU
+  use while Home is open; the new Home layout.
+
 ## Direction (agreed 17/11/2026)
 
 The premise, so no session drifts from it: a Zoom or Teams style app where calls are
@@ -553,9 +603,18 @@ Work, in order:
    pass it without an open port.
 4. The two-machine internet test (below), with and without a mapped port.
 5. The optional default node.
-Open PRs to settle alongside: #21 (video filters), #28 (background blur).
+Video filters (#21) and background blur (#28) were merged and shipped in 0.1.4.
 
 ## Next, in suggested order
+
+From 17/11/2026, first:
+- A call with Martin on 0.1.6 to find why leaves go unnoticed (logs from both sides), and
+  to test #34 and #38 across the internet. See "0.1.5 and 0.1.6" above.
+- The hand tests listed there.
+- Later: the optional default node, after the relay gets fair queuing and a total cap.
+  Calls of three or more where no guest has an open port still need a rendezvous.
+
+Earlier list:
 
 1. Two-machine test over the real internet with `veil-probe` (steps above). Needs Jeremy's
    machines and a public box.
