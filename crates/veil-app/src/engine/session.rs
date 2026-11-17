@@ -175,8 +175,13 @@ impl Session {
 
     /// Links up with the members this epoch's plan names.
     pub async fn on_routes(&mut self, routes: Routes) {
+        let started = Instant::now();
         for (peer, e) in self.media.apply(routes).await {
             crate::note!("cannot reach {}: {e}", short(&peer));
+        }
+        // Dials hold the call loop (shortcut in host.rs), so leaves and chat wait meanwhile.
+        if started.elapsed() > Duration::from_secs(1) {
+            crate::note!("call: linking up took {:?}", started.elapsed());
         }
         // Whoever just linked up needs a keyframe to start decoding.
         self.pipes.control.keyframe.store(true, Ordering::Relaxed);

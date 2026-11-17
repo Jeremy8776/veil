@@ -243,6 +243,34 @@ fn loopback_joining_an_unreachable_host_never_holds_the_interface() {
     assert!(t.elapsed() < Duration::from_secs(2), "leaving held the interface");
 }
 
+/// The host leaving ends the call for the guest within a second, with the reason shown.
+#[test]
+#[ignore = "opens ports and the speaker"]
+fn loopback_guest_sees_the_host_end_the_call() {
+    let ctx = egui::Context::default();
+    let host = Engine::start(Role::Host, NetConfig::default(), "Host".into(), None, fresh_keys(), ctx.clone()).unwrap();
+    let mut host_call = Call::live("Call".into(), "Host", true, Instant::now());
+    wait_for("an invite", &host, &mut host_call, |c| !c.invite.is_empty());
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let invite = Invite::from_link(&host_call.invite, now).unwrap();
+    let guest = Engine::start(Role::Guest(Box::new(invite)), NetConfig::default(), "Guest".into(), None, fresh_keys(), ctx).unwrap();
+    let mut guest_call = Call::live("Call".into(), "Guest", false, Instant::now());
+    wait_for("a knock", &host, &mut host_call, |c| c.lobby.len() == 1);
+    host.act(Action::Admit(host_call.lobby[0].id));
+    wait_for("admission", &guest, &mut guest_call, |c| {
+        c.status == CallStatus::Live && c.participants.len() == 2
+    });
+
+    drop(host);
+    let t = Instant::now();
+    wait_for("the call to end", &guest, &mut guest_call, |c| {
+        matches!(c.status, CallStatus::Ended(_))
+    });
+    println!("guest saw {:?} after {:?}", guest_call.status, t.elapsed());
+    assert!(t.elapsed() < Duration::from_secs(1), "the guest heard late");
+    assert_eq!(guest_call.status, CallStatus::Ended("The host ended the call.".into()));
+}
+
 /// A key that lasts this test only: nothing is saved.
 fn fresh_keys() -> std::sync::Arc<std::sync::Mutex<crate::keystore::KeyStore>> {
     std::sync::Arc::new(std::sync::Mutex::new(crate::keystore::KeyStore::open(None)))

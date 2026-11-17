@@ -204,3 +204,21 @@ async fn removed_member_is_told_and_gets_no_more_keys() {
     }
     assert_eq!(next_keys(&mut call.events).await.epoch, 2);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn members_learn_at_once_that_the_host_ended_the_call() {
+    let mut call = start_call().await;
+    let mut alice = call.admit().await;
+    let Call { _node: host_node, host, .. } = call;
+    let ended = std::time::Instant::now();
+    drop(host);
+    drop(host_node);
+    match within(alice.handle.events.recv()).await.unwrap() {
+        MemberEvent::Closed => {}
+        other => panic!("expected the call to close, got {other:?}"),
+    }
+    // The app stops its runtime about 0.1 s after leaving, so the goodbye must go before then,
+    // or members only notice at the 20 s idle timeout.
+    let waited = ended.elapsed();
+    assert!(waited < Duration::from_millis(500), "members heard after {waited:?}");
+}
