@@ -60,11 +60,25 @@ impl Worker {
     }
 }
 
+/// How long dropping a worker waits for its thread. Workers are dropped on the interface
+/// thread, so a device driver stuck in a read must not hold it: Windows calls a window that
+/// stops answering for 5 seconds "Not Responding" (logged as a cross-thread hang 16/11/2026).
+const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+
 impl Drop for Worker {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.handle.take() {
+        let Some(handle) = self.handle.take() else { return };
+        let deadline = std::time::Instant::now() + STOP_WAIT;
+        while !handle.is_finished() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        if handle.is_finished() {
             let _ = handle.join();
+        } else {
+            // The thread still sees `stop` and ends when its device returns; it is left to
+            // finish on its own rather than freeze the window.
+            eprintln!("veil-app: a device thread did not stop within {STOP_WAIT:?}; left to finish");
         }
     }
 }
@@ -292,6 +306,25 @@ fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Option<
 #[cfg(test)]
 mod tests {
     use super::meter;
+
+    #[test]
+    fn a_stuck_worker_does_not_hold_whoever_drops_it() {
+        use std::time::{Duration, Instant};
+        // A driver stuck in a read: the thread ignores `stop` for 3 seconds.
+        let stuck = super::Worker::spawn(|_stop| std::thread::sleep(Duration::from_secs(3)));
+        let t = Instant::now();
+        drop(stuck);
+        assert!(t.elapsed() < Duration::from_millis(1_500), "held for {:?}", t.elapsed());
+
+        let quick = super::Worker::spawn(|stop| {
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let t = Instant::now();
+        drop(quick);
+        assert!(t.elapsed() < Duration::from_millis(200), "a worker that stops is joined at once");
+    }
 
     #[test]
     fn meter_spans_sixty_decibels() {
