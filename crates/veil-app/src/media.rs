@@ -20,9 +20,7 @@ use eframe::egui;
 
 use crate::convert::Rgba;
 use crate::devices::Choice;
-use crate::engine::Taps;
-#[cfg(windows)]
-use crate::engine::Captured;
+use crate::engine::{Captured, Taps};
 
 /// What the interface reads from the workers.
 #[derive(Default)]
@@ -206,15 +204,15 @@ pub fn meter(samples: &[f32]) -> f32 {
     ((db + 60.0) / 60.0).clamp(0.0, 1.0)
 }
 
-#[cfg(windows)]
 fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Option<&str>) {
-    use veil_media::{CameraMode, MfCamera};
+    use veil_media::CameraMode;
+    use veil_media::platform::Camera;
     let want = CameraMode {
         width: 1_280,
         height: 720,
         fps: 30,
     };
-    let mut camera = match MfCamera::open(id, want) {
+    let mut camera = match Camera::open(id, want) {
         Ok(camera) => camera,
         Err(e) => {
             *lock(&shared.camera_error) = Some(e.to_string());
@@ -254,10 +252,10 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
     ctx.request_repaint();
 }
 
-#[cfg(windows)]
 fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Option<&str>) {
-    use veil_media::{AudioSettings, WasapiCapture};
-    let mut mic = match WasapiCapture::open(&AudioSettings::voice(), id) {
+    use veil_media::AudioSettings;
+    use veil_media::platform::Microphone;
+    let mut mic = match Microphone::open(&AudioSettings::voice(), id) {
         Ok(mic) => mic,
         Err(e) => {
             *lock(&shared.mic_error) = Some(e.to_string());
@@ -290,15 +288,6 @@ fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Option<
     shared.level.store(0, Ordering::Relaxed);
 }
 
-#[cfg(not(windows))]
-fn camera_loop(shared: &Shared, _ctx: &egui::Context, _stop: &AtomicBool, _id: Option<&str>) {
-    *lock(&shared.camera_error) = Some("camera capture is Windows only so far".into());
-}
-
-#[cfg(not(windows))]
-fn mic_loop(shared: &Shared, _ctx: &egui::Context, _stop: &AtomicBool, _id: Option<&str>) {
-    *lock(&shared.mic_error) = Some("microphone capture is Windows only so far".into());
-}
 
 #[cfg(test)]
 mod tests {

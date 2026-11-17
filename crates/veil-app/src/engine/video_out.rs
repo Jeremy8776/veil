@@ -178,16 +178,8 @@ fn open(size: (u16, u16, u32)) -> Result<Active, MediaError> {
     })
 }
 
-#[cfg(windows)]
 fn platform_encoder(ladder: &Ladder) -> Result<Box<dyn VideoEncoder>, MediaError> {
-    Ok(Box::new(veil_media::media_foundation(ladder, true)?))
-}
-
-#[cfg(not(windows))]
-fn platform_encoder(_: &Ladder) -> Result<Box<dyn VideoEncoder>, MediaError> {
-    Err(MediaError::Unavailable(
-        "video encoder (Windows only so far)",
-    ))
+    veil_media::platform::video_encoder(ladder)
 }
 
 fn encode(active: &mut Active, picture: &Captured) -> Result<Vec<Encoded>, MediaError> {

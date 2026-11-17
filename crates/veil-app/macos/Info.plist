@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>io.github.jeremy8776.veil</string>
+    <key>CFBundleName</key>
+    <string>Veil</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Veil sends your camera to the people in your call, encrypted end to end.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Veil sends your microphone to the people in your call, encrypted end to end.</string>
+</dict>
+</plist>

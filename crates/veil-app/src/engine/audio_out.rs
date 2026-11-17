@@ -180,31 +180,15 @@ impl<'a> Speaker<'a> {
     }
 }
 
-#[cfg(windows)]
-struct Output(veil_media::WasapiPlayback);
+struct Output(veil_media::platform::Speaker);
 
-#[cfg(windows)]
 impl Output {
     fn open(settings: &AudioSettings, device: Option<&str>) -> Result<Self, MediaError> {
-        veil_media::WasapiPlayback::open(settings, device).map(Self)
+        veil_media::platform::Speaker::open(settings, device).map(Self)
     }
 
     fn write(&mut self, frame: &[f32]) -> Result<(), MediaError> {
         self.0.write(frame)
-    }
-}
-
-#[cfg(not(windows))]
-struct Output;
-
-#[cfg(not(windows))]
-impl Output {
-    fn open(_: &AudioSettings, _: Option<&str>) -> Result<Self, MediaError> {
-        Err(MediaError::Unavailable("speaker (Windows only so far)"))
-    }
-
-    fn write(&mut self, _: &[f32]) -> Result<(), MediaError> {
-        Ok(())
     }
 }
 

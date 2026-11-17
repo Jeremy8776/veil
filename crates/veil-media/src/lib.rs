@@ -33,6 +33,7 @@ pub mod ladder;
 #[cfg(any(target_os = "linux", test))]
 pub mod mjpeg;
 pub mod payload;
+pub mod platform;
 pub mod remix;
 pub mod scale;
 pub mod schedule;

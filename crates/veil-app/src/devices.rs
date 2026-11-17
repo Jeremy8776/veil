@@ -1,8 +1,8 @@
 //! The cameras, microphones and speakers on this machine, and which ones you chose.
 //!
 //! Purpose: one list per kind for the pre-join pickers, read from `veil-media`. A choice of
-//! `None` means the default: the first camera, and Windows' default communications microphone
-//! and speaker.
+//! `None` means the default: the first camera, and the system's default microphone and speaker
+//! (on Windows, the default communications devices).
 //!
 //! Invariants:
 //! - Listing never fails the screen: a device kind that cannot be listed comes back empty, and
@@ -33,9 +33,8 @@ pub struct Choice {
 
 impl DeviceLists {
     /// Reads every list now. Takes a moment; call it when a screen opens, not every frame.
-    #[cfg(windows)]
     pub fn load() -> Self {
-        let cameras = veil_media::cameras()
+        let cameras = veil_media::platform::cameras()
             .unwrap_or_default()
             .into_iter()
             .map(|c| Device {
@@ -43,7 +42,7 @@ impl DeviceLists {
                 id: c.id,
             })
             .collect();
-        let audio = |list: Result<Vec<veil_media::AudioDevice>, _>| {
+        let audio = |list: Result<Vec<veil_media::platform::AudioDevice>, _>| {
             list.unwrap_or_default()
                 .into_iter()
                 .map(|d| Device {
@@ -54,15 +53,11 @@ impl DeviceLists {
         };
         Self {
             cameras,
-            mics: audio(veil_media::microphones()),
-            speakers: audio(veil_media::speakers()),
+            mics: audio(veil_media::platform::microphones()),
+            speakers: audio(veil_media::platform::speakers()),
         }
     }
 
-    #[cfg(not(windows))]
-    pub fn load() -> Self {
-        Self::default()
-    }
 }
 
 /// The name to show for `chosen` in `list`, with `default` for `None` or a device that has
