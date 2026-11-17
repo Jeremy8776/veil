@@ -376,7 +376,7 @@ pub fn blur_picker(ui: &mut Ui, media: &LocalMedia) {
                 .small()
                 .color(theme::DANGER_HOVER),
         )
-        .on_hover_text("Turn it on again when fewer apps are running.");
+        .on_hover_text("Turn the camera on again when fewer apps are running, or turn blur off.");
     }
 }
 

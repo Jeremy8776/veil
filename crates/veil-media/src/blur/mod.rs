@@ -18,7 +18,8 @@
 //!   treated as background, so no sharp background leaves while the worker starts. That wait
 //!   has no limit: a worker that never answers keeps the picture fully blurred, which is safe.
 //! - Once a mask has arrived, a picture more than [`MAX_MASK_AGE`] pictures newer than it is
-//!   left unblurred and [`BlurStatus::TooBusy`] is returned. The caller turns blur off.
+//!   left unblurred and [`BlurStatus::TooBusy`] is returned. The caller must not send that picture
+//!   (`veil-app` closes the camera).
 //! - Input is NV12 as in [`crate::capture`]: `stride * height` luma bytes, then `height / 2`
 //!   rows of interleaved U,V, each `stride` bytes with `width` of them used. Padding is never
 //!   touched. A malformed picture (odd or zero size, `stride < width`, short buffer) is left

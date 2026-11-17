@@ -206,6 +206,9 @@ impl VeilApp {
 
     /// Uploads the newest camera picture and smooths the microphone level.
     fn update_media(&mut self, ctx: &egui::Context) {
+        if self.media.take_camera_stopped() {
+            self.want_camera = false;
+        }
         if !self.media.camera_on() {
             self.preview = None;
         } else if let Some(picture) = self.media.take_picture() {

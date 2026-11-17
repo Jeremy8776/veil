@@ -12,8 +12,10 @@
 //! - Only the newest picture is kept; a slow interface skips pictures, never queues them.
 //! - The preview and the taps see the same picture, after any blur and filter. With neither
 //!   the picture is not copied or changed, and no blur worker thread exists.
-//! - If the blur worker cannot keep up, blur turns itself off, the choice reads Off and a
-//!   notice says why; it stays off until the person turns it on again.
+//! - If the blur worker cannot keep up, the camera turns itself off (the picture that could
+//!   not be blurred is neither shown nor sent) and a notice says why. Blur stays chosen, so the
+//!   background is never sent sharp without the person deciding to.
+//!   [`LocalMedia::take_camera_stopped`] tells the interface, which then shows the camera off.
 //! - A device error is kept as text for the interface and the thread ends.
 //! - The taps never block capture: a full engine queue drops the picture or frame.
 
@@ -41,12 +43,14 @@ struct Shared {
     taps: Mutex<Option<Taps>>,
     filter: Mutex<Filter>,
     blur: Mutex<Blur>,
-    /// Why blur turned itself off, until the person chooses blur again.
+    /// Why the camera turned itself off for blur, until the camera or blur is chosen again.
     blur_notice: Mutex<Option<String>>,
+    /// Set by the camera thread when it closed the camera itself.
+    camera_stopped: AtomicBool,
 }
 
-/// Shown when blur turns itself off because the computer is too busy.
-pub const BLUR_TOO_BUSY: &str = "Background blur is off: this computer is too busy to keep up.";
+/// Shown when the camera turns itself off because blur cannot keep up.
+pub const BLUR_TOO_BUSY: &str = "Camera off: this computer is too busy to blur your background.";
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     // A worker that panicked mid-write leaves plain data behind; use it.
@@ -136,6 +140,7 @@ impl LocalMedia {
             return;
         }
         *lock(&self.shared.camera_error) = None;
+        *lock(&self.shared.blur_notice) = None;
         let (shared, ctx) = (self.shared.clone(), self.ctx.clone());
         let id = self.choice.camera.clone();
         self.camera = Some(Worker::spawn(move |stop| {
@@ -229,7 +234,18 @@ impl LocalMedia {
         }
     }
 
-    /// Why blur turned itself off, if it did, until blur is chosen again.
+    /// True once after the camera thread closed the camera because blur could not keep up.
+    /// Drops the ended worker, so [`Self::camera_on`] reads false from then on.
+    pub fn take_camera_stopped(&mut self) -> bool {
+        if !self.shared.camera_stopped.swap(false, Ordering::AcqRel) {
+            return false;
+        }
+        self.camera = None;
+        *lock(&self.shared.picture) = None;
+        true
+    }
+
+    /// Why the camera turned itself off, if it did, until the camera or blur is chosen again.
     pub fn blur_notice(&self) -> Option<String> {
         lock(&self.shared.blur_notice).clone()
     }
@@ -302,10 +318,10 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
             if blur != Blur::Off {
                 let engine = blur_engine.get_or_insert_with(BlurEngine::start);
                 if engine.apply(&mut filtered, w, h, picture.stride, blur) == BlurStatus::TooBusy {
-                    blur_engine = None;
-                    *lock(&shared.blur) = Blur::Off;
+                    // Never show or send this picture's background sharp: close the camera.
                     *lock(&shared.blur_notice) = Some(BLUR_TOO_BUSY.to_string());
-                    ctx.request_repaint();
+                    shared.camera_stopped.store(true, Ordering::Release);
+                    break;
                 }
             }
             veil_media::effects::apply_filter(&mut filtered, w, h, picture.stride, filter);
@@ -388,6 +404,22 @@ mod tests {
         let t = Instant::now();
         drop(quick);
         assert!(t.elapsed() < Duration::from_millis(200), "a worker that stops is joined at once");
+    }
+
+    #[test]
+    fn a_camera_stopped_for_blur_reads_off_once_and_keeps_blur_chosen() {
+        use std::sync::atomic::Ordering;
+        let mut media = super::LocalMedia::new(eframe::egui::Context::default());
+        media.set_blur(veil_media::Blur::Strong);
+        // A finished worker stands in for the camera thread that closed the camera itself.
+        media.camera = Some(super::Worker::spawn(|_stop| {}));
+        *super::lock(&media.shared.blur_notice) = Some(super::BLUR_TOO_BUSY.to_string());
+        media.shared.camera_stopped.store(true, Ordering::Release);
+        assert!(media.take_camera_stopped());
+        assert!(!media.camera_on());
+        assert!(!media.take_camera_stopped(), "reported once");
+        assert_eq!(media.blur(), veil_media::Blur::Strong, "blur stays chosen");
+        assert_eq!(media.blur_notice().as_deref(), Some(super::BLUR_TOO_BUSY));
     }
 
     #[test]

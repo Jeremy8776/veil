@@ -56,8 +56,9 @@ you in the picture is done by a small network built into Veil (see section 4). I
 thread of its own while blur is on, and nothing is sent anywhere to do it.
 - Blur is not a privacy guarantee. The network makes mistakes: edges, hair, hands and objects
   you hold up can show what is behind you, most of all when you move or the light is poor.
-- If your computer is too busy for the network to keep up, blur turns itself off and says so.
-  From then on the background is sent as it is, until you turn blur on again. Until the first
+- If your computer is too busy for the network to keep up, your camera turns itself off and
+  Veil says so. The picture that could not be blurred is not sent, and blur stays chosen, so
+  your background is never sent sharp unless you turn blur off yourself. Until the first
   result is ready after you turn blur on, the whole picture is blurred.
 
 **Kept on your device** (desktop app, Windows, in `%LOCALAPPDATA%\Veil`):
@@ -188,7 +189,7 @@ The code is `crates/veil-app/src/firewall.rs`.
   Veil writes its own MLS crypto backend instead of using `openmls_rust_crypto` (which pulls in
   MPL-2.0 code), and does not use FFmpeg (LGPL).
 - Background blur uses Google's MediaPipe selfie segmenter (landscape), licensed Apache-2.0,
-  from the MediaPipe model card. Its weights are converted once by `tools/selfie_weights.py`,
+  from the MediaPipe model card, and credited in DEPENDENCIES.md under "Other components". Its weights are converted once by `tools/selfie_weights.py`,
   which checks the downloaded file's SHA-256, and are built into Veil as a 213 KB file. Veil
   never downloads a model at run time and never takes one from another member, so parsing a
   model is not attack surface. Source, hashes and how to regenerate are in

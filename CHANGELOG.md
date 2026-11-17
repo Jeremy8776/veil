@@ -12,9 +12,10 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   Veil starts.
 - Background blur: Off, Light or Strong, next to Filter. It finds you in the picture on your
   device, with a small network built into Veil, and blurs everything else before the picture is
-  encoded. Nothing is downloaded or sent to do it. If your computer is too busy, blur turns
-  itself off and says so. Blur is not a privacy guarantee: edges and hair can show what is
-  behind you. It resets to Off each time Veil starts.
+  encoded. Nothing is downloaded or sent to do it. If your computer is too busy, your camera
+  turns off and Veil says so, so your background is never sent sharp. Blur is not a privacy
+  guarantee: edges and hair can show what is behind you. It resets to Off each time Veil
+  starts.
 
 ## 0.1.3, 17/11/2026
 
