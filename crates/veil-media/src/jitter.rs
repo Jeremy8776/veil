@@ -16,8 +16,13 @@
 //!   delay, so a packet that is merely late still plays.
 //! - Memory is bounded: at most [`MAX_PACKETS`] packets are held. A packet too far ahead resets
 //!   the buffer (the sender restarted); one whose slot has already played is dropped.
-//! - After [`REBUFFER_AFTER_MS`] of nothing to play, the buffer stops and fills again, so a
-//!   long gap does not leave the call permanently behind.
+//! - The restart rule works both ways: after [`RESYNC_AFTER_BEHIND`] packets in a row that are
+//!   far behind the play position, the buffer starts again from them. Any call member can seal
+//!   sound under another member's sender index, so one forged packet far ahead must not leave
+//!   that member's real stream permanently "already played" (GHSA-9wq4-7r8v-7582).
+//! - After [`REBUFFER_AFTER_MS`] of nothing to play, the buffer stops and fills again from
+//!   scratch (the newest position is forgotten too), so a long gap does not leave the call
+//!   permanently behind.
 //! - Time is passed in (arrival in microseconds on the receiver's clock), so it is tested
 //!   without sleeping.
 
@@ -31,6 +36,8 @@ pub const MAX_TARGET_FRAMES: usize = 10;
 pub const MAX_PACKETS: usize = 64;
 /// Stop and fill again after this long with nothing to play.
 pub const REBUFFER_AFTER_MS: u64 = 200;
+/// Start again after this many packets in a row arrive far behind the play position.
+pub const RESYNC_AFTER_BEHIND: u32 = 25;
 
 /// What the playback clock does for one frame.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,6 +65,8 @@ pub struct JitterBuffer {
     last_transit: Option<i64>,
     /// Frames played in a row with nothing to play.
     missing: u64,
+    /// Packets in a row that arrived more than [`MAX_PACKETS`] behind the play position.
+    behind: u32,
 }
 
 impl JitterBuffer {
@@ -71,19 +80,26 @@ impl JitterBuffer {
             peak_jitter_us: 0.0,
             last_transit: None,
             missing: 0,
+            behind: 0,
         }
     }
 
     /// Takes a packet that arrived at `arrival_us` on the receiver's clock.
     pub fn push(&mut self, header: AudioHeader, packet: &[u8], arrival_us: u64) {
         let seq = self.extend(header.sequence);
-        let too_far = self
-            .next
-            .or(self.packets.keys().next().copied())
-            .is_some_and(|first| seq >= first + MAX_PACKETS as u64);
-        if too_far {
-            // The sender restarted or skipped far ahead: start again from this packet.
+        // The play position, or the oldest packet held while filling.
+        let first = self.next.or(self.packets.keys().next().copied());
+        let too_far = first.is_some_and(|first| seq >= first + MAX_PACKETS as u64);
+        let far_behind = first.is_some_and(|first| seq.saturating_add(MAX_PACKETS as u64) <= first);
+        self.behind = if far_behind { self.behind + 1 } else { 0 };
+        if too_far || self.behind >= RESYNC_AFTER_BEHIND {
+            // The sender restarted or skipped far ahead, or the position itself is far ahead
+            // of a steady stream (one forged packet put it there): start again from here.
             self.reset();
+            return self.push(header, packet, arrival_us);
+        }
+        if far_behind {
+            return; // A straggler, or a stream the buffer has not resynced to yet.
         }
         if self.next.is_some_and(|next| seq < next) {
             return; // Its slot has played already.
@@ -109,8 +125,9 @@ impl JitterBuffer {
         }
         self.missing += 1;
         if self.missing * self.frame_us >= REBUFFER_AFTER_MS * 1_000 && self.packets.is_empty() {
-            self.next = None;
-            self.missing = 0;
+            // Nothing is held, so forget the position as well: the next packet starts afresh
+            // instead of being measured against a newest number that may have been forged.
+            self.reset();
             return Playout::Conceal;
         }
         let ahead = self.newest.map_or(0, |n| (n + 1).saturating_sub(next));
@@ -191,6 +208,7 @@ impl JitterBuffer {
         self.next = None;
         self.last_transit = None;
         self.missing = 0;
+        self.behind = 0;
     }
 }
 
@@ -324,6 +342,67 @@ mod tests {
             push(&mut buffer, seq, 0);
             assert_eq!(buffer.pop(), packet(seq));
         }
+    }
+
+    /// GHSA-9wq4-7r8v-7582: one packet sealed under the victim's index with a sequence number
+    /// about 2^31 ahead must not silence the victim's real stream.
+    #[test]
+    fn one_forged_far_ahead_packet_must_not_silence_the_stream() {
+        let mut buffer = JitterBuffer::new(20);
+        for seq in 0..5 {
+            push(&mut buffer, seq, 0);
+            assert_eq!(buffer.pop(), packet(seq));
+        }
+        let forged = AudioHeader {
+            sequence: 4 + 0x7FFF_FFFF,
+            timestamp_us: 0,
+        };
+        buffer.push(forged, &[0xAA], 0);
+        let mut played = 0;
+        for seq in 5..505u32 {
+            push(&mut buffer, seq, 0);
+            if buffer.pop() == packet(seq) {
+                played += 1;
+            }
+        }
+        assert!(played > 400, "the real stream never plays again: {played}");
+    }
+
+    #[test]
+    fn a_forged_capture_time_does_not_silence_the_stream() {
+        let mut buffer = JitterBuffer::new(20);
+        for seq in 0..5 {
+            push(&mut buffer, seq, 0);
+            assert_eq!(buffer.pop(), packet(seq));
+        }
+        let forged = AudioHeader {
+            sequence: 4 + 0x7FFF_FFFF,
+            timestamp_us: u64::MAX / 2,
+        };
+        buffer.push(forged, &[0xAA], 0);
+        let mut played = 0;
+        for seq in 5..505u32 {
+            push(&mut buffer, seq, 0);
+            if buffer.pop() == packet(seq) {
+                played += 1;
+            }
+        }
+        assert!(played > 400, "the real stream never plays again: {played}");
+    }
+
+    #[test]
+    fn a_few_stale_packets_do_not_reset_a_live_stream() {
+        let mut buffer = JitterBuffer::new(20);
+        for seq in 1_000..1_010 {
+            push(&mut buffer, seq, 0);
+            assert_eq!(buffer.pop(), packet(seq));
+        }
+        // Stragglers far behind are dropped one by one; play goes on where it was.
+        for seq in 0..(RESYNC_AFTER_BEHIND - 1) {
+            push(&mut buffer, seq, 0);
+        }
+        push(&mut buffer, 1_010, 0);
+        assert_eq!(buffer.pop(), packet(1_010));
     }
 
     #[test]
