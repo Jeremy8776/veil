@@ -330,7 +330,9 @@ Then it writes `SHA256SUMS.txt`, signs it with the release key (`SHA256SUMS.txt.
 repository is public.
 
 Secrets, all in the `release` environment and all optional (unsigned with a warning):
-Windows `WINDOWS_CERTIFICATE`/`_PASSWORD` or the six `AZURE_*` Trusted Signing values; macOS
+Windows through SignPath Foundation (`SIGNPATH_API_TOKEN` plus three `SIGNPATH_*` variables;
+not applied for yet, steps in `docs/CODE_SIGNING.md`), or a certificate of your own through
+`sign.ps1` (`WINDOWS_CERTIFICATE`/`_PASSWORD` or six `AZURE_*` values); macOS
 `APPLE_CERTIFICATE`/`_PASSWORD` and, for notarisation, `APPLE_ID`, `APPLE_PASSWORD`,
 `APPLE_TEAM_ID`; updates `VEIL_UPDATE_KEY`. **Release key, not set yet:** run
 `tools/release-key.sh` once (private key to `~/.veil/release-key.pem`, public half to

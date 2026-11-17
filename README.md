@@ -62,9 +62,16 @@ The app tells you when a newer release is out. Installed from the MSI, the DMG o
 AppImage, it can also install it for you: it checks the release's signature first (see
 [docs/TRANSPARENCY.md](docs/TRANSPARENCY.md)). Other copies link to the release page.
 
-Until the release workflow has signing certificates, Windows SmartScreen says "unknown
-publisher" (choose **More info**, then **Run anyway**) and macOS asks you to allow Veil in
-System Settings, Privacy and Security.
+Until the Windows files are signed, Windows SmartScreen says "unknown publisher" (choose
+**More info**, then **Run anyway**). macOS builds are not notarised yet, so macOS asks you to
+allow Veil in System Settings, Privacy and Security.
+
+### Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
+[SignPath Foundation](https://signpath.org) (applied for, not yet active). Who builds,
+reviews and approves each signed release, and Veil's privacy statement:
+[docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
 
 ## How a call works
 

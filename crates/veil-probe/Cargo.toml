@@ -14,6 +14,10 @@ veil-net = { path = "../veil-net" }
 veil-security = { path = "../veil-security" }
 veil-topology = { path = "../veil-topology" }
 
+[build-dependencies]
+# Windows version information (build.rs). MIT; the same crate as ArtCraft uses.
+winresource = { version = "0.1.34", default-features = false }
+
 [lints]
 workspace = true
 

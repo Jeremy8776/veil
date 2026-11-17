@@ -98,8 +98,9 @@ rendezvous never says who is online.
   (`tools/release-key.sh`).
 
 **Signed installers** (from 17/11/2026, `packaging/`, `.github/workflows/release.yml`): the
-Windows programs and MSI are Authenticode-signed, and `Veil.app` is signed with a Developer ID
-and notarised by Apple, once the release workflow has those certificates. Until then the
+Windows programs and MSI are to be Authenticode-signed through SignPath Foundation's free
+open-source programme ([CODE_SIGNING.md](CODE_SIGNING.md)), and `Veil.app` signed with a
+Developer ID and notarised by Apple, once those are in place. Neither is yet. Until then the
 files are unsigned (Windows) or ad-hoc signed (macOS), and the workflow says so. Every
 release file is listed in `SHA256SUMS.txt` with build provenance from GitHub.
 

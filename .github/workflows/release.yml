@@ -15,8 +15,11 @@
 # The packaging follows ArtCraft's (see its packaging/ folders). Signing secrets, all
 # optional (missing ones give unsigned files and a warning, never a failed build), live in
 # the `release` environment:
-# - Windows Authenticode: WINDOWS_CERTIFICATE (base64 .pfx) and WINDOWS_CERTIFICATE_PASSWORD,
-#   or Azure Trusted Signing (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
+# - Windows Authenticode, planned through SignPath Foundation: the secret SIGNPATH_API_TOKEN
+#   and the variables SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG and
+#   SIGNPATH_SIGNING_POLICY_SLUG (docs/CODE_SIGNING.md). sign.ps1 also takes a certificate
+#   of your own: WINDOWS_CERTIFICATE (base64 .pfx) and WINDOWS_CERTIFICATE_PASSWORD, or Azure
+#   Trusted Signing (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
 #   AZURE_SIGNING_ENDPOINT, AZURE_SIGNING_ACCOUNT, AZURE_CERT_PROFILE).
 # - macOS: APPLE_CERTIFICATE (base64 Developer ID .p12), APPLE_CERTIFICATE_PASSWORD; and for
 #   notarisation APPLE_ID, APPLE_PASSWORD (app-specific), APPLE_TEAM_ID.
@@ -105,7 +108,50 @@ jobs:
           AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
           AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
           AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+          # Fail rather than ship programs without the version information signing checks.
+          VEIL_REQUIRE_WINRES: "1"
         run: ./packaging/windows/package.ps1
+      # SignPath Foundation (free code signing for open source): the unsigned MSI and zip go
+      # up as a workflow artifact, SignPath signs every program inside them and the MSI
+      # (packaging/windows/signpath-artifact-configuration.xml) after Jeremy approves the
+      # request, and the signed files come back. Skipped until SIGNPATH_API_TOKEN is set.
+      - name: Check for SignPath
+        id: signpath
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          $on = if ($env:SIGNPATH_API_TOKEN) { 'true' } else { 'false' }
+          "enabled=$on" >> $env:GITHUB_OUTPUT
+          if ($on -eq 'false') { Write-Output '::warning::SIGNPATH_API_TOKEN is not set: Windows files are not signed by SignPath' }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: unsigned
+        if: steps.signpath.outputs.enabled == 'true'
+        with:
+          name: windows-unsigned
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+      - name: Sign with SignPath
+        if: steps.signpath.outputs.enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          # Approval is by hand, so allow time for it.
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: dist-signed
+          parameters: |
+            version: "${{ env.VEIL_VERSION }}"
+      - name: Use the signed files
+        if: steps.signpath.outputs.enabled == 'true'
+        run: |
+          Remove-Item -Recurse -Force dist
+          Move-Item dist-signed dist
+          Get-ChildItem dist | Format-Table Name, Length
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-windows
