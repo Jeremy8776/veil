@@ -41,6 +41,9 @@ openh264-sys2 = { version = "0.9.10", default-features = false, features = ["sou
 [target.'cfg(windows)'.dev-dependencies]
 cpal = "0.18.2"
 openh264-sys2 = { version = "0.9.10", default-features = false, features = ["source"] }
+
+# The MJPEG module (src/mjpeg.rs) runs its tests on every platform; Linux also uses it for real.
+[dev-dependencies]
 zune-jpeg = "0.5.15"
 
 [target.'cfg(target_os = "linux")'.dependencies]
