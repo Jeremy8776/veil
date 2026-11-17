@@ -2,7 +2,7 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
-## Unreleased
+## 0.1.4, 17/11/2026
 
 ### Added
 
@@ -22,6 +22,18 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   it while the call runs and removes it when the call ends. People shows whether it worked.
   If the router says no, the tooltip says how to open the port by hand. If your provider puts
   you behind a shared address (carrier-grade NAT), it says a public veil-node is needed.
+- A check that guests can reach you. With a public veil-node set, Veil asks it to try your
+  call port from outside, once the router opens it or when you set a public address by hand.
+  People shows "Reachable from the internet" or "Not reachable from the internet". The node
+  must run 0.1.4 or later.
+- Settings > Connection ("Connection" on the home screen): choose your own rendezvous and
+  forwarder, your public addresses and a fixed call port in the app. Veil saves them on this
+  device, and only when every field is valid. A `VEIL_*` environment variable still wins,
+  and the screen says so.
+- Servers by name: a rendezvous or forwarder can be `KEY@HOST:PORT` with a DNS name, in
+  Settings and in `VEIL_RENDEZVOUS` and `VEIL_FORWARDER`. Veil looks the name up when the
+  call starts. The server's key is still checked, so a wrong answer can stop a call but
+  cannot listen in.
 
 ### Changed
 
