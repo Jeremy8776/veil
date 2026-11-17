@@ -113,8 +113,7 @@ pub async fn join_with(
     }
 
     let joiner = Joiner::new(call.identity())?;
-    out.send(&Control::KeyPackage(joiner.key_package()?))
-        .await?;
+    out.send(&Control::KeyPackage(joiner.key_package()?)).await?;
     let welcome = match recv(&mut input, STEP).await? {
         Control::Welcome(welcome) => welcome,
         Control::Refused(reason) => return Err(CallError::Refused(reason)),

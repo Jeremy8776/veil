@@ -62,14 +62,7 @@ pub async fn run(
     };
     shared.update(|view| view.status = CallStatus::Live);
     let media = call.media().map_err(|e| e.to_string())?;
-    let mut session = Session::new(
-        media,
-        &identity,
-        invite.host,
-        your_name,
-        shared.clone(),
-        pipes,
-    );
+    let mut session = Session::new(media, &identity, invite.host, your_name, shared.clone(), pipes);
     loop {
         tokio::select! {
             command = commands.recv() => match command {
@@ -125,9 +118,6 @@ mod tests {
         assert!(join_error(&CallError::Closed).starts_with("Could not reach the call"));
         let unreachable = CallError::Net(veil_net::NetError::Timeout);
         let text = join_error(&unreachable);
-        assert!(
-            text.contains("press Allow guests"),
-            "one space at the line join: {text}"
-        );
+        assert!(text.contains("press Allow guests"), "one space at the line join: {text}");
     }
 }

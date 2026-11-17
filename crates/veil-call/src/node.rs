@@ -10,6 +10,7 @@
 //!   participants' own pinned QUIC link.
 //! - A rendezvous node that cannot be reached is not fatal: the call still works over direct
 //!   addresses, and [`CallNode::has_rendezvous`] reports the loss.
+//! - Background tasks stop when the node is dropped, or when starting it is cancelled.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -59,12 +60,19 @@ pub struct CallNode {
     relay_only: bool,
     consent: Arc<Consent>,
     media: Option<mpsc::Receiver<Inbound>>,
-    tasks: Vec<JoinHandle<()>>,
+    // Held only so dropping the node aborts them.
+    _tasks: Tasks,
 }
 
-impl Drop for CallNode {
+/// The node's background tasks, aborted when dropped. Held from the first spawn, so a start
+/// that is cancelled part-way (Leave while registering) stops them too, rather than leaving
+/// them running with the socket open.
+#[derive(Default)]
+struct Tasks(Vec<JoinHandle<()>>);
+
+impl Drop for Tasks {
     fn drop(&mut self) {
-        for task in &self.tasks {
+        for task in &self.0 {
             task.abort();
         }
     }
@@ -104,14 +112,15 @@ impl CallNode {
             open: router.host.is_some(),
             ..Consent::default()
         });
-        let mut tasks = vec![tokio::spawn(router.clone().accept_loop(node.clone(), false))];
+        let mut tasks = Tasks::default();
+        tasks.0.push(tokio::spawn(router.clone().accept_loop(node.clone(), false)));
         let mut presence = None;
         if let Some(server) = rendezvous
             && let Ok((handle, task)) =
                 Presence::start(identity, node.clone(), server, router, consent.clone(), seat).await
         {
             presence = Some(handle);
-            tasks.push(task);
+            tasks.0.push(task);
         }
         Self {
             node,
@@ -121,7 +130,7 @@ impl CallNode {
             relay_only: false,
             consent,
             media: Some(media_rx),
-            tasks,
+            _tasks: tasks,
         }
     }
 
@@ -240,4 +249,22 @@ pub(crate) async fn dial(
         via: Some(inner),
         path: Path::Relayed,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn dropping_tasks_stops_them() {
+        let (tx, mut rx) = mpsc::channel::<()>(1);
+        let mut tasks = Tasks::default();
+        // Holds the sender until aborted, as the accept loop holds the node.
+        tasks.0.push(tokio::spawn(async move {
+            let _tx = tx;
+            std::future::pending::<()>().await;
+        }));
+        drop(tasks);
+        assert!(rx.recv().await.is_none(), "the task still holds its sender");
+    }
 }
