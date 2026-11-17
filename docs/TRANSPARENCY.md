@@ -157,7 +157,8 @@ own `unsafe` code, and Veil's code that uses them has none. MJPEG camera picture
 decoded by `zune-jpeg`, which is pure Rust.
 
 **Fonts and icons:** none are bundled. `veil-app` reads the system's own UI, symbol and icon
-fonts at start-up (Segoe UI and Segoe Fluent Icons or Segoe MDL2 Assets on Windows). egui's
+fonts at start-up (Segoe UI and Segoe Fluent Icons or Segoe MDL2 Assets on Windows). Where
+there is no icon font (Linux, macOS), icons are drawn from vector strokes in code. egui's
 bundled fonts are turned off because their licences are outside the allow list.
 
 **In `veil-media`:**
