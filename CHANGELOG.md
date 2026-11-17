@@ -12,6 +12,11 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 - Updates: copies installed from the MSI, the DMG or the AppImage can install a newer release
   with one click. Veil checks the release's Ed25519 signature and each file's SHA-256 first.
 
+### Fixed
+
+- Windows: the taskbar, title bar and Explorer show Veil's icon. The exe and the window had
+  none, so Windows showed its default.
+
 ## 0.1.1, 17/11/2026
 
 Security fixes. Update every device in a call: see the upgrade note below.

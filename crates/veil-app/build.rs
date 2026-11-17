@@ -23,16 +23,21 @@ fn main() {
     );
 }
 
-/// Windows only: version information (VERSIONINFO) in `veil-app.exe`, which code signing checks
-/// (SignPath requires the product name and version on every signed file). Elsewhere nothing.
+/// Windows only: the app icon and version information (VERSIONINFO) in `veil-app.exe`.
+/// Windows reads the taskbar, Explorer and shortcut icon from the exe's resources, not from the
+/// running window. Code signing checks the version information (SignPath requires the product
+/// name and version on every signed file). Elsewhere nothing.
 /// A missing resource compiler is a warning, unless `VEIL_REQUIRE_WINRES` is set, as the
 /// release workflow does.
 fn windows_resources() {
     println!("cargo:rerun-if-env-changed=VEIL_REQUIRE_WINRES");
+    println!("cargo:rerun-if-changed=assets/veil.ico");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
     let mut res = winresource::WindowsResource::new();
+    // 16 to 256 px; `assets/veil-256.png` is its 256 px frame.
+    res.set_icon("assets/veil.ico");
     res.set("ProductName", "Veil")
         .set("FileDescription", "Veil")
         .set("CompanyName", "Veil")

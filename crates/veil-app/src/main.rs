@@ -7,7 +7,8 @@
 //!
 //! Invariants:
 //! - No `unsafe`: the workspace forbids it, and the native media code lives in `veil-media`.
-//! - No bundled fonts or icons: both come from the operating system (`theme.rs`).
+//! - No bundled fonts or UI icons: both come from the operating system (`theme.rs`). The one
+//!   bundled image is Veil's own app icon (`assets/`), set here and embedded by `build.rs`.
 
 // Release builds open no console window on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -30,10 +31,17 @@ mod widgets;
 
 use eframe::egui;
 
+/// The 256 px frame of `assets/veil.ico`, for the title bar, taskbar button and Alt+Tab.
+const APP_ICON_PNG: &[u8] = include_bytes!("../assets/veil-256.png");
+
 fn main() -> eframe::Result {
+    let mut viewport = egui::ViewportBuilder::default().with_title("Veil");
+    // A bad icon is cosmetic: the window opens with the default icon instead.
+    if let Ok(icon) = eframe::icon_data::from_png_bytes(APP_ICON_PNG) {
+        viewport = viewport.with_icon(icon);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Veil")
+        viewport: viewport
             // Matches the Linux .desktop file (packaging/linux), so docks show Veil's icon.
             .with_app_id("io.github.jeremy8776.veil")
             .with_inner_size([1280.0, 800.0])
@@ -51,4 +59,14 @@ fn main() -> eframe::Result {
             Ok(Box::new(app::VeilApp::new(&cc.egui_ctx)))
         }),
     )
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    #[test]
+    fn app_icon_decodes_at_256_px() {
+        let icon = eframe::icon_data::from_png_bytes(super::APP_ICON_PNG).expect("valid png");
+        assert_eq!((icon.width, icon.height), (256, 256));
+    }
 }
