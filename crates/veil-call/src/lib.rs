@@ -49,7 +49,7 @@ pub use app_msg::{AppError, AppMessage};
 pub use call_plan::{CallPlan, Layout};
 pub use host::{Allowed, HostEvent, HostHandle};
 pub use keyring::KeyRing;
-pub use media::{Incoming, Media, MediaSession};
+pub use media::{Incoming, Media, MediaSession, SEND_DEADLINE};
 pub use member::{MemberEvent, MemberHandle, join, join_with};
 pub use node::{CallNode, Path};
 pub use routes::{Directory, Peer, Routes};
@@ -99,6 +99,8 @@ pub enum CallError {
     Plan(&'static str),
     /// No answer in time.
     Timeout,
+    /// A peer did not take data on its media link in time; the link was given up.
+    Stalled,
     /// The session task has stopped.
     Closed,
 }
@@ -114,6 +116,7 @@ impl fmt::Display for CallError {
             Self::Protocol(what) => write!(f, "protocol violation, wanted {what}"),
             Self::Plan(why) => write!(f, "cannot follow the plan: {why}"),
             Self::Timeout => f.write_str("the host did not answer in time"),
+            Self::Stalled => f.write_str("the peer stopped taking data on its media link"),
             Self::Closed => f.write_str("call session has stopped"),
         }
     }

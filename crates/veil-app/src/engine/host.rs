@@ -22,8 +22,10 @@
 //! `veil-node` for large calls across the internet.
 //!
 //! shortcut: applying routes waits for dials (a few seconds for a hole punch) and holds this
-//! loop meanwhile, so media pauses briefly when someone joins. Move `MediaSession::apply` to
-//! its own task when calls grow.
+//! loop meanwhile, so media pauses briefly when someone joins. Every wait on a peer is bounded
+//! (`CONNECT_TIMEOUT` to dial, then `veil_call::SEND_DEADLINE`), so a member that withholds
+//! stream credit delays Remove by seconds at most (GHSA-37f5-22p2-q6hr). Move
+//! `MediaSession::apply` to its own task when calls grow.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;

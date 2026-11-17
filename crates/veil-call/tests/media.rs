@@ -474,6 +474,43 @@ async fn a_removed_member_gets_no_grace_on_the_old_epoch() {
     assert_eq!(ring.open(&stays, changed), Err(SecurityError::UnknownKey));
 }
 
+/// GHSA-37f5-22p2-q6hr: a peer that stops taking video cannot hold `send_frame`. Party 1
+/// never reads, so its queues fill and then its QUIC stream credit runs out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_peer_that_stops_reading_cannot_hold_send_frame() {
+    let mut call = Call::start(Some(start_rendezvous())).await;
+    call.admit_direct().await;
+    let sessions = call.media(false, None).await;
+    let frame = vec![7u8; 4 * 1024];
+    for i in 0..3_000u32 {
+        let sent = tokio::time::timeout(Duration::from_millis(500), sessions[0].send_frame(i, &frame)).await;
+        assert!(sent.is_ok(), "send_frame waited on the peer at frame {i}");
+    }
+}
+
+/// GHSA-37f5-22p2-q6hr: a peer that stops taking control messages holds `send_app` for at
+/// most `SEND_DEADLINE`, and its link is then given up.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_peer_that_stops_reading_holds_send_app_only_until_the_deadline() {
+    let mut call = Call::start(Some(start_rendezvous())).await;
+    call.admit_direct().await;
+    let sessions = call.media(false, None).await;
+    let message = vec![7u8; veil_net::control::MAX_APP_LEN];
+    let limit = veil_call::SEND_DEADLINE + Duration::from_secs(2);
+    let mut given_up = false;
+    for _ in 0..4_000 {
+        let sent = tokio::time::timeout(limit, sessions[0].send_app(&message)).await;
+        let Ok(sent) = sent else {
+            panic!("send_app waited on the peer past the deadline");
+        };
+        if sent == 0 {
+            given_up = true;
+            break;
+        }
+    }
+    assert!(given_up, "the stalled link was never given up");
+}
+
 /// A ring opened with a party's receiver and roster.
 fn new_ring(keys: &mut EpochKeys) -> KeyRing {
     let roster = keys.roster.clone();
