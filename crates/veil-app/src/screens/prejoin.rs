@@ -131,7 +131,7 @@ fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
             "Microphone",
             &lists.mics,
             choice.mic.as_deref(),
-            "Windows default",
+            "System default",
         ) {
             app.media.choose_mic(id);
         }
@@ -145,7 +145,7 @@ fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
             "Speaker",
             &lists.speakers,
             choice.speaker.as_deref(),
-            "Windows default",
+            "System default",
         ) {
             app.media.choose_speaker(id);
         }
