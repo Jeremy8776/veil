@@ -82,7 +82,7 @@ pub async fn run(
     )
     .await;
     if !call.has_rendezvous() {
-        eprintln!("veil-app: rendezvous {rendezvous} did not answer; direct links only");
+        crate::note!("rendezvous {rendezvous} did not answer; direct links only");
     }
     let addrs = advertised(&config, lan, port);
     let invite = new_invite(&host, &addrs, &rendezvous).await?;
@@ -134,13 +134,13 @@ pub async fn run(
                         match plan_for(&roster, me, &addrs, forwarder) {
                             Ok((plan, directory)) => match host.publish_plan(plan, directory).await {
                                 Ok(routes) => session.on_routes(routes).await,
-                                Err(e) => eprintln!("veil-app: cannot publish the plan: {e}"),
+                                Err(e) => crate::note!("cannot publish the plan: {e}"),
                             },
-                            Err(e) => eprintln!("veil-app: {e}"),
+                            Err(e) => crate::note!("{e}"),
                         }
                     }
                 }
-                Some(HostEvent::Error(e)) => eprintln!("veil-app: group error: {e}"),
+                Some(HostEvent::Error(e)) => crate::note!("group error: {e}"),
             },
             () = session.pump() => {}
         }
@@ -165,7 +165,7 @@ async fn act(host: &HostHandle, ids: &Ids, knocks: &mut Vec<(u32, PublicId)>, ac
         Action::Chat(_) | Action::Verify(..) => return,
     };
     if let Err(e) = result {
-        eprintln!("veil-app: {action:?} failed: {e}");
+        crate::note!("{action:?} failed: {e}");
     }
 }
 

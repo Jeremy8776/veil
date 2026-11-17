@@ -121,8 +121,18 @@ impl Shared {
     }
 
     /// Changes the view and asks the interface to draw it.
+    /// A change of status (connecting, lobby, live, ended and why) goes to the log.
     pub fn update(&self, change: impl FnOnce(&mut View)) {
-        change(&mut lock(&self.view));
+        let mut view = lock(&self.view);
+        let before = std::mem::discriminant(&view.status);
+        change(&mut view);
+        if std::mem::discriminant(&view.status) != before {
+            let status = view.status.clone();
+            drop(view);
+            crate::note!("call: {status:?}");
+        } else {
+            drop(view);
+        }
         self.ctx.request_repaint();
     }
 

@@ -75,7 +75,7 @@ pub async fn run(
                 Some(MemberEvent::Keys(keys)) => session.on_keys(keys),
                 Some(MemberEvent::Routes(routes)) => session.on_routes(routes).await,
                 Some(MemberEvent::PlanRefused(e)) => {
-                    eprintln!("veil-app: refused the host's plan: {e}");
+                    crate::note!("refused the host's plan: {e}");
                 }
                 Some(MemberEvent::Removed) => return Err("The host removed you from the call.".into()),
                 Some(MemberEvent::Failed(e)) => return Err(format!("The call failed: {e}")),

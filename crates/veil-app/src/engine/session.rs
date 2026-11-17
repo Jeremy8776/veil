@@ -176,7 +176,7 @@ impl Session {
     /// Links up with the members this epoch's plan names.
     pub async fn on_routes(&mut self, routes: Routes) {
         for (peer, e) in self.media.apply(routes).await {
-            eprintln!("veil-app: cannot reach {}: {e}", short(&peer));
+            crate::note!("cannot reach {}: {e}", short(&peer));
         }
         // Whoever just linked up needs a keyframe to start decoding.
         self.pipes.control.keyframe.store(true, Ordering::Relaxed);
@@ -197,7 +197,7 @@ impl Session {
         }
         match self.media.subscribe(&request).await {
             Ok(()) => self.subscribed = Some(request),
-            Err(e) => eprintln!("veil-app: cannot ask for layers: {e}"),
+            Err(e) => crate::note!("cannot ask for layers: {e}"),
         }
     }
 
@@ -220,7 +220,7 @@ impl Session {
     pub async fn send_chat(&mut self, text: &str) {
         match AppMessage::chat(text) {
             Ok(message) => self.send_app(&message).await,
-            Err(e) => eprintln!("veil-app: chat not sent: {e}"),
+            Err(e) => crate::note!("chat not sent: {e}"),
         }
     }
 
@@ -242,7 +242,7 @@ impl Session {
             Ok(sealed) => {
                 self.media.send_app(&sealed).await;
             }
-            Err(e) => eprintln!("veil-app: cannot seal a message: {e}"),
+            Err(e) => crate::note!("cannot seal a message: {e}"),
         }
     }
 
@@ -275,7 +275,7 @@ impl Session {
                 self.frame_id = self.frame_id.wrapping_add(1);
                 self.media.send_frame(self.frame_id, &sealed).await;
             }
-            Err(e) => eprintln!("veil-app: cannot seal a picture: {e}"),
+            Err(e) => crate::note!("cannot seal a picture: {e}"),
         }
     }
 
@@ -290,7 +290,7 @@ impl Session {
             match OpusEncoder::new(&AudioSettings::voice()) {
                 Ok(encoder) => self.opus = Some(encoder),
                 Err(e) => {
-                    eprintln!("veil-app: no audio encoder: {e}");
+                    crate::note!("no audio encoder: {e}");
                     return;
                 }
             }
@@ -312,7 +312,7 @@ impl Session {
             Ok(sealed) => {
                 self.media.send_audio(&sealed);
             }
-            Err(e) => eprintln!("veil-app: cannot seal sound: {e}"),
+            Err(e) => crate::note!("cannot seal sound: {e}"),
         }
     }
 
@@ -373,7 +373,7 @@ impl Session {
             Ok(opened) => opened,
             Err(AppError::Unopened) => return,
             Err(e) => {
-                eprintln!("veil-app: dropped a message via {}: {e}", short(via));
+                crate::note!("dropped a message via {}: {e}", short(via));
                 return;
             }
         };

@@ -2,6 +2,20 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## 0.1.3, 17/11/2026
+
+### Added
+
+- Log files to send when something goes wrong: "Logs" on the home screen opens the folder.
+  `veil.log` is this run, `veil.previous.log` the run before (the one to send after a freeze
+  or crash). No names, chat or invite links: see TRANSPARENCY.md.
+
+### Fixed
+
+- The window no longer freezes (on Windows, "Not Responding") when a call ends while a
+  camera, microphone or speaker driver is stuck. Veil waits at most a second for each device, then
+  carries on.
+
 ## 0.1.2, 17/11/2026
 
 ### Added

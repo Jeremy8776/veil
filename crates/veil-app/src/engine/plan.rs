@@ -54,7 +54,7 @@ impl NetConfig {
             &mut problems,
         );
         for problem in problems {
-            eprintln!("veil-app: ignoring {problem}");
+            crate::note!("ignoring {problem}");
         }
         config
     }

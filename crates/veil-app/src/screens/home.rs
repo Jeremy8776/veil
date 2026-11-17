@@ -146,6 +146,16 @@ fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
         if toggle.changed() {
             app.updates.set_enabled(on, ui.ctx());
         }
+        let logs = ui
+            .add(egui::Button::new(RichText::new("Logs").small().color(MUTED)).frame(false))
+            .on_hover_text(
+                "Opens the folder with Veil's log files. If something goes wrong, send \
+                 veil.log, or veil.previous.log if Veil froze or closed. They hold states, \
+                 timings and errors: no names, chat or invite links.",
+            );
+        if logs.clicked() {
+            crate::log::open_folder();
+        }
     });
 }
 

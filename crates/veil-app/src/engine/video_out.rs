@@ -140,7 +140,7 @@ fn run(
                 Ok(opened) => active = Some(opened),
                 Err(e) => {
                     *lock(&control.error) = Some(e.to_string());
-                    eprintln!("veil-app: no video encoder: {e}");
+                    crate::note!("no video encoder: {e}");
                     retry_at = Instant::now() + RETRY;
                     continue;
                 }
@@ -159,7 +159,7 @@ fn run(
                 }
             }
             Err(e) => {
-                eprintln!("veil-app: video encoder failed, reopening: {e}");
+                crate::note!("video encoder failed, reopening: {e}");
                 active = None;
                 retry_at = Instant::now() + RETRY;
                 resumed = true;
