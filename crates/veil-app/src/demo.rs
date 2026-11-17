@@ -65,6 +65,8 @@ pub fn call(your_name: &str, is_host: bool, now: Instant) -> Call {
         lobby: Vec::new(),
         chat: Vec::new(),
         invite: String::from("veil://join/demo-invite-not-a-real-link"),
+        invite_expires: 0,
+        invite_until_end: false,
         epoch: 1,
         demo: true,
         status: crate::model::CallStatus::Live,

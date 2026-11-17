@@ -54,6 +54,9 @@ pub struct Knocker {
 pub struct View {
     pub status: CallStatus,
     pub invite: String,
+    /// See `Call::invite_expires` and `Call::invite_until_end`.
+    pub invite_expires: u64,
+    pub invite_until_end: bool,
     pub epoch: u64,
     /// Everyone but you, in roster order.
     pub people: Vec<Person>,
@@ -101,6 +104,8 @@ impl Shared {
             view: Mutex::new(View {
                 status: CallStatus::Connecting,
                 invite: String::new(),
+                invite_expires: 0,
+                invite_until_end: false,
                 epoch: 0,
                 people: Vec::new(),
                 lobby: Vec::new(),
@@ -215,6 +220,8 @@ pub fn apply(
 ) -> HashMap<PublicId, String> {
     call.status = view.status.clone();
     call.invite.clone_from(&view.invite);
+    call.invite_expires = view.invite_expires;
+    call.invite_until_end = view.invite_until_end;
     call.router.clone_from(&view.router);
     call.reach.clone_from(&view.reach);
     call.epoch = view.epoch;
@@ -275,6 +282,8 @@ mod tests {
         View {
             status: CallStatus::Live,
             invite: "veil://join/x".into(),
+            invite_expires: 0,
+            invite_until_end: false,
             epoch: 3,
             people: vec![
                 Person {

@@ -25,6 +25,7 @@
 mod audio_out;
 mod guest;
 mod host;
+mod invites;
 mod loopback;
 mod names;
 pub mod plan;
@@ -202,6 +203,10 @@ impl Engine {
         }
         if let Action::Admit(id) | Action::Decline(id) = action {
             self.shared.update(|view| view.lobby.retain(|k| k.id != id));
+        }
+        // Shown at once, so the box does not flick back until the new link arrives.
+        if let Action::InviteUntilEnd(until_end) = action {
+            self.shared.update(|view| view.invite_until_end = until_end);
         }
         let _ = self.commands.send(Command::Act(action));
     }

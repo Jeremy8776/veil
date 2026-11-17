@@ -23,9 +23,10 @@ use crate::engine::Engine;
 use crate::icons::Icon;
 use crate::layout;
 use crate::model::{Call, CallStatus, Participant, clock};
+use crate::screens::invite;
 use crate::screens::panels::{self, Panel};
 use crate::theme::{self, GAP, MUTED, PAGE, SURFACE};
-use crate::widgets::{self, ControlState, Tile, Tone, card, control, pill};
+use crate::widgets::{self, ControlState, Tile, Tone, control, pill};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -78,42 +79,6 @@ impl CallView {
             && !self.call.demo
             && self.call.status == CallStatus::Live
             && self.call.participants.len() < 2
-    }
-
-    /// A card on the stage with the invite link and a copy button.
-    fn invite_card(&mut self, ui: &mut egui::Ui, area: Rect) {
-        let width = 460.0f32.min(area.width() - 32.0);
-        let rect = Rect::from_min_size(
-            pos2(area.center().x - width / 2.0, area.bottom() - 250.0),
-            vec2(width, 170.0),
-        );
-        let mut copy = false;
-        ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
-            card().show(ui, |ui| {
-                ui.set_width(width - 40.0);
-                ui.label(RichText::new("Invite someone").font(theme::bold(16.0)));
-                ui.label(
-                    RichText::new("Send them this link. It works once, for an hour.")
-                        .small()
-                        .color(MUTED),
-                );
-                ui.add_space(4.0);
-                let mut link = self.call.invite.as_str();
-                ui.add(egui::TextEdit::singleline(&mut link).desired_width(f32::INFINITY));
-                ui.add_space(4.0);
-                copy = pill(
-                    ui,
-                    Some(Icon::Copy),
-                    "Copy invite link",
-                    Tone::Primary,
-                    width - 40.0,
-                )
-                .clicked();
-            });
-        });
-        if copy {
-            self.copy_invite(ui.ctx());
-        }
     }
 
     /// Draws the call. Returns false when you leave.
@@ -227,7 +192,7 @@ impl CallView {
             engine.watch(tiles);
         }
         if self.waiting_for_guests() {
-            self.invite_card(ui, area);
+            invite::card(self, ui, area);
         }
         if let Some((text, at)) = &self.notice {
             if now.duration_since(*at) < Duration::from_secs(3) {
@@ -343,8 +308,9 @@ fn top_bar(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
                         view.view = next;
                     }
                     if view.call.is_host && !view.call.demo {
+                        let lifetime = invite::lifetime_text(&view.call, invite::now_unix());
                         let invite = pill(ui, Some(Icon::Link), "Invite", Tone::Quiet, 104.0)
-                            .on_hover_text("Copy the invite link. It works once, for an hour.");
+                            .on_hover_text(format!("Copy the invite link. {lifetime}"));
                         if invite.clicked() {
                             view.copy_invite(ui.ctx());
                         }

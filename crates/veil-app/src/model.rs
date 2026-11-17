@@ -117,6 +117,8 @@ pub enum Action {
     Chat(String),
     /// Mark a person's device as verified (`true`) or forget it (`false`).
     Verify(u32, bool),
+    /// Keep invite links working until the call ends (`true`), or for an hour (`false`).
+    InviteUntilEnd(bool),
 }
 
 #[derive(Clone, Debug)]
@@ -136,6 +138,10 @@ pub struct Call {
     pub lobby: Vec<Waiting>,
     pub chat: Vec<Message>,
     pub invite: String,
+    /// When the invite link stops working, in Unix seconds; 0 until there is one.
+    pub invite_expires: u64,
+    /// The host chose to keep each invite link working until the call ends.
+    pub invite_until_end: bool,
     pub epoch: u64,
     /// Other participants are simulated.
     pub demo: bool,
@@ -172,6 +178,8 @@ impl Call {
             lobby: Vec::new(),
             chat: Vec::new(),
             invite: String::new(),
+            invite_expires: 0,
+            invite_until_end: false,
             epoch: 0,
             demo: false,
             status: CallStatus::Connecting,

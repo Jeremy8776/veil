@@ -2,7 +2,21 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
-## Unreleased
+## 0.1.5, 17/11/2026
+
+### Added
+
+- The host sees how long the invite link still works ("Expires in 42 min") on the invite
+  card, in People and on the Invite button. A link that runs out unused is replaced. Tick
+  "Keep links working until the call ends" to make links that last the whole call. Each link
+  still lets one person in, and the host still admits them.
+
+### Changed
+
+- The home screen no longer shows a "Veil" title under the logo, and its content sits in the
+  middle of the window. The call-ended screen and Settings > Connection do the same.
+- The host's log records when each guest joins and leaves, and when linking up with someone
+  takes over a second. This helps find calls where a leave goes unnoticed.
 
 ### Fixed
 

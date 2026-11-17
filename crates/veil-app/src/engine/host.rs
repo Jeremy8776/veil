@@ -33,7 +33,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc::UnboundedReceiver;
 use veil_call::{CallNode, HostEvent, HostHandle};
@@ -47,10 +47,8 @@ use super::reach::Checker;
 use super::router::{Event, Router};
 use super::session::{Pipes, Session};
 use super::view::{Knocker, Shared};
-use super::{Command, Ids, short};
+use super::{Command, Ids, invites, short};
 use crate::model::{Action, CallStatus, Reachable, RouterPort};
-
-const INVITE_LIFETIME: Duration = Duration::from_secs(3_600);
 
 pub async fn run(
     identity: Identity,
@@ -88,7 +86,11 @@ pub async fn run(
         crate::note!("rendezvous {rendezvous} did not answer; direct links only");
     }
     let mut addrs = advertised(&config, lan, port);
-    let invite = new_invite(&host, &addrs, &rendezvous).await?;
+    let mut until_end = false;
+    let mut expires = new_invite(&host, &addrs, &rendezvous, until_end, &shared).await;
+    if expires == 0 {
+        return Err("Cannot make an invite.".into());
+    }
     let mut router = Router::start(config.open_port, lan, port);
     let mut router_addr: Option<SocketAddr> = None;
     // Only a public node can dial in from outside; the host's own rendezvous cannot.
@@ -98,7 +100,6 @@ pub async fn run(
         .first()
         .is_some_and(|at| check(&mut reach, &call, configured, *at));
     shared.update(|view| {
-        view.invite = invite;
         view.status = CallStatus::Live;
         if router.is_some() {
             view.router = RouterPort::Opening;
@@ -115,6 +116,11 @@ pub async fn run(
             command = commands.recv() => match command {
                 None | Some(Command::Leave) => break Ok(()),
                 Some(Command::Act(Action::Chat(text))) => session.send_chat(&text).await,
+                // A fresh link with the chosen lifetime; one already sent keeps its own.
+                Some(Command::Act(Action::InviteUntilEnd(chosen))) => {
+                    until_end = chosen;
+                    expires = new_invite(&host, &addrs, &rendezvous, until_end, &shared).await;
+                }
                 Some(Command::Act(action)) => act(&host, &session.ids, &mut knocks, action).await,
             },
             event = events.recv() => match event {
@@ -129,14 +135,9 @@ pub async fn run(
                         safety: session.safety_with(&device),
                         since: Instant::now(),
                     };
+                    shared.update(|view| view.lobby.push(knocker));
                     // The knock used the invite's token: give out a fresh one.
-                    let invite = new_invite(&host, &addrs, &rendezvous).await.ok();
-                    shared.update(|view| {
-                        view.lobby.push(knocker);
-                        if let Some(invite) = invite {
-                            view.invite = invite;
-                        }
-                    });
+                    expires = new_invite(&host, &addrs, &rendezvous, until_end, &shared).await;
                 }
                 // Joins and leaves go to the log, so a call across networks shows when the
                 // host heard of each.
@@ -185,16 +186,17 @@ pub async fn run(
                     router_addr = open;
                 }
                 let checking = open.is_some_and(|at| check(&mut reach, &call, configured, at));
-                let invite = new_invite(&host, &addrs, &rendezvous).await.ok();
                 shared.update(|view| {
                     view.router = state;
                     if checking {
                         view.reach = Reachable::Checking;
                     }
-                    if let Some(invite) = invite {
-                        view.invite = invite;
-                    }
                 });
+                expires = new_invite(&host, &addrs, &rendezvous, until_end, &shared).await;
+            }
+            // The link shown always works: one that ran out unused is replaced.
+            () = until(expires) => {
+                expires = new_invite(&host, &addrs, &rendezvous, until_end, &shared).await;
             }
             verdict = reach.next() => shared.update(|view| view.reach = verdict),
         }
@@ -238,7 +240,7 @@ async fn act(host: &HostHandle, ids: &Ids, knocks: &mut Vec<(u32, PublicId)>, ac
             None => return,
         },
         // The session sends chat (see `run`); the engine saves verified keys.
-        Action::Chat(_) | Action::Verify(..) => return,
+        Action::Chat(_) | Action::Verify(..) | Action::InviteUntilEnd(_) => return,
     };
     if let Err(e) = result {
         crate::note!("{action:?} failed: {e}");
@@ -290,19 +292,39 @@ fn own_server(
     Ok(addr)
 }
 
+/// Makes a fresh invite link that works for an hour or `until_end`, and shows it. Returns
+/// when to look again: the link's expiry, or a minute from now if no link could be made
+/// (logged), so a failure is retried without spinning.
 async fn new_invite(
     host: &HostHandle,
     addrs: &[SocketAddr],
     rendezvous: &NodeAddr,
-) -> Result<String, String> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    host.invite(
-        addrs.iter().map(ToString::to_string).collect(),
-        Some(rendezvous.to_string()),
-        now + INVITE_LIFETIME.as_secs(),
-    )
-    .await
-    .map_err(|e| format!("Cannot make an invite: {e}"))
+    until_end: bool,
+    shared: &Shared,
+) -> u64 {
+    let now = invites::now_unix();
+    let expires = invites::expiry(until_end, now);
+    let addrs = addrs.iter().map(ToString::to_string).collect();
+    match host.invite(addrs, Some(rendezvous.to_string()), expires).await {
+        Ok(link) => {
+            shared.update(|view| {
+                view.invite = link;
+                view.invite_expires = expires;
+                view.invite_until_end = until_end;
+            });
+            expires
+        }
+        Err(e) => {
+            crate::note!("cannot make an invite: {e}");
+            now + 60
+        }
+    }
+}
+
+/// Waits until the Unix time `at`.
+async fn until(at: u64) {
+    let now = invites::now_unix();
+    if !invites::expired(at, now) {
+        tokio::time::sleep(Duration::from_secs(at - now)).await;
+    }
 }
