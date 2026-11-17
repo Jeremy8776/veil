@@ -14,7 +14,7 @@ use std::time::Instant;
 use eframe::egui::{self, Align, Key, Layout, RichText, ScrollArea, Sense, TextEdit, vec2};
 
 use crate::icons::Icon;
-use crate::model::{LinkPath, Participant, RouterPort, clock};
+use crate::model::{LinkPath, Participant, Reachable, RouterPort, clock};
 use crate::screens::call::CallView;
 use crate::theme::{self, MUTED, RAISED, SURFACE};
 use crate::widgets::{self, Tone, pill};
@@ -80,6 +80,21 @@ fn router(ui: &mut egui::Ui, port: &RouterPort) {
     }
 }
 
+/// For a host with a public node: whether it could dial the call's public address, with the
+/// detail in the tooltip.
+fn reach(ui: &mut egui::Ui, reach: &Reachable) {
+    let (text, colour, tip) = match reach {
+        Reachable::Unknown => return,
+        Reachable::Checking => ("Checking from outside…", MUTED, ""),
+        Reachable::Yes(tip) => ("Reachable from the internet", MUTED, tip.as_str()),
+        Reachable::No(tip) => ("Not reachable from the internet", theme::WARN, tip.as_str()),
+    };
+    let label = ui.label(RichText::new(text).small().color(colour));
+    if !tip.is_empty() {
+        label.on_hover_text(tip);
+    }
+}
+
 fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     let copy = pill(
         ui,
@@ -94,6 +109,7 @@ fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     }
     if view.call.is_host {
         router(ui, &view.call.router);
+        reach(ui, &view.call.reach);
     }
     ui.add_space(8.0);
     let mut admit = None;

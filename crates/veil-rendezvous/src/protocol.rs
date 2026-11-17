@@ -50,6 +50,10 @@ pub enum ClientMsg {
     OpenRelay { peer: PublicId },
     /// Agree to a [`ServerMsg::Request`] from `from`. A stale or unknown one is ignored.
     Accept { from: PublicId, kind: Ask },
+    /// Dial this node's own public IP at `port`, from a socket of the server's other than
+    /// this link's, and say whether it answered ([`ServerMsg::Reach`]). Needs no room. Send it
+    /// on a link of its own: a server older than this message closes the link it arrives on.
+    CheckReach { port: u16 },
 }
 
 /// What a member asks of another.
@@ -77,6 +81,12 @@ pub enum ServerMsg {
     Refused(Refusal),
     /// The host's `Allow` took effect.
     Allowed,
+    /// The answer to [`ClientMsg::CheckReach`]: the address dialled (this node's reflected
+    /// IP and the port it named), and whether a handshake with this node's key completed.
+    Reach {
+        addr: SocketAddr,
+        open: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +105,8 @@ pub enum Refusal {
     NotAllowed,
     /// The room's host is not registered, or this node serves another call only.
     UnknownRoom,
+    /// A reachability check named port 0.
+    BadPort,
 }
 
 pub fn session_packet(session: u32, packet: &[u8]) -> Vec<u8> {

@@ -20,7 +20,7 @@ use veil_security::PublicId;
 use super::names::labels;
 use crate::convert::Rgba;
 use crate::media::lock;
-use crate::model::{Call, CallStatus, LinkPath, Participant, RouterPort, Waiting};
+use crate::model::{Call, CallStatus, LinkPath, Participant, Reachable, RouterPort, Waiting};
 
 /// Chat messages that may wait for the interface; more drop the oldest.
 const CHAT_QUEUE: usize = 256;
@@ -59,6 +59,7 @@ pub struct View {
     pub people: Vec<Person>,
     pub lobby: Vec<Knocker>,
     pub router: RouterPort,
+    pub reach: Reachable,
 }
 
 /// The newest picture from one person. `rgba` is taken by the interface once uploaded.
@@ -104,6 +105,7 @@ impl Shared {
                 people: Vec::new(),
                 lobby: Vec::new(),
                 router: RouterPort::Off,
+                reach: Reachable::Unknown,
             }),
             pictures: Mutex::default(),
             heard: Mutex::default(),
@@ -214,6 +216,7 @@ pub fn apply(
     call.status = view.status.clone();
     call.invite.clone_from(&view.invite);
     call.router.clone_from(&view.router);
+    call.reach.clone_from(&view.reach);
     call.epoch = view.epoch;
     call.participants.retain(|p| p.is_you);
     let yours = call.you().map(|p| p.name.clone());
@@ -299,6 +302,7 @@ mod tests {
                 since: now,
             }],
             router: RouterPort::Off,
+            reach: Reachable::Unknown,
         }
     }
 

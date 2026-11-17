@@ -8,13 +8,38 @@ use std::time::Duration;
 use bytes::Bytes;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use veil_net::{FramedSend, Link, NetError, Node};
+use veil_net::{FramedSend, Link, NetError, Node, NodeAddr};
 use veil_security::PublicId;
 
 use crate::protocol::{Ask, ClientMsg, STREAM_HEADER, ServerMsg, parse_stream_header, split_session};
 use crate::{RelaySocket, RendezvousError};
 
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
+/// The server's dial limit, plus room for the round trip.
+const REACH_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// The answer to a reachability check (`reach.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reach {
+    /// The address the server dialled: this machine's public IP as it sees it, at the port
+    /// that was asked for.
+    pub addr: SocketAddr,
+    /// Whether the dial got through.
+    pub open: bool,
+}
+
+/// Asks `server` to dial this machine's public IP at `port`, over a link of its own that is
+/// closed afterwards, so a server too old to know the message cannot close a link in use.
+pub async fn check_reach(
+    node: &Node,
+    server: &NodeAddr,
+    port: u16,
+) -> Result<Reach, RendezvousError> {
+    let mut client = RendezvousClient::connect(node, &[server.addr], server.key).await?;
+    let reach = client.check_reach(port).await;
+    client.link.close("done");
+    reach
+}
 const MAX_PENDING: usize = 64;
 const INBOX: usize = 1_024;
 
@@ -166,6 +191,19 @@ impl RendezvousClient {
         }
     }
 
+    /// Asks the server to dial this machine's public IP at `port` from another socket. Prefer
+    /// [`check_reach`], which uses a link of its own (see [`ClientMsg::CheckReach`]).
+    pub async fn check_reach(&mut self, port: u16) -> Result<Reach, RendezvousError> {
+        self.out.send(&ClientMsg::CheckReach { port }).await?;
+        match self
+            .answer_within(REACH_TIMEOUT, |m| matches!(m, ServerMsg::Reach { .. }))
+            .await?
+        {
+            ServerMsg::Reach { addr, open } => Ok(Reach { addr, open }),
+            _ => Err(RendezvousError::Closed),
+        }
+    }
+
     /// Requests this policy allows are accepted even while waiting for another answer, so
     /// two members asking each other at once do not each wait out the other. Requests it
     /// does not allow, or all of them without a policy, come out of [`Self::next_event`].
@@ -203,7 +241,15 @@ impl RendezvousClient {
         &mut self,
         want: impl Fn(&ServerMsg) -> bool,
     ) -> Result<ServerMsg, RendezvousError> {
-        let deadline = tokio::time::Instant::now() + ANSWER_TIMEOUT;
+        self.answer_within(ANSWER_TIMEOUT, want).await
+    }
+
+    async fn answer_within(
+        &mut self,
+        wait: Duration,
+        want: impl Fn(&ServerMsg) -> bool,
+    ) -> Result<ServerMsg, RendezvousError> {
+        let deadline = tokio::time::Instant::now() + wait;
         loop {
             let message = tokio::time::timeout_at(deadline, self.events.recv())
                 .await

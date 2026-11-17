@@ -535,8 +535,18 @@ Work, in order:
    this network's router. Run 17/11/2026 on Jeremy's network: gateway 192.168.1.1 found, no
    PCP answer, no UPnP answer (Windows' own UPnP finder also sees no gateway device), so the
    router has these off or lacks them. Not yet tested against a router that maps.
-   Still to do: the reachability check. It needs someone outside to dial in, so it waits on
-   a rendezvous message that asks the node to dial the requester's own reflected address.
+   Reachability check done 17/11/2026 (branch `feat/reachability`, stacked on
+   `feat/port-mapping`): `ClientMsg::CheckReach { port }` asks a rendezvous to dial the
+   asker's own reflected IP at that port from a fresh socket and throwaway key, pinned to the
+   asker's key (`veil-rendezvous/src/reach.rs`; 8 per link, one at a time, 32 per server, 5 s
+   each). Sent on a link of its own (`check_reach`), because an older node closes a link on a
+   message it does not know. The app (`engine/reach.rs`) checks the router's address once
+   it opens, or the first public address set by hand, but only with a configured public
+   node. People shows "Reachable from the internet" or "Not reachable from the internet";
+   if the node sees another IP than the router's, the tooltip says the provider shares one
+   address (carrier-grade NAT) and guests come through the relay. Tested on localhost only.
+   shortcut: the dial comes from the node's own IP, so a NAT that filters by IP only can
+   pass it without an open port.
 4. The two-machine internet test (below), with and without a mapped port.
 5. The optional default node.
 Open PRs to settle alongside: #21 (video filters), #28 (background blur).

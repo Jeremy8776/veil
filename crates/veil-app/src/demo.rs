@@ -69,6 +69,7 @@ pub fn call(your_name: &str, is_host: bool, now: Instant) -> Call {
         demo: true,
         status: crate::model::CallStatus::Live,
         router: crate::model::RouterPort::Off,
+        reach: crate::model::Reachable::Unknown,
         outbox: Vec::new(),
         unread: 0,
         next_id: 10,
