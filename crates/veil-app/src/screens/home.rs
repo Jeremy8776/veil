@@ -14,15 +14,17 @@ use crate::app::VeilApp;
 use crate::icons::Icon;
 use crate::model::clock;
 use crate::theme::{self, MUTED};
-use crate::widgets::{Tone, card, pill};
+use crate::widgets::{Tone, card, centred_row, pill};
 
 const COLUMN: f32 = 440.0;
 
 pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
     page(ui, |ui| {
-        ui.label(RichText::new("Veil").font(theme::bold(40.0)));
+        crate::logo::show(ui, 104.0, theme::PAGE);
+        ui.add_space(4.0);
+        ui.label(RichText::new("Veil").font(theme::bold(36.0)));
         ui.label(RichText::new("Private video calls, encrypted end to end.").color(MUTED));
-        ui.add_space(20.0);
+        ui.add_space(24.0);
         card().show(ui, |ui| {
             ui.set_width(COLUMN - 40.0);
             ui.label(RichText::new("Your name").color(MUTED));
@@ -67,38 +69,64 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
                 ui.label(RichText::new(error).color(theme::DANGER_HOVER));
             }
         });
-        ui.add_space(16.0);
-        ui.label(RichText::new("End-to-end encrypted").small().color(MUTED));
-        ui.add_space(8.0);
-        let demo = ui
-            .add(egui::Button::new(RichText::new("Demo call").small().color(MUTED)).frame(false))
+        ui.add_space(20.0);
+        links(app, ui);
+        ui.add_space(2.0);
+        updates(app, ui);
+    });
+}
+
+/// One quiet row of the less-used things: the demo, servers, device key and logs.
+fn links(app: &mut VeilApp, ui: &mut egui::Ui) {
+    let problem = centred_row(ui, "links", |ui| {
+        let demo = link(ui, "Demo call", MUTED)
             .on_hover_text("Try the interface with simulated people. Nothing is sent.");
         if demo.clicked() {
             app.demo = true;
             start(app, true);
         }
-        device_key(app, ui);
-        updates(app, ui);
+        dot(ui);
+        let connection = link(ui, "Connection", MUTED)
+            .on_hover_text("Your own servers and a fixed port, for calls across the internet.");
+        if connection.clicked() {
+            let form = crate::screens::connection::Form::new(&app.connection);
+            app.screen = crate::app::Screen::Connection(Box::new(form));
+        }
+        dot(ui);
+        let problem = device_key(app, ui);
+        dot(ui);
+        let logs = link(ui, "Logs", MUTED).on_hover_text(
+            "Opens the folder with Veil's log files. If something goes wrong, send veil.log, or \
+             veil.previous.log if Veil froze or closed. They hold states, timings and errors: \
+             no names, chat or invite links.",
+        );
+        if logs.clicked() {
+            crate::log::open_folder();
+        }
+        problem
     });
+    if let Some(problem) = problem {
+        ui.label(RichText::new(problem).small().color(theme::WARN));
+    }
+}
+
+/// A small text button with no frame.
+fn link(ui: &mut egui::Ui, text: &str, colour: egui::Color32) -> egui::Response {
+    ui.add(egui::Button::new(RichText::new(text).small().color(colour)).frame(false))
+}
+
+fn dot(ui: &mut egui::Ui) {
+    ui.label(RichText::new("·").small().color(MUTED));
 }
 
 /// This build's version, a link when a newer one is out, and the check's off switch.
 fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
     use crate::update::{self, Install, Status};
-    ui.add_space(4.0);
     let status = app.updates.status();
     if let Status::Available(version) = status {
         let install = app.updates.install_state();
-        ui.horizontal(|ui| {
-            let link = ui
-                .add(
-                    egui::Button::new(
-                        RichText::new(format!("Update available: {version}"))
-                            .small()
-                            .color(theme::WARN),
-                    )
-                    .frame(false),
-                )
+        centred_row(ui, "update", |ui| {
+            let link = link(ui, &format!("Update available: {version}"), theme::WARN)
                 .on_hover_text("Opens the release page.");
             if link.clicked() {
                 update::open(version);
@@ -108,12 +136,10 @@ fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
             }
             match &install {
                 Install::Idle | Install::Failed(_) => {
-                    let button = ui
-                        .small_button("Install")
-                        .on_hover_text(
-                            "Downloads it from GitHub, checks Veil's release signature, then \
+                    let button = ui.small_button("Install").on_hover_text(
+                        "Downloads it from GitHub, checks Veil's release signature, then \
                              installs it. Veil closes to finish.",
-                        );
+                    );
                     if button.clicked() {
                         app.updates.install(version, ui.ctx());
                     }
@@ -127,7 +153,11 @@ fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
             }
         });
         if let Install::Failed(why) = install {
-            ui.label(RichText::new(format!("Update failed: {why}")).small().color(theme::WARN));
+            ui.label(
+                RichText::new(format!("Update failed: {why}"))
+                    .small()
+                    .color(theme::WARN),
+            );
         }
     }
     let mut on = app.updates.enabled();
@@ -135,10 +165,14 @@ fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
     if status == Status::UpToDate {
         text.push_str(" · up to date");
     }
-    ui.horizontal(|ui| {
+    centred_row(ui, "version", |ui| {
         ui.label(RichText::new(text).small().color(MUTED));
+        dot(ui);
         let toggle = ui
-            .checkbox(&mut on, RichText::new("Check for updates").small().color(MUTED))
+            .checkbox(
+                &mut on,
+                RichText::new("Check for updates").small().color(MUTED),
+            )
             .on_hover_text(
                 "Asks GitHub once per start whether a newer Veil is out. GitHub sees your IP \
                  address. Nothing is downloaded unless you choose Install.",
@@ -146,40 +180,29 @@ fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
         if toggle.changed() {
             app.updates.set_enabled(on, ui.ctx());
         }
-        let logs = ui
-            .add(egui::Button::new(RichText::new("Logs").small().color(MUTED)).frame(false))
-            .on_hover_text(
-                "Opens the folder with Veil's log files. If something goes wrong, send \
-                 veil.log, or veil.previous.log if Veil froze or closed. They hold states, \
-                 timings and errors: no names, chat or invite links.",
-            );
-        if logs.clicked() {
-            crate::log::open_folder();
-        }
-        let connection = ui
-            .add(egui::Button::new(RichText::new("Connection").small().color(MUTED)).frame(false))
-            .on_hover_text("Your own servers and a fixed port, for calls across the internet.");
-        if connection.clicked() {
-            let form = crate::screens::connection::Form::new(&app.connection);
-            app.screen = crate::app::Screen::Connection(Box::new(form));
-        }
     });
 }
 
-/// Your device key's short form, a way to replace it, and any trouble saving it.
-fn device_key(app: &mut VeilApp, ui: &mut egui::Ui) {
+/// Your device key's short form and a way to replace it. Returns any trouble saving it.
+fn device_key(app: &mut VeilApp, ui: &mut egui::Ui) -> Option<String> {
     let (short, problem) = {
         let keys = crate::media::lock(&app.keys);
         (crate::engine::short(&keys.public()), keys.problem.clone())
     };
-    ui.add_space(4.0);
-    let label = if app.confirm_new_key { "Confirm new device key" } else { "New device key" };
-    let colour = if app.confirm_new_key { theme::WARN } else { MUTED };
-    let button = ui
-        .add(egui::Button::new(RichText::new(label).small().color(colour)).frame(false))
-        .on_hover_text(format!(
-            "This device is {short}. A new key means people who verified you see a new              device. Use it if you think your key was copied."
-        ));
+    let label = if app.confirm_new_key {
+        "Confirm new device key"
+    } else {
+        "New device key"
+    };
+    let colour = if app.confirm_new_key {
+        theme::WARN
+    } else {
+        MUTED
+    };
+    let button = link(ui, label, colour).on_hover_text(format!(
+        "This device is {short}. A new key means people who verified you see a new \
+             device. Use it if you think your key was copied."
+    ));
     if button.clicked() {
         if app.confirm_new_key {
             crate::media::lock(&app.keys).renew();
@@ -188,9 +211,7 @@ fn device_key(app: &mut VeilApp, ui: &mut egui::Ui) {
             app.confirm_new_key = true;
         }
     }
-    if let Some(problem) = problem {
-        ui.label(RichText::new(problem).small().color(theme::WARN));
-    }
+    problem
 }
 
 /// Reads an invite link, or says plainly what is wrong with it.

@@ -23,6 +23,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   If the router says no, the tooltip says how to open the port by hand. If your provider puts
   you behind a shared address (carrier-grade NAT), it says a public veil-node is needed.
 
+### Changed
+
+- A new icon: the same rings and V, without the teal square, and with the V cut out.
+- The home screen shows the logo with slow waves, and the smaller links (Demo call,
+  Connection, device key, Logs) sit in one row under the card, with the version below.
+
 ## 0.1.3, 17/11/2026
 
 ### Added

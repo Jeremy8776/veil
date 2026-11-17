@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="crates/veil-app/assets/veil-256.png" alt="Veil" width="96">
+<img src="crates/veil-app/assets/veil-logo.svg" alt="Veil" width="96">
 
 # Veil
 
