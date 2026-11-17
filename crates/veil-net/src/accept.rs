@@ -36,7 +36,7 @@ const READY: usize = 64;
 
 /// The address block a remote IP is counted under: the IPv4 address itself (an IPv4-mapped
 /// IPv6 address counts as its IPv4 address), or the /64 an IPv6 address belongs to.
-pub(crate) fn block(ip: IpAddr) -> IpAddr {
+pub fn block(ip: IpAddr) -> IpAddr {
     match ip {
         IpAddr::V4(v4) => IpAddr::V4(v4),
         IpAddr::V6(v6) => match v6.to_ipv4_mapped() {

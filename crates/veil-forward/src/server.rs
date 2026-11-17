@@ -5,6 +5,15 @@
 //! video writer. Video for a member waits in a queue bounded in bytes; when the queue is full,
 //! new frames for that member are dropped.
 //!
+//! Queued video is also bounded for the whole node ([`Limits::node_queue_bytes`]) and per
+//! remote address block of the receiving links ([`Limits::source_queue_bytes`], blocks as in
+//! `veil_net::accept::block`), so many rooms cannot add up to more than the node can hold. A
+//! frame holds a reservation against all three budgets from the moment it is queued until it
+//! is sent, dropped or its queue is dropped; the reservation gives the bytes back when it is
+//! dropped, so they are released exactly once on every path. A frame that waits longer than
+//! [`Limits::send_deadline`], or whose send takes longer than that, is dropped: a receiver
+//! that never reads cannot pin memory.
+//!
 //! Layers: each receiver's [`Subscriptions`] decide which SVC layers of each sender it gets,
 //! read from the frame's plaintext layer marker. A frame whose marker does not parse is dropped.
 //!
@@ -27,12 +36,14 @@
 //! shortcut: no forwarder-to-forwarder cascade yet; one forwarder serves a whole room.
 
 use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use tokio::sync::mpsc;
+use veil_net::accept::block;
 use veil_net::control::MAX_APP_LEN;
 use veil_net::{FramedSend, Link, NetError, Node};
 use veil_security::PublicId;
@@ -56,6 +67,14 @@ pub struct Limits {
     pub max_members_per_room: usize,
     /// Video bytes allowed to wait for one receiver before frames are dropped.
     pub queue_bytes: usize,
+    /// Video bytes allowed to wait for all receivers of the node together.
+    pub node_queue_bytes: usize,
+    /// Video bytes allowed to wait for all receiving links of one remote address block (one
+    /// IPv4 address or IPv6 /64, as for the link caps).
+    pub source_queue_bytes: usize,
+    /// How long a frame may wait in a queue, and then how long its send may take, before it is
+    /// dropped. Matches the receiving side's `veil_net::frames::FRAME_DEADLINE`.
+    pub send_deadline: Duration,
 }
 
 impl Default for Limits {
@@ -64,17 +83,116 @@ impl Default for Limits {
             max_rooms: 1_000,
             max_members_per_room: 16,
             queue_bytes: 32 * 1024 * 1024,
+            node_queue_bytes: 1024 * 1024 * 1024,
+            source_queue_bytes: 128 * 1024 * 1024,
+            send_deadline: veil_net::frames::FRAME_DEADLINE,
         }
     }
 }
 
-type Frame = (u32, Arc<Vec<u8>>);
+/// Queued video bytes that are counted across receivers.
+#[derive(Default)]
+struct Budgets {
+    node: AtomicUsize,
+    /// Per remote address block. An entry is removed when it drops to zero.
+    sources: Mutex<HashMap<IpAddr, usize>>,
+}
+
+impl Budgets {
+    fn reserve_source(&self, source: IpAddr, len: usize, budget: usize) -> bool {
+        let Ok(mut sources) = self.sources.lock() else {
+            return false;
+        };
+        let used = sources.get(&source).copied().unwrap_or(0);
+        match used.checked_add(len).filter(|total| *total <= budget) {
+            Some(total) => {
+                if total > 0 {
+                    sources.insert(source, total);
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn release_source(&self, source: IpAddr, len: usize) {
+        let mut sources = self.sources.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(used) = sources.get_mut(&source) {
+            *used = used.saturating_sub(len);
+            if *used == 0 {
+                sources.remove(&source);
+            }
+        }
+    }
+}
+
+/// Reads a running forwarder's queued video total. For monitoring and tests.
+#[derive(Clone)]
+pub struct QueueMonitor(Arc<Budgets>);
+
+impl QueueMonitor {
+    /// Video bytes now queued for all receivers.
+    pub fn queued_bytes(&self) -> usize {
+        self.0.node.load(Ordering::Acquire)
+    }
+}
+
+/// `len` bytes held against a receiver's, the node's and a source block's budgets. Dropping it
+/// gives all three back.
+struct Reservation {
+    len: usize,
+    budgets: Arc<Budgets>,
+    queued: Arc<AtomicUsize>,
+    source: IpAddr,
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        release(&self.queued, self.len);
+        release(&self.budgets.node, self.len);
+        self.budgets.release_source(self.source, self.len);
+    }
+}
+
+/// Reserves `len` bytes from the receiver's, the node's and the source block's budgets, all or
+/// nothing.
+fn reserve_all(
+    budgets: &Arc<Budgets>,
+    queued: &Arc<AtomicUsize>,
+    source: IpAddr,
+    len: usize,
+    limits: &Limits,
+) -> Option<Reservation> {
+    if !reserve(queued, len, limits.queue_bytes) {
+        return None;
+    }
+    if !reserve(&budgets.node, len, limits.node_queue_bytes) {
+        release(queued, len);
+        return None;
+    }
+    if !budgets.reserve_source(source, len, limits.source_queue_bytes) {
+        release(&budgets.node, len);
+        release(queued, len);
+        return None;
+    }
+    Some(Reservation { len, budgets: budgets.clone(), queued: queued.clone(), source })
+}
+
+/// A frame waiting for one receiver. Its reservation is released when it is dropped.
+struct Frame {
+    id: u32,
+    sealed: Arc<Vec<u8>>,
+    enqueued: Instant,
+    _reservation: Reservation,
+}
 
 struct Member {
     /// Tells this link apart from a later link of the same device.
     id: u64,
     video: mpsc::Sender<Frame>,
     queued: Arc<AtomicUsize>,
+    /// The receiving link's address block.
+    source: IpAddr,
     conn: quinn::Connection,
     control: mpsc::Sender<ServerMsg>,
     subs: Subscriptions,
@@ -119,6 +237,7 @@ fn lock(state: &Shared) -> Option<MutexGuard<'_, State>> {
 pub struct ForwarderServer {
     node: Node,
     state: Shared,
+    budgets: Arc<Budgets>,
     limits: Limits,
     only_host: Option<PublicId>,
 }
@@ -128,6 +247,7 @@ impl ForwarderServer {
         Self {
             node,
             state: Shared::default(),
+            budgets: Arc::default(),
             limits,
             only_host: None,
         }
@@ -144,6 +264,16 @@ impl ForwarderServer {
         self.node.id()
     }
 
+    /// Video bytes now queued for all receivers. For monitoring and tests.
+    pub fn queued_bytes(&self) -> usize {
+        self.monitor().queued_bytes()
+    }
+
+    /// A handle that reads [`Self::queued_bytes`] after [`Self::run`] has taken the server.
+    pub fn monitor(&self) -> QueueMonitor {
+        QueueMonitor(self.budgets.clone())
+    }
+
     pub fn local_addr(&self) -> Result<SocketAddr, NetError> {
         self.node.local_addr()
     }
@@ -152,7 +282,8 @@ impl ForwarderServer {
     pub async fn run(self) {
         while let Some(incoming) = self.node.accept().await {
             if let Ok(link) = incoming {
-                tokio::spawn(serve(link, self.state.clone(), self.limits, self.only_host));
+                let (state, budgets) = (self.state.clone(), self.budgets.clone());
+                tokio::spawn(serve(link, state, budgets, self.limits, self.only_host));
             }
         }
     }
@@ -161,6 +292,7 @@ impl ForwarderServer {
 struct Joining {
     video: mpsc::Sender<Frame>,
     queued: Arc<AtomicUsize>,
+    source: IpAddr,
     conn: quinn::Connection,
     control: mpsc::Sender<ServerMsg>,
 }
@@ -199,9 +331,9 @@ fn join(
     if room.members.len() >= limits.max_members_per_room {
         return Err(Refusal::RoomFull);
     }
-    let Joining { video, queued, conn, control } = joining;
+    let Joining { video, queued, source, conn, control } = joining;
     let subs = Subscriptions::default();
-    room.members.insert(me, Member { id, video, queued, conn, control, subs });
+    room.members.insert(me, Member { id, video, queued, source, conn, control, subs });
     Ok((u16::try_from(room.members.len()).unwrap_or(u16::MAX), id))
 }
 
@@ -300,7 +432,7 @@ async fn refuse(link: &Link, out: &mut FramedSend, refusal: Refusal) {
     let _ = tokio::time::timeout(REFUSAL_LINGER, link.quic().closed()).await;
 }
 
-async fn serve(link: Link, state: Shared, limits: Limits, only_host: Option<PublicId>) {
+async fn serve(link: Link, state: Shared, budgets: Arc<Budgets>, limits: Limits, only_host: Option<PublicId>) {
     let link = Arc::new(link);
     // A link that does not join promptly is dropped, so idle links cannot pile up.
     let joined = tokio::time::timeout(JOIN_WAIT, async {
@@ -330,6 +462,7 @@ async fn serve(link: Link, state: Shared, limits: Limits, only_host: Option<Publ
     let joining = Joining {
         video: video_tx,
         queued: queued.clone(),
+        source: block(link.remote_addr().ip()),
         conn: link.quic().clone(),
         control: control_tx,
     };
@@ -357,21 +490,27 @@ async fn serve(link: Link, state: Shared, limits: Limits, only_host: Option<Publ
     let writer = {
         let link = link.clone();
         tokio::spawn(async move {
-            while let Some((frame_id, frame)) = video_rx.recv().await {
-                let sent = link.send_frame(frame_id, &frame).await;
-                release(&queued, frame.len());
-                if sent.is_err() {
-                    break;
+            while let Some(frame) = video_rx.recv().await {
+                // A frame that waited too long is stale: drop it (its reservation goes with it).
+                if frame.enqueued.elapsed() >= limits.send_deadline {
+                    continue;
+                }
+                // On timeout the send future is dropped; `send_frame` resets the frame's QUIC
+                // stream then, discarding its buffered bytes. The receiver sees one lost frame
+                // and later frames are unaffected, because each frame has a stream of its own.
+                match tokio::time::timeout(limits.send_deadline, link.send_frame(frame.id, &frame.sealed)).await {
+                    Ok(Ok(())) | Err(_) => {}
+                    Ok(Err(_)) => break,
                 }
             }
         })
     };
     let video = {
-        let (link, state) = (link.clone(), state.clone());
+        let (link, state, budgets) = (link.clone(), state.clone(), budgets.clone());
         tokio::spawn(async move {
             let mut frames = veil_net::FrameReader::new(&link);
             while let Ok((frame_id, sealed)) = frames.recv().await {
-                fan_out_video(&state, &key, me, frame_id, sealed, limits.queue_bytes);
+                fan_out_video(&state, &budgets, &limits, &key, me, frame_id, sealed);
             }
         })
     };
@@ -402,7 +541,15 @@ async fn serve(link: Link, state: Shared, limits: Limits, only_host: Option<Publ
     audio.abort();
 }
 
-fn fan_out_video(state: &Shared, key: &RoomKey, me: PublicId, frame_id: u32, sealed: Vec<u8>, budget: usize) {
+fn fan_out_video(
+    state: &Shared,
+    budgets: &Arc<Budgets>,
+    limits: &Limits,
+    key: &RoomKey,
+    me: PublicId,
+    frame_id: u32,
+    sealed: Vec<u8>,
+) {
     let Ok(layer) = frame_layer(&sealed) else {
         return;
     };
@@ -412,21 +559,27 @@ fn fan_out_video(state: &Shared, key: &RoomKey, me: PublicId, frame_id: u32, sea
                 room.members
                     .iter_mut()
                     .filter(|(device, _)| **device != me)
-                    .filter_map(|(_, m)| m.subs.pass(&me, layer).then(|| (m.video.clone(), m.queued.clone())))
+                    .filter_map(|(_, m)| m.subs.pass(&me, layer).then(|| (m.video.clone(), m.queued.clone(), m.source)))
                     .collect()
             })
         })
         .unwrap_or_default();
     let len = sealed.len();
     let frame = Arc::new(sealed);
-    for (queue, queued) in receivers {
-        if reserve(&queued, len, budget) && queue.try_send((frame_id, frame.clone())).is_err() {
-            release(&queued, len);
+    for (queue, queued, source) in receivers {
+        if let Some(reservation) = reserve_all(budgets, &queued, source, len, limits) {
+            // A full queue hands the frame back; dropping it releases the reservation.
+            let _ = queue.try_send(Frame {
+                id: frame_id,
+                sealed: frame.clone(),
+                enqueued: Instant::now(),
+                _reservation: reservation,
+            });
         }
     }
 }
 
-/// Reserves `len` bytes of a receiver's budget. Atomic, so concurrent senders in one room
+/// Reserves `len` bytes of one atomic budget. Atomic, so concurrent senders in one room
 /// cannot overshoot the budget together.
 fn reserve(queued: &AtomicUsize, len: usize, budget: usize) -> bool {
     queued
@@ -463,5 +616,30 @@ mod tests {
         assert!(reserve(&queued, 50, 100));
         assert!(!reserve(&queued, usize::MAX, 100), "no overflow");
         assert_eq!(queued.load(Ordering::Acquire), 90);
+    }
+
+    #[test]
+    fn reserve_all_is_all_or_nothing_and_releases_on_drop() {
+        let budgets = Arc::new(Budgets::default());
+        let a = Arc::new(AtomicUsize::new(0));
+        let b = Arc::new(AtomicUsize::new(0));
+        let ip: IpAddr = [10, 0, 0, 1].into();
+        let other: IpAddr = [10, 0, 0, 2].into();
+        let limits = Limits { queue_bytes: 100, node_queue_bytes: 150, source_queue_bytes: 120, ..Limits::default() };
+
+        let r1 = reserve_all(&budgets, &a, ip, 100, &limits).unwrap();
+        // The node budget (150) refuses; the receiver and source counts roll back.
+        assert!(reserve_all(&budgets, &b, other, 60, &limits).is_none());
+        assert_eq!(b.load(Ordering::Acquire), 0);
+        assert_eq!(budgets.node.load(Ordering::Acquire), 100);
+        assert!(!budgets.sources.lock().unwrap().contains_key(&other));
+        // The source budget (120) refuses for the same block.
+        assert!(reserve_all(&budgets, &b, ip, 30, &limits).is_none());
+        assert_eq!(b.load(Ordering::Acquire), 0);
+        assert_eq!(budgets.node.load(Ordering::Acquire), 100);
+        drop(r1);
+        assert_eq!(a.load(Ordering::Acquire), 0);
+        assert_eq!(budgets.node.load(Ordering::Acquire), 0);
+        assert!(budgets.sources.lock().unwrap().is_empty(), "entries vanish at zero");
     }
 }

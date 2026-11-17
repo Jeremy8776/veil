@@ -10,8 +10,9 @@
 //!   only devices on the host's signed [`RosterTicket`] may join one.
 //! - A frame goes to every other member of the sender's room that subscribes to its layer, and
 //!   never back to the sender or to another room.
-//! - Memory per receiver is bounded in bytes. A slow receiver loses frames; it never stalls the
-//!   sender or the other receivers.
+//! - Queued video is bounded in bytes per receiver, per remote address block and for the whole
+//!   node. A frame that cannot be sent within `Limits::send_deadline` is dropped and its bytes
+//!   released. A slow receiver loses frames; it never stalls the sender or the other receivers.
 #![forbid(unsafe_code)]
 #![deny(
     clippy::unwrap_used,
@@ -32,7 +33,7 @@ use std::fmt;
 
 pub use client::ForwarderClient;
 pub use protocol::Refusal;
-pub use server::{ForwarderServer, Limits};
+pub use server::{ForwarderServer, Limits, QueueMonitor};
 pub use subscribe::Wanted;
 pub use ticket::{RosterTicket, TicketError};
 
