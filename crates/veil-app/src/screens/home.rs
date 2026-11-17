@@ -19,10 +19,9 @@ use crate::widgets::{Tone, card, centred_row, pill};
 const COLUMN: f32 = 440.0;
 
 pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
-    page(ui, |ui| {
+    page(ui, "home", |ui| {
         crate::logo::show(ui, 104.0, theme::PAGE);
-        ui.add_space(4.0);
-        ui.label(RichText::new("Veil").font(theme::bold(36.0)));
+        ui.add_space(12.0);
         ui.label(RichText::new("Private video calls, encrypted end to end.").color(MUTED));
         ui.add_space(24.0);
         card().show(ui, |ui| {
@@ -246,7 +245,7 @@ pub fn ended(app: &mut VeilApp, ui: &mut egui::Ui) {
         return;
     };
     let (title, lasted, reason) = (title.clone(), *lasted, reason.clone());
-    page(ui, |ui| {
+    page(ui, "ended", |ui| {
         ui.label(RichText::new(reason).font(theme::bold(28.0)));
         ui.label(RichText::new(format!("{title} · {}", clock(lasted))).color(MUTED));
         ui.add_space(20.0);
@@ -256,16 +255,49 @@ pub fn ended(app: &mut VeilApp, ui: &mut egui::Ui) {
     });
 }
 
-/// A centred column on the page background.
-pub fn page(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+/// A column on the page background, centred both ways. `id` names the screen: the column's
+/// height is remembered from the last frame (as `widgets::centred_row` does for width), so a
+/// screen settles one frame after it first shows or changes height.
+pub fn page(ui: &mut egui::Ui, id: &str, add: impl FnOnce(&mut egui::Ui)) {
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::PAGE))
         .show(ui, |ui| {
-            let top = (ui.available_height() * 0.18).max(24.0);
-            ui.add_space(top);
-            ui.with_layout(Layout::top_down(Align::Center), |ui| {
-                ui.set_max_width(COLUMN);
-                add(ui);
-            });
+            let key = ui.make_persistent_id(("page", id));
+            let last: f32 = ui.ctx().data(|d| d.get_temp(key)).unwrap_or(0.0);
+            ui.add_space(top_space(ui.available_height(), last));
+            let height = ui
+                .with_layout(Layout::top_down(Align::Center), |ui| {
+                    ui.set_max_width(COLUMN);
+                    add(ui);
+                })
+                .response
+                .rect
+                .height();
+            if (height - last).abs() > 0.5 {
+                ui.ctx().data_mut(|d| d.insert_temp(key, height));
+                ui.ctx().request_repaint();
+            }
         });
+}
+
+/// Space above a column `content` high on a page `available` high: a little above centre,
+/// which reads as centred, and never less than a small margin.
+fn top_space(available: f32, content: f32) -> f32 {
+    ((available - content) * 0.45).max(24.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::top_space;
+
+    #[test]
+    fn a_short_column_sits_just_above_centre() {
+        // 800 high page, 400 high column: 200 each side if centred, a little less above.
+        assert_eq!(top_space(800.0, 400.0), 180.0);
+    }
+
+    #[test]
+    fn a_tall_column_keeps_a_small_margin() {
+        assert_eq!(top_space(500.0, 900.0), 24.0);
+    }
 }
