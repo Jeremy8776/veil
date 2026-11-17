@@ -24,8 +24,8 @@ use crate::engine::Engine;
 use crate::icons::Icon;
 use crate::layout;
 use crate::model::{Call, CallStatus, Participant, clock};
-use crate::screens::{controls, invite, stats};
 use crate::screens::panels::{self, Panel};
+use crate::screens::{controls, invite, stats};
 use crate::theme::{self, GAP, MUTED, PAGE, SURFACE};
 use crate::widgets::{self, ControlState, Tile, Tone, control, pill};
 
@@ -360,7 +360,8 @@ fn control_bar(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> boo
         .show(ui, |ui| {
             let leave_w = 110.0;
             let buttons = controls::CONTROLS + 3;
-            let gaps = (buttons + controls::MENUS - 1) as f32;
+            // The arrows join their buttons, so they add no gaps.
+            let gaps = (buttons - 1) as f32;
             let controls_w =
                 buttons as f32 * 68.0 + controls::MENUS as f32 * controls::MENU_W + gaps * 6.0;
             let start = ((ui.available_width() - controls_w) / 2.0).max(0.0);

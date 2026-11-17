@@ -27,6 +27,23 @@ pub struct ControlState {
     pub selected: bool,
     /// A count to show in a badge, such as people waiting.
     pub badge: usize,
+    /// The left half of a split button: square right corners, so the menu arrow drawn next
+    /// to it joins on.
+    pub split: bool,
+}
+
+/// The corners of a call-bar button, square on the right when it is split.
+pub fn control_corners(split: bool) -> CornerRadius {
+    if split {
+        CornerRadius {
+            nw: RADIUS,
+            sw: RADIUS,
+            ne: 0,
+            se: 0,
+        }
+    } else {
+        CornerRadius::same(RADIUS)
+    }
 }
 
 /// A square call-bar button: icon above a short label.
@@ -41,9 +58,10 @@ pub fn control(ui: &mut Ui, icon: Icon, label: &str, hint: &str, state: ControlS
         } else {
             RAISED
         };
-        painter.rect_filled(rect, CornerRadius::same(RADIUS), fill);
+        let corners = control_corners(state.split);
+        painter.rect_filled(rect, corners, fill);
         if response.has_focus() {
-            painter.rect_stroke(rect, RADIUS, Stroke::new(2.0, ACCENT), StrokeKind::Inside);
+            painter.rect_stroke(rect, corners, Stroke::new(2.0, ACCENT), StrokeKind::Inside);
         }
         let colour = if state.off { theme::DANGER_HOVER } else { TEXT };
         let center = pos2(rect.center().x, rect.top() + 22.0);
@@ -349,7 +367,11 @@ pub fn device_picker(
 /// A device error, in short, under its picker.
 pub fn device_error(ui: &mut Ui, error: Option<String>) {
     if let Some(error) = error {
-        ui.label(egui::RichText::new(error).small().color(theme::DANGER_HOVER));
+        ui.label(
+            egui::RichText::new(error)
+                .small()
+                .color(theme::DANGER_HOVER),
+        );
     }
 }
 

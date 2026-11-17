@@ -20,12 +20,12 @@ use crate::app::VeilApp;
 use crate::icons::Icon;
 use crate::screens::call::CallView;
 use crate::screens::call_menus;
-use crate::theme::{self, RAISED, RAISED_HOVER, TEXT};
+use crate::theme::{self, RAISED, RAISED_HOVER};
 use crate::volume::{MIC_MAX, SPEAKER_MAX};
 use crate::widgets::{ControlState, control, device_error, level_meter};
 
-/// Width of the arrow beside Mute and Stop video.
-pub const MENU_W: f32 = 18.0;
+/// Width of the arrow beside Mute and Stop video. It joins its button with no gap.
+pub const MENU_W: f32 = 22.0;
 /// The bar's buttons drawn here: Mute, Stop video, Effects, Share, Raise.
 pub const CONTROLS: usize = 5;
 /// The arrows drawn here.
@@ -36,6 +36,7 @@ pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
     let mic_on = app.media.mic_on();
     let state = ControlState {
         off: !mic_on,
+        split: true,
         ..Default::default()
     };
     let label = if mic_on { "Mute" } else { "Unmute" };
@@ -49,6 +50,7 @@ pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
     let cam_on = app.media.camera_on();
     let state = ControlState {
         off: !cam_on,
+        split: true,
         ..Default::default()
     };
     let label = if cam_on { "Stop video" } else { "Start video" };
@@ -172,9 +174,13 @@ fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
     call_menus::filter_swatches(ui, &app.media);
 }
 
-/// The small arrow beside a control that opens its device menu.
+/// The arrow beside a control that opens its device menu: the right half of a split
+/// button, joined to the control just drawn (no gap, a thin line between the two).
 fn menu_button(ui: &mut egui::Ui, label: &str, hint: &str) -> egui::Response {
+    let gap = ui.spacing().item_spacing.x;
+    ui.spacing_mut().item_spacing.x = 0.0;
     let (rect, response) = ui.allocate_exact_size(vec2(MENU_W, 58.0), Sense::click());
+    ui.spacing_mut().item_spacing.x = gap;
     let response = response.on_hover_text(hint);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
     if ui.is_rect_visible(rect) {
@@ -184,14 +190,27 @@ fn menu_button(ui: &mut egui::Ui, label: &str, hint: &str) -> egui::Response {
         } else {
             RAISED
         };
-        painter.rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
+        let corners = CornerRadius {
+            nw: 0,
+            sw: 0,
+            ne: theme::RADIUS,
+            se: theme::RADIUS,
+        };
+        painter.rect_filled(rect, corners, fill);
+        painter.line_segment(
+            [
+                pos2(rect.left(), rect.top() + 14.0),
+                pos2(rect.left(), rect.bottom() - 14.0),
+            ],
+            Stroke::new(1.0, theme::LINE),
+        );
         if response.has_focus() {
             let stroke = Stroke::new(2.0, theme::ACCENT);
-            painter.rect_stroke(rect, theme::RADIUS, stroke, egui::StrokeKind::Inside);
+            painter.rect_stroke(rect, corners, stroke, egui::StrokeKind::Inside);
         }
-        // An upward chevron: the menu opens above the bar.
-        let c = rect.center();
-        let stroke = Stroke::new(1.6, TEXT);
+        // An upward chevron, level with the control's icon: the menu opens above the bar.
+        let c = pos2(rect.center().x, rect.top() + 22.0);
+        let stroke = Stroke::new(1.6, theme::MUTED);
         painter.line_segment([pos2(c.x - 4.0, c.y + 2.0), pos2(c.x, c.y - 2.0)], stroke);
         painter.line_segment([pos2(c.x, c.y - 2.0), pos2(c.x + 4.0, c.y + 2.0)], stroke);
     }
