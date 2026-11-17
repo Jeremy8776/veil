@@ -95,11 +95,13 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Starts the call with your device key from `keys`. `your_name` is sent to the other
+    /// Starts the call with your device key from `keys` and the network settings `config`
+    /// (`connection::Store::config`). `your_name` is sent to the other
     /// members, sealed. `speaker` is a device id from the pre-join picker, `None` for the
     /// default. Fails only if the async runtime cannot start.
     pub fn start(
         role: Role,
+        config: plan::NetConfig,
         your_name: String,
         speaker: Option<String>,
         keys: Arc<Mutex<KeyStore>>,
@@ -135,7 +137,6 @@ impl Engine {
             control,
         };
         let (commands, commands_rx) = mpsc::unbounded_channel();
-        let config = plan::NetConfig::from_env();
         let task_shared = shared.clone();
         crate::note!("call: starting as {}", if matches!(role, Role::Host) { "host" } else { "guest" });
         let task = runtime.spawn(async move {

@@ -1,7 +1,8 @@
 //! The app's screens and what they share: your name, your devices and the camera texture.
 //!
 //! Purpose: [`VeilApp`] owns the state that outlives one screen and switches between Home,
-//! Pre-join, the call, and the end-of-call screen. Each screen lives in `screens/`.
+//! Pre-join, the call, the end-of-call screen and Settings > Connection. Each screen lives in
+//! `screens/`.
 //!
 //! Invariants:
 //! - Devices are on only on the pre-join and call screens. Leaving either turns them off.
@@ -27,6 +28,8 @@ pub enum Screen {
         host: bool,
     },
     Call(Box<CallView>),
+    /// Settings > Connection, with the fields being edited.
+    Connection(Box<crate::screens::connection::Form>),
     Ended {
         title: String,
         lasted: Duration,
@@ -63,6 +66,8 @@ pub struct VeilApp {
     pub confirm_new_key: bool,
     /// Whether a newer Veil is out (`update.rs`).
     pub updates: crate::update::Updates,
+    /// Your own servers and port, kept between runs (`connection.rs`).
+    pub connection: crate::connection::Store,
     ctx: egui::Context,
 }
 
@@ -89,6 +94,7 @@ impl VeilApp {
             keys: Arc::new(Mutex::new(KeyStore::open(keystore::default_dir()))),
             confirm_new_key: false,
             updates: crate::update::Updates::start(keystore::default_dir(), ctx),
+            connection: crate::connection::Store::open(keystore::default_dir()),
             ctx: ctx.clone(),
         }
     }
@@ -122,7 +128,8 @@ impl VeilApp {
             };
             let speaker = self.media.choice().speaker.clone();
             let keys = self.keys.clone();
-            match Engine::start(role, name.clone(), speaker, keys, self.ctx.clone()) {
+            let config = self.connection.config();
+            match Engine::start(role, config, name.clone(), speaker, keys, self.ctx.clone()) {
                 Ok(engine) => {
                     self.media.set_taps(Some(engine.taps()));
                     let title = if host {
@@ -243,6 +250,11 @@ impl eframe::App for VeilApp {
                     self.screen = Screen::Call(view);
                 } else {
                     self.leave(&view.call);
+                }
+            }
+            Screen::Connection(mut form) => {
+                if crate::screens::connection::show(self, ui, &mut form) {
+                    self.screen = Screen::Connection(form);
                 }
             }
             Screen::Ended {

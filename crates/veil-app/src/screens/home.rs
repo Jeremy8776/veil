@@ -156,6 +156,13 @@ fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
         if logs.clicked() {
             crate::log::open_folder();
         }
+        let connection = ui
+            .add(egui::Button::new(RichText::new("Connection").small().color(MUTED)).frame(false))
+            .on_hover_text("Your own servers and a fixed port, for calls across the internet.");
+        if connection.clicked() {
+            let form = crate::screens::connection::Form::new(&app.connection);
+            app.screen = crate::app::Screen::Connection(Box::new(form));
+        }
     });
 }
 
@@ -229,7 +236,7 @@ pub fn ended(app: &mut VeilApp, ui: &mut egui::Ui) {
 }
 
 /// A centred column on the page background.
-fn page(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+pub fn page(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::PAGE))
         .show(ui, |ui| {
