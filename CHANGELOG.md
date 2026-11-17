@@ -10,6 +10,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   from the new Effects button in the call bar. It changes your self-view and the picture other
   members receive, on your device, before the picture is encoded. It resets to None each time
   Veil starts.
+- Background blur: Off, Light or Strong, next to Filter. It finds you in the picture on your
+  device, with a small network built into Veil, and blurs everything else before the picture is
+  encoded. Nothing is downloaded or sent to do it. If your computer is too busy, your camera
+  turns off and Veil says so, so your background is never sent sharp. Blur is not a privacy
+  guarantee: edges and hair can show what is behind you. It resets to Off each time Veil
+  starts.
 
 ## 0.1.3, 17/11/2026
 

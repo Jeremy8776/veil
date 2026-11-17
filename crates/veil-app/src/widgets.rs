@@ -12,7 +12,7 @@ use eframe::egui::{
     self, Align2, Color32, CornerRadius, FontId, Rect, Response, Role, Sense, Stroke, StrokeKind,
     TextureId, Ui, WidgetInfo, pos2, vec2,
 };
-use veil_media::Filter;
+use veil_media::{Blur, Filter};
 
 use crate::icons::Icon;
 use crate::media::LocalMedia;
@@ -347,5 +347,43 @@ fn filter_label(filter: Filter) -> &'static str {
         Filter::Cool => "Cool",
         Filter::BlackWhite => "Black & white",
         Filter::Bright => "Bright",
+    }
+}
+
+/// The Background blur drop-down, beside the Filter one, with the notice if blur turned itself off.
+pub fn blur_picker(ui: &mut Ui, media: &LocalMedia) {
+    picker_label(ui, Icon::Effects, "Background blur");
+    let current = media.blur();
+    let mut picked = current;
+    egui::ComboBox::from_id_salt("Background blur")
+        .width(280.0)
+        .selected_text(blur_label(current))
+        .show_ui(ui, |ui| {
+            for blur in Blur::ALL {
+                ui.selectable_value(&mut picked, blur, blur_label(blur));
+            }
+        })
+        .response
+        .on_hover_text(
+            "Blur is not a privacy guarantee: edges and hair can show what is behind you.",
+        );
+    if picked != current {
+        media.set_blur(picked);
+    }
+    if let Some(notice) = media.blur_notice() {
+        ui.label(
+            egui::RichText::new(notice)
+                .small()
+                .color(theme::DANGER_HOVER),
+        )
+        .on_hover_text("Turn the camera on again when fewer apps are running, or turn blur off.");
+    }
+}
+
+fn blur_label(blur: Blur) -> &'static str {
+    match blur {
+        Blur::Off => "Off",
+        Blur::Light => "Light",
+        Blur::Strong => "Strong",
     }
 }

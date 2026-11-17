@@ -45,6 +45,8 @@ openh264-sys2 = { version = "0.9.10", default-features = false, features = ["sou
 # The MJPEG module (src/mjpeg.rs) runs its tests on every platform; Linux also uses it for real.
 [dev-dependencies]
 zune-jpeg = "0.5.15"
+# The segment tests check the embedded weights against their published hash.
+sha2 = "0.11.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 v4l = "0.14.0"

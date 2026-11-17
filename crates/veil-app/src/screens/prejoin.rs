@@ -126,6 +126,7 @@ fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
         }
         status(ui, app.media.camera_error());
         widgets::filter_picker(ui, &app.media);
+        widgets::blur_picker(ui, &app.media);
         if let Some(id) = picker(
             ui,
             Icon::Mic,

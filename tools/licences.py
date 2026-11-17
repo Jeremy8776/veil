@@ -65,6 +65,14 @@ def allowed(expr):
     return bool(toks) and parse_or() and pos == len(toks)
 
 
+# Third-party work built into Veil that is not a crate, so cargo metadata cannot list it.
+# Each needs its licence's attribution in the shipped DEPENDENCIES.md.
+EMBEDDED = [
+    "| MediaPipe selfie segmenter (landscape), weights in `crates/veil-media/src/segment/weights.bin` "
+    "| Google, 2021 | Apache-2.0 |",
+]
+
+
 def main():
     meta = json.loads(subprocess.check_output(
         ["cargo", "metadata", "--format-version", "1", "--locked"], text=True))
@@ -89,6 +97,15 @@ def main():
         "| Crate | Version | Licence |",
         "| --- | --- | --- |",
         *rows,
+        "",
+        "## Other components",
+        "",
+        "Third-party work built into Veil that is not a crate. Sources and hashes are in",
+        "`crates/veil-media/src/segment/MODEL.md`.",
+        "",
+        "| Component | Author | Licence |",
+        "| --- | --- | --- |",
+        *EMBEDDED,
         "",
     ])
     # Git may check the file out with CRLF line endings on Windows; compare the text only.

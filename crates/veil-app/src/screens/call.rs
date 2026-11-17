@@ -39,6 +39,8 @@ pub struct CallView {
     pub view: View,
     pub draft: String,
     notice: Option<(String, Instant)>,
+    /// Whether the blur-off notice has been shown as a toast, so it shows once.
+    blur_notice_shown: bool,
     /// The real call; `None` in a demo. Dropping it leaves the call.
     engine: Option<Engine>,
 }
@@ -52,6 +54,7 @@ impl CallView {
             view: View::Gallery,
             draft: String::new(),
             notice: None,
+            blur_notice_shown: false,
         }
     }
 
@@ -179,6 +182,14 @@ impl CallView {
     }
 
     fn stage(&mut self, app: &VeilApp, ui: &mut egui::Ui, now: Instant) {
+        match app.media.blur_notice() {
+            Some(text) if !self.blur_notice_shown => {
+                self.notify(&text);
+                self.blur_notice_shown = true;
+            }
+            None => self.blur_notice_shown = false,
+            Some(_) => {}
+        }
         let mut area = ui.available_rect_before_wrap();
         if let Some((text, colour)) = self.banner_text() {
             area.min.y += banner(ui, area, text, colour) + GAP;
@@ -400,7 +411,7 @@ fn device_controls(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
         ui,
         Icon::Effects,
         "Effects",
-        "Filters for your video",
+        "Filters and background blur",
         ControlState::default(),
     );
     egui::Popup::from_toggle_button_response(&effects)
@@ -409,6 +420,7 @@ fn device_controls(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
         .show(|ui| {
             ui.set_width(280.0);
             widgets::filter_picker(ui, &app.media);
+            widgets::blur_picker(ui, &app.media);
         });
     if control(
         ui,
