@@ -2,6 +2,14 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## 0.1.3, 17/11/2026
+
+### Fixed
+
+- The window no longer freezes (on Windows, "Not Responding") when a call ends while a
+  camera, microphone or speaker driver is stuck. Veil waits at most a second for each device, then
+  carries on.
+
 ## 0.1.2, 17/11/2026
 
 ### Added
