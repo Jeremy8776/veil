@@ -16,6 +16,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   turns off and Veil says so, so your background is never sent sharp. Blur is not a privacy
   guarantee: edges and hair can show what is behind you. It resets to Off each time Veil
   starts.
+- Open a port on your router, so guests on the internet can reach a call you host. Off until
+  you allow it: Veil asks once before your first hosted call, and the choice is in Settings >
+  Connection. Veil asks the router (PCP, NAT-PMP or UPnP) for the call's one UDP port, renews
+  it while the call runs and removes it when the call ends. People shows whether it worked.
+  If the router says no, the tooltip says how to open the port by hand. If your provider puts
+  you behind a shared address (carrier-grade NAT), it says a public veil-node is needed.
 
 ## 0.1.3, 17/11/2026
 

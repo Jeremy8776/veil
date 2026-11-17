@@ -28,6 +28,7 @@ mod host;
 mod loopback;
 mod names;
 pub mod plan;
+mod router;
 mod session;
 mod video_in;
 mod video_out;
@@ -35,8 +36,8 @@ mod view;
 mod wanted;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{SyncSender, sync_channel};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use eframe::egui;
@@ -138,7 +139,14 @@ impl Engine {
         };
         let (commands, commands_rx) = mpsc::unbounded_channel();
         let task_shared = shared.clone();
-        crate::note!("call: starting as {}", if matches!(role, Role::Host) { "host" } else { "guest" });
+        crate::note!(
+            "call: starting as {}",
+            if matches!(role, Role::Host) {
+                "host"
+            } else {
+                "guest"
+            }
+        );
         let task = runtime.spawn(async move {
             let shared = task_shared.clone();
             let result = match role {

@@ -1,0 +1,21 @@
+[package]
+name = "veil-portmap"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+# PCP and NAT-PMP nonces and spare external ports. Same version as veil-call.
+getrandom = { version = "0.4.3", features = ["sys_rng"] }
+tokio = { version = "1.40", features = ["rt", "time", "macros", "net"] }
+# UPnP's description and control requests: plain HTTP on the local network only. Same
+# version as veil-app; no redirects, no proxy (see src/upnp/mod.rs).
+ureq = { version = "3.5.2", default-features = false, features = ["rustls"] }
+
+[dev-dependencies]
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "net"] }
+
+[lints]
+workspace = true

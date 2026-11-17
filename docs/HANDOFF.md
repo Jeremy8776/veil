@@ -441,6 +441,9 @@ private keys never leave the device. OS randomness is `getrandom::SysRng`.
 - A lost audio device is an error and the app opens it again, and an open default device
   does not follow a change of Windows' default (`veil-media/src/ffi/windows/audio.rs`). No echo cancellation of Veil's own
   where the device has none.
+- Router ports (`veil-portmap/src/lib.rs`): IPv4 only; a second NAT is spotted only from a
+  private or shared router address, not by comparing with a rendezvous's reflection; a UPnP
+  router that allows permanent mappings only keeps one after a crash.
 - H.264 decoding is on the CPU; the GPU path needs a D3D11 device manager
   (`veil-media/src/ffi/windows/decoder.rs`).
 
@@ -520,7 +523,20 @@ Work, in order:
    resolve it when the call starts (`plan::resolve`, 5 s limit, IPv4 first, `0.0.0.0` and
    `::` refused), so invites and plans still carry literal addresses. A spoofed name can only
    stop a call: the pinned key still refuses any other server. `veil-probe` still takes IPs.
-3. Port opening (decisions above), then its guide and reachability check.
+3. Done 17/11/2026, except the reachability check: port opening (`crates/veil-portmap`,
+   `veil-app/src/engine/router.rs`). Asked once on the host's pre-join screen ("Open a port
+   on your router?", Allow or Not now), saved as `open_port` and `asked_open_port` in
+   `connection.json`, and a checkbox in Settings > Connection. While hosting it maps the
+   call port (PCP, then NAT-PMP if the router answers PCP with "unsupported version", then
+   UPnP), 20-minute lease renewed at half, removed on leave within 0.8 s. The public address
+   goes first in a fresh invite. People shows "Router port open" or "Router did not open a
+   port" with the guide (forward the port by hand, or a public node for carrier-grade NAT) in
+   the tooltip. `cargo test -j 8 -p veil-portmap real_router -- --ignored --nocapture` tries
+   this network's router. Run 17/11/2026 on Jeremy's network: gateway 192.168.1.1 found, no
+   PCP answer, no UPnP answer (Windows' own UPnP finder also sees no gateway device), so the
+   router has these off or lacks them. Not yet tested against a router that maps.
+   Still to do: the reachability check. It needs someone outside to dial in, so it waits on
+   a rendezvous message that asks the node to dial the requester's own reflected address.
 4. The two-machine internet test (below), with and without a mapped port.
 5. The optional default node.
 Open PRs to settle alongside: #21 (video filters), #28 (background blur).

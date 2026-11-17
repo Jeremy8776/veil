@@ -4159,6 +4159,7 @@ dependencies = [
  "veil-forward",
  "veil-media",
  "veil-net",
+ "veil-portmap",
  "veil-rendezvous",
  "veil-security",
  "veil-topology",
@@ -4270,6 +4271,15 @@ dependencies = [
  "veil-security",
  "winresource",
  "zeroize",
+]
+
+[[package]]
+name = "veil-portmap"
+version = "0.1.3"
+dependencies = [
+ "getrandom 0.4.3",
+ "tokio",
+ "ureq",
 ]
 
 [[package]]

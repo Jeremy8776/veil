@@ -1,4 +1,4 @@
-//! Settings > Connection: your own servers and a fixed port.
+//! Settings > Connection: your own servers, a fixed port, and opening it on your router.
 //!
 //! Purpose: edits a copy of the saved [`Settings`]; Save checks every field and keeps them
 //! only if all are good (`connection::Store::save`), showing each problem under its field.
@@ -74,6 +74,14 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
                 }
                 ui.add_space(8.0);
             }
+            let router = ui
+                .checkbox(&mut form.draft.open_port, "Open a port on my router")
+                .on_hover_text(ROUTER_HELP);
+            if router.changed() {
+                form.draft.asked_open_port = true;
+                form.saved = false;
+            }
+            ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let half = (WIDTH - theme::GAP) / 2.0;
                 if pill(ui, None, "Save", Tone::Primary, half).clicked() {
@@ -106,6 +114,12 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
     });
     stay
 }
+
+/// The router setting's tooltip, also used by the question before the first hosted call.
+pub const ROUTER_HELP: &str = "While you host a call, Veil asks your router (UPnP, NAT-PMP or \
+     PCP) to open the call's UDP port to this computer, so guests on the internet can reach \
+     you directly. One port, for that call only: renewed while it runs, removed when it ends. \
+     Your router must allow this; if it does not, Veil shows what to do instead.";
 
 /// Label, hint and tooltip for each field.
 fn text(field: Field) -> (&'static str, &'static str, &'static str) {

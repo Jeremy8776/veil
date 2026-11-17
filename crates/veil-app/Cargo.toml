@@ -13,6 +13,7 @@ veil-call = { path = "../veil-call" }
 veil-forward = { path = "../veil-forward" }
 veil-media = { path = "../veil-media" }
 veil-net = { path = "../veil-net" }
+veil-portmap = { path = "../veil-portmap" }
 veil-rendezvous = { path = "../veil-rendezvous" }
 veil-security = { path = "../veil-security" }
 veil-topology = { path = "../veil-topology" }

@@ -1,4 +1,5 @@
-//! Your connection settings: servers of your own and a fixed port, kept between runs.
+//! Your connection settings: servers of your own, a fixed port, and whether Veil may open
+//! that port on your router, kept between runs.
 //!
 //! Purpose: Settings > Connection edits a [`Settings`] (the text of each field), checks it
 //! with the same parsers as the environment variables (`engine::plan`), and saves it to
@@ -66,6 +67,10 @@ pub struct Settings {
     pub forwarder: String,
     pub advertise: String,
     pub port: String,
+    /// Ask the router to open the call port while hosting. Off until the person says yes.
+    pub open_port: bool,
+    /// The question before the first hosted call has been answered, either way.
+    pub asked_open_port: bool,
 }
 
 impl Settings {
@@ -90,7 +95,10 @@ impl Settings {
     /// The network settings these fields give, or what is wrong with each bad field.
     pub fn check(&self) -> Result<NetConfig, Vec<(Field, String)>> {
         let mut problems = Vec::new();
-        let mut config = NetConfig::default();
+        let mut config = NetConfig {
+            open_port: self.open_port,
+            ..NetConfig::default()
+        };
         for field in Field::ALL {
             let text = self.field(field);
             if text.chars().count() > MAX_FIELD {
@@ -275,7 +283,25 @@ mod tests {
             forwarder: node("203.0.113.5:4434"),
             advertise: String::from("198.51.100.2:7710"),
             port: String::from("7710"),
+            open_port: true,
+            asked_open_port: true,
         }
+    }
+
+    #[test]
+    fn the_router_choice_is_kept_and_off_by_default() {
+        assert!(!Settings::default().check().unwrap().open_port);
+        assert!(good().check().unwrap().open_port);
+        let dir = temp_dir("router");
+        fs::create_dir_all(&dir).unwrap();
+        // A file saved before the choice existed.
+        fs::write(dir.join(FILE), br#"{"port":"7710"}"#).unwrap();
+        let mut store = Store::open(Some(dir.clone()));
+        assert!(!store.saved.open_port && !store.saved.asked_open_port);
+        store.save(good()).unwrap();
+        let again = Store::open(Some(dir.clone()));
+        assert!(again.saved.open_port && again.saved.asked_open_port);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -293,6 +319,7 @@ mod tests {
             forwarder: "x".repeat(MAX_FIELD + 1),
             advertise: String::from("198.51.100.2:7710"),
             port: String::from("70000"),
+            ..Settings::default()
         };
         let fields: Vec<Field> = bad
             .check()

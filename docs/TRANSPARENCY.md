@@ -37,7 +37,8 @@ see this:
 | Relay | Members' IP addresses, encrypted traffic volume and timing |
 | Forwarder | Members' device keys and the room hash (from the host's roster ticket), traffic volume and timing, and each video frame's layer marker: which resolution tier and frame-rate step it is, and whether it is a keyframe. Names and chat pass through it sealed: it sees when one is sent and how large it is, not who sent it or what it says |
 | Other members | Your device key, the display name you chose, your chat messages, and your IP address unless you use relay-only mode. Chat is not stored: it is gone when the call ends |
-| Anyone holding an invite link | The host's device key and the addresses in it: the host's LAN address and port, and any public address set in `VEIL_ADVERTISE`. The desktop app puts these in every invite so a guest can dial directly. Through the rendezvous they can also learn the host's public address, since joiners punch through to the host. They cannot learn any other member's address: a member accepts an introduction only from peers its current routes link to |
+| Your router | With "Open a port on my router" on, while you host: this computer's LAN address, the call's port, and that a program called "Veil" asked for it (section 3) |
+| Anyone holding an invite link | The host's device key and the addresses in it: the host's LAN address and port, the router's public address and port when the router opened one, and any public address set in `VEIL_ADVERTISE`. The desktop app puts these in every invite so a guest can dial directly. Through the rendezvous they can also learn the host's public address, since joiners punch through to the host. They cannot learn any other member's address: a member accepts an introduction only from peers its current routes link to |
 
 When the desktop app hosts without a configured `veil-node`, it runs a rendezvous, relay and
 forwarder of its own on extra ports for the length of the call. They see what any rendezvous,
@@ -175,6 +176,21 @@ shows an "Allow guests" button. Only that button changes anything: it runs
 you confirm or decline. The rule allows inbound UDP to this `veil-app.exe` only, on Private and
 Public networks. Remove it in Windows Defender Firewall (Inbound Rules, "Veil") at any time.
 The code is `crates/veil-app/src/firewall.rs`.
+
+**Your router.** Off until you say yes: Veil asks once, before the first call you host, and
+the choice is under Settings > Connection ("Open a port on my router"). When it is on and you
+host a call, Veil asks your router to forward the call's one UDP port to this computer, for
+that call only. It tries PCP, then NAT-PMP (both UDP 5351 to your default gateway), then
+UPnP (an SSDP search on the local network, then plain HTTP to the router that answered). The
+router learns this computer's LAN address and the port, and the mapping is named "Veil". The
+lease lasts 20 minutes, is renewed while the call runs, and is removed when it ends. A router
+that allows only permanent UPnP mappings gets one, removed when the call ends; if Veil
+crashes it stays until the router restarts or you remove the "Veil" entry. Veil talks only to
+your default gateway, or for UPnP to the device that answered from that address, and follows
+no redirect or proxy. With the port open, the router's public address goes first in your
+invites, so anyone holding an invite learns it (section 2). To find the default gateway,
+Veil reads `/proc/net/route` on Linux and runs `route print` on Windows or `route get` on
+macOS. The code is `crates/veil-portmap` and `crates/veil-app/src/engine/router.rs`.
 
 ## 4. Dependencies and licences
 

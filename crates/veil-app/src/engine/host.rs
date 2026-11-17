@@ -5,6 +5,9 @@
 //! back to a relay. Then runs the host's loop: knocks become the lobby, the interface's
 //! decisions go to `HostHandle::decide` and `remove`, chat goes to the session, and after
 //! every `HostEvent::Keys` the host plans the epoch and publishes it with `publish_plan`.
+//! If the person allowed it, the router is asked to open the call's port (`router.rs`);
+//! once it does, its public address goes first in a fresh invite, and it is removed when
+//! the call ends.
 //!
 //! The forwarder for calls above 4 people is `VEIL_FORWARDER` if set. Otherwise, when the
 //! host also runs its own rendezvous, it runs its own forwarder on a third port, reachable
@@ -39,10 +42,11 @@ use veil_rendezvous::{RendezvousServer, room_tag};
 use veil_security::{Identity, PublicId};
 
 use super::plan::{NetConfig, advertised, lan_ip, plan_for, resolve};
+use super::router::{Event, Router};
 use super::session::{Pipes, Session};
 use super::view::{Knocker, Shared};
 use super::{Command, Ids};
-use crate::model::{Action, CallStatus};
+use crate::model::{Action, CallStatus, RouterPort};
 
 const INVITE_LIFETIME: Duration = Duration::from_secs(3_600);
 
@@ -68,41 +72,42 @@ pub async fn run(
         Some(addr) => addr,
         None => own_server(lan, Own::Rendezvous, &identity, room_id)?,
     };
-    let forwarder = match (resolve(config.forwarder.as_ref(), "forwarder").await?, configured) {
+    let forwarder = match (
+        resolve(config.forwarder.as_ref(), "forwarder").await?,
+        configured,
+    ) {
         (Some(addr), _) => Some(addr),
         (None, None) => Some(own_server(lan, Own::Forwarder, &identity, room_id)?),
         (None, Some(_)) => None,
     };
     let (host, mut events) = HostHandle::start(&identity, room_id).map_err(|e| e.to_string())?;
-    let mut call = CallNode::start(
-        &identity,
-        node,
-        room_id,
-        Some(rendezvous),
-        host.clone(),
-    )
-    .await;
+    let mut call = CallNode::start(&identity, node, room_id, Some(rendezvous), host.clone()).await;
     if !call.has_rendezvous() {
         crate::note!("rendezvous {rendezvous} did not answer; direct links only");
     }
-    let addrs = advertised(&config, lan, port);
+    let mut addrs = advertised(&config, lan, port);
     let invite = new_invite(&host, &addrs, &rendezvous).await?;
+    let mut router = Router::start(config.open_port, lan, port);
+    let mut router_addr: Option<SocketAddr> = None;
     shared.update(|view| {
         view.invite = invite;
         view.status = CallStatus::Live;
+        if router.is_some() {
+            view.router = RouterPort::Opening;
+        }
     });
     let media = call.media().map_err(|e| e.to_string())?;
     let mut session = Session::new(media, &identity, me, your_name, shared.clone(), pipes);
     let mut knocks: Vec<(u32, PublicId)> = Vec::new();
-    loop {
+    let result = loop {
         tokio::select! {
             command = commands.recv() => match command {
-                None | Some(Command::Leave) => return Ok(()),
+                None | Some(Command::Leave) => break Ok(()),
                 Some(Command::Act(Action::Chat(text))) => session.send_chat(&text).await,
                 Some(Command::Act(action)) => act(&host, &session.ids, &mut knocks, action).await,
             },
             event = events.recv() => match event {
-                None => return Err("The call stopped unexpectedly.".into()),
+                None => break Err("The call stopped unexpectedly.".into()),
                 Some(HostEvent::Knock(device)) => {
                     let id = session.ids.id(device);
                     knocks.push((id, device));
@@ -144,7 +149,42 @@ pub async fn run(
                 Some(HostEvent::Error(e)) => crate::note!("group error: {e}"),
             },
             () = session.pump() => {}
+            event = next_router(&mut router) => {
+                let (state, open) = match event {
+                    Event::Open(addr) => (RouterPort::Open(addr.to_string()), Some(addr)),
+                    Event::Failed(guide) => (RouterPort::Failed(guide), None),
+                };
+                // The router's address goes first in every invite from now on.
+                if open != router_addr {
+                    addrs.retain(|a| Some(*a) != router_addr);
+                    if let Some(addr) = open {
+                        addrs.retain(|a| *a != addr);
+                        addrs.insert(0, addr);
+                        addrs.truncate(veil_security::invite::MAX_ADDRS);
+                    }
+                    router_addr = open;
+                }
+                let invite = new_invite(&host, &addrs, &rendezvous).await.ok();
+                shared.update(|view| {
+                    view.router = state;
+                    if let Some(invite) = invite {
+                        view.invite = invite;
+                    }
+                });
+            }
         }
+    };
+    if let Some(router) = router {
+        router.close().await;
+    }
+    result
+}
+
+/// The router's next change, or never when no port was asked for.
+async fn next_router(router: &mut Option<Router>) -> Event {
+    match router {
+        Some(router) => router.next().await,
+        None => std::future::pending().await,
     }
 }
 

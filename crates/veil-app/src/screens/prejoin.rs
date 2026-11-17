@@ -1,6 +1,7 @@
 //! Before joining: see yourself, check the microphone moves the meter, choose whether to come
 //! in muted or with the camera off. A host whose firewall would block guests gets an Allow
-//! button (`crate::firewall`).
+//! button (`crate::firewall`), and before their first hosted call is asked once whether Veil
+//! may open a port on the router (`engine/router.rs`).
 
 use eframe::egui::{self, Align, Layout, RichText, Sense, vec2};
 
@@ -153,6 +154,7 @@ fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
         }
         if host && !app.demo {
             firewall(app, ui);
+            router_question(app, ui);
         }
         ui.add_space(12.0);
         let action = if host { "Start call" } else { "Join now" };
@@ -219,6 +221,47 @@ fn firewall(app: &VeilApp, ui: &mut egui::Ui) {
             .clicked()
         {
             app.firewall.allow(ui.ctx());
+        }
+    }
+}
+
+/// Asked once, before the first call you host: may Veil open a port on your router? The
+/// answer is saved either way and can be changed in Settings > Connection.
+fn router_question(app: &mut VeilApp, ui: &mut egui::Ui) {
+    if app.connection.saved.asked_open_port {
+        return;
+    }
+    ui.add_space(8.0);
+    ui.label(
+        RichText::new("Open a port on your router?")
+            .small()
+            .color(MUTED),
+    )
+    .on_hover_text(super::connection::ROUTER_HELP);
+    let mut answer = None;
+    ui.horizontal(|ui| {
+        let half = (280.0 - ui.spacing().item_spacing.x) / 2.0;
+        if pill(ui, None, "Allow", Tone::Quiet, half)
+            .on_hover_text(super::connection::ROUTER_HELP)
+            .clicked()
+        {
+            answer = Some(true);
+        }
+        if pill(ui, None, "Not now", Tone::Quiet, half)
+            .on_hover_text("Change it any time in Settings > Connection.")
+            .clicked()
+        {
+            answer = Some(false);
+        }
+    });
+    if let Some(yes) = answer {
+        let mut settings = app.connection.saved.clone();
+        settings.open_port = yes;
+        settings.asked_open_port = true;
+        if let Err(problems) = app.connection.save(settings.clone()) {
+            // A hand-edited file with a bad field: keep the answer for this run anyway.
+            crate::note!("router choice not saved: {problems:?}");
+            app.connection.saved = settings;
         }
     }
 }
