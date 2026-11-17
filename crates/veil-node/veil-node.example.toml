@@ -15,3 +15,11 @@ relay = true
 listen = "0.0.0.0:4434"
 max_rooms = 1000
 max_members_per_room = 16
+
+# Bounds on video queued for receivers, in MiB. A slow receiver's frames wait in memory,
+# so size node_queue_mib to fit this machine's memory (it is the most the whole forwarder
+# will hold for all receivers together). source_queue_mib caps what any one remote address
+# (an IPv4 address, or an IPv6 /64) may hold of that, so one address cannot fill the node.
+# Both are optional; source_queue_mib must not exceed node_queue_mib.
+node_queue_mib = 1024
+source_queue_mib = 128

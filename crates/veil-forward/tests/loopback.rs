@@ -2,10 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use veil_forward::protocol::ServerMsg;
-use veil_forward::{ForwardError, ForwarderClient, ForwarderServer, Limits, Refusal, RosterTicket, Wanted};
+use veil_forward::{ForwardError, ForwarderClient, ForwarderServer, Limits, QueueMonitor, Refusal, RosterTicket, Wanted};
 use veil_net::Node;
 use veil_rendezvous::room_tag;
 use veil_security::frame::{FrameReceiver, FrameSender};
@@ -321,4 +321,140 @@ async fn a_subscription_raise_asks_the_sender_for_a_keyframe() {
     assert!(nothing_arrives(a.client.recv()).await, "lowering needs no keyframe");
     b.client.subscribe(&[(alice.public(), Wanted::ALL)]).await.unwrap();
     assert_eq!(with_timeout(a.client.recv()).await.unwrap(), ServerMsg::KeyframeRequest);
+}
+
+const MIB: usize = 1024 * 1024;
+
+/// A forwarder whose queued total the test can read.
+fn start_monitored(limits: Limits) -> ((SocketAddr, PublicId), QueueMonitor) {
+    let node = Node::bind(&Identity::generate(), localhost()).unwrap();
+    let server = ForwarderServer::new(node, limits);
+    let addr = (server.local_addr().unwrap(), server.id());
+    let monitor = server.monitor();
+    tokio::spawn(server.run());
+    (addr, monitor)
+}
+
+/// Eight two-member rooms; every member sends `frames` frames of `len` bytes and reads nothing.
+/// Returns the members, still connected.
+async fn fill_unread_rooms(forwarder: (SocketAddr, PublicId), frames: u32, len: usize) -> Vec<Member> {
+    let mut members = Vec::new();
+    for n in 0..8u8 {
+        let room = Room::new(100 + n);
+        let (alice, bob) = (Identity::generate(), Identity::generate());
+        let ticket = room.ticket(0, &[&alice, &bob]);
+        members.push(join_as(forwarder, &alice, &ticket).await.unwrap());
+        members.push(join_as(forwarder, &bob, &ticket).await.unwrap());
+    }
+    settle().await;
+    let mut tx = FrameSender::new(&SECRET, 1, 0).unwrap();
+    for id in 0..frames {
+        let sealed = tx.encrypt(&vec![9u8; len]).unwrap();
+        for member in &members {
+            // The forwarder reads promptly, so these sends finish although nobody reads back.
+            with_timeout(member.client.link().send_frame(id, &sealed)).await.unwrap();
+        }
+    }
+    members
+}
+
+/// The highest queued total seen over `window`.
+async fn peak_queued(monitor: &QueueMonitor, window: Duration) -> usize {
+    let start = Instant::now();
+    let mut peak = 0;
+    while start.elapsed() < window {
+        peak = peak.max(monitor.queued_bytes());
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    peak
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unread_receivers_cannot_pin_more_than_the_node_budget_and_frames_expire() {
+    let node_budget = 4 * MIB;
+    let (forwarder, monitor) = start_monitored(Limits {
+        node_queue_bytes: node_budget,
+        send_deadline: Duration::from_millis(300),
+        ..Limits::default()
+    });
+    // Larger than the stream window (1.25 MB), so the first send to an unread receiver blocks.
+    let members = fill_unread_rooms(forwarder, 3, 2 * MIB).await;
+    let peak = peak_queued(&monitor, Duration::from_millis(100)).await;
+    assert!(peak > 0, "frames were queued behind receivers that do not read");
+    assert!(peak <= node_budget, "queued {peak} exceeds the node budget {node_budget}");
+
+    // Everything expires: stuck sends are abandoned and stale frames dropped.
+    let start = Instant::now();
+    while monitor.queued_bytes() != 0 {
+        assert!(start.elapsed() < Duration::from_millis(1500), "queue did not drain: {}", monitor.queued_bytes());
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    // A receiver that starts reading after the deadline gets none of the old frames.
+    for member in &members {
+        loop {
+            match tokio::time::timeout(Duration::from_millis(300), member.client.link().recv_frame()).await {
+                Err(_) => break,
+                Ok(Ok((id, _))) => panic!("old frame {id} arrived after its deadline"),
+                Ok(Err(_)) => {}
+            }
+        }
+    }
+    assert_eq!(monitor.queued_bytes(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_source_block_is_held_to_its_share_below_the_node_budget() {
+    let source_budget = 4 * MIB;
+    let (forwarder, monitor) = start_monitored(Limits {
+        node_queue_bytes: 64 * MIB,
+        source_queue_bytes: source_budget,
+        send_deadline: Duration::from_secs(5),
+        ..Limits::default()
+    });
+    // Every link is from 127.0.0.1: one block.
+    let members = fill_unread_rooms(forwarder, 3, 2 * MIB).await;
+    let peak = peak_queued(&monitor, Duration::from_millis(300)).await;
+    assert!(peak >= 2 * MIB, "the share was used: {peak}");
+    assert!(peak <= source_budget, "queued {peak} exceeds the source share {source_budget}");
+    drop(members);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sixteen_reading_members_exchange_large_frames_under_default_limits() {
+    let (forwarder, monitor) = start_monitored(Limits::default());
+    let room = Room::new(60);
+    let identities: Vec<Identity> = (0..16).map(|_| Identity::generate()).collect();
+    let refs: Vec<&Identity> = identities.iter().collect();
+    let ticket = room.ticket(0, &refs);
+    let mut members = Vec::new();
+    for identity in &identities {
+        members.push(std::sync::Arc::new(join_as(forwarder, identity, &ticket).await.unwrap()));
+    }
+    settle().await;
+
+    let mut tx = FrameSender::new(&SECRET, 1, 0).unwrap();
+    for (n, sender) in (0u32..).zip(&members) {
+        let sealed = tx.encrypt(&vec![9u8; MIB]).unwrap();
+        let mut readers = tokio::task::JoinSet::new();
+        for (m, receiver) in (0u32..).zip(&members) {
+            if m != n {
+                let receiver = receiver.clone();
+                readers.spawn(async move { receiver.client.link().recv_frame().await });
+            }
+        }
+        sender.client.link().send_frame(n, &sealed).await.unwrap();
+        let mut got = 0;
+        while let Some(done) = with_timeout(readers.join_next()).await {
+            let (id, frame) = done.unwrap().unwrap();
+            assert_eq!((id, &frame), (n, &sealed));
+            got += 1;
+        }
+        assert_eq!(got, 15, "every other member received frame {n}");
+    }
+    let start = Instant::now();
+    while monitor.queued_bytes() != 0 {
+        assert!(start.elapsed() < Duration::from_secs(3), "bytes were not released");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }

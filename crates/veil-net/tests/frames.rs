@@ -49,3 +49,29 @@ async fn a_stalled_frame_does_not_block_the_next() {
     assert_eq!((id, sealed.as_slice()), (7, &b"good frame"[..]));
     drop(stalled);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cancelled_send_resets_its_stream_and_leaves_the_link_usable() {
+    let host_id = Identity::generate();
+    let host = Node::bind(&host_id, localhost()).unwrap();
+    let host_addr = host.local_addr().unwrap();
+    let accepted = tokio::spawn(async move { host.accept().await.unwrap().unwrap() });
+    let guest = Node::bind(&Identity::generate(), localhost()).unwrap();
+    let link = guest.connect(&[host_addr], host_id.public()).await.unwrap();
+    let peer = accepted.await.unwrap();
+
+    // Far larger than the stream window, to a peer that reads nothing: the send blocks.
+    let big = vec![5u8; 3_000_000];
+    let sent = tokio::time::timeout(Duration::from_millis(300), link.send_frame(1, &big)).await;
+    assert!(sent.is_err(), "the send should still be blocked");
+
+    // The peer now reads: the cancelled frame is lost whole, and a later frame still arrives.
+    link.send_frame(2, b"small").await.unwrap();
+    let mut frames = FrameReader::new(&peer);
+    let (id, sealed) = tokio::time::timeout(Duration::from_secs(5), frames.recv()).await.unwrap().unwrap();
+    assert_eq!((id, sealed.as_slice()), (2, &b"small"[..]));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), frames.recv()).await.is_err(),
+        "no partial frame follows"
+    );
+}

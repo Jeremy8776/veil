@@ -14,6 +14,8 @@
 //! listen = "0.0.0.0:4434"
 //! max_rooms = 1000        # optional
 //! max_members_per_room = 16
+//! node_queue_mib = 1024   # optional: video all receivers together may have queued
+//! source_queue_mib = 128  # optional: share of that one remote address may hold
 //! ```
 //!
 //! Invariants: unknown keys are refused (a typo must not silently turn a role off), at least
@@ -55,6 +57,16 @@ pub struct ForwarderRole {
     pub listen: SocketAddr,
     pub max_rooms: Option<usize>,
     pub max_members_per_room: Option<usize>,
+    /// MiB of video the forwarder may hold queued for all receivers together.
+    pub node_queue_mib: Option<usize>,
+    /// MiB of that budget one remote address (IPv4 address or IPv6 /64) may hold.
+    pub source_queue_mib: Option<usize>,
+}
+
+const MIB: usize = 1024 * 1024;
+
+fn is_zero(v: Option<usize>) -> bool {
+    v == Some(0)
 }
 
 fn yes() -> bool {
@@ -69,7 +81,13 @@ impl ForwarderRole {
             max_members_per_room: self
                 .max_members_per_room
                 .unwrap_or(defaults.max_members_per_room),
-            queue_bytes: defaults.queue_bytes,
+            node_queue_bytes: self
+                .node_queue_mib
+                .map_or(defaults.node_queue_bytes, |m| m.saturating_mul(MIB)),
+            source_queue_bytes: self
+                .source_queue_mib
+                .map_or(defaults.source_queue_bytes, |m| m.saturating_mul(MIB)),
+            ..defaults
         }
     }
 }
@@ -119,6 +137,18 @@ impl Config {
             if !(2..=MAX_ROOM_MEMBERS).contains(&limits.max_members_per_room) {
                 return bad("forwarder.max_members_per_room must be between 2 and 64");
             }
+            if is_zero(f.node_queue_mib) {
+                return bad("forwarder.node_queue_mib must be at least 1");
+            }
+            if is_zero(f.source_queue_mib) {
+                return bad("forwarder.source_queue_mib must be at least 1");
+            }
+            if limits.source_queue_bytes > limits.node_queue_bytes {
+                return bad("forwarder.source_queue_mib must not exceed node_queue_mib");
+            }
+            if limits.node_queue_bytes < limits.queue_bytes {
+                return bad("forwarder.node_queue_mib must be at least the per-receiver queue (32 MiB)");
+            }
         }
         Ok(())
     }
@@ -148,6 +178,73 @@ max_members_per_room = 8
         let limits = config.forwarder.unwrap().limits();
         assert_eq!(limits.max_members_per_room, 8);
         assert_eq!(limits.max_rooms, Limits::default().max_rooms);
+    }
+
+    fn forwarder(extra: &str) -> String {
+        format!("identity_file = \"k\"
+[forwarder]
+listen = \"0.0.0.0:5\"
+{extra}")
+    }
+
+    #[test]
+    fn queue_budgets_default_to_forwarder_defaults() {
+        let limits = Config::parse(&forwarder("")).unwrap().forwarder.unwrap().limits();
+        let d = Limits::default();
+        assert_eq!(limits.node_queue_bytes, d.node_queue_bytes);
+        assert_eq!(limits.source_queue_bytes, d.source_queue_bytes);
+        assert_eq!(limits.queue_bytes, d.queue_bytes);
+        assert_eq!(limits.send_deadline, d.send_deadline);
+    }
+
+    #[test]
+    fn queue_budgets_parse_in_mib() {
+        let text = forwarder("node_queue_mib = 512
+source_queue_mib = 64
+");
+        let limits = Config::parse(&text).unwrap().forwarder.unwrap().limits();
+        assert_eq!(limits.node_queue_bytes, 512 * 1024 * 1024);
+        assert_eq!(limits.source_queue_bytes, 64 * 1024 * 1024);
+        let equal = forwarder("node_queue_mib = 64
+source_queue_mib = 64
+");
+        assert!(Config::parse(&equal).is_ok());
+    }
+
+    #[test]
+    fn bad_queue_budgets_are_refused() {
+        for extra in [
+            "node_queue_mib = 0
+",
+            "source_queue_mib = 0
+",
+            // Source share above the node budget.
+            "node_queue_mib = 64
+source_queue_mib = 65
+",
+            // Default source share (128) above a small node budget.
+            "node_queue_mib = 64
+",
+            // Node budget below one receiver's queue.
+            "node_queue_mib = 16
+source_queue_mib = 8
+",
+            "node_queue_mib = -1
+",
+            "node_queue_mib = \"big\"
+",
+        ] {
+            assert!(Config::parse(&forwarder(extra)).is_err(), "{extra}");
+        }
+    }
+
+    #[test]
+    fn huge_queue_budget_does_not_overflow() {
+        let text = forwarder("node_queue_mib = 18446744073709551615
+source_queue_mib = 1
+");
+        let limits = Config::parse(&text).unwrap().forwarder.unwrap().limits();
+        assert_eq!(limits.node_queue_bytes, usize::MAX);
     }
 
     #[test]

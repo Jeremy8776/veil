@@ -227,24 +227,28 @@ impl Link {
     /// Sends one sealed video frame on its own stream: congestion controlled and retransmitted,
     /// with no head-of-line blocking between frames at the transport level.
     ///
+    /// Cancelling the future (a timeout, an aborted task) resets the frame's stream, so the
+    /// bytes already buffered for it are discarded and the receiver sees one lost frame.
+    ///
     /// Stream format: frame id (u32), length (u32), both big endian, then the sealed frame.
     pub async fn send_frame(&self, frame_id: u32, sealed: &[u8]) -> Result<(), NetError> {
         if sealed.len() > MAX_SEALED_FRAME {
             return Err(NetError::TooLarge);
         }
         let len = u32::try_from(sealed.len()).map_err(|_| NetError::TooLarge)?;
-        let mut stream = self
+        let stream = self
             .conn
             .open_uni()
             .await
             .map_err(|e| NetError::Closed(e.to_string()))?;
+        let mut stream = ResetOnDrop { stream, finished: false };
         let mut head = [0u8; 8];
         head[..4].copy_from_slice(&frame_id.to_be_bytes());
         head[4..].copy_from_slice(&len.to_be_bytes());
         let closed = |e: quinn::WriteError| NetError::Closed(e.to_string());
-        stream.write_all(&head).await.map_err(closed)?;
-        stream.write_all(sealed).await.map_err(closed)?;
-        stream.finish().map_err(|e| NetError::Closed(e.to_string()))
+        stream.stream.write_all(&head).await.map_err(closed)?;
+        stream.stream.write_all(sealed).await.map_err(closed)?;
+        stream.finish()
     }
 
     /// Receives the next video frame as `(frame_id, sealed)`, one stream at a time. For
@@ -290,6 +294,29 @@ impl Link {
     /// (the relay). Its peer identity is already proven.
     pub fn quic(&self) -> &quinn::Connection {
         &self.conn
+    }
+}
+
+/// A frame stream that is reset unless it was finished: quinn's own drop would finish it and
+/// keep the buffered bytes queued for a peer that may never read them.
+struct ResetOnDrop {
+    stream: quinn::SendStream,
+    finished: bool,
+}
+
+impl ResetOnDrop {
+    fn finish(&mut self) -> Result<(), NetError> {
+        self.stream.finish().map_err(|e| NetError::Closed(e.to_string()))?;
+        self.finished = true;
+        Ok(())
+    }
+}
+
+impl Drop for ResetOnDrop {
+    fn drop(&mut self) {
+        if !self.finished {
+            let _ = self.stream.reset(quinn::VarInt::from_u32(0));
+        }
     }
 }
 
