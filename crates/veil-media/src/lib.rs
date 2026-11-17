@@ -20,6 +20,9 @@
 pub mod annexb;
 pub mod audio;
 pub mod capture;
+// Also built for tests on Windows, where it compiles against WASAPI.
+#[cfg(any(not(windows), test))]
+pub mod cpal_audio;
 pub mod decoder;
 pub mod encoder;
 pub mod error;
@@ -28,6 +31,7 @@ pub mod gate;
 pub mod jitter;
 pub mod ladder;
 pub mod payload;
+pub mod remix;
 pub mod scale;
 pub mod schedule;
 pub mod simulcast;

@@ -269,9 +269,11 @@ impl OpenH264Decoder {
             picture: Vec::new(),
         };
         let vt = this.vtable()?;
-        let mut params = SDecodingParam::default();
-        params.uiTargetDqLayer = u8::MAX;
-        params.eEcActiveIdc = ERROR_CON_DISABLE;
+        let mut params = SDecodingParam {
+            uiTargetDqLayer: u8::MAX,
+            eEcActiveIdc: ERROR_CON_DISABLE,
+            ..SDecodingParam::default()
+        };
         params.sVideoProperty.size = std::mem::size_of_val(&params.sVideoProperty) as u32;
         params.sVideoProperty.eVideoBsType = VIDEO_BITSTREAM_DEFAULT;
         let initialize = vt.Initialize.ok_or(MediaError::Decoder("vtable"))?;

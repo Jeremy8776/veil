@@ -36,8 +36,10 @@ windows = { version = "0.62", features = [
 cpal = "0.18.2"
 openh264-sys2 = { version = "0.9.10", default-features = false, features = ["source"] }
 
-# The OpenH264 tests also run on Windows, so the unsafe code there is exercised locally.
+# The OpenH264 and cpal modules also build for tests on Windows, so they are compiled and
+# exercised on the machine they are written on.
 [target.'cfg(windows)'.dev-dependencies]
+cpal = "0.18.2"
 openh264-sys2 = { version = "0.9.10", default-features = false, features = ["source"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

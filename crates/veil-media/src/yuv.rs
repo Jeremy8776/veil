@@ -120,7 +120,7 @@ fn avg4(a: u8, b: u8, c: u8, d: u8) -> u8 {
 }
 
 fn avg2(a: u8, b: u8) -> u8 {
-    u8::try_from((u16::from(a) + u16::from(b) + 1) / 2).unwrap_or(u8::MAX)
+    u8::try_from((u16::from(a) + u16::from(b)).div_ceil(2)).unwrap_or(u8::MAX)
 }
 
 /// Converts YUYV (YUY2: Y0 U Y1 V per two pixels) with any pitch into packed NV12.
@@ -142,7 +142,7 @@ pub fn yuyv_to_nv12(
     for pair in 0..h / 2 {
         let top = &src[2 * pair * pitch..2 * pair * pitch + w * 2];
         let bottom = &src[(2 * pair + 1) * pitch..(2 * pair + 1) * pitch + w * 2];
-        for (t, b) in top.chunks_exact(4).zip(bottom.chunks_exact(4)) {
+        for (t, b) in top.as_chunks::<4>().0.iter().zip(bottom.as_chunks::<4>().0) {
             out.push(avg2(t[1], b[1]));
             out.push(avg2(t[3], b[3]));
         }
@@ -161,7 +161,7 @@ pub fn ycbcr_to_nv12(src: &[u8], width: u16, height: u16, out: &mut Vec<u8>) -> 
     for pair in 0..h / 2 {
         let top = &src[2 * pair * w * 3..(2 * pair + 1) * w * 3];
         let bottom = &src[(2 * pair + 1) * w * 3..(2 * pair + 2) * w * 3];
-        for (t, b) in top.chunks_exact(6).zip(bottom.chunks_exact(6)) {
+        for (t, b) in top.as_chunks::<6>().0.iter().zip(bottom.as_chunks::<6>().0) {
             out.push(avg4(t[1], t[4], b[1], b[4]));
             out.push(avg4(t[2], t[5], b[2], b[5]));
         }
