@@ -2,6 +2,15 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Fixed
+
+- Guests on the internet can hear, see and chat with a host whose router port is open. In
+  about half of calls the host tried to reach the guest instead, which fails when the guest's
+  router has no open port: the guest joined but no sound, video, name or chat came through.
+  Now the guest connects to the host. Both need this version.
+
 ## 0.1.4, 17/11/2026
 
 ### Added

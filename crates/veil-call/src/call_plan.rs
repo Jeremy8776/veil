@@ -134,13 +134,18 @@ impl CallPlan {
             return Err(CallError::Plan("this participant is not in the plan"));
         }
         Ok(match &self.layout {
-            Layout::Mesh => Routes::Mesh(
-                self.members
+            Layout::Mesh => Routes::Mesh {
+                peers: self
+                    .members
                     .iter()
                     .filter(|m| m.device != *me)
                     .cloned()
                     .collect(),
-            ),
+                reachable: self
+                    .members
+                    .iter()
+                    .any(|m| m.device == *me && !m.addrs.is_empty()),
+            },
             Layout::Forwarded { key, addr, ticket } => Routes::Forwarder {
                 addr: NodeAddr { key: *key, addr: *addr },
                 ticket: ticket.clone(),
@@ -239,7 +244,7 @@ mod tests {
         let sealed = sample(3).seal(&host).unwrap();
         let opened = CallPlan::open(&sealed, &host.public(), ROOM, 4).unwrap();
         assert_eq!(opened, sample(3));
-        let Routes::Mesh(peers) = opened.routes_for(&PublicId([1; 32])).unwrap() else {
+        let Routes::Mesh { peers, .. } = opened.routes_for(&PublicId([1; 32])).unwrap() else {
             panic!("mesh plan");
         };
         assert_eq!(peers.len(), 2);

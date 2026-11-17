@@ -40,10 +40,26 @@ pub struct Directory {
 /// The media links one participant should hold.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Routes {
-    /// A link to each of these members.
-    Mesh(Vec<Peer>),
+    /// A link to each of these members. `reachable`: the plan lists a direct address for this
+    /// participant, so [`dials`] lets members without one dial it.
+    Mesh { peers: Vec<Peer>, reachable: bool },
     /// One link, to this forwarder, admitted with the host's sealed roster ticket.
     Forwarder { addr: NodeAddr, ticket: Vec<u8> },
+}
+
+/// Whether this participant (key `me`, `reachable` if the plan lists an address for it) dials
+/// `other`, rather than waiting for `other` to dial it. Both ends read the same plan, so
+/// exactly one of them dials.
+///
+/// The one without a known address dials the one with: only the host's addresses are known,
+/// so a guest behind a router that opens no port can still reach a host whose port is open.
+/// When both or neither have one, the lower key dials.
+pub fn dials(me: &PublicId, reachable: bool, other: &Peer) -> bool {
+    match (reachable, other.addrs.is_empty()) {
+        (false, false) => true,
+        (true, true) => false,
+        _ => me.0 < other.device.0,
+    }
 }
 
 #[cfg(test)]
@@ -101,11 +117,43 @@ mod tests {
         }
     }
 
+    fn peer(byte: u8, reachable: bool) -> Peer {
+        let addrs = if reachable {
+            vec!["192.0.2.1:7710".parse().unwrap()]
+        } else {
+            Vec::new()
+        };
+        Peer {
+            device: PublicId([byte; 32]),
+            addrs,
+        }
+    }
+
+    #[test]
+    fn exactly_one_side_of_every_pair_dials() {
+        for (a, b) in [(1, 2), (2, 1)] {
+            for (ra, rb) in [(false, false), (true, false), (false, true), (true, true)] {
+                let (pa, pb) = (peer(a, ra), peer(b, rb));
+                let a_dials = dials(&pa.device, ra, &pb);
+                let b_dials = dials(&pb.device, rb, &pa);
+                assert!(a_dials != b_dials, "keys {a},{b} reachable {ra},{rb}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_guest_dials_a_reachable_host_whatever_the_keys() {
+        // The host's key is lower, which used to make the host dial a guest it cannot reach.
+        let (host, guest) = (peer(1, true), peer(9, false));
+        assert!(dials(&guest.device, false, &host));
+        assert!(!dials(&host.device, true, &guest));
+    }
+
     #[test]
     fn mesh_links_every_other_member() {
         let nodes: Vec<Node> = (0..3).map(|i| node(i, NodeKind::Peer, true, 100_000)).collect();
         let plan = plan(&nodes, &[], &Policy::default()).unwrap();
-        let Routes::Mesh(peers) = routes(&plan, &directory(1, 3, None)).unwrap() else {
+        let Routes::Mesh { peers, .. } = routes(&plan, &directory(1, 3, None)).unwrap() else {
             panic!("small call should mesh");
         };
         let keys: Vec<u8> = peers.iter().map(|p| p.device.0[0]).collect();
