@@ -33,7 +33,7 @@ see this:
 | Party | Sees |
 |---|---|
 | The network | Which addresses talk to which, when, and how much |
-| Rendezvous node | Members' IP addresses, a hash of the room id, when people join |
+| Rendezvous node | Members' IP addresses, a hash of the room id, when people join. When a host with a configured `veil-node` has a public port (opened on the router, or set by hand), the node also learns that port: it dials the host back once, from a separate port with a throwaway key, to check guests can reach it. It dials only the asker's own IP |
 | Relay | Members' IP addresses, encrypted traffic volume and timing |
 | Forwarder | Members' device keys and the room hash (from the host's roster ticket), traffic volume and timing, and each video frame's layer marker: which resolution tier and frame-rate step it is, and whether it is a keyframe. Names and chat pass through it sealed: it sees when one is sent and how large it is, not who sent it or what it says |
 | Other members | Your device key, the display name you chose, your chat messages, and your IP address unless you use relay-only mode. Chat is not stored: it is gone when the call ends |

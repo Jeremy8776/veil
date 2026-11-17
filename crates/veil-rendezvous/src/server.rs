@@ -28,11 +28,12 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
 use veil_net::{Link, NetError, Node};
 use veil_security::PublicId;
 
 use crate::limit::{Bucket, TOTAL_BURST, TOTAL_RATE};
+use crate::reach::{self, LinkChecks};
 use crate::room::{Member, Room, RoomKey};
 use crate::protocol::{
     Ask, ClientMsg, MAX_ADDRS, MAX_PASSES, Refusal, STREAM_HEADER, ServerMsg,
@@ -121,6 +122,8 @@ fn lock(state: &Shared) -> Option<MutexGuard<'_, State>> {
 pub struct RendezvousServer {
     node: Node,
     state: Shared,
+    /// Reachability checks running, all links together (`reach.rs`).
+    checks: Arc<Semaphore>,
 }
 
 impl RendezvousServer {
@@ -128,6 +131,7 @@ impl RendezvousServer {
         Self {
             node,
             state: Shared::default(),
+            checks: Arc::new(Semaphore::new(reach::MAX_RUNNING)),
         }
     }
 
@@ -170,13 +174,13 @@ impl RendezvousServer {
     pub async fn run(self) {
         while let Some(incoming) = self.node.accept().await {
             if let Ok(link) = incoming {
-                tokio::spawn(serve(link, self.state.clone()));
+                tokio::spawn(serve(link, self.state.clone(), self.checks.clone()));
             }
         }
     }
 }
 
-async fn serve(link: Link, state: Shared) {
+async fn serve(link: Link, state: Shared, checks: Arc<Semaphore>) {
     let Ok(Ok(control)) = tokio::time::timeout(CONTROL_WAIT, link.accept_control()).await else {
         return;
     };
@@ -196,7 +200,13 @@ async fn serve(link: Link, state: Shared) {
     let streams = tokio::spawn(forward_streams(conn, me, state.clone(), buckets));
 
     let mut room: Option<RoomKey> = None;
+    let mut mine = LinkChecks::default();
     while let Ok(message) = input.recv::<ClientMsg>().await {
+        // Needs no room and no shared state, so it runs apart from `handle`.
+        if let ClientMsg::CheckReach { port } = message {
+            mine.start(&checks, &link, port, &outbox);
+            continue;
+        }
         let replies = handle(message, &link, &mut room, &outbox, &state);
         for (to, reply) in replies {
             // A member that stops reading loses notices; it does not stall the server.
@@ -298,6 +308,8 @@ fn handle(
         ClientMsg::Introduce { peer } => ask(&mut s, room, me, peer, Ask::Introduce, outbox),
         ClientMsg::OpenRelay { peer } => ask(&mut s, room, me, peer, Ask::Relay, outbox),
         ClientMsg::Accept { from, kind } => accept(&mut s, room, from, me, kind),
+        // Taken by `serve` before it gets here.
+        ClientMsg::CheckReach { .. } => Vec::new(),
     }
 }
 

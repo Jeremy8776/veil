@@ -197,6 +197,21 @@ impl CallNode {
         ))
     }
 
+    /// Asks `server` to dial this node's public IP at `port` from outside, over a link of its
+    /// own (`veil_rendezvous::reach`). Owns what it needs, so it can run on a task of its own.
+    pub fn check_reach(
+        &self,
+        server: NodeAddr,
+        port: u16,
+    ) -> impl Future<Output = Result<veil_rendezvous::Reach, CallError>> + Send + 'static {
+        let node = self.node.clone();
+        async move {
+            veil_rendezvous::check_reach(&node, &server, port)
+                .await
+                .map_err(CallError::Rendezvous)
+        }
+    }
+
     /// This node's device key, which also signs its names and chat (`AppMessage::seal`).
     pub fn identity(&self) -> &Identity {
         &self.identity

@@ -7,7 +7,8 @@
 //! every `HostEvent::Keys` the host plans the epoch and publishes it with `publish_plan`.
 //! If the person allowed it, the router is asked to open the call's port (`router.rs`);
 //! once it does, its public address goes first in a fresh invite, and it is removed when
-//! the call ends.
+//! the call ends. With a public node, that address (or the first public address set by hand)
+//! is then checked from outside (`reach.rs`).
 //!
 //! The forwarder for calls above 4 people is `VEIL_FORWARDER` if set. Otherwise, when the
 //! host also runs its own rendezvous, it runs its own forwarder on a third port, reachable
@@ -42,11 +43,12 @@ use veil_rendezvous::{RendezvousServer, room_tag};
 use veil_security::{Identity, PublicId};
 
 use super::plan::{NetConfig, advertised, lan_ip, plan_for, resolve};
+use super::reach::Checker;
 use super::router::{Event, Router};
 use super::session::{Pipes, Session};
 use super::view::{Knocker, Shared};
 use super::{Command, Ids};
-use crate::model::{Action, CallStatus, RouterPort};
+use crate::model::{Action, CallStatus, Reachable, RouterPort};
 
 const INVITE_LIFETIME: Duration = Duration::from_secs(3_600);
 
@@ -89,11 +91,20 @@ pub async fn run(
     let invite = new_invite(&host, &addrs, &rendezvous).await?;
     let mut router = Router::start(config.open_port, lan, port);
     let mut router_addr: Option<SocketAddr> = None;
+    // Only a public node can dial in from outside; the host's own rendezvous cannot.
+    let mut reach = Checker::default();
+    let checking = config
+        .advertise
+        .first()
+        .is_some_and(|at| check(&mut reach, &call, configured, *at));
     shared.update(|view| {
         view.invite = invite;
         view.status = CallStatus::Live;
         if router.is_some() {
             view.router = RouterPort::Opening;
+        }
+        if checking {
+            view.reach = Reachable::Checking;
         }
     });
     let media = call.media().map_err(|e| e.to_string())?;
@@ -164,20 +175,35 @@ pub async fn run(
                     }
                     router_addr = open;
                 }
+                let checking = open.is_some_and(|at| check(&mut reach, &call, configured, at));
                 let invite = new_invite(&host, &addrs, &rendezvous).await.ok();
                 shared.update(|view| {
                     view.router = state;
+                    if checking {
+                        view.reach = Reachable::Checking;
+                    }
                     if let Some(invite) = invite {
                         view.invite = invite;
                     }
                 });
             }
+            verdict = reach.next() => shared.update(|view| view.reach = verdict),
         }
     };
     if let Some(router) = router {
         router.close().await;
     }
     result
+}
+
+/// Asks the public node `server`, if there is one, to dial `at` from outside. Returns whether
+/// a check started.
+fn check(reach: &mut Checker, call: &CallNode, server: Option<NodeAddr>, at: SocketAddr) -> bool {
+    let Some(server) = server else {
+        return false;
+    };
+    reach.start(at, call.check_reach(server, at.port()));
+    true
 }
 
 /// The router's next change, or never when no port was asked for.

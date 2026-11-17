@@ -94,6 +94,20 @@ pub enum RouterPort {
     Failed(String),
 }
 
+/// For a host with a public node: whether that node could dial the call's public address
+/// from outside (`engine/reach.rs`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Reachable {
+    /// Nothing to check: no port opened or set by hand, or no public node to check from.
+    #[default]
+    Unknown,
+    Checking,
+    /// The text says from where, for the tooltip.
+    Yes(String),
+    /// The text says why not and what to do.
+    No(String),
+}
+
 /// A host's decision, or a chat message, queued for the engine.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -127,6 +141,7 @@ pub struct Call {
     pub demo: bool,
     pub status: CallStatus,
     pub router: RouterPort,
+    pub reach: Reachable,
     /// Decisions and chat not yet handed to the engine. Always empty in a demo.
     pub outbox: Vec<Action>,
     /// Chat messages not yet seen with the chat panel open.
@@ -161,6 +176,7 @@ impl Call {
             demo: false,
             status: CallStatus::Connecting,
             router: RouterPort::Off,
+            reach: Reachable::Unknown,
             outbox: Vec::new(),
             unread: 0,
             next_id: 1,

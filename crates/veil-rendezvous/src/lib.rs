@@ -11,6 +11,8 @@
 //! 3. **Relay.** When direct connection fails, forwards packets between the two. The packets
 //!    are the two nodes' own end-to-end QUIC link, pinned to each other's device keys, so
 //!    the relay carries ciphertext it cannot read or alter.
+//! 4. **Check reach.** Dials a node back at its own public IP, so a host knows whether the
+//!    port it opened works from outside ([`reach`]).
 //!
 //! Invariants:
 //! - The server never learns room ids. Members register under [`room_tag`], a hash of the
@@ -37,13 +39,14 @@
 pub mod client;
 pub mod limit;
 pub mod protocol;
+pub mod reach;
 mod room;
 pub mod server;
 pub mod socket;
 
 use std::fmt;
 
-pub use client::{Punch, RendezvousClient, punch};
+pub use client::{Punch, Reach, RendezvousClient, check_reach, punch};
 pub use protocol::{Ask, Refusal, room_tag};
 pub use server::RendezvousServer;
 pub use socket::RelaySocket;
