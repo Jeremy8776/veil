@@ -15,7 +15,18 @@
 //!
 //! Replay: each receiver keeps a 64-frame sliding window per sender. A counter seen before, or
 //! more than 64 behind the newest, is refused. State for a sender is stored only after one of
-//! its frames authenticates, so forged packets cannot grow memory.
+//! its frames authenticates, so forged packets cannot grow memory. Counter `u64::MAX` is never
+//! sealed, so it is refused too.
+//!
+//! Every member can derive every sender's key, so a member can seal a frame under another
+//! sender's key id and move that sender's window. Signed frames (names and chat) therefore have
+//! a window of their own ([`FrameReceiver::decrypt_signed`]), which moves only once the caller
+//! has verified the sender's signature ([`FrameReceiver::confirm_signed`]). Media frames never
+//! touch it, and a forged signed frame cannot move it (GHSA-rvhv-r5mr-2w3h).
+//!
+//! Binding: [`FrameSender::binding`] and [`FrameReceiver::binding`] give a value derived from
+//! the epoch secret under its own label. It differs for every MLS group and epoch, so a
+//! signature that covers it cannot be replayed into another call (GHSA-qqx7-3x2m-v277).
 
 use std::collections::BTreeMap;
 
@@ -39,6 +50,8 @@ pub const MAX_SENDER_INDEX: u32 = 0xFFFF;
 pub const MAX_EPOCH: u64 = (1 << 48) - 1;
 const WINDOW: u64 = 64;
 const SALT: &[u8] = b"veil-frame-v1";
+/// Bytes of [`FrameSender::binding`].
+pub const BINDING_LEN: usize = 32;
 
 /// Builds the key id for a sender in an epoch.
 pub fn key_id(epoch: u64, sender_index: u32) -> Result<u64, SecurityError> {
@@ -67,6 +80,15 @@ fn derive(epoch_secret: &[u8; 32], kid: u64) -> Result<KeyMaterial, SecurityErro
         .map_err(|_| SecurityError::BadKey)?;
     let cipher = ChaCha20Poly1305::new_from_slice(key.as_ref()).map_err(|_| SecurityError::BadKey)?;
     Ok(KeyMaterial { cipher, salt })
+}
+
+/// A value unique to the epoch secret, under a label no frame key uses.
+fn derive_binding(epoch_secret: &[u8; 32]) -> Result<[u8; BINDING_LEN], SecurityError> {
+    let hk = Hkdf::<Sha256>::new(Some(SALT), epoch_secret);
+    let mut binding = [0u8; BINDING_LEN];
+    hk.expand(b"signature-binding", &mut binding)
+        .map_err(|_| SecurityError::BadKey)?;
+    Ok(binding)
 }
 
 fn nonce(salt: &[u8; 12], counter: u64) -> Nonce {
@@ -105,6 +127,7 @@ pub fn frame_id(packet: &[u8]) -> Option<[u8; ID_LEN]> {
 pub struct FrameSender {
     kid: u64,
     keys: KeyMaterial,
+    binding: [u8; BINDING_LEN],
     next: u64,
 }
 
@@ -114,8 +137,15 @@ impl FrameSender {
         Ok(Self {
             kid,
             keys: derive(epoch_secret, kid)?,
+            binding: derive_binding(epoch_secret)?,
             next: 0,
         })
+    }
+
+    /// A value unique to this MLS group and epoch, for signatures to cover so they cannot be
+    /// replayed into another call. Every member of the epoch derives the same value.
+    pub fn binding(&self) -> &[u8; BINDING_LEN] {
+        &self.binding
     }
 
     /// The id the next sealed frame will carry, so a payload can sign it: a signature bound
@@ -207,13 +237,35 @@ impl ReplayWindow {
 
 struct SenderState {
     keys: KeyMaterial,
+    /// Media frames.
     window: ReplayWindow,
+    /// Signed frames; moves only on [`FrameReceiver::confirm_signed`].
+    signed: ReplayWindow,
+}
+
+/// A signed frame that decrypted, waiting for its signature to be checked.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Unconfirmed {
+    pub sender: u32,
+    pub plain: Vec<u8>,
+    kid: u64,
+    counter: u64,
+}
+
+/// A packet's parsed header.
+struct Head<'p> {
+    kid: u64,
+    counter: u64,
+    sender: u32,
+    head: &'p [u8],
+    sealed: &'p [u8],
 }
 
 /// Opens frames from every sender in one epoch.
 pub struct FrameReceiver {
     epoch_secret: Zeroizing<[u8; 32]>,
     epoch: u64,
+    binding: [u8; BINDING_LEN],
     senders: BTreeMap<u64, SenderState>,
 }
 
@@ -225,12 +277,86 @@ impl FrameReceiver {
         Ok(Self {
             epoch_secret: Zeroizing::new(*epoch_secret),
             epoch,
+            binding: derive_binding(epoch_secret)?,
             senders: BTreeMap::new(),
         })
     }
 
+    /// The epoch's [`FrameSender::binding`].
+    pub fn binding(&self) -> &[u8; BINDING_LEN] {
+        &self.binding
+    }
+
     /// Returns the sender index and the plaintext frame.
     pub fn decrypt(&mut self, packet: &[u8]) -> Result<(u32, Vec<u8>), SecurityError> {
+        let h = self.parse(packet)?;
+        let mut fresh = self.fresh(h.kid)?;
+        let state = match fresh.as_mut() {
+            Some(state) => state,
+            None => self
+                .senders
+                .get_mut(&h.kid)
+                .ok_or(SecurityError::UnknownKey)?,
+        };
+        state.window.check(h.counter)?;
+        let plain = open(&state.keys, h.head, h.counter, h.sealed)?;
+        state.window.accept(h.counter);
+        if let Some(state) = fresh {
+            self.senders.insert(h.kid, state);
+        }
+        Ok((h.sender, plain))
+    }
+
+    /// Opens a signed frame without moving any window. Check the signature in
+    /// [`Unconfirmed::plain`], then call [`FrameReceiver::confirm_signed`].
+    pub fn decrypt_signed(&mut self, packet: &[u8]) -> Result<Unconfirmed, SecurityError> {
+        let h = self.parse(packet)?;
+        let mut fresh = self.fresh(h.kid)?;
+        let state = match fresh.as_mut() {
+            Some(state) => state,
+            None => self
+                .senders
+                .get_mut(&h.kid)
+                .ok_or(SecurityError::UnknownKey)?,
+        };
+        state.signed.check(h.counter)?;
+        let plain = open(&state.keys, h.head, h.counter, h.sealed)?;
+        if let Some(state) = fresh {
+            self.senders.insert(h.kid, state);
+        }
+        Ok(Unconfirmed {
+            sender: h.sender,
+            plain,
+            kid: h.kid,
+            counter: h.counter,
+        })
+    }
+
+    /// Records a signed frame whose signature checked out, so it is not accepted twice.
+    pub fn confirm_signed(&mut self, frame: &Unconfirmed) -> Result<(), SecurityError> {
+        let state = self
+            .senders
+            .get_mut(&frame.kid)
+            .ok_or(SecurityError::UnknownKey)?;
+        state.signed.check(frame.counter)?;
+        state.signed.accept(frame.counter);
+        Ok(())
+    }
+
+    /// A new sender state if `kid` has none yet. The caller stores it only once a frame
+    /// authenticated, so forged packets cannot grow memory.
+    fn fresh(&self, kid: u64) -> Result<Option<SenderState>, SecurityError> {
+        if self.senders.contains_key(&kid) {
+            return Ok(None);
+        }
+        Ok(Some(SenderState {
+            keys: derive(&self.epoch_secret, kid)?,
+            window: ReplayWindow::default(),
+            signed: ReplayWindow::default(),
+        }))
+    }
+
+    fn parse<'p>(&self, packet: &'p [u8]) -> Result<Head<'p>, SecurityError> {
         if packet.len() < HEADER_LEN + TAG_LEN {
             return Err(SecurityError::Malformed("short packet"));
         }
@@ -248,41 +374,36 @@ impl FrameReceiver {
         if kid >> 16 != self.epoch {
             return Err(SecurityError::UnknownKey);
         }
-        let sender = u32::from(u16::try_from(kid & 0xFFFF).map_err(|_| SecurityError::UnknownKey)?);
-
-        if let Some(state) = self.senders.get_mut(&kid) {
-            return open(state, head, counter, sealed).map(|plain| (sender, plain));
+        if counter == u64::MAX {
+            // Never sealed (`CounterExhausted`), so only a forger sends it.
+            return Err(SecurityError::Replay);
         }
-        let mut state = SenderState {
-            keys: derive(&self.epoch_secret, kid)?,
-            window: ReplayWindow::default(),
-        };
-        let plain = open(&mut state, head, counter, sealed)?;
-        self.senders.insert(kid, state);
-        Ok((sender, plain))
+        let sender = u32::from(u16::try_from(kid & 0xFFFF).map_err(|_| SecurityError::UnknownKey)?);
+        Ok(Head {
+            kid,
+            counter,
+            sender,
+            head,
+            sealed,
+        })
     }
 }
 
 fn open(
-    state: &mut SenderState,
+    keys: &KeyMaterial,
     head: &[u8],
     counter: u64,
     sealed: &[u8],
 ) -> Result<Vec<u8>, SecurityError> {
-    state.window.check(counter)?;
-    let plain = state
-        .keys
-        .cipher
+    keys.cipher
         .decrypt(
-            &nonce(&state.keys.salt, counter),
+            &nonce(&keys.salt, counter),
             Payload {
                 msg: sealed,
                 aad: head,
             },
         )
-        .map_err(|_| SecurityError::Decrypt)?;
-    state.window.accept(counter);
-    Ok(plain)
+        .map_err(|_| SecurityError::Decrypt)
 }
 
 #[cfg(test)]
@@ -422,6 +543,63 @@ mod tests {
         let mut tx = FrameSender::new(&SECRET, 0, 1).unwrap();
         tx.set_counter(u64::MAX);
         assert_eq!(tx.encrypt(b"f"), Err(SecurityError::CounterExhausted));
+    }
+
+    #[test]
+    fn counter_max_is_refused() {
+        let mut tx = FrameSender::new(&SECRET, 0, 1).unwrap();
+        tx.set_counter(u64::MAX - 1);
+        let last = tx.encrypt(b"last").unwrap();
+        let mut forged = last.clone();
+        forged[8..ID_LEN].copy_from_slice(&u64::MAX.to_be_bytes());
+        let mut rx = FrameReceiver::new(&SECRET, 0).unwrap();
+        assert_eq!(rx.decrypt(&forged), Err(SecurityError::Replay));
+        assert_eq!(rx.decrypt(&last).unwrap().1, b"last");
+    }
+
+    /// GHSA-rvhv-r5mr-2w3h: a member seals under another sender's key id with a far-ahead
+    /// counter. Media frames cannot move the signed window, and a signed frame moves it only
+    /// once confirmed.
+    #[test]
+    fn a_forged_frame_does_not_lock_out_signed_frames() {
+        let mut victim = FrameSender::new(&SECRET, 0, 2).unwrap();
+        let mut forger = FrameSender::new(&SECRET, 0, 2).unwrap();
+        forger.set_counter(u64::MAX - 1);
+        let forged = forger.encrypt(b"forged").unwrap();
+        let mut rx = FrameReceiver::new(&SECRET, 0).unwrap();
+
+        // As media: the media window jumps, the signed window does not.
+        assert!(rx.decrypt(&forged).is_ok());
+        let genuine = victim.encrypt(b"signed").unwrap();
+        let opened = rx.decrypt_signed(&genuine).unwrap();
+        assert_eq!(
+            (opened.sender, opened.plain.as_slice()),
+            (2, b"signed".as_slice())
+        );
+        rx.confirm_signed(&opened).unwrap();
+
+        // As an unconfirmed signed frame: nothing moves.
+        let mut rx = FrameReceiver::new(&SECRET, 0).unwrap();
+        let unconfirmed = rx.decrypt_signed(&forged).unwrap();
+        drop(unconfirmed);
+        let genuine = victim.encrypt(b"later").unwrap();
+        let opened = rx.decrypt_signed(&genuine).unwrap();
+        rx.confirm_signed(&opened).unwrap();
+        assert_eq!(
+            rx.decrypt_signed(&genuine),
+            Err(SecurityError::Replay),
+            "once only"
+        );
+        assert_eq!(rx.confirm_signed(&opened), Err(SecurityError::Replay));
+    }
+
+    #[test]
+    fn the_binding_is_shared_by_an_epoch_and_differs_between_secrets() {
+        let tx = FrameSender::new(&SECRET, 0, 1).unwrap();
+        let rx = FrameReceiver::new(&SECRET, 0).unwrap();
+        assert_eq!(tx.binding(), rx.binding());
+        let other = FrameReceiver::new(&[43; 32], 0).unwrap();
+        assert_ne!(tx.binding(), other.binding());
     }
 
     #[test]

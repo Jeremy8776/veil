@@ -92,10 +92,14 @@ rendezvous never says who is online.
 - Chat message sizes are not padded, so a relay or forwarder sees roughly how long each
   message is.
 - Video and sound prove only that a member of the call sent them, not which member. Every
-  member holds the call's shared key, so a member who changes their own copy of Veil could
-  send video or sound that shows in another member's tile. Relays and forwarders cannot.
+  member holds the call's shared key. In a direct (mesh) call each member's link may carry
+  only that member's video and sound, so this is closed there (fixed 17/11/2026). Through a
+  forwarder, a member who changes their own copy of Veil could still send video or sound that
+  shows in another member's tile, or stop that member's real video and sound from showing
+  until the key next changes. Relays and forwarders cannot.
   Names and chat are different: each is signed with the sender's device key, so no member
-  can send one as someone else (fixed 16/11/2026).
+  can send one as someone else (fixed 16/11/2026), stop someone else's (fixed 17/11/2026), or
+  replay one from an earlier call (fixed 17/11/2026).
 - After the key changes, frames sealed under the previous key are still accepted for 2 s, so
   video and sound already in flight are not lost. When the change removed someone, that
   window is closed: the previous key stops working at once, because the removed member still
