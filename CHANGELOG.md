@@ -2,7 +2,14 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
-## Unreleased
+## 0.1.5, 17/11/2026
+
+### Changed
+
+- The home screen no longer shows a "Veil" title under the logo, and its content sits in the
+  middle of the window. The call-ended screen and Settings > Connection do the same.
+- The host's log records when each guest joins and leaves, and when linking up with someone
+  takes over a second. This helps find calls where a leave goes unnoticed.
 
 ### Fixed
 
