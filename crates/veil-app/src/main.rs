@@ -22,6 +22,7 @@ mod firewall;
 mod icons;
 mod keystore;
 mod layout;
+mod log;
 mod media;
 mod model;
 mod screens;
@@ -35,6 +36,7 @@ use eframe::egui;
 const APP_ICON_PNG: &[u8] = include_bytes!("../assets/veil-256.png");
 
 fn main() -> eframe::Result {
+    log::start(log::folder().as_deref());
     let mut viewport = egui::ViewportBuilder::default().with_title("Veil");
     // A bad icon is cosmetic: the window opens with the default icon instead.
     if let Ok(icon) = eframe::icon_data::from_png_bytes(APP_ICON_PNG) {

@@ -125,7 +125,7 @@ fn run(
             Ok(Some(rgba)) => shared.put_picture(frame.id, rgba),
             Ok(None) => {}
             Err(e) => {
-                eprintln!("veil-app: video decoder failed: {e}");
+                crate::note!("video decoder failed: {e}");
                 source.decoder = None;
                 source.gate = Gate::default();
                 let _ = keyframes.send(frame.id);

@@ -78,7 +78,7 @@ impl Drop for Worker {
         } else {
             // The thread still sees `stop` and ends when its device returns; it is left to
             // finish on its own rather than freeze the window.
-            eprintln!("veil-app: a device thread did not stop within {STOP_WAIT:?}; left to finish");
+            crate::note!("a device thread did not stop within {STOP_WAIT:?}; left to finish");
         }
     }
 }

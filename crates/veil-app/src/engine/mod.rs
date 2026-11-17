@@ -137,6 +137,7 @@ impl Engine {
         let (commands, commands_rx) = mpsc::unbounded_channel();
         let config = plan::NetConfig::from_env();
         let task_shared = shared.clone();
+        crate::note!("call: starting as {}", if matches!(role, Role::Host) { "host" } else { "guest" });
         let task = runtime.spawn(async move {
             let shared = task_shared.clone();
             let result = match role {
@@ -227,14 +228,18 @@ impl Engine {
 impl Drop for Engine {
     fn drop(&mut self) {
         let _ = self.commands.send(Command::Leave);
+        let started = Instant::now();
         if let (Some(runtime), Some(task)) = (self.runtime.take(), self.task.take()) {
             runtime.block_on(async {
-                let _ = tokio::time::timeout(CLOSE_WAIT, task).await;
+                if tokio::time::timeout(CLOSE_WAIT, task).await.is_err() {
+                    crate::note!("call: did not close within {CLOSE_WAIT:?}; stopping it");
+                }
                 // Lets the endpoints send their close frames before the runtime stops.
                 tokio::time::sleep(Duration::from_millis(100)).await;
             });
             runtime.shutdown_timeout(Duration::from_millis(200));
         }
+        crate::note!("call: closed in {} ms", started.elapsed().as_millis());
     }
 }
 

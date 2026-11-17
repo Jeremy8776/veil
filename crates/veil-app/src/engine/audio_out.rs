@@ -124,7 +124,7 @@ fn receive(
                 last: now,
             }),
             Err(e) => {
-                eprintln!("veil-app: no audio decoder: {e}");
+                crate::note!("no audio decoder: {e}");
                 return;
             }
         },
@@ -161,7 +161,7 @@ impl<'a> Speaker<'a> {
             match Output::open(&self.settings, self.device) {
                 Ok(output) => self.open = Some(output),
                 Err(e) => {
-                    eprintln!("veil-app: cannot open the speaker: {e}");
+                    crate::note!("cannot open the speaker: {e}");
                     self.retry_at = Instant::now() + REOPEN_AFTER;
                 }
             }

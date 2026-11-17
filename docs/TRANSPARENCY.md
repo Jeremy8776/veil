@@ -65,6 +65,14 @@ rendezvous never says who is online.
   device. Before 16/11/2026 every call used a new key.
 - `no-update-check`: present only if you turned the update check off.
 - `updates\`: the last update you chose to install from the MSI, kept until the next one.
+- `logs\veil.log` and `logs\veil.previous.log` (from 0.1.3, `veil-app/src/log.rs`): this run's
+  log and the last run's, for you to send when something goes wrong. "Logs" on the home
+  screen opens the folder. Nothing reads or sends them but you. They hold the version, call
+  states (connecting, lobby, live, ended and why), timings, device and encoder errors, and
+  error text from the network, which can include a server's or peer's IP address. People
+  appear at most as the first 8 hex digits of their device key: no names, chat, invite links
+  or keys. Each file stops at 5 MB. They are plain text, not sealed. On macOS they are in
+  `~/Library/Logs/Veil`, on Linux in `$XDG_STATE_HOME/veil` (or `~/.local/state/veil`).
 
 **Update check** (desktop app, from 16/11/2026, `veil-app/src/update/`):
 - Once per start the app asks `api.github.com` for Veil's latest release, over HTTPS. It
