@@ -17,6 +17,8 @@
 //!   [`EARLY_WAIT`]; past that it is closed. Places to wait are kept for the epoch's members
 //!   ([`MediaSession::members`]); other keys share [`MAX_EARLY_UNKNOWN`] (`media/links.rs`).
 //! - Frames are never opened or changed: the media pipeline seals and opens them.
+//! - No send waits on one peer without a deadline, and video does not wait at all: each link
+//!   has its own writer task (`media/write.rs`, GHSA-37f5-22p2-q6hr).
 //!
 //! shortcut: a forwarder link is direct only. Forwarders run on reachable nodes; upgrade with
 //! relay fallback if forwarders behind NAT become common.
@@ -42,8 +44,10 @@ use crate::CallError;
 
 mod links;
 mod read;
+mod write;
 
 use links::{adopt_early, open_media, run_inbox};
+pub use write::SEND_DEADLINE;
 
 /// How long an early media link may wait for this member's routes to expect it.
 pub const EARLY_WAIT: Duration = Duration::from_secs(10);
@@ -102,7 +106,10 @@ struct Entry {
     carrier: Arc<Carrier>,
     path: Path,
     _via: Option<Arc<Node>>,
-    readers: [JoinHandle<()>; 3],
+    /// The link's video queue, drained by its writer task.
+    frames: mpsc::Sender<write::Frame>,
+    /// Readers and the writer.
+    readers: [JoinHandle<()>; 4],
 }
 
 impl Drop for Entry {
@@ -157,16 +164,19 @@ impl Ctx {
             Some(input) => tokio::spawn(read::member_control(input, peer, self.incoming.clone())),
             None => tokio::spawn(read::forwarder_control(carrier.clone(), peer, self.incoming.clone())),
         };
+        let (frames, writer) = write::spawn_writer(carrier.clone());
         let readers = [
             tokio::spawn(read::video(carrier.clone(), peer, id, self.clone())),
             tokio::spawn(read::audio(carrier.clone(), peer, self.incoming.clone())),
             control,
+            writer,
         ];
         let entry = Entry {
             id,
             carrier,
             path,
             _via: rest.via,
+            frames,
             readers,
         };
         state.links.insert(peer, entry);
@@ -372,21 +382,17 @@ impl MediaSession {
         })
     }
 
-    /// Sends one sealed video frame on every link at once. Returns how many links took it.
+    /// Queues one sealed video frame for every link. Never waits on a peer: a link whose queue
+    /// is full skips this frame. Returns how many links queued it.
     pub async fn send_frame(&self, frame_id: u32, sealed: &[u8]) -> usize {
         let sealed: Arc<[u8]> = Arc::from(sealed);
-        let mut sends = JoinSet::new();
-        for carrier in self.carriers() {
-            let sealed = sealed.clone();
-            sends.spawn(async move { carrier.link().send_frame(frame_id, &sealed).await.is_ok() });
-        }
-        let mut sent = 0;
-        while let Some(done) = sends.join_next().await {
-            if matches!(done, Ok(true)) {
-                sent += 1;
-            }
-        }
-        sent
+        let queues: Vec<_> = self.ctx.lock().map_or_else(Vec::new, |s| {
+            s.links.values().map(|e| e.frames.clone()).collect()
+        });
+        queues
+            .iter()
+            .filter(|q| q.try_send((frame_id, sealed.clone())).is_ok())
+            .count()
     }
 
     /// Sends one sealed audio packet on every link. Returns how many links took it.
@@ -399,21 +405,28 @@ impl MediaSession {
 
     /// Sends one sealed app message to every member: on each member link's control stream in
     /// a mesh, through the forwarder otherwise. Returns how many links took it. A message
-    /// over `MAX_APP_LEN` is not sent.
+    /// over `MAX_APP_LEN` is not sent. Links are sent to side by side, each within
+    /// [`SEND_DEADLINE`], so this returns within the deadline whatever any peer does.
     pub async fn send_app(&self, sealed: &[u8]) -> usize {
         if sealed.len() > MAX_APP_LEN {
             return 0;
         }
-        let mut sent = 0;
+        let sealed: Arc<[u8]> = Arc::from(sealed);
+        let mut sends = JoinSet::new();
         for carrier in self.carriers() {
-            let ok = match &*carrier {
-                Carrier::Member { control, .. } => {
-                    let message = Control::App(sealed.to_vec());
-                    control.lock().await.send(&message).await.is_ok()
+            let sealed = sealed.clone();
+            sends.spawn(async move {
+                match &*carrier {
+                    Carrier::Member { .. } => {
+                        write::control(&carrier, &Control::App(sealed.to_vec())).await.is_ok()
+                    }
+                    Carrier::Forwarder(client) => write::forwarder(client.send_app(&sealed)).await.is_ok(),
                 }
-                Carrier::Forwarder(client) => client.send_app(sealed).await.is_ok(),
-            };
-            if ok {
+            });
+        }
+        let mut sent = 0;
+        while let Some(done) = sends.join_next().await {
+            if matches!(done, Ok(true)) {
                 sent += 1;
             }
         }
@@ -448,12 +461,12 @@ impl MediaSession {
         });
         match carrier.as_deref() {
             None => Ok(false),
-            Some(Carrier::Member { control, .. }) => {
-                control.lock().await.send(&Control::KeyframeRequest).await?;
+            Some(member @ Carrier::Member { .. }) => {
+                write::control(member, &Control::KeyframeRequest).await?;
                 Ok(true)
             }
             Some(Carrier::Forwarder(client)) => {
-                client.request_keyframe(sender).await.map_err(CallError::Forward)?;
+                write::forwarder(client.request_keyframe(sender)).await?;
                 Ok(true)
             }
         }

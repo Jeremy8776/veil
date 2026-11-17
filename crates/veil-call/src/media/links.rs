@@ -15,6 +15,7 @@ use veil_net::Node;
 use veil_net::control::Control;
 use veil_security::PublicId;
 
+use super::write::SEND_DEADLINE;
 use super::{Carrier, Ctx, EARLY_WAIT, Extra, MAX_EARLY, MAX_EARLY_UNKNOWN, State};
 use crate::CallError;
 use crate::inbound::Inbound;
@@ -22,7 +23,9 @@ use crate::node::{Path, dial};
 use crate::presence::Presence;
 use crate::routes::Peer;
 
-/// Dials a member and opens the media control stream.
+/// Dials a member and opens the media control stream. The peer sets the stream credit, so
+/// opening the stream and the first message have `SEND_DEADLINE`; past it the link is closed
+/// (GHSA-37f5-22p2-q6hr).
 pub(super) async fn open_media(
     node: &Node,
     presence: Option<&Presence>,
@@ -32,8 +35,18 @@ pub(super) async fn open_media(
 ) -> Result<(Carrier, Path, Extra), CallError> {
     let addrs: &[SocketAddr] = &peer.addrs;
     let dialled = dial(node, presence, peer.device, addrs, relay_only).await?;
-    let (mut out, input) = dialled.link.open_control().await?.split();
-    out.send(&Control::Media { room_id }).await?;
+    let open = async {
+        let (mut out, input) = dialled.link.open_control().await?.split();
+        out.send(&Control::Media { room_id }).await?;
+        Ok::<_, CallError>((out, input))
+    };
+    let (out, input) = match tokio::time::timeout(SEND_DEADLINE, open).await {
+        Ok(opened) => opened?,
+        Err(_) => {
+            dialled.link.close("peer did not open the media stream");
+            return Err(CallError::Stalled);
+        }
+    };
     let extra = Extra {
         input: Some(input),
         via: dialled.via,
