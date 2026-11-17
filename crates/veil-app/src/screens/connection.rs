@@ -112,17 +112,18 @@ fn text(field: Field) -> (&'static str, &'static str, &'static str) {
     match field {
         Field::Rendezvous => (
             "Rendezvous and relay",
-            "KEY@IP:PORT",
+            "KEY@HOST:PORT",
             "A veil-node that helps guests find you, and relays when a direct link fails. It \
-             sees IP addresses and timing, never your call. Blank: Veil runs one on your \
-             computer for each call you host.",
+             sees IP addresses and timing, never your call. HOST is an IP or a DNS name; the \
+             key stops any other server answering. Blank: Veil runs one on your computer for \
+             each call you host.",
         ),
         Field::Forwarder => (
             "Forwarder",
-            "KEY@IP:PORT",
+            "KEY@HOST:PORT",
             "A veil-node that carries calls of 5 or more people, so your upload does not grow \
-             with each person. It sees sealed frames only. Blank: your own, which only people \
-             on your network can reach.",
+             with each person. It sees sealed frames only. HOST is an IP or a DNS name. Blank: \
+             your own, which only people on your network can reach.",
         ),
         Field::Advertise => (
             "Public addresses",

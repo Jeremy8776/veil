@@ -38,7 +38,7 @@ use veil_net::{Node, NodeAddr};
 use veil_rendezvous::{RendezvousServer, room_tag};
 use veil_security::{Identity, PublicId};
 
-use super::plan::{NetConfig, advertised, lan_ip, plan_for};
+use super::plan::{NetConfig, advertised, lan_ip, plan_for, resolve};
 use super::session::{Pipes, Session};
 use super::view::{Knocker, Shared};
 use super::{Command, Ids};
@@ -63,11 +63,12 @@ pub async fn run(
     let node = Node::bind(&identity, bind).map_err(|e| format!("Cannot open the network: {e}"))?;
     let port = node.local_addr().map_err(|e| e.to_string())?.port();
     let lan = lan_ip();
-    let rendezvous = match config.rendezvous {
+    let configured = resolve(config.rendezvous.as_ref(), "rendezvous").await?;
+    let rendezvous = match configured {
         Some(addr) => addr,
         None => own_server(lan, Own::Rendezvous, &identity, room_id)?,
     };
-    let forwarder = match (config.forwarder, config.rendezvous) {
+    let forwarder = match (resolve(config.forwarder.as_ref(), "forwarder").await?, configured) {
         (Some(addr), _) => Some(addr),
         (None, None) => Some(own_server(lan, Own::Forwarder, &identity, room_id)?),
         (None, Some(_)) => None,
