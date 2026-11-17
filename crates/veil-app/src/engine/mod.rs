@@ -32,6 +32,7 @@ pub mod plan;
 mod reach;
 mod router;
 mod session;
+pub mod stats;
 mod video_in;
 mod video_out;
 mod view;
@@ -100,13 +101,13 @@ pub struct Engine {
 impl Engine {
     /// Starts the call with your device key from `keys` and the network settings `config`
     /// (`connection::Store::config`). `your_name` is sent to the other
-    /// members, sealed. `speaker` is a device id from the pre-join picker, `None` for the
-    /// default. Fails only if the async runtime cannot start.
+    /// members, sealed. `playback` is the speaker and its volume, which the device pickers
+    /// can change during the call. Fails only if the async runtime cannot start.
     pub fn start(
         role: Role,
         config: plan::NetConfig,
         your_name: String,
-        speaker: Option<String>,
+        playback: Arc<crate::volume::Playback>,
         keys: Arc<Mutex<KeyStore>>,
         ctx: egui::Context,
     ) -> Result<Self, String> {
@@ -129,7 +130,7 @@ impl Engine {
         let workers = vec![
             video_out::spawn(video_rx, encoded_tx, control.clone()),
             video_in::spawn(video_in_rx, keyframe_tx, shared.clone()),
-            audio_out::spawn(audio_in_rx, shared.clone(), speaker),
+            audio_out::spawn(audio_in_rx, shared.clone(), playback),
         ];
         let pipes = session::Pipes {
             encoded: encoded_rx,
@@ -232,6 +233,13 @@ impl Engine {
                 .unwrap_or_else(|| format!("Guest {}", short(&from)));
             call.receive(name, text, now);
         }
+    }
+
+    /// The newest call stats (once a second) and each person's received sound level, 0 to 1,
+    /// for the debug overlay.
+    pub fn stats(&self) -> (stats::Stats, HashMap<u32, f32>) {
+        let levels = self.shared.seen().audio.iter().map(|(id, h)| (*id, h.level)).collect();
+        (self.shared.stats(), levels)
     }
 
     /// Pictures decoded since the last call, by participant id.

@@ -18,6 +18,7 @@ use eframe::egui;
 use veil_security::PublicId;
 
 use super::names::labels;
+use super::stats::{Decoded, Stats};
 use crate::convert::Rgba;
 use crate::media::lock;
 use crate::model::{Call, CallStatus, LinkPath, Participant, Reachable, RouterPort, Waiting};
@@ -69,6 +70,8 @@ pub struct View {
 struct Picture {
     rgba: Option<Rgba>,
     at: Instant,
+    /// Decoded size, before any halving for the screen, and pictures decoded so far.
+    decoded: Decoded,
 }
 
 /// What the playback thread heard from one person.
@@ -95,6 +98,8 @@ pub struct Shared {
     chat: Mutex<Vec<(PublicId, String)>>,
     /// Each other person's tile on screen, as (participant id, width in physical pixels).
     tiles: Mutex<Vec<(u32, f32)>>,
+    /// The newest call stats, for the debug overlay (`stats.rs`).
+    stats: Mutex<Stats>,
     ctx: egui::Context,
 }
 
@@ -116,6 +121,7 @@ impl Shared {
             heard: Mutex::default(),
             chat: Mutex::default(),
             tiles: Mutex::default(),
+            stats: Mutex::default(),
             ctx,
         }
     }
@@ -145,15 +151,40 @@ impl Shared {
         self.ctx.request_repaint();
     }
 
-    pub fn put_picture(&self, id: u32, rgba: Rgba) {
-        lock(&self.pictures).insert(
+    /// The newest picture from `id`, decoded at `size` (width, height).
+    pub fn put_picture(&self, id: u32, rgba: Rgba, size: (u16, u16)) {
+        let mut pictures = lock(&self.pictures);
+        let frames = pictures.get(&id).map_or(0, |p| p.decoded.frames);
+        pictures.insert(
             id,
             Picture {
                 rgba: Some(rgba),
                 at: Instant::now(),
+                decoded: Decoded {
+                    width: size.0,
+                    height: size.1,
+                    frames: frames.saturating_add(1),
+                },
             },
         );
+        drop(pictures);
         self.ctx.request_repaint();
+    }
+
+    /// Each person's decoded video so far, for the stats.
+    pub fn decoded(&self) -> HashMap<u32, Decoded> {
+        lock(&self.pictures)
+            .iter()
+            .map(|(id, p)| (*id, p.decoded))
+            .collect()
+    }
+
+    pub fn set_stats(&self, stats: Stats) {
+        *lock(&self.stats) = stats;
+    }
+
+    pub fn stats(&self) -> Stats {
+        lock(&self.stats).clone()
     }
 
     pub fn forget_picture(&self, id: u32) {

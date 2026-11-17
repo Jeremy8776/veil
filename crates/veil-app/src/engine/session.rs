@@ -36,6 +36,7 @@ use veil_security::safety::safety_number;
 
 use super::audio_out::AudioIn;
 use super::names::{Announcer, Names};
+use super::stats::Sampler;
 use super::video_in::VideoIn;
 use super::video_out::{Encoded, VideoControl};
 use super::view::{Person, Shared};
@@ -72,6 +73,8 @@ pub struct Session {
     /// The layer request last sent to the forwarder; `None` after new routes, so it is sent
     /// again (a new forwarder link starts with every layer).
     subscribed: Option<Vec<(PublicId, Wanted)>>,
+    /// Turns link counters into the debug overlay's rates, once a second.
+    sampler: Sampler,
     opus: Option<OpusEncoder>,
     audio_seq: u32,
     frame_id: u32,
@@ -105,6 +108,7 @@ impl Session {
             names: Names::default(),
             announcer: Announcer::new(your_name),
             subscribed: None,
+            sampler: Sampler::default(),
             opus: None,
             audio_seq: 0,
             frame_id: 0,
@@ -215,6 +219,7 @@ impl Session {
             Some(id) = self.pipes.keyframes.recv() => self.ask_keyframe(id).await,
             _ = self.tick.tick() => {
                 self.refresh_paths();
+                self.sample_stats();
                 self.announce().await;
                 self.subscribe().await;
             }
@@ -266,6 +271,16 @@ impl Session {
                 person.path = *path;
             }
         }
+    }
+
+    /// Measures each link and each person's video for the debug overlay. Reads counters only.
+    fn sample_stats(&mut self) {
+        let links = self.media.link_stats();
+        let decoded = self.shared.decoded();
+        let others = &self.others;
+        let person = |device: &PublicId| others.iter().find(|(_, d)| d == device).map(|(id, _)| *id);
+        let stats = self.sampler.sample(links, &decoded, person, Instant::now());
+        self.shared.set_stats(stats);
     }
 
     async fn send_video(&mut self, encoded: Encoded) {
@@ -408,7 +423,7 @@ impl Session {
     }
 }
 
-fn link_path(path: &Path) -> LinkPath {
+pub(super) fn link_path(path: &Path) -> LinkPath {
     match path {
         Path::Direct => LinkPath::Direct,
         Path::Punched => LinkPath::Punched,

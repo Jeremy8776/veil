@@ -122,7 +122,7 @@ fn run(
             }
         }
         match decode(source, bitstream, &header) {
-            Ok(Some(rgba)) => shared.put_picture(frame.id, rgba),
+            Ok(Some((rgba, size))) => shared.put_picture(frame.id, rgba, size),
             Ok(None) => {}
             Err(e) => {
                 crate::note!("video decoder failed: {e}");
@@ -135,11 +135,14 @@ fn run(
     }
 }
 
+/// A decoded picture for the screen, and the size it was decoded at (before any halving).
+type Decoded = (crate::convert::Rgba, (u16, u16));
+
 fn decode(
     source: &mut Source,
     bitstream: &[u8],
     header: &VideoHeader,
-) -> Result<Option<crate::convert::Rgba>, MediaError> {
+) -> Result<Option<Decoded>, MediaError> {
     if source.decoder.is_none() {
         source.decoder = Some(platform_decoder()?);
     }
@@ -149,15 +152,13 @@ fn decode(
     let Some(picture) = decoder.decode(bitstream, header.timestamp_us)? else {
         return Ok(None);
     };
+    let size = (picture.width, picture.height);
     let (w, h) = (usize::from(picture.width), usize::from(picture.height));
     // Tiles are rarely wider than half a 1080p picture; halving costs a quarter of the work.
-    Ok(crate::convert::nv12_to_rgba(
-        picture.data,
-        w,
-        h,
-        picture.stride,
-        w > 960,
-    ))
+    Ok(
+        crate::convert::nv12_to_rgba(picture.data, w, h, picture.stride, w > 960)
+            .map(|rgba| (rgba, size)),
+    )
 }
 
 fn forget_quiet(sources: &mut HashMap<u32, Source>, shared: &Shared) {

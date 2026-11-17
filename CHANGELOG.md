@@ -2,6 +2,19 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Added
+
+- Change devices during a call. The small arrow beside Mute picks another microphone or
+  speaker and sets the microphone volume (up to 200%) and the speaker volume. The arrow
+  beside Stop video picks another camera. The call carries on without leaving, and a
+  headset plugged in during the call shows up the next time you open the menu.
+- Call stats, for finding out why a call sounds or looks bad. The signal button in the top
+  bar (or Ctrl+Shift+D) shows each person's connection path, round-trip time, packet loss,
+  bit rate down and up, the size and frame rate of their video, and how loud their sound
+  arrives, with your own microphone level. Off by default. The numbers stay on your device.
+
 ## 0.1.5, 17/11/2026
 
 ### Added

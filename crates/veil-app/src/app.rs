@@ -126,10 +126,10 @@ impl VeilApp {
                     return;
                 }
             };
-            let speaker = self.media.choice().speaker.clone();
+            let playback = self.media.playback();
             let keys = self.keys.clone();
             let config = self.connection.config();
-            match Engine::start(role, config, name.clone(), speaker, keys, self.ctx.clone()) {
+            match Engine::start(role, config, name.clone(), playback, keys, self.ctx.clone()) {
                 Ok(engine) => {
                     self.media.set_taps(Some(engine.taps()));
                     let title = if host {

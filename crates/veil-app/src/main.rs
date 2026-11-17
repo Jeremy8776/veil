@@ -30,6 +30,7 @@ mod model;
 mod screens;
 mod theme;
 mod update;
+mod volume;
 mod widgets;
 
 use eframe::egui;
