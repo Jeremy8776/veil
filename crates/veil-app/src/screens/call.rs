@@ -234,7 +234,11 @@ impl CallView {
         let alone = self.call.participants.len() < 2;
         match &self.call.status {
             _ if self.call.demo => Some(("Demo: other people are simulated.", theme::WARN)),
-            CallStatus::Connecting => Some(("Starting the call…", MUTED)),
+            CallStatus::Connecting if self.call.is_host => Some(("Starting the call…", MUTED)),
+            // Direct, then hole punching, then the relay: up to about 30 s over the internet.
+            CallStatus::Connecting => {
+                Some(("Reaching the host. This can take up to 30 seconds.", MUTED))
+            }
             CallStatus::Lobby => Some(("Waiting for the host to let you in.", MUTED)),
             CallStatus::Live if alone && self.call.is_host => None,
             CallStatus::Live if alone => Some(("Connecting to the others…", MUTED)),
