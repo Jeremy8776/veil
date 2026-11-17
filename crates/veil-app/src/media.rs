@@ -4,14 +4,16 @@
 //! not `Send`. The camera thread hands the newest picture to the interface; the microphone
 //! thread hands over a level from 0 to 1. During a call, [`Taps`] also pass each picture and
 //! each 20 ms of sound to the call engine, which encodes and encrypts them. A chosen
-//! [`Filter`] is applied to each picture before either of those.
+//! [`Blur`] and then [`Filter`] are applied to each picture before either of those.
 //!
 //! Invariants:
 //! - Off means closed: turning the camera or microphone off stops its thread and releases the
 //!   device, so the operating system's in-use light goes out too.
 //! - Only the newest picture is kept; a slow interface skips pictures, never queues them.
-//! - The preview and the taps see the same filtered picture. With no filter the picture is not
-//!   copied or changed.
+//! - The preview and the taps see the same picture, after any blur and filter. With neither
+//!   the picture is not copied or changed, and no blur worker thread exists.
+//! - If the blur worker cannot keep up, blur turns itself off, the choice reads Off and a
+//!   notice says why; it stays off until the person turns it on again.
 //! - A device error is kept as text for the interface and the thread ends.
 //! - The taps never block capture: a full engine queue drops the picture or frame.
 
@@ -24,7 +26,7 @@ use eframe::egui;
 use crate::convert::Rgba;
 use crate::devices::Choice;
 use crate::engine::{Captured, Taps};
-use veil_media::Filter;
+use veil_media::{Blur, BlurEngine, BlurStatus, Filter};
 
 /// What the interface reads from the workers.
 #[derive(Default)]
@@ -38,7 +40,13 @@ struct Shared {
     /// Where the call engine takes pictures and sound, while in a call.
     taps: Mutex<Option<Taps>>,
     filter: Mutex<Filter>,
+    blur: Mutex<Blur>,
+    /// Why blur turned itself off, until the person chooses blur again.
+    blur_notice: Mutex<Option<String>>,
 }
+
+/// Shown when blur turns itself off because the computer is too busy.
+pub const BLUR_TOO_BUSY: &str = "Background blur is off: this computer is too busy to keep up.";
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     // A worker that panicked mid-write leaves plain data behind; use it.
@@ -209,6 +217,23 @@ impl LocalMedia {
         *lock(&self.shared.filter) = filter;
     }
 
+    pub fn blur(&self) -> Blur {
+        *lock(&self.shared.blur)
+    }
+
+    /// Takes effect on the next picture. Choosing blur again clears an old notice.
+    pub fn set_blur(&self, blur: Blur) {
+        *lock(&self.shared.blur) = blur;
+        if blur != Blur::Off {
+            *lock(&self.shared.blur_notice) = None;
+        }
+    }
+
+    /// Why blur turned itself off, if it did, until blur is chosen again.
+    pub fn blur_notice(&self) -> Option<String> {
+        lock(&self.shared.blur_notice).clone()
+    }
+
     pub fn level(&self) -> f32 {
         f32::from_bits(self.shared.level.load(Ordering::Relaxed))
     }
@@ -250,8 +275,10 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
     };
     let mode = camera.mode();
     let fps = (mode.fps_num / mode.fps_den.max(1)).clamp(1, 60);
-    // Filtered copy of the picture; reused so a filter costs no allocation per picture.
+    // Changed copy of the picture; reused so effects cost no allocation per picture.
     let mut filtered = Vec::new();
+    // Exists only while blur is on; dropping it stops the segmentation thread.
+    let mut blur_engine: Option<BlurEngine> = None;
     while !stop.load(Ordering::Relaxed) {
         let picture = match camera.read() {
             Ok(Some(picture)) => picture,
@@ -263,11 +290,24 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
         };
         let (w, h) = (usize::from(picture.width), usize::from(picture.height));
         let filter = *lock(&shared.filter);
-        let pixels: &[u8] = if filter == Filter::None {
+        let blur = *lock(&shared.blur);
+        if blur == Blur::Off {
+            blur_engine = None;
+        }
+        let pixels: &[u8] = if filter == Filter::None && blur == Blur::Off {
             picture.data
         } else {
             filtered.clear();
             filtered.extend_from_slice(picture.data);
+            if blur != Blur::Off {
+                let engine = blur_engine.get_or_insert_with(BlurEngine::start);
+                if engine.apply(&mut filtered, w, h, picture.stride, blur) == BlurStatus::TooBusy {
+                    blur_engine = None;
+                    *lock(&shared.blur) = Blur::Off;
+                    *lock(&shared.blur_notice) = Some(BLUR_TOO_BUSY.to_string());
+                    ctx.request_repaint();
+                }
+            }
             veil_media::effects::apply_filter(&mut filtered, w, h, picture.stride, filter);
             &filtered
         };

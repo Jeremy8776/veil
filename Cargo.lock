@@ -4233,6 +4233,7 @@ dependencies = [
  "objc2-core-video",
  "objc2-foundation 0.3.2",
  "openh264-sys2",
+ "sha2",
  "v4l",
  "veil-security",
  "windows",

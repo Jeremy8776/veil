@@ -50,6 +50,16 @@ A relay-only member never agrees to an introduction.
 The asker gets the same silence whether the member declines or is not there, so the
 rendezvous never says who is online.
 
+**Filters and Background blur** run on your device, on each camera picture before your
+self-view and before it is encoded, so other members receive only the changed picture. Finding
+you in the picture is done by a small network built into Veil (see section 4). It runs on a
+thread of its own while blur is on, and nothing is sent anywhere to do it.
+- Blur is not a privacy guarantee. The network makes mistakes: edges, hair, hands and objects
+  you hold up can show what is behind you, most of all when you move or the light is poor.
+- If your computer is too busy for the network to keep up, blur turns itself off and says so.
+  From then on the background is sent as it is, until you turn blur on again. Until the first
+  result is ready after you turn blur on, the whole picture is blurred.
+
 **Kept on your device** (desktop app, Windows, in `%LOCALAPPDATA%\Veil`):
 - `device.key`: your device key. The same key is used for every call, so a safety number
   you checked once still holds next time. Sealed with Windows DPAPI, so the file opens only
@@ -177,6 +187,13 @@ The code is `crates/veil-app/src/firewall.rs`.
   licences (GPL, LGPL, MPL) are kept out so anyone can reuse any part of Veil. For this reason
   Veil writes its own MLS crypto backend instead of using `openmls_rust_crypto` (which pulls in
   MPL-2.0 code), and does not use FFmpeg (LGPL).
+- Background blur uses Google's MediaPipe selfie segmenter (landscape), licensed Apache-2.0,
+  from the MediaPipe model card. Its weights are converted once by `tools/selfie_weights.py`,
+  which checks the downloaded file's SHA-256, and are built into Veil as a 213 KB file. Veil
+  never downloads a model at run time and never takes one from another member, so parsing a
+  model is not attack surface. Source, hashes and how to regenerate are in
+  `crates/veil-media/src/segment/MODEL.md`. Veil runs the network with its own safe Rust code,
+  not an inference library: see [ADR 0001](adr/0001-on-device-segmentation-for-background-blur.md).
 - Encryption, signing and hashing come from the RustCrypto crates (`chacha20poly1305`, `hkdf`,
   `hmac`, `sha2`, `ed25519-dalek`) and `hpke`. Known-answer tests
   (`crates/veil-security/tests/known_answers.rs`, `crates/veil-group/tests/crypto_known_answers.rs`)
