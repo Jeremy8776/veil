@@ -2,7 +2,7 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
-## Unreleased
+## 0.1.6, 17/11/2026
 
 ### Added
 
@@ -14,6 +14,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   bar (or Ctrl+Shift+D) shows each person's connection path, round-trip time, packet loss,
   bit rate down and up, the size and frame rate of their video, and how loud their sound
   arrives, with your own microphone level. Off by default. The numbers stay on your device.
+
+### Changed
+
+- The log records each time a microphone, camera or speaker opens or fails to open, and
+  whether it was the one you chose or the system default. It names no devices. This helps
+  find out why a chosen microphone might not be used.
 
 ## 0.1.5, 17/11/2026
 
