@@ -472,7 +472,7 @@ the rule on the host and a guest then connected.
 `cargo test -j 8 -p veil-app firewall -- --ignored --nocapture` reads the rules only.
 A public `veil-node` (`VEIL_RENDEZVOUS`) removes the need for any rule, since every flow then
 starts outbound. The MSI (from 17/11/2026) adds the same rule for the installed
-`veil-app.exe` (`packaging/windows/veil.wxs`, WiX's firewall extension, two rules named "Veil",
+`veil-app.exe` (`packaging/windows/veil.wxs`, WiX's firewall extension, one rule named "Veil" for
 Private and Public) and removes it on uninstall, so the button does not show there.
 Tested by hand 17/11/2026: install, upgrade over an older MSI, and uninstall left nothing
 behind (folder, Start menu entry, firewall rule, registry).
