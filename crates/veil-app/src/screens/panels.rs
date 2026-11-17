@@ -103,9 +103,12 @@ fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
         Tone::Quiet,
         ui.available_width(),
     )
-    .on_hover_text("Works once and for an hour. A new link is made after each use.");
+    .on_hover_text("A new link is made after each use.");
     if copy.clicked() {
         view.copy_invite(ui.ctx());
+    }
+    if view.call.is_host && !view.call.demo {
+        crate::screens::invite::lifetime(view, ui);
     }
     if view.call.is_host {
         router(ui, &view.call.router);
