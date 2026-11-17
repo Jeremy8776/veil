@@ -5,8 +5,8 @@
 //! program on first use. A plain executable carries them in a `__TEXT,__info_plist` section,
 //! the same place an app bundle's Info.plist would be read from.
 //!
-//! shortcut: a bare executable, not an app bundle. Build a signed `.app` with notarisation
-//! before a wide release (see .github/workflows/release.yml).
+//! Release builds also ship `Veil.app` (packaging/macos), whose own Info.plist carries the
+//! same texts; this section keeps a bare executable (`cargo run`, the tools archive) working.
 
 fn main() {
     println!("cargo:rerun-if-changed=macos/Info.plist");

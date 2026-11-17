@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Veil.app's Info.plist. package.sh fills in @VERSION@. The camera and microphone texts
+     match crates/veil-app/macos/Info.plist, which the bare executable carries. -->
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>io.github.jeremy8776.veil</string>
+    <key>CFBundleName</key>
+    <string>Veil</string>
+    <key>CFBundleDisplayName</key>
+    <string>Veil</string>
+    <key>CFBundleExecutable</key>
+    <string>veil-app</string>
+    <key>CFBundleIconFile</key>
+    <string>Veil</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@VERSION@</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSCameraUsageDescription</key>
+    <string>Veil sends your camera to the people in your call, encrypted end to end.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Veil sends your microphone to the people in your call, encrypted end to end.</string>
+</dict>
+</plist>

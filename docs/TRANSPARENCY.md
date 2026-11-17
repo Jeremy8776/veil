@@ -64,16 +64,44 @@ rendezvous never says who is online.
 - The same key in every call means anyone who meets you in two calls can tell it is the same
   device. Before 16/11/2026 every call used a new key.
 - `no-update-check`: present only if you turned the update check off.
+- `updates\`: the last update you chose to install from the MSI, kept until the next one.
 
-**Update check** (desktop app, from 16/11/2026, `veil-app/src/update.rs`):
+**Update check** (desktop app, from 16/11/2026, `veil-app/src/update/`):
 - Once per start the app asks `api.github.com` for Veil's latest release, over HTTPS. It
   sends the User-Agent `veil-app/<version>` and nothing about you; GitHub sees your IP
   address and that a copy of Veil started, as it would for any website.
 - If a newer version is out, the home screen shows "Update available" with a link to the
-  release page. Veil never downloads or runs anything itself: you download and install it.
-- The link is built from the version number alone, never taken from GitHub's answer.
+  release page. The link is built from the version number alone, never taken from GitHub's
+  answer.
 - Untick "Check for updates" on the home screen and no request is made at all, now or on
   later starts.
+
+**Installing an update** (desktop app, from 17/11/2026, `veil-app/src/update/apply.rs`):
+- Only when you click "Install", and only for a copy installed from the Windows MSI, the
+  macOS DMG or the Linux AppImage. Portable, deb, rpm and tar.gz copies keep the link.
+- Veil downloads three files from the release on GitHub, each named from the version
+  number: `SHA256SUMS.txt`, `SHA256SUMS.txt.sig`, and its own package.
+- It installs nothing unless `SHA256SUMS.txt.sig` is a valid Ed25519 signature over
+  `SHA256SUMS.txt` by Veil's release key, whose public half is built into the app
+  (`crates/veil-app/release-key.pub`), and the package's SHA-256 matches its line in that
+  list. A changed file, a changed list or another key is refused, and the download deleted.
+  So someone who controls GitHub's answer, the network, or the release page cannot make
+  Veil install their file; they would need the release key, which is kept only as a
+  secret of the release workflow.
+- The package names its version, so an older signed list cannot pass an older package off
+  as a newer one.
+- Then: Windows hands the MSI to Windows Installer, which asks for permission and replaces
+  Veil once it has closed. macOS copies `Veil.app` out of the disk image over this one and
+  reopens it. Linux renames the new AppImage over this one and starts it.
+- Not yet active: no release key has been made, so `release-key.pub` is empty and every copy
+  shows the link only. The release workflow signs once the key is set
+  (`tools/release-key.sh`).
+
+**Signed installers** (from 17/11/2026, `packaging/`, `.github/workflows/release.yml`): the
+Windows programs and MSI are Authenticode-signed, and `Veil.app` is signed with a Developer ID
+and notarised by Apple, once the release workflow has those certificates. Until then the
+files are unsigned (Windows) or ad-hoc signed (macOS), and the workflow says so. Every
+release file is listed in `SHA256SUMS.txt` with build provenance from GitHub.
 
 **Known leaks:**
 - Packet sizes and timing show when someone speaks or moves. Padding is planned, not built.
@@ -118,7 +146,9 @@ address (192.0.2.1); no packet is sent. Addresses in the source
 code are from the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24,
 2001:db8::/32) and appear only in tests.
 
-**Your firewall.** On Windows, before you host, the app reads the firewall rules (PowerShell,
+**Your firewall.** The Windows MSI adds the rule below for the installed `veil-app.exe` when
+you install it (you confirm Windows' prompt for the install), and removes it when you
+uninstall. On Windows, before you host, the app reads the firewall rules (PowerShell,
 `Get-NetFirewallApplicationFilter`, read only) to see whether guests can reach it. If not, it
 shows an "Allow guests" button. Only that button changes anything: it runs
 `netsh advfirewall firewall add rule name="Veil"` through Windows' administrator prompt, which
@@ -228,6 +258,14 @@ grep -rn "shortcut:" crates
   --ignored`) opens ports, the H.264 encoder and the speaker, so it also runs only on request.
 - A call between two copies of the desktop app with real cameras and microphones has not yet
   been run by a person.
+- The installers and the update install. The packaging runs in the release workflow, but no
+  one has yet installed the MSI, the DMG or the AppImage on a clean machine, and the
+  "Install" button has not run against a real signed release.
+
+**Known shortcut in updates:** on Windows the checked MSI waits in your own folder until
+Windows Installer opens it, so a program already running as you could swap it in that
+moment. Windows' prompt would then name an unknown publisher instead of Veil's (once the MSI
+is signed). Such a program can already do anything you can.
 
 ## 8. Reporting a security problem
 

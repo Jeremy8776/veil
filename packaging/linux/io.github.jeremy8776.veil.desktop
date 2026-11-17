@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Veil
+GenericName=Video call
+Comment=Encrypted peer-to-peer video calls
+Exec=veil-app
+TryExec=veil-app
+Icon=io.github.jeremy8776.veil
+Terminal=false
+Categories=Network;VideoConference;
+Keywords=video;call;meeting;encrypted;
+StartupWMClass=io.github.jeremy8776.veil

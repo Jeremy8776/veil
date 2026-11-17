@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Veil's Windows Installer package (WiX v5), built by packaging/windows/package.ps1.
+
+  - For all users, in Program Files\Veil. Windows asks for permission once, at install.
+  - Adds the firewall rule the app's "Allow guests" button would add (docs/HANDOFF.md,
+    firewall): inbound UDP to veil-app.exe only, on Private and Public networks, named "Veil".
+    Uninstalling removes it.
+  - installed-by-msi tells the app it may update itself through a newer MSI
+    (crates/veil-app/src/update/apply.rs).
+  - A newer MSI replaces an older one (MajorUpgrade); an older one refuses to install over a
+    newer one.
+  - No custom actions.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
+  <Package Name="Veil"
+           Manufacturer="Veil"
+           Version="$(Version)"
+           UpgradeCode="80c19aff-2472-43d7-a556-801959c866a8"
+           Scope="perMachine"
+           Compressed="yes"
+           Language="1033">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Veil is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="veil.ico" SourceFile="$(IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="veil.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Jeremy8776/veil" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/Jeremy8776/veil/issues" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Veil">
+        <Component Id="App" Bitness="always64">
+          <File Id="VeilApp" Source="$(BinDir)\veil-app.exe" KeyPath="yes">
+            <fw:FirewallException Id="FirewallPrivate" Name="Veil" Protocol="udp" Scope="any" Profile="private" />
+            <fw:FirewallException Id="FirewallPublic" Name="Veil" Protocol="udp" Scope="any" Profile="public" />
+          </File>
+          <File Id="Marker" Source="$(BinDir)\installed-by-msi" />
+          <File Id="LicenceMit" Source="$(BinDir)\LICENSE-MIT" />
+          <File Id="LicenceApache" Source="$(BinDir)\LICENSE-APACHE" />
+          <File Id="Dependencies" Source="$(BinDir)\DEPENDENCIES.md" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenu" Bitness="always64">
+        <Shortcut Id="StartMenuShortcut"
+                  Name="Veil"
+                  Description="Encrypted video calls"
+                  Target="[#VeilApp]"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="veil.ico" />
+        <RegistryValue Root="HKLM" Key="Software\Veil" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentRef Id="App" />
+      <ComponentRef Id="StartMenu" />
+    </Feature>
+  </Package>
+</Wix>

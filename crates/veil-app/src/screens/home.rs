@@ -84,20 +84,50 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
 
 /// This build's version, a link when a newer one is out, and the check's off switch.
 fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
-    use crate::update::{self, Status};
+    use crate::update::{self, Install, Status};
     ui.add_space(4.0);
     let status = app.updates.status();
     if let Status::Available(version) = status {
-        let link = ui
-            .add(
-                egui::Button::new(
-                    RichText::new(format!("Update available: {version}")).small().color(theme::WARN),
+        let install = app.updates.install_state();
+        ui.horizontal(|ui| {
+            let link = ui
+                .add(
+                    egui::Button::new(
+                        RichText::new(format!("Update available: {version}"))
+                            .small()
+                            .color(theme::WARN),
+                    )
+                    .frame(false),
                 )
-                .frame(false),
-            )
-            .on_hover_text("Opens the release page. Veil never downloads anything itself.");
-        if link.clicked() {
-            update::open(version);
+                .on_hover_text("Opens the release page.");
+            if link.clicked() {
+                update::open(version);
+            }
+            if !app.updates.can_install() {
+                return;
+            }
+            match &install {
+                Install::Idle | Install::Failed(_) => {
+                    let button = ui
+                        .small_button("Install")
+                        .on_hover_text(
+                            "Downloads it from GitHub, checks Veil's release signature, then \
+                             installs it. Veil closes to finish.",
+                        );
+                    if button.clicked() {
+                        app.updates.install(version, ui.ctx());
+                    }
+                }
+                Install::Working(step) => {
+                    ui.label(RichText::new(step.as_str()).small().color(MUTED));
+                }
+                Install::Started => {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+        });
+        if let Install::Failed(why) = install {
+            ui.label(RichText::new(format!("Update failed: {why}")).small().color(theme::WARN));
         }
     }
     let mut on = app.updates.enabled();
@@ -111,7 +141,7 @@ fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
             .checkbox(&mut on, RichText::new("Check for updates").small().color(MUTED))
             .on_hover_text(
                 "Asks GitHub once per start whether a newer Veil is out. GitHub sees your IP \
-                 address. Nothing is downloaded.",
+                 address. Nothing is downloaded unless you choose Install.",
             );
         if toggle.changed() {
             app.updates.set_enabled(on, ui.ctx());
