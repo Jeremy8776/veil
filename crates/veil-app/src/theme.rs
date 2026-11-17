@@ -6,7 +6,7 @@
 //! - No font is bundled. egui's bundled fonts carry licences outside Veil's allow list
 //!   (`tools/licences.py`), so the app reads the system's UI font and icon font at start-up.
 //!   Without a UI font the app cannot draw text, so that is a start-up error.
-//! - The icon font is optional: without it, [`crate::icons`] falls back to text labels.
+//! - The icon font is optional: without it, [`crate::icons`] draws icons from strokes.
 
 use std::sync::Arc;
 

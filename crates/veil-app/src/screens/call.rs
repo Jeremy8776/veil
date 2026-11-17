@@ -307,8 +307,11 @@ fn top_bar(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
                 let secure = ui
                     .add(
                         egui::Button::new(
-                            RichText::new(format!("{}  End-to-end encrypted", Icon::Lock.text()))
-                                .color(theme::SPEAKING),
+                            RichText::new(Icon::Lock.glyph().map_or_else(
+                                || "End-to-end encrypted".to_owned(),
+                                |g| format!("{g}  End-to-end encrypted"),
+                            ))
+                            .color(theme::SPEAKING),
                         )
                         .frame(false),
                     )
