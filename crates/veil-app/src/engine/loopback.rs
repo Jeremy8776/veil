@@ -198,6 +198,50 @@ fn loopback_leaving_a_call_with_devices_on_is_quick() {
     println!("devices closed in {:?}", start.elapsed());
 }
 
+/// Joining a host that has gone must never hold the interface thread: each `sync` stays
+/// short while the guest tries to connect, and leaving returns within about a second.
+#[test]
+#[ignore = "opens ports and the speaker"]
+fn loopback_joining_an_unreachable_host_never_holds_the_interface() {
+    let ctx = egui::Context::default();
+    let host = Engine::start(Role::Host, "Host".into(), None, fresh_keys(), ctx.clone()).unwrap();
+    let mut host_call = Call::live("Call".into(), "Host", true, Instant::now());
+    wait_for("an invite", &host, &mut host_call, |c| !c.invite.is_empty());
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let invite = Invite::from_link(&host_call.invite, now).unwrap();
+    drop(host);
+
+    // Leaving while still reaching the host (the hang Windows logged on 16/11/2026).
+    let early = Engine::start(Role::Guest(Box::new(invite.clone())), "Guest".into(), None, fresh_keys(), ctx.clone()).unwrap();
+    std::thread::sleep(Duration::from_secs(2));
+    let t = Instant::now();
+    drop(early);
+    println!("left while connecting in {:?}", t.elapsed());
+    assert!(t.elapsed() < Duration::from_secs(2), "leaving while connecting held the interface");
+
+    let started = Instant::now();
+    let guest = Engine::start(Role::Guest(Box::new(invite)), "Guest".into(), None, fresh_keys(), ctx).unwrap();
+    println!("guest engine started in {:?}", started.elapsed());
+    let mut call = Call::live("Call".into(), "Guest", false, Instant::now());
+    let mut slowest = Duration::ZERO;
+    let watch = Instant::now();
+    while watch.elapsed() < Duration::from_secs(40) {
+        let t = Instant::now();
+        guest.sync(&mut call, Instant::now());
+        slowest = slowest.max(t.elapsed());
+        if matches!(call.status, CallStatus::Ended(_)) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(16));
+    }
+    println!("after {:?}: {:?}, slowest sync {slowest:?}", watch.elapsed(), call.status);
+    let t = Instant::now();
+    drop(guest);
+    println!("guest left in {:?}", t.elapsed());
+    assert!(slowest < Duration::from_millis(100), "sync held the interface for {slowest:?}");
+    assert!(t.elapsed() < Duration::from_secs(2), "leaving held the interface");
+}
+
 /// A key that lasts this test only: nothing is saved.
 fn fresh_keys() -> std::sync::Arc<std::sync::Mutex<crate::keystore::KeyStore>> {
     std::sync::Arc::new(std::sync::Mutex::new(crate::keystore::KeyStore::open(None)))
