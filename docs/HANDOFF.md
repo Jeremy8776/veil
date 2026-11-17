@@ -537,7 +537,8 @@ Work, in order:
    the tooltip. `cargo test -j 8 -p veil-portmap real_router -- --ignored --nocapture` tries
    this network's router. Run 17/11/2026 on Jeremy's network: gateway 192.168.1.1 found, no
    PCP answer, no UPnP answer (Windows' own UPnP finder also sees no gateway device), so the
-   router has these off or lacks them. Not yet tested against a router that maps.
+   router had these off. After Jeremy turned on UPnP in the router (17/11/2026), the test
+   passed: NAT-PMP mapped the port, renewed it and closed it. Not yet tried in a real call.
    Reachability check done 17/11/2026 (branch `feat/reachability`, stacked on
    `feat/port-mapping`): `ClientMsg::CheckReach { port }` asks a rendezvous to dial the
    asker's own reflected IP at that port from a fresh socket and throwaway key, pinned to the
