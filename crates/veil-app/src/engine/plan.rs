@@ -1,11 +1,14 @@
 //! Network settings, the addresses an invite gives out, and the host's plan for each epoch.
 //!
 //! Purpose: pure helpers for `host.rs` and `guest.rs`, tested without a network.
-//! - [`NetConfig`]: optional settings from the environment, for calls across the internet.
+//! - [`NetConfig`]: optional settings for calls across the internet, saved from Settings >
+//!   Connection (`crate::connection`), each overridden by its environment variable if set.
 //!   `VEIL_RENDEZVOUS=KEY@IP:PORT` uses a `veil-node` rendezvous (and relay) instead of the
 //!   host's own; `VEIL_ADVERTISE=IP:PORT,...` adds addresses guests can dial directly (a public
 //!   IP with a forwarded port); `VEIL_PORT` fixes the host's port (default: any free port);
 //!   `VEIL_FORWARDER=KEY@IP:PORT` carries large calls through a `veil-node` forwarder.
+//! - [`parse_node`], [`parse_advertise`], [`parse_port`]: one field each, shared by both
+//!   sources, refusing addresses nobody can dial (`0.0.0.0`, port 0).
 //! - [`advertised`]: the invite's direct addresses. Each is given only if it can work.
 //! - [`plan_for`]: this epoch's members as a mesh, or, past `Policy::mesh_max` (4 people) and
 //!   with a forwarder known, every member through the forwarder.
@@ -39,63 +42,113 @@ pub struct NetConfig {
     pub port: u16,
 }
 
+/// The environment variable for each setting, in the order the settings screen shows them.
+pub const ENV_RENDEZVOUS: &str = "VEIL_RENDEZVOUS";
+pub const ENV_FORWARDER: &str = "VEIL_FORWARDER";
+pub const ENV_ADVERTISE: &str = "VEIL_ADVERTISE";
+pub const ENV_PORT: &str = "VEIL_PORT";
+
 impl NetConfig {
-    /// Reads the settings; a value that does not parse is ignored with a note on stderr.
-    pub fn from_env() -> Self {
-        let get = |name: &str| std::env::var(name).ok();
-        let (mut config, mut problems) = Self::parse(
-            get("VEIL_RENDEZVOUS").as_deref(),
-            get("VEIL_ADVERTISE").as_deref(),
-            get("VEIL_PORT").as_deref(),
-        );
-        config.forwarder = node_addr(
-            "VEIL_FORWARDER",
-            get("VEIL_FORWARDER").as_deref(),
-            &mut problems,
-        );
+    /// Starts from `self` (the saved settings) and lets each environment variable that is set
+    /// replace its setting. A value that does not parse is ignored with a note in the log.
+    pub fn with_env(self, get: impl Fn(&str) -> Option<String>) -> Self {
+        let mut config = self;
+        let set = |name: &str| get(name).filter(|v| !v.trim().is_empty());
+        let mut problems = Vec::new();
+        let mut take = |name: &str, result: Result<(), String>| {
+            if let Err(e) = result {
+                problems.push(format!("{name}: {e}"));
+            }
+        };
+        if let Some(text) = set(ENV_RENDEZVOUS) {
+            take(
+                ENV_RENDEZVOUS,
+                parse_node(&text).map(|n| config.rendezvous = n),
+            );
+        }
+        if let Some(text) = set(ENV_FORWARDER) {
+            take(
+                ENV_FORWARDER,
+                parse_node(&text).map(|n| config.forwarder = n),
+            );
+        }
+        if let Some(text) = set(ENV_ADVERTISE) {
+            take(
+                ENV_ADVERTISE,
+                parse_advertise(&text).map(|a| config.advertise = a),
+            );
+        }
+        if let Some(text) = set(ENV_PORT) {
+            take(ENV_PORT, parse_port(&text).map(|p| config.port = p));
+        }
         for problem in problems {
             crate::note!("ignoring {problem}");
         }
         config
     }
+}
 
-    pub fn parse(
-        rendezvous: Option<&str>,
-        advertise: Option<&str>,
-        port: Option<&str>,
-    ) -> (Self, Vec<String>) {
-        let mut config = Self::default();
-        let mut problems = Vec::new();
-        config.rendezvous = node_addr("VEIL_RENDEZVOUS", rendezvous, &mut problems);
-        for text in advertise
-            .unwrap_or_default()
-            .split(',')
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-        {
-            match text.parse() {
-                Ok(addr) => config.advertise.push(addr),
-                Err(_) => problems.push(format!("VEIL_ADVERTISE {text:?}: want IP:PORT")),
-            }
+/// A node as `KEY@IP:PORT`; blank is none. The address must be one a client can dial.
+pub fn parse_node(text: &str) -> Result<Option<NodeAddr>, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let node: NodeAddr = text
+        .parse()
+        .map_err(|_| String::from("Use KEY@IP:PORT, as veil-node prints it."))?;
+    dialable(node.addr)?;
+    Ok(Some(node))
+}
+
+/// Addresses guests may dial, as `IP:PORT` separated by commas; blank is none.
+pub fn parse_advertise(text: &str) -> Result<Vec<SocketAddr>, String> {
+    let mut addrs = Vec::new();
+    for part in text.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+        let addr: SocketAddr = part
+            .parse()
+            .map_err(|_| format!("{part:?} is not IP:PORT."))?;
+        dialable(addr)?;
+        if !addrs.contains(&addr) {
+            addrs.push(addr);
         }
-        if let Some(text) = port.map(str::trim).filter(|t| !t.is_empty()) {
-            match text.parse() {
-                Ok(port) => config.port = port,
-                Err(_) => problems.push(format!("VEIL_PORT {text:?}: want a port number")),
-            }
-        }
-        (config, problems)
+    }
+    if addrs.len() > veil_security::invite::MAX_ADDRS {
+        return Err(format!(
+            "An invite holds at most {} addresses.",
+            veil_security::invite::MAX_ADDRS
+        ));
+    }
+    Ok(addrs)
+}
+
+/// The host's UDP port; blank is any free port.
+pub fn parse_port(text: &str) -> Result<u16, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(0);
+    }
+    match text.parse::<u16>() {
+        Ok(port) if port > 0 => Ok(port),
+        _ => Err(String::from(
+            "Use a port from 1 to 65535, or leave it blank.",
+        )),
     }
 }
 
-/// A `KEY@IP:PORT` setting; blank is none, and a bad value is a problem and none.
-fn node_addr(name: &str, text: Option<&str>, problems: &mut Vec<String>) -> Option<NodeAddr> {
-    let text = text.map(str::trim).filter(|t| !t.is_empty())?;
-    let parsed = text.parse().ok();
-    if parsed.is_none() {
-        problems.push(format!("{name} {text:?}: want KEY@IP:PORT"));
+/// Refuses addresses nobody can dial. `veil-node` prints its listen address (`0.0.0.0`),
+/// so pasting it unchanged is an easy mistake.
+fn dialable(addr: SocketAddr) -> Result<(), String> {
+    if addr.ip().is_unspecified() {
+        return Err(format!(
+            "{} is where a server listens, not an address to dial. Use its public IP.",
+            addr.ip()
+        ));
     }
-    parsed
+    if addr.port() == 0 {
+        return Err(String::from("Port 0 cannot be dialled."));
+    }
+    Ok(())
 }
 
 /// This machine's address on its local network, if it has one.
@@ -191,26 +244,81 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn settings_parse_and_bad_values_are_reported() {
-        let key = Identity::generate().public();
-        let rendezvous = NodeAddr {
-            key,
-            addr: "203.0.113.5:4433".parse().unwrap(),
+    fn node_text(addr: &str) -> String {
+        NodeAddr {
+            key: Identity::generate().public(),
+            addr: addr.parse().unwrap(),
         }
-        .to_string();
-        let (config, problems) = NetConfig::parse(
-            Some(&rendezvous),
-            Some("198.51.100.2:7710, nonsense"),
-            Some("7710"),
+        .to_string()
+    }
+
+    #[test]
+    fn fields_parse_and_blank_means_none() {
+        let text = node_text("203.0.113.5:4433");
+        assert_eq!(parse_node(&text).unwrap().unwrap().to_string(), text);
+        assert_eq!(parse_node("  ").unwrap(), None);
+        let addrs =
+            parse_advertise("198.51.100.2:7710, [2001:db8::1]:7710,198.51.100.2:7710").unwrap();
+        assert_eq!(addrs.len(), 2, "duplicates are dropped");
+        assert!(parse_advertise("").unwrap().is_empty());
+        assert_eq!(parse_port("7710").unwrap(), 7710);
+        assert_eq!(parse_port(" ").unwrap(), 0);
+    }
+
+    #[test]
+    fn addresses_nobody_can_dial_are_refused() {
+        assert!(parse_node("nonsense").is_err());
+        assert!(
+            parse_node(&node_text("0.0.0.0:4433")).is_err(),
+            "veil-node's listen address"
         );
-        assert_eq!(config.rendezvous.map(|r| r.key), Some(key));
-        assert_eq!(config.advertise.len(), 1);
-        assert_eq!(config.port, 7710);
-        assert_eq!(problems.len(), 1, "{problems:?}");
-        let (empty, none) = NetConfig::parse(None, Some(""), None);
-        assert_eq!(empty, NetConfig::default());
-        assert!(none.is_empty());
+        assert!(parse_node(&node_text("[::]:4433")).is_err());
+        assert!(parse_node(&node_text("203.0.113.5:0")).is_err());
+        assert!(parse_advertise("198.51.100.2:7710, nonsense").is_err());
+        assert!(parse_advertise("0.0.0.0:7710").is_err());
+        let many: Vec<String> = (1..=veil_security::invite::MAX_ADDRS + 1)
+            .map(|i| format!("198.51.100.{i}:7710"))
+            .collect();
+        assert!(parse_advertise(&many.join(",")).is_err());
+        for bad in ["0", "65536", "-1", "port"] {
+            assert!(parse_port(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_environment_overrides_each_saved_setting_it_sets() {
+        let saved = NetConfig {
+            rendezvous: parse_node(&node_text("203.0.113.5:4433")).unwrap(),
+            advertise: vec!["198.51.100.2:7710".parse().unwrap()],
+            port: 7710,
+            ..NetConfig::default()
+        };
+        let forwarder = node_text("203.0.113.6:4434");
+        let env = |name: &str| match name {
+            ENV_FORWARDER => Some(forwarder.clone()),
+            ENV_PORT => Some(String::from("9000")),
+            ENV_ADVERTISE => Some(String::from("   ")),
+            ENV_RENDEZVOUS => Some(String::from("nonsense")),
+            _ => None,
+        };
+        let config = saved.clone().with_env(env);
+        assert_eq!(config.port, 9000);
+        assert_eq!(
+            config.forwarder.map(|f| f.to_string()),
+            Some(forwarder.clone())
+        );
+        assert_eq!(
+            config.advertise, saved.advertise,
+            "a blank variable is not set"
+        );
+        assert_eq!(
+            config.rendezvous, saved.rendezvous,
+            "a bad variable is ignored"
+        );
+        assert_eq!(
+            NetConfig::default().with_env(|_| None),
+            NetConfig::default()
+        );
     }
 
     #[test]
@@ -280,15 +388,5 @@ mod tests {
         let (plan, directory) = plan_for(&roster, roster[0].1, &[], None).unwrap();
         assert!(matches!(plan, Plan::Mesh { .. }), "{plan:?}");
         assert!(directory.forwarders.is_empty());
-    }
-
-    #[test]
-    fn a_bad_forwarder_setting_is_reported() {
-        let mut problems = Vec::new();
-        assert!(node_addr("VEIL_FORWARDER", Some("nonsense"), &mut problems).is_none());
-        assert!(node_addr("VEIL_FORWARDER", Some("  "), &mut problems).is_none());
-        assert_eq!(problems.len(), 1);
-        let text = forwarder().to_string();
-        assert!(node_addr("VEIL_FORWARDER", Some(&text), &mut problems).is_some());
     }
 }

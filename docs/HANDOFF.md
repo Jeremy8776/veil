@@ -487,6 +487,42 @@ behind (folder, Start menu entry, firewall rule, registry).
    `join LINK --relay-only` to test the relay, and with `host --forwarder KEY@IP:PORT` to test
    forwarding. Each invite is one use; the host prints a fresh one after every join.
 
+## Direction (agreed 17/11/2026)
+
+The premise, so no session drifts from it: a Zoom or Teams style app where calls are
+peer-to-peer by default, and the user may add servers of their own (rendezvous, relay,
+forwarder) whenever they want. Every role stays a module behind one interface
+(ARCHITECTURE.md section 1). Direct calls usually need a reachable host, so opening a port
+must be as easy as possible without weakening security.
+
+Decisions:
+- **Port opening: automatic, opt-in.** Veil asks once, then maps one UDP port (the fixed call
+  port) on the router with PCP, then NAT-PMP, then UPnP IGD. The mapping is for the call
+  only: a short lease, renewed while the call runs, deleted when it ends. If the router
+  refuses, Veil shows a written guide and a reachability check. If the router's external
+  address differs from the address a rendezvous reflects, the user is behind carrier-grade
+  NAT and Veil says a public node is needed: forwarding cannot work there.
+- **Default node: optional.** Veil may ship with the address of a public `veil-node` that
+  Jeremy runs. It is off until the user turns it on, and TRANSPARENCY.md says what it sees
+  (IP addresses, timing, room hashes; never media). Not before the relay has fair queuing and
+  a total cap (Open shortcuts).
+- **Servers are chosen in the app**, saved per device. Environment variables still override.
+- `design/` (icon concepts) stays out of git.
+
+Work, in order:
+1. Done 17/11/2026: Settings > Connection ("Connection" on Home; `screens/connection.rs`,
+   `connection.rs`). Rendezvous, forwarder, public addresses and a fixed port, saved to
+   `%LOCALAPPDATA%\Veil\connection.json` only when every field checks (`plan::parse_node`,
+   `parse_advertise`, `parse_port`; `0.0.0.0` and port 0 are refused). Each set `VEIL_*`
+   variable still wins, and the screen says so. A bad file is reported, ignored, and moved to
+   `connection.json.bak` on the next Save. Not yet run by hand.
+2. DNS names in `NodeAddr`, for self-hosted nodes on dynamic DNS and the default node. A
+   spoofed name can only stop a call: the pinned key still refuses any other server.
+3. Port opening (decisions above), then its guide and reachability check.
+4. The two-machine internet test (below), with and without a mapped port.
+5. The optional default node.
+Open PRs to settle alongside: #21 (video filters), #28 (background blur).
+
 ## Next, in suggested order
 
 1. Two-machine test over the real internet with `veil-probe` (steps above). Needs Jeremy's
