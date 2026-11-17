@@ -1,10 +1,11 @@
 //! Setting up one media link: dialling a member, and accepting the links members dial.
 //!
 //! Invariants (see the parent module): an accepted link is used only once the routes expect
-//! its peer; an early one waits up to `EARLY_WAIT`. Only a lower key may wait (a higher key's
-//! link is never used: this member dials it). Members of the newest epoch this session was
-//! told about ([`super::MediaSession::members`]) share `MAX_EARLY` places; any other key gets
-//! one of `MAX_EARLY_UNKNOWN`, so someone holding an old invite cannot crowd members out.
+//! its peer; an early one waits up to `EARLY_WAIT`. A member of the newest epoch this session
+//! was told about ([`super::MediaSession::members`]) may wait whatever its key, since a guest
+//! dials a reachable host (`crate::routes::dials`); members share `MAX_EARLY` places. Any other
+//! key may wait only if it is lower, in one of `MAX_EARLY_UNKNOWN` places, so someone holding
+//! an old invite cannot crowd members out.
 
 use std::collections::HashSet;
 use std::net::SocketAddr;
@@ -120,7 +121,7 @@ fn may_wait<'a>(
     waiting: impl Iterator<Item = &'a PublicId>,
     peer: PublicId,
 ) -> bool {
-    if peer.0 >= me.0 {
+    if peer == me || (peer.0 > me.0 && !members.contains(&peer)) {
         return false;
     }
     let (mut known, mut unknown) = (0, 0);
@@ -157,10 +158,12 @@ mod tests {
     }
 
     #[test]
-    fn a_higher_key_never_waits() {
+    fn a_higher_key_waits_only_if_it_is_a_member() {
+        // A guest may dial a reachable host whatever the keys.
         let members: HashSet<PublicId> = [key(9)].into();
-        assert!(!may_wait(key(5), &members, std::iter::empty(), key(9)));
-        assert!(!may_wait(key(5), &members, std::iter::empty(), key(5)));
+        assert!(may_wait(key(5), &members, std::iter::empty(), key(9)));
+        assert!(!may_wait(key(5), &members, std::iter::empty(), key(8)), "a stranger");
+        assert!(!may_wait(key(5), &members, std::iter::empty(), key(5)), "itself");
     }
 
     #[test]

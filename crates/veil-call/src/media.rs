@@ -10,8 +10,9 @@
 //! sends a sealed app message (names, chat; see [`crate::app_msg`]) the same way to everyone.
 //!
 //! Invariants:
-//! - One link per pair of members: the member with the lower device key dials, the other
-//!   accepts. Both still dial for a punch, but the higher key's dial is only for its NAT.
+//! - One link per pair of members: [`crate::routes::dials`] picks which one dials (the one
+//!   without a known address dials the one with; otherwise the lower key), the other accepts.
+//!   Both still dial for a punch, but the accepting side's dial is only for its NAT.
 //! - An accepted media link is used only if its pinned key is a member the current routes
 //!   expect. One that arrives early (before this member's epoch change) waits up to
 //!   [`EARLY_WAIT`]; past that it is closed. Places to wait are kept for the epoch's members
@@ -39,7 +40,7 @@ use veil_security::PublicId;
 use crate::inbound::Inbound;
 use crate::node::Path;
 use crate::presence::Presence;
-use crate::routes::{Peer, Routes};
+use crate::routes::{Peer, Routes, dials};
 use crate::CallError;
 
 mod links;
@@ -253,12 +254,16 @@ impl MediaSession {
     /// this member had to dial but could not reach, with why.
     pub async fn apply(&mut self, routes: Routes) -> Vec<(PublicId, CallError)> {
         match routes {
-            Routes::Mesh(peers) => self.apply_mesh(peers).await,
+            Routes::Mesh { peers, reachable } => self.apply_mesh(peers, reachable).await,
             Routes::Forwarder { addr, ticket } => self.apply_forwarder(addr, &ticket).await,
         }
     }
 
-    async fn apply_mesh(&mut self, peers: Vec<Peer>) -> Vec<(PublicId, CallError)> {
+    async fn apply_mesh(
+        &mut self,
+        peers: Vec<Peer>,
+        reachable: bool,
+    ) -> Vec<(PublicId, CallError)> {
         // Only the members these routes link to may be introduced or relayed to this one.
         if let Some(presence) = &self.presence {
             presence.expect(peers.iter().map(|p| p.device));
@@ -268,30 +273,30 @@ impl MediaSession {
             state.wanted = peers.iter().map(|p| p.device).collect();
             state.expected = peers
                 .iter()
+                .filter(|p| !dials(&self.me, reachable, p))
                 .map(|p| p.device)
-                .filter(|d| d.0 < self.me.0)
                 .collect();
             let State { links, wanted, .. } = &mut *state;
             links.retain(|peer, _| wanted.contains(peer));
             adopt_early(&self.ctx, &mut state);
             to_dial = peers
                 .into_iter()
-                .filter(|p| self.me.0 < p.device.0 && !state.links.contains_key(&p.device))
+                .filter(|p| dials(&self.me, reachable, p) && !state.links.contains_key(&p.device))
                 .collect();
         }
         self.ctx.changed();
 
-        let mut dials = JoinSet::new();
+        let mut dialling = JoinSet::new();
         for peer in to_dial {
             let (node, presence) = (self.node.clone(), self.presence.clone());
             let (relay_only, room_id) = (self.relay_only, self.room_id);
-            dials.spawn(async move {
+            dialling.spawn(async move {
                 let result = open_media(&node, presence.as_ref(), &peer, relay_only, room_id).await;
                 (peer.device, result)
             });
         }
         let mut failed = Vec::new();
-        while let Some(done) = dials.join_next().await {
+        while let Some(done) = dialling.join_next().await {
             let Ok((device, result)) = done else { continue };
             match result {
                 Ok((carrier, path, extra)) => {
