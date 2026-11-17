@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration for Veil's Windows release files. Paste it into the SignPath
+  project (Artifact configurations) once the SignPath Foundation application is accepted.
+
+  The release workflow uploads one workflow artifact (a zip, as actions/upload-artifact makes)
+  holding the MSI and the portable zip, both unsigned. SignPath signs every program inside
+  each, then the MSI itself, and the release workflow downloads the result. Each program must
+  say it is Veil at the release's version (VERSIONINFO from each crate's build.rs), as
+  SignPath Foundation's terms require.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <msi-file path="veil-*-windows-x64.msi">
+      <pe-file-set product-name="Veil" product-version="${version}">
+        <include path="veil-app.exe" />
+        <for-each>
+          <authenticode-sign />
+        </for-each>
+      </pe-file-set>
+      <authenticode-sign />
+    </msi-file>
+    <zip-file path="veil-*-windows-x64-portable.zip">
+      <pe-file-set product-name="Veil" product-version="${version}">
+        <include path="veil-app.exe" />
+        <include path="veil-node.exe" />
+        <include path="veil-probe.exe" />
+        <for-each>
+          <authenticode-sign />
+        </for-each>
+      </pe-file-set>
+    </zip-file>
+  </zip-file>
+</artifact-configuration>

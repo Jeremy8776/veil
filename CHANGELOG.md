@@ -2,6 +2,16 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Added
+
+- Installers: an MSI for Windows (adds the firewall rule guests need), a DMG with a signed,
+  notarised `Veil.app` for macOS on Apple Silicon and Intel, and an AppImage, deb and rpm for
+  Linux. Signed where the release has certificates.
+- Updates: copies installed from the MSI, the DMG or the AppImage can install a newer release
+  with one click. Veil checks the release's Ed25519 signature and each file's SHA-256 first.
+
 ## 0.1.1, 17/11/2026
 
 Security fixes. Update every device in a call: see the upgrade note below.

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Veil's AppImage entry point (packaging/linux/AppRun; installed by package.sh). The AppImage
+# runtime sets $APPIMAGE, which tells the app it may update itself by replacing this file
+# (crates/veil-app/src/update/apply.rs).
+APPDIR="$(dirname "$(readlink -f "$0")")"
+exec "$APPDIR/usr/bin/veil-app" "$@"

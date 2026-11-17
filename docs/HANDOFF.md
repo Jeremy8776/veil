@@ -316,10 +316,30 @@ Every test runs on localhost. Hole punching across real home routers is not yet 
 ## Releases (from 16/11/2026)
 
 `.github/workflows/release.yml`. A tag `vX.Y.Z` builds `veil-app`, `veil-node` and
-`veil-probe` on `windows-2025` with Rust 1.98.1 and no cache, packs them with the licences,
-README, `docs/DEPENDENCIES.md` and the node's example config into
-`veil-X.Y.Z-windows-x64.zip`, writes `SHA256SUMS.txt`, and creates a **draft** release.
-Build provenance is attested once the repository is public. Actions are pinned to SHAs, in
+`veil-probe` with Rust 1.98.1 and no cache, and packages them (from 17/11/2026, the same
+approach as ArtCraft's packaging):
+
+| Platform | Files | Script |
+|---|---|---|
+| Windows x64 (`windows-2025`, static CRT) | `.msi` for all users, with the "Veil" UDP firewall rule; `-portable.zip` | `packaging/windows/package.ps1`, `veil.wxs`, `sign.ps1` |
+| macOS universal (`macos-15`) | `.dmg` with `Veil.app` (hardened runtime, camera and microphone entitlements); `.tar.gz` with `veil-node` and `veil-probe` | `packaging/macos/package.sh`, `import-cert.sh` |
+| Linux x64 (`ubuntu-22.04`, glibc 2.35) | `.AppImage`, `.deb`, `.rpm` (nfpm), `.tar.gz` | `packaging/linux/package.sh` |
+
+Then it writes `SHA256SUMS.txt`, signs it with the release key (`SHA256SUMS.txt.sig`, the
+`checksums` job) and creates a **draft** release. Build provenance is attested once the
+repository is public.
+
+Secrets, all in the `release` environment and all optional (unsigned with a warning):
+Windows through SignPath Foundation (`SIGNPATH_API_TOKEN` plus three `SIGNPATH_*` variables;
+not applied for yet, steps in `docs/CODE_SIGNING.md`), or a certificate of your own through
+`sign.ps1` (`WINDOWS_CERTIFICATE`/`_PASSWORD` or six `AZURE_*` values); macOS
+`APPLE_CERTIFICATE`/`_PASSWORD` and, for notarisation, `APPLE_ID`, `APPLE_PASSWORD`,
+`APPLE_TEAM_ID`; updates `VEIL_UPDATE_KEY`. **Release key, not set yet:** run
+`tools/release-key.sh` once (private key to `~/.veil/release-key.pem`, public half to
+`crates/veil-app/release-key.pub`, commit that), then
+`gh secret set VEIL_UPDATE_KEY --env release --repo Jeremy8776/veil < ~/.veil/release-key.pem`.
+Until then the app only links to the release page, and the workflow warns. Once the public
+key is committed, a tag without the secret fails. Actions are pinned to SHAs, in
 `ci.yml` too from 16/11/2026 (second audit, L1).
 
 Going public (16/11/2026): no secrets in history; workflows hold no secrets and give a
@@ -331,19 +351,25 @@ required for workflow runs from outside contributors.
 1. Bump `version` in the workspace `Cargo.toml`, run the tests, commit and push to `main`.
    The tag must equal the version or the build fails.
 2. Optional dry run, publishes nothing: `gh workflow run release.yml --ref main`, then fetch
-   the zip from the run's artifacts.
+   the packages from the run's artifacts.
 3. Tag and push (needs Jeremy's yes): `git tag vX.Y.Z` then `git push origin vX.Y.Z`.
 4. Read the draft on GitHub, then Publish. Only a published, non-pre-release release is seen
    by the app's update check, so publishing is what tells every copy of Veil.
-5. Check from outside: the zip starts with `PK`, `sha256sum -c SHA256SUMS.txt` passes.
+5. Check from outside: `sha256sum -c SHA256SUMS.txt` passes, and with the release key set,
+   `openssl pkeyutl -verify -pubin -inkey <public.pem> -rawin -in SHA256SUMS.txt -sigfile
+   SHA256SUMS.txt.sig` reports a verified signature.
 
-The update check (`veil-app/src/update.rs`) asks
-`api.github.com/repos/Jeremy8776/veil/releases/latest` once per start, notify only. It gets
-404 while the repository is private, which shows nothing.
+The update check (`veil-app/src/update/`) asks
+`api.github.com/repos/Jeremy8776/veil/releases/latest` once per start.
 `cargo test -j 8 -p veil-app update -- --ignored --nocapture` makes the real request.
-
-Builds are unsigned zips (SmartScreen warns). An installer should add the firewall rule
-(see the firewall section below) and sign the binaries (`shortcut:` in `release.yml`).
+From 17/11/2026 a copy installed from the MSI, the DMG or the AppImage shows "Install" next to
+"Update available" (when the build has a release key): it fetches `SHA256SUMS.txt` and
+`.sig` from the release, checks the signature against `release-key.pub` built into the app,
+downloads its own package, checks its SHA-256, then runs `msiexec` (Windows, then Veil
+closes), copies `Veil.app` out of the DMG (macOS, then reopens), or renames the AppImage over
+itself (Linux, then restarts). Portable zip, deb, rpm and tar.gz copies keep the link only.
+Not yet run end to end: it needs a published release with a signature. Test on the release
+after the key is set: install the older MSI, DMG and AppImage, then click Install.
 
 ## Licence note
 
@@ -446,7 +472,9 @@ punching makes its traffic look like replies. Tested by hand 16/11/2026: Allow g
 the rule on the host and a guest then connected.
 `cargo test -j 8 -p veil-app firewall -- --ignored --nocapture` reads the rules only.
 A public `veil-node` (`VEIL_RENDEZVOUS`) removes the need for any rule, since every flow then
-starts outbound; the installer should add the rule for release builds.
+starts outbound. The MSI (from 17/11/2026) adds the same rule for the installed
+`veil-app.exe` (`packaging/windows/veil.wxs`, WiX's firewall extension, two rules named "Veil",
+Private and Public) and removes it on uninstall, so the button does not show there.
 
 1. Public box: `veil-node` with rendezvous, relay and forwarder on (see the example TOML).
    It prints `rendezvous KEY@IP:PORT` and `forwarder KEY@IP:PORT`. It prints the listen address

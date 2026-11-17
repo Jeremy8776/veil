@@ -1,29 +1,41 @@
-# Release builds for Windows, Linux and macOS.
+# Release builds for Windows, Linux and macOS: installers, signed where the secrets exist.
 #
-# A tag `vX.Y.Z` builds veil-app, veil-node and veil-probe on each platform, packs them with
-# the licences into one archive per platform (zip on Windows, tar.gz elsewhere), writes
-# SHA256SUMS.txt for all of them, and creates a DRAFT GitHub release. Nothing reaches anyone
-# until Jeremy reads the draft and presses Publish. A manual run (workflow_dispatch) builds
-# and uploads the archives as workflow artifacts only, and publishes nothing: use it to check
-# a build before tagging.
+# A tag `vX.Y.Z` builds every package below, writes SHA256SUMS.txt for all of them, signs that
+# list with Veil's release key (SHA256SUMS.txt.sig), and creates a DRAFT GitHub release.
+# Nothing reaches anyone until Jeremy reads the draft and presses Publish. A manual run
+# (workflow_dispatch) builds the same packages as workflow artifacts only and publishes
+# nothing: use it to check a build before tagging.
+#
+# | Platform | Files | Script |
+# |---|---|---|
+# | Windows x64 | `.msi` (for all users, adds the "Veil" firewall rule), `-portable.zip` | packaging/windows/package.ps1 |
+# | macOS (Apple Silicon and Intel) | `.dmg` with Veil.app, `.tar.gz` with veil-node and veil-probe | packaging/macos/package.sh |
+# | Linux x64 | `.AppImage`, `.deb`, `.rpm`, `.tar.gz` | packaging/linux/package.sh |
+#
+# The packaging follows ArtCraft's (see its packaging/ folders). Signing secrets, all
+# optional (missing ones give unsigned files and a warning, never a failed build), live in
+# the `release` environment:
+# - Windows Authenticode, planned through SignPath Foundation: the secret SIGNPATH_API_TOKEN
+#   and the variables SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG and
+#   SIGNPATH_SIGNING_POLICY_SLUG (docs/CODE_SIGNING.md). sign.ps1 also takes a certificate
+#   of your own: WINDOWS_CERTIFICATE (base64 .pfx) and WINDOWS_CERTIFICATE_PASSWORD, or Azure
+#   Trusted Signing (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
+#   AZURE_SIGNING_ENDPOINT, AZURE_SIGNING_ACCOUNT, AZURE_CERT_PROFILE).
+# - macOS: APPLE_CERTIFICATE (base64 Developer ID .p12), APPLE_CERTIFICATE_PASSWORD; and for
+#   notarisation APPLE_ID, APPLE_PASSWORD (app-specific), APPLE_TEAM_ID.
+# - Updates: VEIL_UPDATE_KEY, the Ed25519 private key (PEM) from tools/release-key.sh. Its
+#   public half is crates/veil-app/release-key.pub. Once that file holds a key, a tag
+#   without the secret fails: the app would refuse every update from that release.
 #
 # Hardening:
-# - Every action is pinned to a commit SHA (the version is in the comment).
+# - Every action and downloaded tool is pinned (actions by commit SHA, tools by SHA-256).
 # - No build cache: a release is built from a clean toolchain, so a poisoned cache from
 #   another branch cannot reach it.
 # - Only the publish job can write to the repository, and only on a tag.
-# - Build provenance (`gh attestation verify`) once the repository is public; GitHub offers
-#   attestations for private repositories on Enterprise plans only.
+# - Build provenance (`gh attestation verify`) for every file.
 #
-# shortcut: archives, not installers, and unsigned (Windows SmartScreen warns "unknown
-# publisher", macOS Gatekeeper blocks until the user allows it). An installer should also add
-# the firewall rule (docs/HANDOFF.md, firewall). Add installers with code signing and macOS
-# notarisation before a wide release.
-# shortcut: macOS is Apple Silicon only. Add an x86_64-apple-darwin row if Intel Macs matter.
 # shortcut: Linux and macOS encode H.264 with OpenH264 built from source, which Cisco's patent
 # licence does not cover (docs/TRANSPARENCY.md). Move to the OS encoders before a wide release.
-# macOS ships a bare executable with its Info.plist embedded (crates/veil-app/build.rs), so
-# Gatekeeper asks once and the camera and microphone prompts name Veil.
 name: Release
 
 on:
@@ -41,22 +53,39 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  RUST_TOOLCHAIN: "1.98.1"
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - os: windows-2025
-            platform: windows-x64
-          - os: ubuntu-24.04
-            platform: linux-x64
-          - os: macos-15
-            platform: macos-arm64
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+  version:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Version
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --format-version 1 --no-deps --locked |
+            python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "veil-app"))')"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$version' is not a version like 1.2.3"; exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the workspace version v$version"; exit 1
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+
+  windows:
+    needs: version
+    runs-on: windows-2025
+    timeout-minutes: 60
+    environment: release
+    env:
+      VEIL_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -64,77 +93,247 @@ jobs:
       # The same toolchain as ci.yml and local builds.
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
-          toolchain: "1.98.1"
-      # Headers for eframe's X11 and Wayland back ends, ALSA for cpal, libclang for the v4l
-      # bindings, and nasm for OpenH264's assembly. Keep in step with ci.yml.
-      - name: Linux packages
-        if: runner.os == 'Linux'
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Install WiX
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libasound2-dev libclang-dev nasm pkg-config
-      - name: Version
-        id: version
-        shell: pwsh
-        run: |
-          $meta = cargo metadata --format-version 1 --no-deps --locked | ConvertFrom-Json
-          $version = ($meta.packages | Where-Object name -eq 'veil-app').version
-          if (-not $version) { throw 'veil-app has no version' }
-          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
-            throw "Tag $env:GITHUB_REF_NAME does not match the workspace version v$version"
-          }
-          "version=$version" >> $env:GITHUB_OUTPUT
-      - name: Build
-        run: cargo build --release --locked -p veil-app -p veil-node -p veil-probe
-      - name: Package
-        shell: pwsh
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.Firewall.wixext/5.0.2
+      - name: Build, sign, package
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          PLATFORM: ${{ matrix.platform }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+          # Fail rather than ship programs without the version information signing checks.
+          VEIL_REQUIRE_WINRES: "1"
+        run: ./packaging/windows/package.ps1
+      # SignPath Foundation (free code signing for open source): the unsigned MSI and zip go
+      # up as a workflow artifact, SignPath signs every program inside them and the MSI
+      # (packaging/windows/signpath-artifact-configuration.xml) after Jeremy approves the
+      # request, and the signed files come back. Skipped until SIGNPATH_API_TOKEN is set.
+      - name: Check for SignPath
+        id: signpath
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
         run: |
-          $name = "veil-$env:VERSION-$env:PLATFORM"
-          $exe = if ($IsWindows) { '.exe' } else { '' }
-          $stage = Join-Path 'dist' $name
-          New-Item -ItemType Directory -Force $stage | Out-Null
-          $files = @(
-            "target/release/veil-app$exe",
-            "target/release/veil-node$exe",
-            "target/release/veil-probe$exe",
-            'LICENSE-MIT',
-            'LICENSE-APACHE',
-            'README.md',
-            'docs/DEPENDENCIES.md',
-            'crates/veil-node/veil-node.example.toml'
-          )
-          foreach ($f in $files) {
-            if (-not (Test-Path $f)) { throw "missing $f" }
-            Copy-Item $f $stage
-          }
-          if ($IsWindows) {
-            $archive = "$name.zip"
-            Compress-Archive -Path "$stage/*" -DestinationPath "dist/$archive"
-          } else {
-            # tar keeps the executable bit, which a zip made by Compress-Archive drops.
-            $archive = "$name.tar.gz"
-            tar -czf "dist/$archive" -C dist $name
-            if ($LASTEXITCODE -ne 0) { throw 'tar failed' }
-          }
-          Remove-Item -Recurse $stage
-          $hash = (Get-FileHash -Algorithm SHA256 "dist/$archive").Hash.ToLower()
-          # LF and no BOM, so `sha256sum -c` reads it. The publish job joins these into
-          # SHA256SUMS.txt.
-          [IO.File]::WriteAllText("$PWD/dist/$archive.sha256", "$hash  $archive`n")
-          Get-Content "dist/$archive.sha256"
+          $on = if ($env:SIGNPATH_API_TOKEN) { 'true' } else { 'false' }
+          "enabled=$on" >> $env:GITHUB_OUTPUT
+          if ($on -eq 'false') { Write-Output '::warning::SIGNPATH_API_TOKEN is not set: Windows files are not signed by SignPath' }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: unsigned
+        if: steps.signpath.outputs.enabled == 'true'
+        with:
+          name: windows-unsigned
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+      - name: Sign with SignPath
+        if: steps.signpath.outputs.enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          # Approval is by hand, so allow time for it.
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: dist-signed
+          parameters: |
+            version: "${{ env.VEIL_VERSION }}"
+      - name: Use the signed files
+        if: steps.signpath.outputs.enabled == 'true'
+        run: |
+          Remove-Item -Recurse -Force dist
+          Move-Item dist-signed dist
+          Get-ChildItem dist | Format-Table Name, Length
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-${{ matrix.platform }}
+          name: release-windows
           path: dist/
           if-no-files-found: error
           retention-days: 14
 
+  macos:
+    needs: version
+    runs-on: macos-15
+    timeout-minutes: 90
+    environment: release
+    env:
+      VEIL_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: packaging/macos/import-cert.sh
+      - name: Build, sign, notarise, package
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: packaging/macos/package.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-macos
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove temporary keychain
+        if: always()
+        run: |
+          if [ -n "${MACOS_KEYCHAIN:-}" ]; then security delete-keychain "$MACOS_KEYCHAIN" || true; fi
+
+  linux:
+    needs: version
+    # The oldest hosted image, so the programs need only glibc 2.35 (Ubuntu 22.04, Debian 12,
+    # Fedora 36 and later). Reads no secrets.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      VEIL_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      # Headers for eframe's X11 and Wayland back ends, ALSA for cpal, libclang for the v4l
+      # bindings, and nasm for OpenH264's assembly. Keep in step with ci.yml.
+      - name: Linux packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libasound2-dev libclang-dev nasm pkg-config desktop-file-utils
+      - name: Packaging tools (pinned, checked)
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/tools"
+          mkdir -p "$tools"
+          fetch() {
+            curl -fsSL -o "$tools/$1" "$2"
+            echo "$3  $tools/$1" | sha256sum -c -
+          }
+          fetch nfpm.deb https://github.com/goreleaser/nfpm/releases/download/v2.49.0/nfpm_2.49.0_amd64.deb \
+            45650c5f6109685436fa6ba91958eb93e09a899bb0d65dd5b7c3c66020c056d2
+          sudo dpkg -i "$tools/nfpm.deb"
+          fetch appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage \
+            ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+          fetch runtime-x86_64 https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64 \
+            2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+          chmod +x "$tools/appimagetool"
+          {
+            echo "APPIMAGETOOL=$tools/appimagetool"
+            echo "APPIMAGE_RUNTIME=$tools/runtime-x86_64"
+          } >>"$GITHUB_ENV"
+      - name: Build and package
+        run: packaging/linux/package.sh
+      - name: Check the packages
+        run: |
+          set -euo pipefail
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb | grep -E 'usr/bin/veil-app$'
+          ldd target/release/veil-app
+          chmod +x dist/*.AppImage
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/*.AppImage --appimage-version
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-linux
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  # Checks every file is there, writes SHA256SUMS.txt and signs it. Runs on manual runs too,
+  # so the signing is checked before a tag; it cannot write to the repository.
+  checksums:
+    needs: [version, windows, macos, linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      # Only for release-key.pub, to check the signing key against the key the app trusts.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: crates/veil-app/release-key.pub
+          sparse-checkout-cone-mode: false
+          path: src
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - name: Checksums
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          expected=(
+            "veil-$VERSION-windows-x64.msi"
+            "veil-$VERSION-windows-x64-portable.zip"
+            "veil-$VERSION-macos-universal.dmg"
+            "veil-$VERSION-macos-universal.tar.gz"
+            "veil-$VERSION-linux-x64.AppImage"
+            "veil-$VERSION-linux-x64.deb"
+            "veil-$VERSION-linux-x64.rpm"
+            "veil-$VERSION-linux-x64.tar.gz"
+          )
+          for f in "${expected[@]}"; do test -s "$f" || { echo "::error::missing $f"; exit 1; }; done
+          test "$(ls | wc -l)" -eq "${#expected[@]}" || { ls; echo "::error::unexpected files"; exit 1; }
+          sha256sum -- "${expected[@]}" | tee SHA256SUMS.txt
+      - name: Sign the checksums
+        working-directory: dist
+        env:
+          VEIL_UPDATE_KEY: ${{ secrets.VEIL_UPDATE_KEY }}
+        run: |
+          set -euo pipefail
+          trusted="$(tr -d ' \r\n' <"$GITHUB_WORKSPACE/src/crates/veil-app/release-key.pub")"
+          if [ -z "$VEIL_UPDATE_KEY" ]; then
+            if [ -n "$trusted" ]; then
+              echo "::error::VEIL_UPDATE_KEY is not set, but the app trusts a release key: it would refuse this release"
+              exit 1
+            fi
+            echo "::warning::No release key yet (tools/release-key.sh): no SHA256SUMS.txt.sig, so the app links to the release page instead of updating itself"
+            exit 0
+          fi
+          umask 077
+          key="$RUNNER_TEMP/release-key.pem"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$VEIL_UPDATE_KEY" >"$key"
+          public="$(openssl pkey -in "$key" -pubout -outform DER | tail -c 32 | od -An -tx1 | tr -d ' \n')"
+          if [ "$public" != "$trusted" ]; then
+            echo "::error::VEIL_UPDATE_KEY is not the key in crates/veil-app/release-key.pub"
+            exit 1
+          fi
+          openssl pkeyutl -sign -inkey "$key" -rawin -in SHA256SUMS.txt -out SHA256SUMS.txt.sig
+          openssl pkey -in "$key" -pubout -out "$RUNNER_TEMP/release-key.pub.pem"
+          openssl pkeyutl -verify -pubin -inkey "$RUNNER_TEMP/release-key.pub.pem" -rawin \
+            -in SHA256SUMS.txt -sigfile SHA256SUMS.txt.sig
+          test "$(wc -c <SHA256SUMS.txt.sig)" -eq 64
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: checksums
+          path: dist/SHA256SUMS.txt*
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
-    needs: build
+    needs: checksums
     if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -145,22 +344,11 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: release-*
           merge-multiple: true
           path: dist
-      - name: Check files
-        env:
-          VERSION: ${{ needs.build.outputs.version }}
-        run: |
-          set -euo pipefail
-          cd dist
-          test -s "veil-${VERSION}-windows-x64.zip"
-          test -s "veil-${VERSION}-linux-x64.tar.gz"
-          test -s "veil-${VERSION}-macos-arm64.tar.gz"
-          cat ./*.sha256 > SHA256SUMS.txt
-          rm ./*.sha256
-          test "$(wc -l < SHA256SUMS.txt)" -eq 3
-          sha256sum -c SHA256SUMS.txt
+      - name: Check the files against SHA256SUMS.txt
+        working-directory: dist
+        run: sha256sum -c SHA256SUMS.txt
       - name: Provenance
         if: github.event.repository.private == false
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

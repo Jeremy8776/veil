@@ -1,12 +1,17 @@
-//! Telling you when a newer Veil is out.
+//! Telling you when a newer Veil is out, and installing it when you ask.
 //!
 //! Purpose: once per start, ask GitHub for Veil's latest published release and, if it is
-//! newer than this build, show "Update available" on the home screen with a link to the
-//! release page. You download and install it yourself.
+//! newer than this build, show "Update available" on the home screen. Where this copy can
+//! update itself (`apply.rs`: the Windows MSI, the macOS app, the Linux AppImage) and the
+//! build carries Veil's release key (`verify.rs`), "Install" downloads it, checks the
+//! release key's signature and the file's SHA-256, and installs it. Otherwise the link opens
+//! the release page and you install it yourself.
 //!
 //! Invariants:
-//! - Notify only. Nothing is downloaded or run, so a forged answer can at worst show a wrong
-//!   version number.
+//! - The check itself downloads and runs nothing, so a forged answer can at worst show a
+//!   wrong version number. Installing is a separate click, and it trusts only the release
+//!   key's signature, never the answer: the files are named and linked from the checked
+//!   version alone (`download.rs`).
 //! - One request: `GET` [`API`] over HTTPS, with the User-Agent `veil-app/<version>` and
 //!   nothing else about you. GitHub sees your IP address, as with any website.
 //! - The link is built here from a checked tag (`vX.Y.Z`), never taken from the answer.
@@ -24,8 +29,11 @@ use std::time::Duration;
 use eframe::egui;
 use serde::Deserialize;
 
+mod apply;
+mod download;
+mod verify;
+
 /// The repository releases come from.
-#[cfg_attr(not(windows), allow(dead_code, reason = "only `open` reads it, Windows only"))]
 pub const REPO: &str = "Jeremy8776/veil";
 const API: &str = "https://api.github.com/repos/Jeremy8776/veil/releases/latest";
 /// This build's version.
@@ -108,11 +116,24 @@ pub enum Status {
     Unknown,
 }
 
+/// Installing an update: what it is doing, or why it stopped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Install {
+    Idle,
+    /// A short line for the step under way.
+    Working(String),
+    /// The install has started; Veil should close.
+    Started,
+    Failed(String),
+}
+
 pub struct Updates {
     dir: Option<PathBuf>,
     status: Arc<Mutex<Status>>,
     /// A check ran or is running this start.
     started: bool,
+    install: Arc<Mutex<Install>>,
+    kind: apply::Kind,
 }
 
 impl Updates {
@@ -120,15 +141,70 @@ impl Updates {
     /// background.
     pub fn start(dir: Option<PathBuf>, ctx: &egui::Context) -> Self {
         let off = dir.as_ref().is_some_and(|d| d.join(OFF_FILE).exists());
-        let mut updates = Self {
-            dir,
-            status: Arc::new(Mutex::new(Status::Off)),
-            started: false,
-        };
+        let mut updates = Self::idle(dir);
         if !off {
             updates.check(ctx);
         }
         updates
+    }
+
+    fn idle(dir: Option<PathBuf>) -> Self {
+        Self {
+            dir,
+            status: Arc::new(Mutex::new(Status::Off)),
+            started: false,
+            install: Arc::new(Mutex::new(Install::Idle)),
+            kind: apply::Kind::current(),
+        }
+    }
+
+    /// Whether this copy can install an update itself: it was installed from a package
+    /// Veil knows how to replace, and the build carries Veil's release key.
+    pub fn can_install(&self) -> bool {
+        verify::release_key().is_some() && self.kind.asset(Version(0, 0, 0)).is_some()
+    }
+
+    pub fn install_state(&self) -> Install {
+        self.install.lock().map_or(Install::Idle, |s| s.clone())
+    }
+
+    /// Downloads, checks and installs `version` in the background, unless an install is
+    /// already running or has started.
+    pub fn install(&self, version: Version, ctx: &egui::Context) {
+        let Some(key) = verify::release_key() else { return };
+        {
+            let Ok(mut state) = self.install.lock() else { return };
+            if matches!(*state, Install::Working(_) | Install::Started) {
+                return;
+            }
+            *state = Install::Working(String::from("Starting"));
+        }
+        let (state, kind, ctx) = (self.install.clone(), self.kind.clone(), ctx.clone());
+        let set = move |next: Install, state: &Mutex<Install>, ctx: &egui::Context| {
+            if let Ok(mut s) = state.lock() {
+                *s = next;
+            }
+            ctx.request_repaint();
+        };
+        let spawned = std::thread::Builder::new()
+            .name(String::from("update install"))
+            .spawn(move || {
+                let mut report = |line: String| set(Install::Working(line), &state, &ctx);
+                let result = apply::run(&kind, version, &key, &mut report);
+                set(
+                    match result {
+                        Ok(()) => Install::Started,
+                        Err(why) => Install::Failed(why),
+                    },
+                    &state,
+                    &ctx,
+                );
+            });
+        if spawned.is_err()
+            && let Ok(mut s) = self.install.lock()
+        {
+            *s = Install::Failed(String::from("cannot start the download"));
+        }
     }
 
     pub fn status(&self) -> Status {
@@ -306,11 +382,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("veil-update-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let ctx = egui::Context::default();
-        let mut updates = Updates {
-            dir: Some(dir.clone()),
-            status: Arc::new(Mutex::new(Status::Off)),
-            started: false,
-        };
+        let mut updates = Updates::idle(Some(dir.clone()));
         updates.set_enabled(false, &ctx);
         assert!(dir.join(OFF_FILE).exists());
         let again = Updates::start(Some(dir.clone()), &ctx);

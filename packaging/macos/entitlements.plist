@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Hardened-runtime entitlements for Veil.app. Under the hardened runtime macOS refuses the
+     camera and microphone to a program without these two, whatever the person answers.
+     Nothing else: no JIT, no unsigned libraries, no sandbox exceptions. Add one only with a
+     reason in a comment. -->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.device.camera</key>
+    <true/>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+</dict>
+</plist>

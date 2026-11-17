@@ -34,6 +34,8 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Veil")
+            // Matches the Linux .desktop file (packaging/linux), so docks show Veil's icon.
+            .with_app_id("io.github.jeremy8776.veil")
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([880.0, 600.0]),
         renderer: eframe::Renderer::Wgpu,
