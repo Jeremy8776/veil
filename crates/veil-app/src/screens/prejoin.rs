@@ -125,6 +125,7 @@ fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
             app.media.choose_camera(id);
         }
         status(ui, app.media.camera_error());
+        widgets::filter_picker(ui, &app.media);
         if let Some(id) = picker(
             ui,
             Icon::Mic,
@@ -181,11 +182,7 @@ fn picker(
     default: &str,
 ) -> Option<Option<String>> {
     let mut picked = chosen.map(str::to_string);
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-        icon.paint(ui.painter(), rect.center(), 15.0, MUTED);
-        ui.label(RichText::new(kind).small().color(MUTED));
-    });
+    widgets::picker_label(ui, icon, kind);
     egui::ComboBox::from_id_salt(kind)
         .width(280.0)
         .selected_text(devices::label(list, chosen, default))

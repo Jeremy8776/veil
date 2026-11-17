@@ -3,12 +3,15 @@
 //! Purpose: each runs on its own thread, because the platform objects block on reads and are
 //! not `Send`. The camera thread hands the newest picture to the interface; the microphone
 //! thread hands over a level from 0 to 1. During a call, [`Taps`] also pass each picture and
-//! each 20 ms of sound to the call engine, which encodes and encrypts them.
+//! each 20 ms of sound to the call engine, which encodes and encrypts them. A chosen
+//! [`Filter`] is applied to each picture before either of those.
 //!
 //! Invariants:
 //! - Off means closed: turning the camera or microphone off stops its thread and releases the
 //!   device, so the operating system's in-use light goes out too.
 //! - Only the newest picture is kept; a slow interface skips pictures, never queues them.
+//! - The preview and the taps see the same filtered picture. With no filter the picture is not
+//!   copied or changed.
 //! - A device error is kept as text for the interface and the thread ends.
 //! - The taps never block capture: a full engine queue drops the picture or frame.
 
@@ -21,6 +24,7 @@ use eframe::egui;
 use crate::convert::Rgba;
 use crate::devices::Choice;
 use crate::engine::{Captured, Taps};
+use veil_media::Filter;
 
 /// What the interface reads from the workers.
 #[derive(Default)]
@@ -33,6 +37,7 @@ struct Shared {
     mic_error: Mutex<Option<String>>,
     /// Where the call engine takes pictures and sound, while in a call.
     taps: Mutex<Option<Taps>>,
+    filter: Mutex<Filter>,
 }
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -195,6 +200,15 @@ impl LocalMedia {
         *lock(&self.shared.taps) = taps;
     }
 
+    pub fn filter(&self) -> Filter {
+        *lock(&self.shared.filter)
+    }
+
+    /// Takes effect on the next picture, for the preview and the call alike.
+    pub fn set_filter(&self, filter: Filter) {
+        *lock(&self.shared.filter) = filter;
+    }
+
     pub fn level(&self) -> f32 {
         f32::from_bits(self.shared.level.load(Ordering::Relaxed))
     }
@@ -236,6 +250,8 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
     };
     let mode = camera.mode();
     let fps = (mode.fps_num / mode.fps_den.max(1)).clamp(1, 60);
+    // Filtered copy of the picture; reused so a filter costs no allocation per picture.
+    let mut filtered = Vec::new();
     while !stop.load(Ordering::Relaxed) {
         let picture = match camera.read() {
             Ok(Some(picture)) => picture,
@@ -245,6 +261,16 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
                 break;
             }
         };
+        let (w, h) = (usize::from(picture.width), usize::from(picture.height));
+        let filter = *lock(&shared.filter);
+        let pixels: &[u8] = if filter == Filter::None {
+            picture.data
+        } else {
+            filtered.clear();
+            filtered.extend_from_slice(picture.data);
+            veil_media::effects::apply_filter(&mut filtered, w, h, picture.stride, filter);
+            &filtered
+        };
         if let Some(taps) = lock(&shared.taps).as_ref() {
             let _ = taps.video.try_send(Captured {
                 width: picture.width,
@@ -252,12 +278,11 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
                 stride: picture.stride,
                 fps,
                 timestamp_us: picture.timestamp_us,
-                data: picture.data.to_vec(),
+                data: pixels.to_vec(),
             });
         }
-        let (w, h) = (usize::from(picture.width), usize::from(picture.height));
         let half = w > 960;
-        if let Some(rgba) = crate::convert::nv12_to_rgba(picture.data, w, h, picture.stride, half) {
+        if let Some(rgba) = crate::convert::nv12_to_rgba(pixels, w, h, picture.stride, half) {
             *lock(&shared.picture) = Some(rgba);
             shared.picture_seq.fetch_add(1, Ordering::Release);
             ctx.request_repaint();
@@ -301,7 +326,6 @@ fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Option<
     }
     shared.level.store(0, Ordering::Relaxed);
 }
-
 
 #[cfg(test)]
 mod tests {

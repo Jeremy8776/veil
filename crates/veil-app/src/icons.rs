@@ -47,6 +47,8 @@ pub enum Icon {
     Link,
     Volume,
     Info,
+    /// A palette ("Color" glyph), for video effects.
+    Effects,
     /// A raised hand, from the symbol font (the icon fonts have none).
     Hand,
 }
@@ -72,6 +74,7 @@ impl Icon {
             Self::Link => '\u{E71B}',
             Self::Volume => '\u{E767}',
             Self::Info => '\u{E946}',
+            Self::Effects => '\u{E790}',
             Self::Hand => '\u{270B}',
         }
     }
@@ -233,6 +236,16 @@ impl Icon {
                 Shape::circle_filled(p(0.0, -0.18), w * 0.8, colour),
                 poly(&[(0.0, -0.03), (0.0, 0.24)]),
             ],
+            Self::Effects => vec![closed(&[
+                (0.0, -0.45),
+                (0.1, -0.1),
+                (0.45, 0.0),
+                (0.1, 0.1),
+                (0.0, 0.45),
+                (-0.1, 0.1),
+                (-0.45, 0.0),
+                (-0.1, -0.1),
+            ])],
             Self::Hand => vec![
                 boxed(r(-0.25, -0.05, 0.25, 0.45), 0.15),
                 poly(&[(-0.18, -0.05), (-0.18, -0.32)]),

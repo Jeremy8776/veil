@@ -359,7 +359,7 @@ fn control_bar(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> boo
         )
         .show(ui, |ui| {
             let leave_w = 110.0;
-            let controls_w = 7.0 * 68.0 + 6.0 * 6.0;
+            let controls_w = 8.0 * 68.0 + 7.0 * 6.0;
             let start = ((ui.available_width() - controls_w) / 2.0).max(0.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
@@ -396,6 +396,20 @@ fn device_controls(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
     if control(ui, Icon::Video, label, "Camera (Ctrl+Shift+O)", state).clicked() {
         toggle_camera(app);
     }
+    let effects = control(
+        ui,
+        Icon::Effects,
+        "Effects",
+        "Filters for your video",
+        ControlState::default(),
+    );
+    egui::Popup::from_toggle_button_response(&effects)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .align(egui::RectAlign::TOP)
+        .show(|ui| {
+            ui.set_width(280.0);
+            widgets::filter_picker(ui, &app.media);
+        });
     if control(
         ui,
         Icon::Share,
