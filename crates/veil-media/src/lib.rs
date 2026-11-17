@@ -30,12 +30,16 @@ pub mod ffi;
 pub mod gate;
 pub mod jitter;
 pub mod ladder;
+#[cfg(any(target_os = "linux", test))]
+pub mod mjpeg;
 pub mod payload;
 pub mod remix;
 pub mod scale;
 pub mod schedule;
 pub mod simulcast;
 pub mod temporal;
+#[cfg(target_os = "linux")]
+pub mod v4l_camera;
 pub mod yuv;
 
 pub use audio::{AudioHeader, AudioSettings, Channels};
