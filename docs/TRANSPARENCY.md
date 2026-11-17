@@ -152,7 +152,8 @@ in C and assembly. It is licensed Apache-2.0 and ISC. The desktop app (`veil-app
 (DirectX 12 or Vulkan on Windows) through their own `unsafe` code; Veil's own app code has none.
 
 **Fonts and icons:** none are bundled. `veil-app` reads the system's own UI, symbol and icon
-fonts at start-up (Segoe UI and Segoe Fluent Icons or Segoe MDL2 Assets on Windows). egui's
+fonts at start-up (Segoe UI and Segoe Fluent Icons or Segoe MDL2 Assets on Windows). Where
+there is no icon font (Linux, macOS), icons are drawn from vector strokes in code. egui's
 bundled fonts are turned off because their licences are outside the allow list.
 
 **In `veil-media`:**
