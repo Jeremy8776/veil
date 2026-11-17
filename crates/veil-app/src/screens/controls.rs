@@ -3,8 +3,8 @@
 //!
 //! Purpose: during a call you can pick another microphone, speaker or camera and set the
 //! microphone and speaker volume without leaving, from the small arrow beside Mute and beside
-//! Stop video, as in Zoom or Teams. The menus reuse the pre-join pickers
-//! (`widgets::device_picker`), and the choice goes through `LocalMedia`, so the call follows:
+//! Stop video, as in Zoom or Teams. The menus are tick lists built from
+//! `call_menus` (not the pre-join drop-downs, which cannot open inside a pop-up), and the choice goes through `LocalMedia`, so the call follows:
 //! a new microphone or camera reopens its capture thread (the engine's taps stay), and a new
 //! speaker or speaker volume reaches the playback thread through `volume::Playback`.
 //!
@@ -19,12 +19,13 @@ use eframe::egui::{self, CornerRadius, Sense, Stroke, pos2, vec2};
 use crate::app::VeilApp;
 use crate::icons::Icon;
 use crate::screens::call::CallView;
-use crate::theme::{self, MUTED, RAISED, RAISED_HOVER, TEXT};
+use crate::screens::call_menus;
+use crate::theme::{self, RAISED, RAISED_HOVER};
 use crate::volume::{MIC_MAX, SPEAKER_MAX};
-use crate::widgets::{self, ControlState, control, device_error, device_picker, level_meter};
+use crate::widgets::{ControlState, control, device_error, level_meter};
 
-/// Width of the arrow beside Mute and Stop video.
-pub const MENU_W: f32 = 18.0;
+/// Width of the arrow beside Mute and Stop video. It joins its button with no gap.
+pub const MENU_W: f32 = 22.0;
 /// The bar's buttons drawn here: Mute, Stop video, Effects, Share, Raise.
 pub const CONTROLS: usize = 5;
 /// The arrows drawn here.
@@ -35,6 +36,7 @@ pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
     let mic_on = app.media.mic_on();
     let state = ControlState {
         off: !mic_on,
+        split: true,
         ..Default::default()
     };
     let label = if mic_on { "Mute" } else { "Unmute" };
@@ -48,6 +50,7 @@ pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
     let cam_on = app.media.camera_on();
     let state = ControlState {
         off: !cam_on,
+        split: true,
         ..Default::default()
     };
     let label = if cam_on { "Stop video" } else { "Start video" };
@@ -65,10 +68,7 @@ pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
         "Filters and background blur",
         ControlState::default(),
     );
-    menu(&effects, |ui| {
-        widgets::filter_picker(ui, &app.media);
-        widgets::blur_picker(ui, &app.media);
-    });
+    menu(&effects, |ui| effects_menu(app, ui));
     let share = control(
         ui,
         Icon::Share,
@@ -92,13 +92,17 @@ pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
     }
 }
 
-/// A popup above the bar, opened and closed by `button`.
+/// A pop-up above the bar, opened and closed by `button`. Its contents must not open a
+/// pop-up of their own (see `call_menus`).
 fn menu(button: &egui::Response, add: impl FnOnce(&mut egui::Ui)) {
     egui::Popup::from_toggle_button_response(button)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .align(egui::RectAlign::TOP)
+        .gap(8.0)
+        .frame(call_menus::frame())
         .show(|ui| {
             ui.set_width(MENU_INNER);
+            ui.spacing_mut().item_spacing.y = 2.0;
             add(ui);
         });
 }
@@ -114,36 +118,30 @@ fn reload_on_open(app: &mut VeilApp, button: &egui::Response) {
 
 fn audio_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     let choice = app.media.choice().clone();
-    if let Some(id) = device_picker(
-        ui,
-        Icon::Mic,
-        "Microphone",
-        &app.devices.mics,
-        choice.mic.as_deref(),
-        "System default",
-    ) {
+    call_menus::section(ui, Icon::Mic, "Microphone");
+    let mics = &app.devices.mics;
+    if let Some(id) =
+        call_menus::device_list(ui, "mics", mics, choice.mic.as_deref(), "System default")
+    {
         app.media.choose_mic(id);
     }
     device_error(ui, app.media.mic_error());
     let mut mic = app.media.mic_volume();
-    if volume(
-        ui,
-        "Mic volume",
-        &mut mic,
-        MIC_MAX,
-        "Above 100% boosts a quiet microphone",
-    ) {
+    let hint = "Microphone volume. Above 100% boosts a quiet microphone.";
+    if call_menus::volume(ui, "Mic volume", &mut mic, MIC_MAX, hint) {
         app.media.set_mic_volume(mic);
     }
     if app.media.mic_on() {
-        level_meter(ui, app.level, MENU_INNER);
+        ui.add_space(2.0);
+        level_meter(ui, app.level, ui.available_width());
     }
-    ui.add_space(6.0);
-    if let Some(id) = device_picker(
+    call_menus::divider(ui);
+    call_menus::section(ui, Icon::Speaker, "Speaker");
+    let speakers = &app.devices.speakers;
+    if let Some(id) = call_menus::device_list(
         ui,
-        Icon::Volume,
-        "Speaker",
-        &app.devices.speakers,
+        "speakers",
+        speakers,
         choice.speaker.as_deref(),
         "System default",
     ) {
@@ -151,46 +149,33 @@ fn audio_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     }
     let mut speaker = app.media.speaker_volume();
     let hint = "How loud the call plays. Your system volume still applies.";
-    if volume(ui, "Speaker volume", &mut speaker, SPEAKER_MAX, hint) {
+    if call_menus::volume(ui, "Speaker volume", &mut speaker, SPEAKER_MAX, hint) {
         app.media.set_speaker_volume(speaker);
     }
 }
 
 fn video_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     let chosen = app.media.choice().camera.clone();
-    if let Some(id) = device_picker(
-        ui,
-        Icon::Video,
-        "Camera",
-        &app.devices.cameras,
-        chosen.as_deref(),
-        "Default camera",
-    ) {
+    call_menus::section(ui, Icon::Video, "Camera");
+    let cameras = &app.devices.cameras;
+    if let Some(id) =
+        call_menus::device_list(ui, "cameras", cameras, chosen.as_deref(), "Default camera")
+    {
         app.media.choose_camera(id);
     }
     device_error(ui, app.media.camera_error());
 }
 
-/// A volume slider in percent. Returns true when it moved.
-fn volume(ui: &mut egui::Ui, label: &str, gain: &mut f32, max: f32, hint: &str) -> bool {
-    ui.label(egui::RichText::new(label).small().color(MUTED));
-    let mut shown = percent(*gain);
-    let changed = ui
-        .add(egui::Slider::new(&mut shown, 0..=percent(max)).suffix("%"))
-        .on_hover_text(hint)
-        .changed();
-    if changed {
-        *gain = f32::from(shown) / 100.0;
-    }
-    changed
+fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
+    call_menus::section(ui, Icon::Effects, "Background blur");
+    call_menus::blur_switch(ui, &app.media);
+    call_menus::divider(ui);
+    call_menus::section(ui, Icon::Effects, "Filter");
+    call_menus::filter_swatches(ui, &app.media);
 }
 
-/// A gain as a whole percentage, for the sliders.
-pub fn percent(gain: f32) -> u16 {
-    (gain.clamp(0.0, 6.0) * 100.0).round() as u16
-}
-
-/// The small arrow beside a control that opens its device menu.
+/// The arrow beside a control that opens its device menu: the right half of a split
+/// button, joined to the control just drawn (`ControlState::split` leaves no gap after it).
 fn menu_button(ui: &mut egui::Ui, label: &str, hint: &str) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(vec2(MENU_W, 58.0), Sense::click());
     let response = response.on_hover_text(hint);
@@ -202,14 +187,27 @@ fn menu_button(ui: &mut egui::Ui, label: &str, hint: &str) -> egui::Response {
         } else {
             RAISED
         };
-        painter.rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
+        let corners = CornerRadius {
+            nw: 0,
+            sw: 0,
+            ne: theme::RADIUS,
+            se: theme::RADIUS,
+        };
+        painter.rect_filled(rect, corners, fill);
+        painter.line_segment(
+            [
+                pos2(rect.left(), rect.top() + 14.0),
+                pos2(rect.left(), rect.bottom() - 14.0),
+            ],
+            Stroke::new(1.0, theme::LINE),
+        );
         if response.has_focus() {
             let stroke = Stroke::new(2.0, theme::ACCENT);
-            painter.rect_stroke(rect, theme::RADIUS, stroke, egui::StrokeKind::Inside);
+            painter.rect_stroke(rect, corners, stroke, egui::StrokeKind::Inside);
         }
-        // An upward chevron: the menu opens above the bar.
-        let c = rect.center();
-        let stroke = Stroke::new(1.6, TEXT);
+        // An upward chevron, level with the control's icon: the menu opens above the bar.
+        let c = pos2(rect.center().x, rect.top() + 22.0);
+        let stroke = Stroke::new(1.6, theme::MUTED);
         painter.line_segment([pos2(c.x - 4.0, c.y + 2.0), pos2(c.x, c.y - 2.0)], stroke);
         painter.line_segment([pos2(c.x, c.y - 2.0), pos2(c.x + 4.0, c.y + 2.0)], stroke);
     }
@@ -226,17 +224,4 @@ pub fn toggle_camera(app: &mut VeilApp) {
     let on = !app.media.camera_on();
     app.want_camera = on;
     app.media.set_camera(on);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn gains_show_as_whole_percentages() {
-        assert_eq!(percent(1.0), 100);
-        assert_eq!(percent(MIC_MAX), 200);
-        assert_eq!(percent(0.333), 33);
-        assert_eq!(percent(-1.0), 0);
-    }
 }

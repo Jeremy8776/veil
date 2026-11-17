@@ -15,17 +15,16 @@
 use std::time::{Duration, Instant};
 
 use eframe::egui::{
-    self, Align, Align2, Color32, CornerRadius, FontId, Key, Layout, Modifiers, Rect, RichText,
-    pos2, vec2,
+    self, Align, Align2, Color32, CornerRadius, FontId, Key, Layout, Modifiers, Rect, pos2, vec2,
 };
 
 use crate::app::VeilApp;
 use crate::engine::Engine;
 use crate::icons::Icon;
 use crate::layout;
-use crate::model::{Call, CallStatus, Participant, clock};
-use crate::screens::{controls, invite, stats};
+use crate::model::{Call, CallStatus, Participant};
 use crate::screens::panels::{self, Panel};
+use crate::screens::{call_top, controls, invite, stats};
 use crate::theme::{self, GAP, MUTED, PAGE, SURFACE};
 use crate::widgets::{self, ControlState, Tile, Tone, control, pill};
 
@@ -111,7 +110,7 @@ impl CallView {
         }
         self.sync_you(app);
         self.shortcuts(app, ui);
-        top_bar(self, ui, now);
+        call_top::show(self, ui, now);
         let stay = control_bar(self, app, ui);
         if let Some(panel) = self.panel {
             panels::show(self, ui, panel, now);
@@ -291,62 +290,6 @@ fn toast(ui: &egui::Ui, area: Rect, text: &str) {
     painter.galley(rect.min + vec2(14.0, 9.0), galley, Color32::WHITE);
 }
 
-fn top_bar(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
-    egui::Panel::top("call_top")
-        .exact_size(52.0)
-        .frame(
-            egui::Frame::new()
-                .fill(SURFACE)
-                .inner_margin(egui::Margin::symmetric(16, 8)),
-        )
-        .show(ui, |ui| {
-            ui.horizontal_centered(|ui| {
-                ui.label(RichText::new(&view.call.title).font(theme::bold(15.0)));
-                ui.label(RichText::new(clock(view.call.elapsed(now))).color(MUTED));
-                let secure = ui
-                    .add(
-                        egui::Button::new(
-                            RichText::new(Icon::Lock.glyph().map_or_else(
-                                || "End-to-end encrypted".to_owned(),
-                                |g| format!("{g}  End-to-end encrypted"),
-                            ))
-                            .color(theme::SPEAKING),
-                        )
-                        .frame(false),
-                    )
-                    .on_hover_text("Show safety numbers and how each person is connected");
-                if secure.clicked() {
-                    view.panel = toggle(view.panel, Panel::Security);
-                }
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let (icon, label, next) = match view.view {
-                        View::Gallery => (Icon::Speaker, "Speaker view", View::Speaker),
-                        View::Speaker => (Icon::Grid, "Gallery view", View::Gallery),
-                    };
-                    if widgets::icon_button(ui, icon, label).clicked() {
-                        view.view = next;
-                    }
-                    let tip = "Call stats: delay, loss, bit rate (Ctrl+Shift+D)";
-                    if widgets::icon_button(ui, Icon::Signal, tip).clicked() {
-                        view.stats = !view.stats;
-                    }
-                    if view.call.is_host && !view.call.demo {
-                        let lifetime = invite::lifetime_text(&view.call, invite::now_unix());
-                        let invite = pill(ui, Some(Icon::Link), "Invite", Tone::Quiet, 104.0)
-                            .on_hover_text(format!("Copy the invite link. {lifetime}"));
-                        if invite.clicked() {
-                            view.copy_invite(ui.ctx());
-                        }
-                    }
-                    ui.label(
-                        RichText::new(format!("{} people", view.call.participants.len()))
-                            .color(MUTED),
-                    );
-                });
-            });
-        });
-}
-
 /// The bar of call controls. Returns false when you leave.
 fn control_bar(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
     let mut stay = true;
@@ -360,7 +303,8 @@ fn control_bar(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> boo
         .show(ui, |ui| {
             let leave_w = 110.0;
             let buttons = controls::CONTROLS + 3;
-            let gaps = (buttons + controls::MENUS - 1) as f32;
+            // The arrows join their buttons, so they add no gaps.
+            let gaps = (buttons - 1) as f32;
             let controls_w =
                 buttons as f32 * 68.0 + controls::MENUS as f32 * controls::MENU_W + gaps * 6.0;
             let start = ((ui.available_width() - controls_w) / 2.0).max(0.0);
@@ -416,7 +360,7 @@ fn panel_controls(view: &mut CallView, ui: &mut egui::Ui) {
     }
 }
 
-fn toggle(open: Option<Panel>, panel: Panel) -> Option<Panel> {
+pub fn toggle(open: Option<Panel>, panel: Panel) -> Option<Panel> {
     if open == Some(panel) {
         None
     } else {
