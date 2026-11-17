@@ -81,6 +81,19 @@ pub enum CallStatus {
     Ended(String),
 }
 
+/// For a host: whether the router opened the call's port (`engine/router.rs`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum RouterPort {
+    /// Not asked for, or not hosting.
+    #[default]
+    Off,
+    Opening,
+    /// Guests on the internet can dial this address.
+    Open(String),
+    /// Not opened; the text is the guide for doing it by hand.
+    Failed(String),
+}
+
 /// A host's decision, or a chat message, queued for the engine.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -113,6 +126,7 @@ pub struct Call {
     /// Other participants are simulated.
     pub demo: bool,
     pub status: CallStatus,
+    pub router: RouterPort,
     /// Decisions and chat not yet handed to the engine. Always empty in a demo.
     pub outbox: Vec<Action>,
     /// Chat messages not yet seen with the chat panel open.
@@ -146,6 +160,7 @@ impl Call {
             epoch: 0,
             demo: false,
             status: CallStatus::Connecting,
+            router: RouterPort::Off,
             outbox: Vec::new(),
             unread: 0,
             next_id: 1,
@@ -223,7 +238,11 @@ impl Call {
     /// at once; in a real call the engine saves it.
     pub fn set_verified(&mut self, id: u32, verified: bool) {
         let mut found = false;
-        for p in self.participants.iter_mut().filter(|p| !p.is_you && p.id == id) {
+        for p in self
+            .participants
+            .iter_mut()
+            .filter(|p| !p.is_you && p.id == id)
+        {
             p.verified = verified;
             found = true;
         }

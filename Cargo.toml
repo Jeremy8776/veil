@@ -8,6 +8,7 @@ members = [
     "crates/veil-media",
     "crates/veil-net",
     "crates/veil-node",
+    "crates/veil-portmap",
     "crates/veil-probe",
     "crates/veil-rendezvous",
     "crates/veil-security",

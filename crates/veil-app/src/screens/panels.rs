@@ -14,7 +14,7 @@ use std::time::Instant;
 use eframe::egui::{self, Align, Key, Layout, RichText, ScrollArea, Sense, TextEdit, vec2};
 
 use crate::icons::Icon;
-use crate::model::{LinkPath, Participant, clock};
+use crate::model::{LinkPath, Participant, RouterPort, clock};
 use crate::screens::call::CallView;
 use crate::theme::{self, MUTED, RAISED, SURFACE};
 use crate::widgets::{self, Tone, pill};
@@ -57,6 +57,29 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, panel: Panel, now: Instant) 
         });
 }
 
+/// For a host who asked for it: whether the router opened the call's port, with the address
+/// or the guide in the tooltip.
+fn router(ui: &mut egui::Ui, port: &RouterPort) {
+    let (text, colour, tip) = match port {
+        RouterPort::Off => return,
+        RouterPort::Opening => ("Opening a port on your router…", MUTED, String::new()),
+        RouterPort::Open(addr) => (
+            "Router port open",
+            MUTED,
+            format!(
+                "Guests on the internet can reach you at {addr}. The invite link includes it. \
+                 Closed when the call ends."
+            ),
+        ),
+        RouterPort::Failed(guide) => ("Router did not open a port", theme::WARN, guide.clone()),
+    };
+    ui.add_space(4.0);
+    let label = ui.label(RichText::new(text).small().color(colour));
+    if !tip.is_empty() {
+        label.on_hover_text(tip);
+    }
+}
+
 fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     let copy = pill(
         ui,
@@ -68,6 +91,9 @@ fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     .on_hover_text("Works once and for an hour. A new link is made after each use.");
     if copy.clicked() {
         view.copy_invite(ui.ctx());
+    }
+    if view.call.is_host {
+        router(ui, &view.call.router);
     }
     ui.add_space(8.0);
     let mut admit = None;
@@ -202,10 +228,11 @@ fn chat(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
                 .color(theme::WARN),
         );
     } else {
-        ui.label(RichText::new("Encrypted").small().color(MUTED)).on_hover_text(
-            "Sent to everyone in the call, encrypted on your device. \
+        ui.label(RichText::new("Encrypted").small().color(MUTED))
+            .on_hover_text(
+                "Sent to everyone in the call, encrypted on your device. \
              Relays and forwarders cannot read it. Not kept after the call.",
-        );
+            );
     }
     let input_h = 44.0;
     let list_h = (ui.available_height() - input_h - 8.0).max(80.0);

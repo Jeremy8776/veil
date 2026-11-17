@@ -41,6 +41,8 @@ pub struct NetConfig {
     pub forwarder: Option<NodeName>,
     pub advertise: Vec<SocketAddr>,
     pub port: u16,
+    /// Ask the router to open `port` while hosting (`router.rs`). Off unless chosen.
+    pub open_port: bool,
 }
 
 /// The environment variable for each setting, in the order the settings screen shows them.
@@ -96,9 +98,9 @@ pub fn parse_node(text: &str) -> Result<Option<NodeName>, String> {
     if text.is_empty() {
         return Ok(None);
     }
-    let node: NodeName = text.parse().map_err(|_| {
-        String::from("Use KEY@IP:PORT as veil-node prints it, or KEY@NAME:PORT.")
-    })?;
+    let node: NodeName = text
+        .parse()
+        .map_err(|_| String::from("Use KEY@IP:PORT as veil-node prints it, or KEY@NAME:PORT."))?;
     match node.addr() {
         Some(addr) => dialable(addr)?,
         None if node.port() == 0 => return Err(String::from("Port 0 cannot be dialled.")),

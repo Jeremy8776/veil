@@ -20,7 +20,7 @@ use veil_security::PublicId;
 use super::names::labels;
 use crate::convert::Rgba;
 use crate::media::lock;
-use crate::model::{Call, CallStatus, LinkPath, Participant, Waiting};
+use crate::model::{Call, CallStatus, LinkPath, Participant, RouterPort, Waiting};
 
 /// Chat messages that may wait for the interface; more drop the oldest.
 const CHAT_QUEUE: usize = 256;
@@ -58,6 +58,7 @@ pub struct View {
     /// Everyone but you, in roster order.
     pub people: Vec<Person>,
     pub lobby: Vec<Knocker>,
+    pub router: RouterPort,
 }
 
 /// The newest picture from one person. `rgba` is taken by the interface once uploaded.
@@ -102,6 +103,7 @@ impl Shared {
                 epoch: 0,
                 people: Vec::new(),
                 lobby: Vec::new(),
+                router: RouterPort::Off,
             }),
             pictures: Mutex::default(),
             heard: Mutex::default(),
@@ -211,6 +213,7 @@ pub fn apply(
 ) -> HashMap<PublicId, String> {
     call.status = view.status.clone();
     call.invite.clone_from(&view.invite);
+    call.router.clone_from(&view.router);
     call.epoch = view.epoch;
     call.participants.retain(|p| p.is_you);
     let yours = call.you().map(|p| p.name.clone());
@@ -295,6 +298,7 @@ mod tests {
                 safety: "11111".into(),
                 since: now,
             }],
+            router: RouterPort::Off,
         }
     }
 
@@ -318,7 +322,13 @@ mod tests {
                 level: 0.9,
             },
         );
-        apply(&view(now), &seen, |d| *d == PublicId([3; 32]), &mut call, now);
+        apply(
+            &view(now),
+            &seen,
+            |d| *d == PublicId([3; 32]),
+            &mut call,
+            now,
+        );
         assert_eq!(call.status, CallStatus::Live);
         assert_eq!(call.epoch, 3);
         assert_eq!(call.participants.len(), 3);
