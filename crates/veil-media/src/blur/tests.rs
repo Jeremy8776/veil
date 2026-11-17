@@ -375,3 +375,158 @@ fn bench_apply_720p() {
         times[times.len() - 1]
     );
 }
+
+/// Where a mask row first drops below half, in pixels (fractional, linear between samples).
+fn crossing(row: &[u8]) -> f32 {
+    for x in 1..row.len() {
+        let (a, b) = (f32::from(row[x - 1]), f32::from(row[x]));
+        if a >= 128.0 && b < 128.0 {
+            return (x - 1) as f32 + (a - 128.0) / (a - b);
+        }
+    }
+    f32::NAN
+}
+
+#[test]
+fn outline_follows_the_pictures_edge() {
+    // The person (bright) ends at x = 638; the model's soft mask puts its half-way point at
+    // x = 632, six pixels off, as a 256-wide mask does at 720p.
+    const EDGE: usize = 638;
+    let (w, h) = (1280, 720);
+    let mut d = vec![128u8; w * h * 3 / 2];
+    for y in 0..h {
+        for x in 0..w {
+            d[y * w + x] = if x < EDGE { 200 } else { 40 };
+        }
+    }
+    let ramp = [255u8, 192, 128, 64, 0];
+    let mask: Vec<u8> = (0..256 * 144)
+        .map(|i| match i % 256 {
+            c if c < 124 => 255,
+            c if c > 128 => 0,
+            c => ramp[c - 124],
+        })
+        .collect();
+    for general in [false, true] {
+        let mut p = Pipeline::new(w, h);
+        if general {
+            p.force_general();
+        }
+        p.downscale(&d, w);
+        p.guide(&mask);
+        let y = 360;
+        p.mask_row(&mask, y, &d[y * w..][..w]);
+        let at = crossing(p.last_mask_row());
+        assert!(
+            (at - EDGE as f32).abs() <= 2.0,
+            "general {general}: outline at {at}, edge at {EDGE}"
+        );
+    }
+}
+
+/// Mean absolute frame-to-frame change of a mask sequence.
+fn flicker(frames: &[Vec<u8>]) -> f64 {
+    let mut t = 0u64;
+    for pair in frames.windows(2) {
+        t += pair[0]
+            .iter()
+            .zip(&pair[1])
+            .map(|(a, b)| u64::from(a.abs_diff(*b)))
+            .sum::<u64>();
+    }
+    t as f64 / ((frames.len() - 1) * frames[0].len()) as f64
+}
+
+fn steadied(raw: &[Vec<u8>]) -> Vec<Vec<u8>> {
+    let mut prev = raw[0].clone();
+    raw.iter()
+        .map(|m| {
+            let mut m = m.clone();
+            steady(&mut m, &mut prev);
+            m
+        })
+        .collect()
+}
+
+#[test]
+fn still_outline_flickers_at_most_half_as_much() {
+    // A still person whose soft edge the model sees slightly differently each picture.
+    let mut s = 99u32;
+    let raw: Vec<Vec<u8>> = (0..60)
+        .map(|_| {
+            (0..256 * 144)
+                .map(|i| {
+                    s = s.wrapping_mul(1664525).wrapping_add(1013904223);
+                    let base = match i % 256 {
+                        c if c < 120 => 255i32,
+                        c if c > 136 => 0,
+                        c => 255 - (c - 120) * 15,
+                    };
+                    (base + (s >> 24) as i32 % 41 - 20).clamp(0, 255) as u8
+                })
+                .collect()
+        })
+        .collect();
+    let (before, after) = (flicker(&raw), flicker(&steadied(&raw)));
+    assert!(after <= before / 2.0, "flicker {before:.2} -> {after:.2}");
+}
+
+#[test]
+fn moving_outline_is_not_trailed() {
+    // A hard edge moving one small pixel a picture, both ways: the steadied mask keeps up.
+    for dir in [1i32, -1] {
+        let raw: Vec<Vec<u8>> = (0..40)
+            .map(|t| {
+                let edge = 128 + dir * (t - 20);
+                (0..256 * 144)
+                    .map(|i| if (i % 256) < edge { 255 } else { 0 })
+                    .collect()
+            })
+            .collect();
+        for (t, (r, s)) in raw.iter().zip(steadied(&raw)).enumerate() {
+            assert_eq!(*r, s, "dir {dir}, picture {t}");
+        }
+    }
+}
+
+/// Camera-thread work alone (no worker wait), for the PR's budget figure:
+/// `cargo test -p veil-media --release --lib bench_pipeline -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn bench_pipeline_720p() {
+    let (w, h) = (1280, 720);
+    // A soft-edged head and shoulders, so the outline band is as long as a real one.
+    let mask: Vec<u8> = (0..256 * 144)
+        .map(|i| {
+            let (x, y) = ((i % 256) as f32 - 128.0, (i / 256) as f32 - 72.0);
+            let r = (x * x + y * y).sqrt();
+            ((62.0 - r) * 64.0 + 128.0).clamp(0.0, 255.0) as u8
+        })
+        .collect();
+    let frames: Vec<Vec<u8>> = (0..4).map(|_| picture(w, h, w)).collect();
+    let mut buf = frames[0].clone();
+    let mut p = Pipeline::new(w, h);
+    let s = Strength {
+        radius: 4,
+        passes: 3,
+    };
+    let mut times = Vec::new();
+    for i in 0..630 {
+        buf.copy_from_slice(&frames[i % 4]);
+        let t = Instant::now();
+        p.downscale(&buf, w);
+        p.make_input();
+        p.blur(s, &mask);
+        p.composite(&mut buf, w, &mask);
+        if i >= 30 {
+            times.push(t.elapsed().as_secs_f64() * 1e3);
+        }
+    }
+    times.sort_by(f64::total_cmp);
+    println!(
+        "pipeline 1280x720 Strong: median {:.3} ms, p95 {:.3} ms, max {:.3} ms",
+        times[times.len() / 2],
+        times[times.len() * 95 / 100],
+        times[times.len() - 1]
+    );
+}

@@ -26,6 +26,9 @@
 //!   untouched and reported as `Blurred`, as there is nothing to retry. Nothing here panics.
 //! - Pictures smaller than 256x144 work: they are stretched to the grid and back.
 //! - [`Blur::Off`] leaves the picture untouched.
+//! - The worker steadies each mask against the one before it (see [`steady`]): small changes
+//!   are damped so a still outline does not flicker, large ones are taken at once so a moving
+//!   person is not trailed. A new engine starts with no history.
 
 mod grid;
 mod kernels;
@@ -68,6 +71,9 @@ pub enum BlurStatus {
     /// The segmenter cannot keep up; the picture was left as it was.
     TooBusy,
 }
+
+/// A mask change at least this large (out of 255) is movement and is taken at once.
+const MOVE: u8 = 64;
 
 const INPUT_LEN: usize = 3 * MODEL_W * MODEL_H;
 const MASK_LEN: usize = MODEL_W * MODEL_H;
@@ -269,6 +275,7 @@ fn take_mask(
 fn run_worker(shared: &Shared, mut segment: impl FnMut(&[f32], &mut [u8])) {
     let mut input = vec![0.0f32; INPUT_LEN];
     let mut mask = vec![0u8; MASK_LEN];
+    let mut prev: Option<Vec<u8>> = None;
     loop {
         let seq = {
             let mut slot = lock(&shared.input);
@@ -286,6 +293,10 @@ fn run_worker(shared: &Shared, mut segment: impl FnMut(&[f32], &mut [u8])) {
             slot.seq
         };
         segment(&input, &mut mask);
+        match prev.as_mut() {
+            Some(p) => steady(&mut mask, p),
+            None => prev = Some(mask.clone()),
+        }
         {
             let mut out = lock(&shared.out);
             std::mem::swap(&mut mask, &mut out.buf);
@@ -293,6 +304,21 @@ fn run_worker(shared: &Shared, mut segment: impl FnMut(&[f32], &mut [u8])) {
             out.fresh = true;
         }
         shared.done.notify_all();
+    }
+}
+
+/// Damps small frame-to-frame changes of `mask` against `prev`, and stores the result in both.
+/// The share of a change taken grows from a quarter (tiny changes, flicker) to all of it at
+/// [`MOVE`] (movement), so noise settles while a moving outline keeps up.
+fn steady(mask: &mut [u8], prev: &mut [u8]) {
+    for (m, p) in mask.iter_mut().zip(prev.iter_mut()) {
+        let d = m.abs_diff(*p);
+        if d < MOVE {
+            let share = 64 + 3 * i32::from(d);
+            let delta = i32::from(*m) - i32::from(*p);
+            *m = (i32::from(*p) + ((delta * share + 128) >> 8)).clamp(0, 255) as u8;
+        }
+        *p = *m;
     }
 }
 
