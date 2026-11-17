@@ -23,6 +23,8 @@
            Language="1033">
     <MajorUpgrade DowngradeErrorMessage="A newer version of Veil is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <!-- Firewall profiles as Windows numbers them: 2 Private + 4 Public. Not Domain. -->
+    <Property Id="VEIL_FIREWALL_PROFILES" Value="6" />
 
     <Icon Id="veil.ico" SourceFile="$(IconPath)" />
     <Property Id="ARPPRODUCTICON" Value="veil.ico" />
@@ -33,8 +35,9 @@
       <Directory Id="INSTALLFOLDER" Name="Veil">
         <Component Id="App" Bitness="always64">
           <File Id="VeilApp" Source="$(BinDir)\veil-app.exe" KeyPath="yes">
-            <fw:FirewallException Id="FirewallPrivate" Name="Veil" Protocol="udp" Scope="any" Profile="private" />
-            <fw:FirewallException Id="FirewallPublic" Name="Veil" Protocol="udp" Scope="any" Profile="public" />
+            <!-- One rule for both profiles: WiX names a rule by Name, so two rules called
+                 "Veil" (one per profile) leave only the second. -->
+            <fw:FirewallException Id="Firewall" Name="Veil" Protocol="udp" Scope="any" Profile="[VEIL_FIREWALL_PROFILES]" />
           </File>
         </Component>
         <!-- One file per component, so WiX can make each component's id itself. -->

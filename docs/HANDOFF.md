@@ -474,6 +474,8 @@ A public `veil-node` (`VEIL_RENDEZVOUS`) removes the need for any rule, since ev
 starts outbound. The MSI (from 17/11/2026) adds the same rule for the installed
 `veil-app.exe` (`packaging/windows/veil.wxs`, WiX's firewall extension, two rules named "Veil",
 Private and Public) and removes it on uninstall, so the button does not show there.
+Tested by hand 17/11/2026: install, upgrade over an older MSI, and uninstall left nothing
+behind (folder, Start menu entry, firewall rule, registry).
 
 1. Public box: `veil-node` with rendezvous, relay and forwarder on (see the example TOML).
    It prints `rendezvous KEY@IP:PORT` and `forwarder KEY@IP:PORT`. It prints the listen address

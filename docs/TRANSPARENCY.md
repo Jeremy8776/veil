@@ -261,9 +261,8 @@ grep -rn "shortcut:" crates
   --ignored`) opens ports, the H.264 encoder and the speaker, so it also runs only on request.
 - A call between two copies of the desktop app with real cameras and microphones has not yet
   been run by a person.
-- The installers and the update install. The packaging runs in the release workflow, but no
-  one has yet installed the MSI, the DMG or the AppImage on a clean machine, and the
-  "Install" button has not run against a real signed release.
+- The DMG and the AppImage on real machines, and the "Install" button against a real signed
+  release. The MSI was installed, upgraded and uninstalled on Windows 11 on 17/11/2026.
 
 **Known shortcut in updates:** on Windows the checked MSI waits in your own folder until
 Windows Installer opens it, so a program already running as you could swap it in that
