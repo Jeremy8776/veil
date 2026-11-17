@@ -39,6 +39,11 @@ use eframe::egui;
 const APP_ICON_PNG: &[u8] = include_bytes!("../assets/veil-256.png");
 
 fn main() -> eframe::Result {
+    // A copy started only to wait on Windows Installer and reopen Veil (`update/apply.rs`).
+    // Before the log starts, so the last real run's log is kept.
+    if update::finish_from_args() {
+        return Ok(());
+    }
     log::start(log::folder().as_deref());
     let mut viewport = egui::ViewportBuilder::default().with_title("Veil");
     // A bad icon is cosmetic: the window opens with the default icon instead.

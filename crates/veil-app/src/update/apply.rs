@@ -5,7 +5,7 @@
 //!
 //! | Installed as | Release file | Install |
 //! |---|---|---|
-//! | Windows MSI | `veil-<v>-windows-x64.msi` | `msiexec /i` (Windows asks for permission), then Veil closes |
+//! | Windows MSI | `veil-<v>-windows-x64.msi` | a copy of Veil runs `msiexec /i` (Windows asks for permission) while Veil closes, waits, then starts Veil again |
 //! | macOS `Veil.app` | `veil-<v>-macos-universal.dmg` | copy `Veil.app` from the disk image over this one, reopen it |
 //! | Linux AppImage | `veil-<v>-linux-x64.AppImage` | rename it over this one, start it |
 //! | Anything else (portable zip, deb, rpm, tar.gz, a build) | none | the release page only |
@@ -24,6 +24,15 @@ use super::{download, verify};
 
 /// The file an MSI install leaves beside `veil-app.exe` (`packaging/windows/veil.wxs`).
 const MSI_MARKER: &str = "installed-by-msi";
+/// The first argument that makes `veil-app` finish an MSI update instead of opening a window.
+const FINISH_ARG: &str = "--finish-msi-update";
+/// The copy of `veil-app.exe` that waits on Windows Installer, saved beside the MSI. The
+/// installed one cannot wait: Windows Installer replaces it.
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "MSI updates are Windows only")
+)]
+const HELPER: &str = "veil-update-helper.exe";
 
 /// How this copy of Veil was installed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,7 +104,9 @@ fn detect(exe: &Path) -> Kind {
             return Kind::Msi;
         }
     } else if cfg!(target_os = "macos") {
-        if let Some(bundle) = bundle_of(exe) {
+        // A copy run from the disk image, or the private read-only copy macOS makes of an app
+        // opened from Downloads (App Translocation), cannot be replaced.
+        if let Some(bundle) = bundle_of(exe).filter(|b| !read_only_copy(b)) {
             return Kind::MacApp(bundle);
         }
     } else if let Some(path) = std::env::var_os("APPIMAGE").map(PathBuf::from)
@@ -115,6 +126,47 @@ fn bundle_of(exe: &Path) -> Option<PathBuf> {
     let named = |p: &Path, n: &str| p.file_name().is_some_and(|f| f == n);
     let is_app = bundle.extension().is_some_and(|e| e == "app");
     (named(macos, "MacOS") && named(contents, "Contents") && is_app).then(|| bundle.to_path_buf())
+}
+
+/// A bundle macOS runs from a place Veil cannot write: Veil's mounted disk image
+/// (`/Volumes/Veil`, or `/Volumes/Veil 1` when one is already mounted) or App Translocation.
+fn read_only_copy(bundle: &Path) -> bool {
+    let translocated = bundle
+        .components()
+        .any(|c| c.as_os_str() == "AppTranslocation");
+    let disk_image = bundle.parent().is_some_and(|volume| {
+        volume.parent() == Some(Path::new("/Volumes"))
+            && volume
+                .file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("Veil"))
+    });
+    translocated || disk_image
+}
+
+/// The MSI and the installed `veil-app.exe` when `args` (without the program name) ask this
+/// process to finish an MSI update. Both must be absolute paths with the right extension.
+fn finish_args(args: &[std::ffi::OsString]) -> Option<(PathBuf, PathBuf)> {
+    let [flag, msi, exe] = args else { return None };
+    if flag != FINISH_ARG {
+        return None;
+    }
+    let (msi, exe) = (PathBuf::from(msi), PathBuf::from(exe));
+    let has = |p: &Path, ext: &str| p.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext));
+    (msi.is_absolute() && exe.is_absolute() && has(&msi, "msi") && has(&exe, "exe"))
+        .then_some((msi, exe))
+}
+
+/// When this process was started to finish an MSI update: runs Windows Installer, waits for
+/// it, starts the installed Veil again, and returns `true` so `main` exits without a window.
+pub fn finish_from_args() -> bool {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.first().is_none_or(|a| a != FINISH_ARG) {
+        return false;
+    }
+    if let Some((msi, exe)) = finish_args(&args) {
+        sys::finish_msi(&msi, &exe);
+    }
+    true
 }
 
 /// Downloads, checks and installs `version`. `report` gets a short line for each step.
@@ -151,27 +203,48 @@ mod sys {
     use std::os::windows::process::CommandExt;
     use std::path::Path;
 
-    /// Hands the MSI to Windows Installer. It asks for permission (the package is for all
-    /// users) and replaces Veil once Veil has closed.
+    /// msiexec shows its own progress window; no console flashes up.
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    /// Copies this `veil-app.exe` beside the MSI and starts the copy, which hands the MSI to
+    /// Windows Installer and starts Veil again afterwards (`finish_msi`). Windows asks for
+    /// permission (the package is for all users) and replaces Veil once Veil has closed.
     // shortcut: the checked MSI waits in your own folder until msiexec opens it, so a program
     // already running as you could swap it in that moment; Windows' prompt then names an
     // unknown publisher. Hold the file open until msiexec has it, or move to a service, if
     // that matters.
     pub fn msi(file: &Path) -> Result<(), String> {
-        /// msiexec shows its own progress window; no console flashes up.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let exe = std::env::current_exe().map_err(|e| format!("cannot find Veil ({e})"))?;
+        let helper = file
+            .parent()
+            .ok_or("no download folder")?
+            .join(super::HELPER);
+        std::fs::copy(&exe, &helper).map_err(|e| format!("cannot prepare the install ({e})"))?;
+        std::process::Command::new(&helper)
+            .arg(super::FINISH_ARG)
+            .arg(file)
+            .arg(&exe)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map(drop)
+            .map_err(|e| format!("cannot start the install ({e})"))
+    }
+
+    /// Runs in the helper copy: installs the MSI, waits for Windows Installer to finish, then
+    /// starts Veil again. Veil comes back even when the install was cancelled or failed, so
+    /// you are never left without it.
+    pub fn finish_msi(msi: &Path, exe: &Path) {
         let msiexec = crate::firewall::system_program(
             std::env::var("SystemRoot").ok().as_deref(),
             "msiexec.exe",
         );
-        std::process::Command::new(msiexec)
+        let _ = std::process::Command::new(msiexec)
             .arg("/i")
-            .arg(file)
+            .arg(msi)
             .args(["/passive", "/norestart"])
             .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .map(drop)
-            .map_err(|e| format!("cannot start Windows Installer ({e})"))
+            .status();
+        let _ = std::process::Command::new(exe).spawn();
     }
 
     pub fn mac_app(_: &Path, _: &Path) -> Result<(), String> {
@@ -192,12 +265,20 @@ mod sys {
         Err(String::from("not a Windows install"))
     }
 
+    pub fn finish_msi(_: &Path, _: &Path) {}
+
+    /// Runs `program` and waits. A failure carries the last line it wrote to stderr.
     fn run(program: &str, args: &[&std::ffi::OsStr]) -> Result<(), String> {
-        let status = Command::new(program)
+        let output = Command::new(program)
             .args(args)
-            .status()
+            .output()
             .map_err(|e| format!("cannot start {program} ({e})"))?;
-        if status.success() { Ok(()) } else { Err(format!("{program} failed ({status})")) }
+        if output.status.success() {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let why = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+        Err(format!("{program} failed ({}): {why}", output.status))
     }
 
     /// Copies `Veil.app` from the disk image beside `bundle`, swaps it in, and opens it. A
@@ -244,7 +325,14 @@ mod sys {
         // ditto keeps the code signature, symbolic links and permissions.
         run("/usr/bin/ditto", &[source.as_os_str(), staged.as_os_str()])
             .map_err(|e| format!("cannot write to {} ({e})", parent.display()))?;
-        std::fs::rename(bundle, &old).map_err(|e| format!("cannot replace Veil ({e})"))?;
+        std::fs::rename(bundle, &old).map_err(|e| {
+            let _ = std::fs::remove_dir_all(&staged);
+            // macOS 13 on blocks this unless Veil has App Management permission.
+            format!(
+                "cannot replace Veil ({e}). Allow Veil under System Settings > Privacy & \
+                 Security > App Management, or install the new version by hand"
+            )
+        })?;
         if let Err(e) = std::fs::rename(&staged, bundle) {
             let _ = std::fs::rename(&old, bundle);
             return Err(format!("cannot replace Veil ({e})"));
@@ -270,6 +358,8 @@ mod sys {
     pub fn mac_app(_: &Path, _: &Path) -> Result<(), String> {
         Err(String::from("not a macOS app"))
     }
+
+    pub fn finish_msi(_: &Path, _: &Path) {}
 
     /// Renames the new AppImage over this one (the running copy keeps its open file) and
     /// starts it.
@@ -303,6 +393,55 @@ mod tests {
             "veil-app",
         ] {
             assert_eq!(bundle_of(Path::new(other)), None, "{other}");
+        }
+    }
+
+    #[test]
+    fn a_bundle_macos_runs_read_only_is_not_replaced() {
+        for path in [
+            "/Volumes/Veil/Veil.app",
+            "/Volumes/Veil 1/Veil.app",
+            "/private/var/folders/x/AppTranslocation/1234/d/Veil.app",
+        ] {
+            assert!(read_only_copy(Path::new(path)), "{path}");
+        }
+        for path in [
+            "/Applications/Veil.app",
+            "/Users/jo/Applications/Veil.app",
+            "/Volumes/Apps/Veil.app",
+        ] {
+            assert!(!read_only_copy(Path::new(path)), "{path}");
+        }
+    }
+
+    #[test]
+    fn only_a_complete_finish_request_is_read() {
+        let args = |list: &[&str]| {
+            list.iter()
+                .map(std::ffi::OsString::from)
+                .collect::<Vec<_>>()
+        };
+        let (msi, exe) = if cfg!(windows) {
+            (
+                r"C:\Users\jo\AppData\Local\Veil\updates\veil-1.2.3-windows-x64.msi",
+                r"C:\Program Files\Veil\veil-app.exe",
+            )
+        } else {
+            ("/tmp/veil-1.2.3-windows-x64.msi", "/opt/veil/veil-app.exe")
+        };
+        assert_eq!(
+            finish_args(&args(&[FINISH_ARG, msi, exe])),
+            Some((PathBuf::from(msi), PathBuf::from(exe)))
+        );
+        for bad in [
+            args(&[FINISH_ARG, msi]),
+            args(&[FINISH_ARG, msi, exe, "extra"]),
+            args(&["--other", msi, exe]),
+            args(&[FINISH_ARG, "update.msi", exe]),
+            args(&[FINISH_ARG, exe, exe]),
+            args(&[FINISH_ARG, msi, msi]),
+        ] {
+            assert_eq!(finish_args(&bad), None, "{bad:?}");
         }
     }
 
