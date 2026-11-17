@@ -63,7 +63,6 @@ pub struct Captured {
 
 /// Where the camera and microphone threads hand their output to the engine.
 #[derive(Clone)]
-#[cfg_attr(not(windows), allow(dead_code, reason = "capture is Windows only so far"))]
 pub struct Taps {
     pub video: SyncSender<Captured>,
     /// One 20 ms frame of interleaved samples (`AudioSettings::voice`).

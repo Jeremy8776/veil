@@ -20,6 +20,9 @@
 pub mod annexb;
 pub mod audio;
 pub mod capture;
+// Also built for tests on Windows, where it compiles against WASAPI.
+#[cfg(any(not(windows), test))]
+pub mod cpal_audio;
 pub mod decoder;
 pub mod encoder;
 pub mod error;
@@ -27,11 +30,18 @@ pub mod ffi;
 pub mod gate;
 pub mod jitter;
 pub mod ladder;
+#[cfg(any(target_os = "linux", test))]
+pub mod mjpeg;
 pub mod payload;
+pub mod platform;
+pub mod remix;
 pub mod scale;
 pub mod schedule;
 pub mod simulcast;
 pub mod temporal;
+#[cfg(target_os = "linux")]
+pub mod v4l_camera;
+pub mod yuv;
 
 pub use audio::{AudioHeader, AudioSettings, Channels};
 pub use capture::{CameraMode, NativeMode, PixelFormat};

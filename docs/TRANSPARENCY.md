@@ -143,30 +143,42 @@ The code is `crates/veil-app/src/firewall.rs`.
 ## 5. Code Rust cannot check
 
 **Today:** the workspace sets `unsafe_code = "forbid"`, so the compiler refuses `unsafe` in
-every crate except `veil-media`. That crate sets `deny` instead, and only its Windows `ffi`
-module allows it. The rest of `veil-media` is safe Rust.
+every crate except `veil-media`. That crate sets `deny` instead, and only its `ffi` modules allow
+it: one per operating system (Windows, macOS), plus libopus and OpenH264. The rest of
+`veil-media` is safe Rust.
 
 **Native code in dependencies:** `ring` (used by `rustls` and `quinn` for TLS) is written partly
 in C and assembly. It is licensed Apache-2.0 and ISC. The desktop app (`veil-app`) draws with
 `eframe`, `winit` and `wgpu`, which call the operating system's window and graphics APIs
 (DirectX 12 or Vulkan on Windows) through their own `unsafe` code; Veil's own app code has none.
+On Linux and macOS, `veil-media` reaches the microphone and speakers through `cpal` (ALSA,
+Core Audio) and the Linux camera through `v4l` (Video4Linux2 ioctls); both crates hold their
+own `unsafe` code, and Veil's code that uses them has none. MJPEG camera pictures on Linux are
+decoded by `zune-jpeg`, which is pure Rust.
 
 **Fonts and icons:** none are bundled. `veil-app` reads the system's own UI, symbol and icon
 fonts at start-up (Segoe UI and Segoe Fluent Icons or Segoe MDL2 Assets on Windows). egui's
 bundled fonts are turned off because their licences are outside the allow list.
 
 **In `veil-media`:**
-- Camera and screen capture and hardware video encoding are only available through each
-  operating system's own APIs: Media Foundation (Windows), VideoToolbox (macOS), VA-API (Linux).
-  Calling them needs `unsafe` foreign-function calls. These libraries ship with the operating
-  system; Veil does not bundle them.
+- Camera capture is only available through each operating system's own APIs: Media Foundation
+  (Windows), AVFoundation (macOS), Video4Linux2 (Linux, through the `v4l` crate). Hardware
+  video encoding is used on Windows (Media Foundation). Calling them needs `unsafe`
+  foreign-function calls. These libraries ship with the operating system; Veil does not
+  bundle them.
+- H.264 on Linux and macOS is Cisco's OpenH264 (BSD-2-Clause), compiled from source by the
+  `openh264-sys2` crate. **Patents:** Cisco pays the H.264 patent pool's royalties only for its
+  own prebuilt binary downloaded at install time, so a build from source has no such cover. This
+  is a `shortcut:` for an early release. Before a wide release, move to VideoToolbox (macOS) and
+  VA-API (Linux), or load Cisco's binary at install time. Windows uses Microsoft's encoder and
+  decoder, which ship with Windows.
 - Opus audio means the libopus C library (BSD-3-Clause). Its sources are in
   `crates/veil-media/vendor/opus` (version, origin, what was left out, and a file-by-file
   check against xiph.org's release tarball in `VENDORED.md`),
   and `build.rs` compiles them with the `cc` crate. The deep-learning features are not built.
 - Rules for that code:
   - `unsafe` is allowed only in `veil-media`, and only inside one `ffi` module per platform,
-    plus `ffi/opus.rs` for libopus.
+    plus `ffi/opus.rs` for libopus and `ffi/openh264.rs` for OpenH264.
     Every other crate keeps `forbid`.
   - Every `unsafe` block has a `// SAFETY:` comment saying why it is sound.
     `clippy::undocumented_unsafe_blocks` is set to deny, so a missing comment fails the build.
@@ -180,6 +192,8 @@ bundled fonts are turned off because their licences are outside the allow list.
 | `veil-media/src/ffi/windows/camera.rs` | Media Foundation capture (`MFEnumDeviceSources`, the camera's `IMFMediaSource`, `MFCreateSourceReaderFromMediaSource`, `IMFSourceReader::ReadSample`, `IMF2DBuffer2::Lock2DSize`) | Camera pictures on Windows, converted to NV12 by Windows' own video processing. Each picture is copied out of the locked buffer, within the bounds Windows reports, before it is used. The camera's name stays on the device; nothing about it is sent |
 | `veil-media/src/ffi/windows/protect.rs` | DPAPI (`CryptProtectData`, `CryptUnprotectData` with `CRYPTPROTECT_UI_FORBIDDEN` and a per-purpose label as extra entropy, `LocalFree`) | Sealing `veil-app`'s saved device key and verified list to the signed-in Windows user. It sits in `veil-media` only because all of Veil's `unsafe` code does |
 | `veil-media/src/ffi/opus.rs` (every platform) | libopus: `opus_encoder_create`, `opus_encode_float`, `opus_encoder_ctl`, `opus_decoder_create`, `opus_decode_float`, the matching `_destroy` calls, `opus_get_version_string` | Opus audio. Every buffer is a Rust slice whose length is the count passed to libopus, and packet lengths are checked before decoding. Each state is freed once, on drop |
+| `veil-media/src/ffi/openh264.rs` (Linux and macOS; also built for its tests on Windows) | OpenH264's encoder and decoder through their vtables: `WelsCreateSVCEncoder`, `GetDefaultParams`, `InitializeExt`, `SetOption`, `ForceIntraFrame`, `EncodeFrame`, `WelsCreateDecoder`, `Initialize`, `DecodeFrameNoDelay`, `Uninitialize` and the matching `WelsDestroy*` calls | H.264 off Windows, one encoder per simulcast rung with temporal layers, and decoding other members' video. The bitstream comes from another member, so OpenH264's decoder is part of the attack surface. Veil refuses any decoded size above 4K, reads each output plane only within the rows and pitch OpenH264 reports, and copies it out before the next call. Each encoder and decoder is destroyed once, on drop |
+| `veil-media/src/ffi/macos` (`camera.rs`) | AVFoundation (`AVCaptureDevice` listing, permission request, formats and frame rates, `AVCaptureSession`, `AVCaptureDeviceInput`, `AVCaptureVideoDataOutput` with a sample buffer delegate on a serial dispatch queue) and CoreVideo (`CVPixelBufferLockBaseAddress`, plane base addresses, pitches and heights) | Camera pictures on macOS, converted to NV12 by AVFoundation. Each picture is copied out of the locked pixel buffer within the plane sizes CoreVideo reports, then unlocked. macOS asks the person for camera permission; a refusal stops the camera. The camera's name stays on the device |
 
 ## 6. Known shortcuts
 
@@ -194,6 +208,9 @@ grep -rn "shortcut:" crates
 
 ## 7. Not yet tested
 
+- Linux and macOS media on real devices. The camera, microphone and speaker code there is
+  compiled and linted in CI, and OpenH264 encoding and decoding is round-trip tested, but no
+  call has yet run on a Linux or macOS machine.
 - Hole punching across real home routers, and the automatic step from a failed punch to the
   relay. Every test so far runs on one machine.
 - A forged MLS commit from a member who is not the host. The check exists; there is no test,

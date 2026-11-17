@@ -2,6 +2,18 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+Linux and macOS builds now have camera, microphone, speakers and video. Not yet tried on real
+Linux or macOS machines.
+
+- Linux: camera through Video4Linux2 (NV12, YUYV or MJPEG), microphone and speakers through ALSA.
+- macOS: camera through AVFoundation, microphone and speakers through Core Audio. macOS asks for
+  camera and microphone permission the first time.
+- H.264 on Linux and macOS through OpenH264, built from source. Calls work across Windows, Linux
+  and macOS. Cisco's H.264 patent cover does not apply to a build from source; see
+  docs/TRANSPARENCY.md.
+
 ## 0.1.0, 16/11/2026
 
 First public release. Windows only. Not independently audited.

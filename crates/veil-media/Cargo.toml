@@ -30,6 +30,36 @@ windows = { version = "0.62", features = [
     "Win32_System_Variant",
 ] }
 
+# Linux and macOS: microphone and speakers through cpal (ALSA, Core Audio), and H.264 through
+# OpenH264 built from source (see src/ffi/openh264.rs about patents).
+[target.'cfg(not(windows))'.dependencies]
+cpal = "0.18.2"
+openh264-sys2 = { version = "0.9.10", default-features = false, features = ["source"] }
+
+# The OpenH264 and cpal modules also build for tests on Windows, so they are compiled and
+# exercised on the machine they are written on.
+[target.'cfg(windows)'.dev-dependencies]
+cpal = "0.18.2"
+openh264-sys2 = { version = "0.9.10", default-features = false, features = ["source"] }
+
+# The MJPEG module (src/mjpeg.rs) runs its tests on every platform; Linux also uses it for real.
+[dev-dependencies]
+zune-jpeg = "0.5.15"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+v4l = "0.14.0"
+zune-jpeg = "0.5.15"
+
+# macOS camera: AVFoundation through the objc2 bindings (src/ffi/macos).
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+dispatch2 = "0.3.1"
+objc2 = "0.6.5"
+objc2-av-foundation = { version = "0.3.2", features = ["objc2-core-media"] }
+objc2-core-media = { version = "0.3.2", features = ["objc2-core-video"] }
+objc2-core-video = "0.3.2"
+objc2-foundation = "0.3.2"
+
 # The workspace forbids `unsafe`; this crate only denies it, so the one `ffi` module per OS can
 # allow it (docs/TRANSPARENCY.md section 5). Keep the rest in step with the workspace table.
 [lints.rust]

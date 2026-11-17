@@ -20,8 +20,10 @@
 # the firewall rule (docs/HANDOFF.md, firewall). Add installers with code signing and macOS
 # notarisation before a wide release.
 # shortcut: macOS is Apple Silicon only. Add an x86_64-apple-darwin row if Intel Macs matter.
-# Camera and microphone capture are Windows only so far (veil-app/src/media.rs), so the Linux
-# and macOS builds can join calls but not send video or audio.
+# shortcut: Linux and macOS encode H.264 with OpenH264 built from source, which Cisco's patent
+# licence does not cover (docs/TRANSPARENCY.md). Move to the OS encoders before a wide release.
+# macOS ships a bare executable with its Info.plist embedded (crates/veil-app/build.rs), so
+# Gatekeeper asks once and the camera and microphone prompts name Veil.
 name: Release
 
 on:
@@ -63,13 +65,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: "1.98.1"
-      # Headers for eframe's X11 and Wayland back ends.
+      # Headers for eframe's X11 and Wayland back ends, ALSA for cpal, libclang for the v4l
+      # bindings, and nasm for OpenH264's assembly. Keep in step with ci.yml.
       - name: Linux packages
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+            libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libasound2-dev libclang-dev nasm pkg-config
       - name: Version
         id: version
         shell: pwsh

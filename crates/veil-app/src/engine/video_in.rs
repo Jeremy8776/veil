@@ -171,16 +171,8 @@ fn forget_quiet(sources: &mut HashMap<u32, Source>, shared: &Shared) {
     });
 }
 
-#[cfg(windows)]
 fn platform_decoder() -> Result<Box<dyn VideoDecoder>, MediaError> {
-    Ok(Box::new(veil_media::MfDecoder::open()?))
-}
-
-#[cfg(not(windows))]
-fn platform_decoder() -> Result<Box<dyn VideoDecoder>, MediaError> {
-    Err(MediaError::Unavailable(
-        "video decoder (Windows only so far)",
-    ))
+    veil_media::platform::video_decoder()
 }
 
 #[cfg(test)]
