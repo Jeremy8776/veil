@@ -3,6 +3,7 @@
 Purpose: one place for the logo's geometry, so the README logo, the window icon and the
 installer icons always match. The mark is the shipped icon (design concept 33b) without its
 rounded teal square: two rings around a disc, with the V cut out of the disc (transparent).
+The mark is plain white.
 
 Writes:
 - crates/veil-app/assets/veil-logo.svg  the README logo (vector)
@@ -24,8 +25,7 @@ from PIL import Image, ImageChops, ImageDraw
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "crates" / "veil-app" / "assets"
 
-TEAL_LIGHT = (0x17, 0xC9, 0xA6)
-TEAL_DEEP = (0x06, 0x6A, 0x82)
+WHITE = (0xFF, 0xFF, 0xFF)
 
 # Geometry in units of the mark's half-width (the outer ring's outer edge is 1.0), centre 0,0.
 FULL = {
@@ -43,18 +43,6 @@ SMALL = {
 
 PAD = 0.03  # empty margin each side, as a share of the square's half-width
 SUPERSAMPLE = 8
-
-
-def gradient(size):
-    """The teal gradient, light at the top left to deep at the bottom right."""
-    small = Image.new("RGB", (64, 64))
-    px = small.load()
-    for y in range(64):
-        for x in range(64):
-            # Project onto the direction (0.3, 1): mostly top to bottom, a little left to right.
-            t = (0.3 * (x / 63) + 1.0 * (y / 63)) / 1.3
-            px[x, y] = tuple(round(a + (b - a) * t) for a, b in zip(TEAL_LIGHT, TEAL_DEEP))
-    return small.resize((size, size), Image.BILINEAR)
 
 
 def render(size, form):
@@ -87,7 +75,7 @@ def render(size, form):
         draw.ellipse((px - w / 2, py - w / 2, px + w / 2, py + w / 2), fill=255)
     alpha = ImageChops.lighter(alpha, ImageChops.subtract(disc, v))
 
-    image = gradient(big).convert("RGBA")
+    image = Image.new("RGBA", (big, big), WHITE)
     image.putalpha(alpha)
     return image.resize((size, size), Image.LANCZOS)
 
@@ -100,23 +88,18 @@ def svg():
         return f"{value * s:.1f}"
 
     rings = "".join(
-        f'<circle r="{n(r)}" fill="none" stroke="url(#t)" stroke-width="{n(w)}" '
+        f'<circle r="{n(r)}" fill="none" stroke="#FFFFFF" stroke-width="{n(w)}" '
         f'stroke-opacity="{o}"/>'
         for r, w, o in FULL["rings"]
     )
     v = " ".join(f"{n(x)},{n(y)}" for x, y in FULL["v"])
-    light = "#%02X%02X%02X" % TEAL_LIGHT
-    deep = "#%02X%02X%02X" % TEAL_DEEP
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" '
         'viewBox="-256 -256 512 512">'
-        f'<defs><linearGradient id="t" gradientUnits="userSpaceOnUse" x1="-77" y1="-256" '
-        f'x2="77" y2="256"><stop offset="0" stop-color="{light}"/>'
-        f'<stop offset="1" stop-color="{deep}"/></linearGradient>'
-        '<mask id="v"><rect x="-256" y="-256" width="512" height="512" fill="#fff"/>'
+        '<defs><mask id="v"><rect x="-256" y="-256" width="512" height="512" fill="#fff"/>'
         f'<polyline points="{v}" fill="none" stroke="#000" stroke-width="{n(FULL["v_width"])}" '
         'stroke-linecap="round" stroke-linejoin="round"/></mask></defs>'
-        f'{rings}<circle r="{n(FULL["disc"])}" fill="url(#t)" mask="url(#v)"/></svg>\n'
+        f'{rings}<circle r="{n(FULL["disc"])}" fill="#FFFFFF" mask="url(#v)"/></svg>\n'
     )
 
 

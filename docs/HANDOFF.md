@@ -510,7 +510,7 @@ Decisions:
   a total cap (Open shortcuts).
 - **Servers are chosen in the app**, saved per device. Environment variables still override.
 - `design/` (icon concepts) stays out of git. From 17/11/2026 the icon is concept 33b without
-  its teal square, the V cut out. `tools/make-icons.py` (needs Pillow) writes
+  its teal square, the V cut out, in plain white. `tools/make-icons.py` (needs Pillow) writes
   `assets/veil-logo.svg` (README), `veil-256.png` and `veil.ico`; `src/logo.rs` draws the
   same mark live on Home with moving waves. Change both together.
 

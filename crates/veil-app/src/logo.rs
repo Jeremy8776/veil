@@ -1,4 +1,4 @@
-//! Veil's mark, drawn live on the home screen: a teal disc with the V cut out, and waves that
+//! Veil's mark, drawn live on the home screen: a white disc with the V cut out, and waves that
 //! ripple out from it.
 //!
 //! Purpose: the same mark as the app icon (`tools/make-icons.py`, whose geometry this copies),
@@ -13,9 +13,9 @@
 use std::f32::consts::PI;
 use std::time::Duration;
 
-use eframe::egui::{self, Color32, Mesh, Pos2, Sense, Shape, Stroke, pos2, vec2};
+use eframe::egui::{self, Color32, Pos2, Sense, Shape, Stroke, vec2};
 
-use crate::theme::{LOGO_DEEP, LOGO_LIGHT};
+use crate::theme::LOGO;
 
 /// Seconds for one wave to travel from the disc to the edge.
 const PERIOD: f32 = 3.6;
@@ -40,14 +40,13 @@ pub fn show(ui: &mut egui::Ui, size: f32, behind: Color32) {
     let centre = rect.center();
     let unit = size / 2.0;
     for (radius, alpha) in waves(time) {
-        let colour = gradient(0.0, 0.0).gamma_multiply(alpha);
         painter.circle_stroke(
             centre,
             radius * unit,
-            Stroke::new(RING_WIDTH * unit, colour),
+            Stroke::new(RING_WIDTH * unit, LOGO.gamma_multiply(alpha)),
         );
     }
-    painter.add(disc(centre, unit));
+    painter.circle_filled(centre, DISC * unit, LOGO);
     let points: Vec<Pos2> = V.iter().map(|&(x, y)| centre + vec2(x, y) * unit).collect();
     let width = V_WIDTH * unit;
     painter.add(Shape::line(points.clone(), Stroke::new(width, behind)));
@@ -68,37 +67,6 @@ fn waves(time: f32) -> [(f32, f32); WAVES] {
         let alpha = WAVE_ALPHA * (PI * phase.powf(0.5)).sin();
         (radius, alpha.max(0.0))
     })
-}
-
-/// The teal at a point (in half-width units from the centre): light at the top left, deep at
-/// the bottom right, the same direction as the icon.
-fn gradient(x: f32, y: f32) -> Color32 {
-    let t = ((0.3 * x + y) / 1.3 + 1.0) / 2.0;
-    lerp(LOGO_LIGHT, LOGO_DEEP, t.clamp(0.0, 1.0))
-}
-
-fn lerp(a: Color32, b: Color32, t: f32) -> Color32 {
-    let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t).round() as u8;
-    Color32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()))
-}
-
-/// The disc as a triangle fan, coloured per vertex so it carries the gradient.
-fn disc(centre: Pos2, unit: f32) -> Shape {
-    const SEGMENTS: u32 = 72;
-    let mut mesh = Mesh::default();
-    mesh.colored_vertex(centre, gradient(0.0, 0.0));
-    for i in 0..SEGMENTS {
-        let angle = i as f32 / SEGMENTS as f32 * 2.0 * PI;
-        let (x, y) = (angle.cos() * DISC, angle.sin() * DISC);
-        mesh.colored_vertex(
-            pos2(centre.x + x * unit, centre.y + y * unit),
-            gradient(x, y),
-        );
-    }
-    for i in 0..SEGMENTS {
-        mesh.add_triangle(0, 1 + i, 1 + (i + 1) % SEGMENTS);
-    }
-    Shape::mesh(mesh)
 }
 
 #[cfg(test)]
@@ -130,11 +98,5 @@ mod tests {
         for ((ra, aa), (rb, ab)) in a.iter().zip(b.iter()) {
             assert!((ra - rb).abs() < 1e-3 && (aa - ab).abs() < 1e-3);
         }
-    }
-
-    #[test]
-    fn the_gradient_runs_light_to_deep() {
-        assert_eq!(gradient(-1.0, -1.0), LOGO_LIGHT);
-        assert_eq!(gradient(1.0, 1.0), LOGO_DEEP);
     }
 }

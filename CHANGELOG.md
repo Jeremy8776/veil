@@ -37,7 +37,7 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ### Changed
 
-- A new icon: the same rings and V, without the teal square, and with the V cut out.
+- A new white icon: the same rings and V, without the teal square, and with the V cut out.
 - The home screen shows the logo with slow waves, and the smaller links (Demo call,
   Connection, device key, Logs) sit in one row under the card, with the version below.
 
