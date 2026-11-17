@@ -4,7 +4,8 @@
 //! Invariants:
 //! - Muting closes the microphone and stopping video closes the camera (see `media.rs`), so
 //!   nothing is captured while you appear off.
-//! - Shortcuts: Ctrl+Shift+M mutes or unmutes, Ctrl+Shift+O starts or stops video.
+//! - Shortcuts: Ctrl+Shift+M mutes or unmutes, Ctrl+Shift+O starts or stops video,
+//!   Ctrl+Shift+D shows or hides the call stats (`stats.rs`, off by default).
 //! - A demo call always shows its banner.
 //! - The host's invite is up front: an Invite button in the top bar, and a card on the stage
 //!   while nobody else has joined.
@@ -23,7 +24,7 @@ use crate::engine::Engine;
 use crate::icons::Icon;
 use crate::layout;
 use crate::model::{Call, CallStatus, Participant, clock};
-use crate::screens::invite;
+use crate::screens::{controls, invite, stats};
 use crate::screens::panels::{self, Panel};
 use crate::theme::{self, GAP, MUTED, PAGE, SURFACE};
 use crate::widgets::{self, ControlState, Tile, Tone, control, pill};
@@ -42,6 +43,8 @@ pub struct CallView {
     notice: Option<(String, Instant)>,
     /// Whether the blur-off notice has been shown as a toast, so it shows once.
     blur_notice_shown: bool,
+    /// The call stats overlay is on.
+    pub stats: bool,
     /// The real call; `None` in a demo. Dropping it leaves the call.
     engine: Option<Engine>,
 }
@@ -56,6 +59,7 @@ impl CallView {
             draft: String::new(),
             notice: None,
             blur_notice_shown: false,
+            stats: false,
         }
     }
 
@@ -136,13 +140,18 @@ impl CallView {
 
     fn shortcuts(&mut self, app: &mut VeilApp, ui: &egui::Ui) {
         let combo = Modifiers::COMMAND | Modifiers::SHIFT;
-        let (mute, video) =
-            ui.input_mut(|i| (i.consume_key(combo, Key::M), i.consume_key(combo, Key::O)));
+        let (mute, video, stats) = ui.input_mut(|i| {
+            let mut key = |k| i.consume_key(combo, k);
+            (key(Key::M), key(Key::O), key(Key::D))
+        });
         if mute {
-            toggle_mic(app);
+            controls::toggle_mic(app);
         }
         if video {
-            toggle_camera(app);
+            controls::toggle_camera(app);
+        }
+        if stats {
+            self.stats = !self.stats;
         }
     }
 
@@ -190,6 +199,16 @@ impl CallView {
         }
         if let Some(engine) = &self.engine {
             engine.watch(tiles);
+        }
+        if self.stats {
+            let (measured, levels) = self.engine.as_ref().map(Engine::stats).unwrap_or_default();
+            let shown = stats::Shown {
+                call: &self.call,
+                stats: &measured,
+                levels: &levels,
+                mic: app.media.mic_on().then_some(app.level),
+            };
+            stats::overlay(ui, area, &shown);
         }
         if self.waiting_for_guests() {
             invite::card(self, ui, area);
@@ -307,6 +326,10 @@ fn top_bar(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
                     if widgets::icon_button(ui, icon, label).clicked() {
                         view.view = next;
                     }
+                    let tip = "Call stats: delay, loss, bit rate (Ctrl+Shift+D)";
+                    if widgets::icon_button(ui, Icon::Signal, tip).clicked() {
+                        view.stats = !view.stats;
+                    }
                     if view.call.is_host && !view.call.demo {
                         let lifetime = invite::lifetime_text(&view.call, invite::now_unix());
                         let invite = pill(ui, Some(Icon::Link), "Invite", Tone::Quiet, 104.0)
@@ -336,12 +359,15 @@ fn control_bar(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> boo
         )
         .show(ui, |ui| {
             let leave_w = 110.0;
-            let controls_w = 8.0 * 68.0 + 7.0 * 6.0;
+            let buttons = controls::CONTROLS + 3;
+            let gaps = (buttons + controls::MENUS - 1) as f32;
+            let controls_w =
+                buttons as f32 * 68.0 + controls::MENUS as f32 * controls::MENU_W + gaps * 6.0;
             let start = ((ui.available_width() - controls_w) / 2.0).max(0.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 ui.add_space(start);
-                device_controls(view, app, ui);
+                controls::show(view, app, ui);
                 ui.add_space(4.0);
                 panel_controls(view, ui);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -352,64 +378,6 @@ fn control_bar(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> boo
             });
         });
     stay
-}
-
-fn device_controls(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
-    let mic_on = app.media.mic_on();
-    let state = ControlState {
-        off: !mic_on,
-        ..Default::default()
-    };
-    let label = if mic_on { "Mute" } else { "Unmute" };
-    if control(ui, Icon::Mic, label, "Microphone (Ctrl+Shift+M)", state).clicked() {
-        toggle_mic(app);
-    }
-    let cam_on = app.media.camera_on();
-    let state = ControlState {
-        off: !cam_on,
-        ..Default::default()
-    };
-    let label = if cam_on { "Stop video" } else { "Start video" };
-    if control(ui, Icon::Video, label, "Camera (Ctrl+Shift+O)", state).clicked() {
-        toggle_camera(app);
-    }
-    let effects = control(
-        ui,
-        Icon::Effects,
-        "Effects",
-        "Filters and background blur",
-        ControlState::default(),
-    );
-    egui::Popup::from_toggle_button_response(&effects)
-        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-        .align(egui::RectAlign::TOP)
-        .show(|ui| {
-            ui.set_width(280.0);
-            widgets::filter_picker(ui, &app.media);
-            widgets::blur_picker(ui, &app.media);
-        });
-    if control(
-        ui,
-        Icon::Share,
-        "Share",
-        "Share your screen",
-        ControlState::default(),
-    )
-    .clicked()
-    {
-        view.notify("Screen sharing is not built yet.");
-    }
-    let raised = view.call.you().is_some_and(|p| p.hand_raised);
-    let state = ControlState {
-        selected: raised,
-        ..Default::default()
-    };
-    let label = if raised { "Lower" } else { "Raise" };
-    if control(ui, Icon::Hand, label, "Raise or lower your hand", state).clicked()
-        && let Some(you) = view.call.you_mut()
-    {
-        you.hand_raised = !raised;
-    }
 }
 
 fn panel_controls(view: &mut CallView, ui: &mut egui::Ui) {
@@ -454,18 +422,6 @@ fn toggle(open: Option<Panel>, panel: Panel) -> Option<Panel> {
     } else {
         Some(panel)
     }
-}
-
-fn toggle_mic(app: &mut VeilApp) {
-    let on = !app.media.mic_on();
-    app.want_mic = on;
-    app.media.set_mic(on);
-}
-
-fn toggle_camera(app: &mut VeilApp) {
-    let on = !app.media.camera_on();
-    app.want_camera = on;
-    app.media.set_camera(on);
 }
 
 #[cfg(test)]

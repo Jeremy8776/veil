@@ -9,6 +9,8 @@
 //! Invariants:
 //! - The speaker is opened and used on this thread only. If it fails (a headset unplugged),
 //!   sound is dropped and the speaker is opened again after two seconds.
+//! - A different speaker chosen during the call ([`Playback`]) is opened on the next frame;
+//!   the speaker volume applies to the mix each frame.
 //! - The mix is clamped to -1..1, so several loud people clip rather than wrap.
 //! - Someone silent for 10 s is forgotten, decoder and all.
 //!
@@ -26,6 +28,7 @@ use veil_media::{AudioHeader, AudioSettings, JitterBuffer, MediaError, OpusDecod
 
 use super::view::Shared;
 use crate::media::{Worker, meter};
+use crate::volume::{Playback, scale};
 
 const REOPEN_AFTER: Duration = Duration::from_secs(2);
 const FORGET_AFTER: Duration = Duration::from_secs(10);
@@ -38,8 +41,8 @@ pub struct AudioIn {
     pub arrival_us: u64,
 }
 
-pub fn spawn(packets: Receiver<AudioIn>, shared: Arc<Shared>, speaker: Option<String>) -> Worker {
-    Worker::spawn(move |stop| run(&packets, &shared, speaker.as_deref(), &stop))
+pub fn spawn(packets: Receiver<AudioIn>, shared: Arc<Shared>, playback: Arc<Playback>) -> Worker {
+    Worker::spawn(move |stop| run(&packets, &shared, playback, &stop))
 }
 
 struct Source {
@@ -58,18 +61,12 @@ pub fn mix_into(mix: &mut [f32], frame: &[f32]) {
     }
 }
 
-pub fn clamp(mix: &mut [f32]) {
-    for sample in mix {
-        *sample = sample.clamp(-1.0, 1.0);
-    }
-}
-
-fn run(packets: &Receiver<AudioIn>, shared: &Shared, speaker: Option<&str>, stop: &AtomicBool) {
+fn run(packets: &Receiver<AudioIn>, shared: &Shared, playback: Arc<Playback>, stop: &AtomicBool) {
     let settings = AudioSettings::voice();
     let per_channel = settings.frame_samples();
     let mut mix = vec![0.0f32; per_channel * settings.channels.count()];
     let mut sources: HashMap<u32, Source> = HashMap::new();
-    let mut speaker_out = Speaker::new(settings, speaker);
+    let mut speaker_out = Speaker::new(settings, playback);
     while !stop.load(Ordering::Relaxed) {
         loop {
             match packets.try_recv() {
@@ -95,7 +92,7 @@ fn run(packets: &Receiver<AudioIn>, shared: &Shared, speaker: Option<&str>, stop
             };
             shared.heard(*id, |heard| heard.level = level);
         }
-        clamp(&mut mix);
+        scale(&mut mix, speaker_out.playback.volume.get());
         speaker_out.play(&mix);
         let now = Instant::now();
         sources.retain(|id, source| {
@@ -136,19 +133,22 @@ fn receive(
     shared.heard(packet.id, |heard| heard.at = now);
 }
 
-/// The speaker, opened on first use and again after it fails.
-struct Speaker<'a> {
+/// The speaker, opened on first use, again after it fails, and when another is chosen.
+struct Speaker {
     settings: AudioSettings,
-    device: Option<&'a str>,
+    playback: Arc<Playback>,
+    /// `playback.changes()` when the open speaker was chosen.
+    seen: u64,
     open: Option<Output>,
     retry_at: Instant,
 }
 
-impl<'a> Speaker<'a> {
-    fn new(settings: AudioSettings, device: Option<&'a str>) -> Self {
+impl Speaker {
+    fn new(settings: AudioSettings, playback: Arc<Playback>) -> Self {
         Self {
             settings,
-            device,
+            seen: playback.changes(),
+            playback,
             open: None,
             retry_at: Instant::now(),
         }
@@ -157,8 +157,16 @@ impl<'a> Speaker<'a> {
     /// Plays one frame. Paces the caller to real time while the speaker works; without one it
     /// sleeps a frame's length instead.
     fn play(&mut self, frame: &[f32]) {
+        let changes = self.playback.changes();
+        if changes != self.seen {
+            // Another speaker was chosen: close this one and open that one now.
+            self.seen = changes;
+            self.open = None;
+            self.retry_at = Instant::now();
+        }
         if self.open.is_none() && Instant::now() >= self.retry_at {
-            match Output::open(&self.settings, self.device) {
+            let device = self.playback.device();
+            match Output::open(&self.settings, device.as_deref()) {
                 Ok(output) => self.open = Some(output),
                 Err(e) => {
                     crate::note!("cannot open the speaker: {e}");
@@ -202,7 +210,7 @@ mod tests {
         mix_into(&mut mix, &[0.5, -0.5, 0.75, 0.0]);
         mix_into(&mut mix, &[0.75, -0.75, 0.0, 0.25]);
         mix_into(&mut mix, &[1.0; 3]);
-        clamp(&mut mix);
+        scale(&mut mix, 1.0);
         assert_eq!(mix, [1.0, -1.0, 0.75, 0.25]);
     }
 }

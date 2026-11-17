@@ -6,11 +6,13 @@
 use eframe::egui::{self, Align, Layout, RichText, Sense, vec2};
 
 use crate::app::VeilApp;
-use crate::devices::{self, Device};
 use crate::firewall::State;
 use crate::icons::Icon;
 use crate::theme::{self, MUTED};
-use crate::widgets::{self, ControlState, Tile, Tone, card, control, level_meter, pill};
+use crate::widgets::{
+    self, ControlState, Tile, Tone, card, control, device_error as status, device_picker as picker,
+    level_meter, pill,
+};
 
 pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
     egui::CentralPanel::default()
@@ -174,30 +176,6 @@ fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
     });
 }
 
-/// A labelled drop-down of devices. Returns the new choice when it changed (`Some(None)` for
-/// the default).
-fn picker(
-    ui: &mut egui::Ui,
-    icon: Icon,
-    kind: &str,
-    list: &[Device],
-    chosen: Option<&str>,
-    default: &str,
-) -> Option<Option<String>> {
-    let mut picked = chosen.map(str::to_string);
-    widgets::picker_label(ui, icon, kind);
-    egui::ComboBox::from_id_salt(kind)
-        .width(280.0)
-        .selected_text(devices::label(list, chosen, default))
-        .show_ui(ui, |ui| {
-            ui.selectable_value(&mut picked, None, default);
-            for device in list {
-                ui.selectable_value(&mut picked, Some(device.id.clone()), &device.name);
-            }
-        });
-    (picked.as_deref() != chosen).then_some(picked)
-}
-
 /// For a host: whether guests can reach you, and the button that lets them.
 fn firewall(app: &VeilApp, ui: &mut egui::Ui) {
     let (note, button) = match app.firewall.state() {
@@ -263,12 +241,5 @@ fn router_question(app: &mut VeilApp, ui: &mut egui::Ui) {
             crate::note!("router choice not saved: {problems:?}");
             app.connection.saved = settings;
         }
-    }
-}
-
-/// A device error, in short, under its picker.
-fn status(ui: &mut egui::Ui, error: Option<String>) {
-    if let Some(error) = error {
-        ui.label(RichText::new(error).small().color(theme::DANGER_HOVER));
     }
 }

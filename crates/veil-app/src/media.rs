@@ -4,7 +4,9 @@
 //! not `Send`. The camera thread hands the newest picture to the interface; the microphone
 //! thread hands over a level from 0 to 1. During a call, [`Taps`] also pass each picture and
 //! each 20 ms of sound to the call engine, which encodes and encrypts them. A chosen
-//! [`Blur`] and then [`Filter`] are applied to each picture before either of those.
+//! [`Blur`] and then [`Filter`] are applied to each picture before either of those, and the
+//! microphone volume (`volume.rs`) to each 20 ms of sound. The speaker choice and volume live
+//! here too ([`LocalMedia::playback`]) and the call's playback thread follows them.
 //!
 //! Invariants:
 //! - Off means closed: turning the camera or microphone off stops its thread and releases the
@@ -28,6 +30,7 @@ use eframe::egui;
 use crate::convert::Rgba;
 use crate::devices::Choice;
 use crate::engine::{Captured, Taps};
+use crate::volume::{Gain, MIC_MAX, Playback, SPEAKER_MAX};
 use veil_media::{Blur, BlurEngine, BlurStatus, Filter};
 
 /// What the interface reads from the workers.
@@ -47,6 +50,8 @@ struct Shared {
     blur_notice: Mutex<Option<String>>,
     /// Set by the camera thread when it closed the camera itself.
     camera_stopped: AtomicBool,
+    /// Microphone volume, applied before the meter and the call.
+    mic_gain: Gain,
 }
 
 /// Shown when the camera turns itself off because blur cannot keep up.
@@ -108,6 +113,8 @@ pub struct LocalMedia {
     seen_seq: u64,
     /// Which devices to open; `None` is the default.
     choice: Choice,
+    /// The speaker and its volume, shared with the call's playback thread.
+    playback: Arc<Playback>,
 }
 
 impl LocalMedia {
@@ -119,7 +126,30 @@ impl LocalMedia {
             mic: None,
             seen_seq: 0,
             choice: Choice::default(),
+            playback: Arc::default(),
         }
+    }
+
+    /// For the call engine: the speaker to play through, which can change during the call.
+    pub fn playback(&self) -> Arc<Playback> {
+        self.playback.clone()
+    }
+
+    pub fn mic_volume(&self) -> f32 {
+        self.shared.mic_gain.get()
+    }
+
+    /// Takes effect on the next 20 ms of sound, for the meter and the call alike.
+    pub fn set_mic_volume(&self, volume: f32) {
+        self.shared.mic_gain.set(volume, MIC_MAX);
+    }
+
+    pub fn speaker_volume(&self) -> f32 {
+        self.playback.volume.get()
+    }
+
+    pub fn set_speaker_volume(&self, volume: f32) {
+        self.playback.volume.set(volume, SPEAKER_MAX);
     }
 
     pub fn camera_on(&self) -> bool {
@@ -193,8 +223,10 @@ impl LocalMedia {
         }
     }
 
-    /// Remembers the speaker; the call's playback opens it (`engine/audio_out.rs`).
+    /// Chooses the speaker; the call's playback opens it (`engine/audio_out.rs`), at once
+    /// during a call.
     pub fn choose_speaker(&mut self, id: Option<String>) {
+        self.playback.set_device(id.clone());
         self.choice.speaker = id;
     }
 
@@ -359,15 +391,20 @@ fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Option<
         }
     };
     let mut frames = 0u32;
+    // The frame after the volume; reused so a volume costs no allocation per frame.
+    let mut scaled = Vec::new();
     while !stop.load(Ordering::Relaxed) {
         match mic.read() {
             Ok(frame) => {
+                scaled.clear();
+                scaled.extend_from_slice(frame);
+                crate::volume::scale(&mut scaled, shared.mic_gain.get());
                 if let Some(taps) = lock(&shared.taps).as_ref() {
-                    let _ = taps.audio.try_send(frame.to_vec());
+                    let _ = taps.audio.try_send(scaled.clone());
                 }
                 shared
                     .level
-                    .store(meter(frame).to_bits(), Ordering::Relaxed);
+                    .store(meter(&scaled).to_bits(), Ordering::Relaxed);
                 // Every other 20 ms frame is smooth enough for a meter.
                 frames = frames.wrapping_add(1);
                 if frames.is_multiple_of(2) {

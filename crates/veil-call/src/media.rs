@@ -45,9 +45,11 @@ use crate::CallError;
 
 mod links;
 mod read;
+mod stats;
 mod write;
 
 use links::{adopt_early, open_media, run_inbox};
+pub use stats::LinkStats;
 pub use write::SEND_DEADLINE;
 
 /// How long an early media link may wait for this member's routes to expect it.

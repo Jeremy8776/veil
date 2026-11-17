@@ -322,6 +322,37 @@ pub fn picker_label(ui: &mut Ui, icon: Icon, kind: &str) {
     });
 }
 
+/// A labelled drop-down of devices, shared by the pre-join screen and the in-call menus. Returns the new choice when it changed (`Some(None)` for
+/// the default).
+pub fn device_picker(
+    ui: &mut Ui,
+    icon: Icon,
+    kind: &str,
+    list: &[crate::devices::Device],
+    chosen: Option<&str>,
+    default: &str,
+) -> Option<Option<String>> {
+    let mut picked = chosen.map(str::to_string);
+    picker_label(ui, icon, kind);
+    egui::ComboBox::from_id_salt(kind)
+        .width(280.0)
+        .selected_text(crate::devices::label(list, chosen, default))
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut picked, None, default);
+            for device in list {
+                ui.selectable_value(&mut picked, Some(device.id.clone()), &device.name);
+            }
+        });
+    (picked.as_deref() != chosen).then_some(picked)
+}
+
+/// A device error, in short, under its picker.
+pub fn device_error(ui: &mut Ui, error: Option<String>) {
+    if let Some(error) = error {
+        ui.label(egui::RichText::new(error).small().color(theme::DANGER_HOVER));
+    }
+}
+
 /// The Filter drop-down, shared by the pre-join screen and the in-call Effects popup.
 pub fn filter_picker(ui: &mut Ui, media: &LocalMedia) {
     picker_label(ui, Icon::Effects, "Filter");
