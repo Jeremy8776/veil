@@ -38,7 +38,7 @@ impl Form {
 pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
     let overridden = Settings::overridden(|name| std::env::var(name).ok());
     let mut stay = true;
-    super::home::page(ui, |ui| {
+    super::home::page(ui, "connection", |ui| {
         ui.label(RichText::new("Connection").font(theme::bold(28.0)));
         ui.label(RichText::new("Optional. Blank uses Veil's own.").color(MUTED));
         ui.add_space(16.0);
