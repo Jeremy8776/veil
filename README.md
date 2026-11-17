@@ -69,7 +69,7 @@ allow Veil in System Settings, Privacy and Security.
 ### Code signing policy
 
 Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
-[SignPath Foundation](https://signpath.org) (applied for, not yet active). Who builds,
+[SignPath Foundation](https://signpath.org) (not yet active). Who builds,
 reviews and approves each signed release, and Veil's privacy statement:
 [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
 
