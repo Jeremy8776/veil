@@ -24,6 +24,7 @@ pub mod capture;
 #[cfg(any(not(windows), test))]
 pub mod cpal_audio;
 pub mod decoder;
+pub mod effects;
 pub mod encoder;
 pub mod error;
 pub mod ffi;
@@ -46,6 +47,7 @@ pub mod yuv;
 pub use audio::{AudioHeader, AudioSettings, Channels};
 pub use capture::{CameraMode, NativeMode, PixelFormat};
 pub use decoder::VideoDecoder;
+pub use effects::Filter;
 pub use encoder::{EncodedLayer, RawPicture, VideoEncoder};
 pub use error::MediaError;
 pub use ffi::opus::{OpusDecoder, OpusEncoder, opus_version};

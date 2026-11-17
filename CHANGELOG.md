@@ -2,6 +2,15 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Added
+
+- Video filters: None, Warm, Cool, Black & white and Bright. Pick one before you join, or
+  from the new Effects button in the call bar. It changes your self-view and the picture other
+  members receive, on your device, before the picture is encoded. It resets to None each time
+  Veil starts.
+
 ## 0.1.3, 17/11/2026
 
 ### Added

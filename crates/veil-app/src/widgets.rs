@@ -12,8 +12,10 @@ use eframe::egui::{
     self, Align2, Color32, CornerRadius, FontId, Rect, Response, Role, Sense, Stroke, StrokeKind,
     TextureId, Ui, WidgetInfo, pos2, vec2,
 };
+use veil_media::Filter;
 
 use crate::icons::Icon;
+use crate::media::LocalMedia;
 use crate::theme::{self, ACCENT, DANGER, MUTED, RADIUS, RAISED, RAISED_HOVER, TEXT};
 
 /// How a call-bar button looks.
@@ -309,4 +311,41 @@ pub fn card() -> egui::Frame {
         .corner_radius(CornerRadius::same(12))
         .stroke(Stroke::new(1.0, theme::LINE))
         .inner_margin(egui::Margin::same(20))
+}
+
+/// The small muted icon and name above a drop-down.
+pub fn picker_label(ui: &mut Ui, icon: Icon, kind: &str) {
+    ui.horizontal(|ui| {
+        let (rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+        icon.paint(ui.painter(), rect.center(), 15.0, MUTED);
+        ui.label(egui::RichText::new(kind).small().color(MUTED));
+    });
+}
+
+/// The Filter drop-down, shared by the pre-join screen and the in-call Effects popup.
+pub fn filter_picker(ui: &mut Ui, media: &LocalMedia) {
+    picker_label(ui, Icon::Effects, "Filter");
+    let current = media.filter();
+    let mut picked = current;
+    egui::ComboBox::from_id_salt("Filter")
+        .width(280.0)
+        .selected_text(filter_label(current))
+        .show_ui(ui, |ui| {
+            for filter in Filter::ALL {
+                ui.selectable_value(&mut picked, filter, filter_label(filter));
+            }
+        });
+    if picked != current {
+        media.set_filter(picked);
+    }
+}
+
+fn filter_label(filter: Filter) -> &'static str {
+    match filter {
+        Filter::None => "None",
+        Filter::Warm => "Warm",
+        Filter::Cool => "Cool",
+        Filter::BlackWhite => "Black & white",
+        Filter::Bright => "Bright",
+    }
 }
