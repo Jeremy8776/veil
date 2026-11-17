@@ -24,6 +24,7 @@ mod icons;
 mod keystore;
 mod layout;
 mod log;
+mod logo;
 mod media;
 mod model;
 mod screens;

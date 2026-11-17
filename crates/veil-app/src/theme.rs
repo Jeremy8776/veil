@@ -38,6 +38,9 @@ pub const DANGER_HOVER: Color32 = Color32::from_rgb(0xE0, 0x4A, 0x4E);
 pub const SPEAKING: Color32 = Color32::from_rgb(0x4C, 0xC3, 0x8A);
 /// Warnings: demo mode, relayed connections.
 pub const WARN: Color32 = Color32::from_rgb(0xE8, 0xB3, 0x4B);
+/// The logo's teal gradient, light end and deep end (as in `tools/make-icons.py`).
+pub const LOGO_LIGHT: Color32 = Color32::from_rgb(0x17, 0xC9, 0xA6);
+pub const LOGO_DEEP: Color32 = Color32::from_rgb(0x06, 0x6A, 0x82);
 
 pub const RADIUS: u8 = 8;
 pub const GAP: f32 = 8.0;
