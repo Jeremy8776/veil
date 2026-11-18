@@ -2,7 +2,7 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
-## Unreleased
+## 0.1.9, 18/11/2026
 
 ### Fixed
 
