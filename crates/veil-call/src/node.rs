@@ -14,13 +14,17 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
+use getrandom::SysRng;
+use getrandom::rand_core::UnwrapErr;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use veil_net::{Link, Node, NodeAddr};
-use veil_rendezvous::punch;
 use veil_rendezvous::socket::RELAY_PEER;
+use veil_rendezvous::{punch, room_tag, store_invite};
 use veil_security::invite::{Invite, lobby_pass};
+use veil_security::short_invite::ShortInvite;
 use veil_security::{Identity, PublicId};
 
 use crate::host::HostHandle;
@@ -31,6 +35,9 @@ use crate::{CallError, media};
 
 /// Incoming media links waiting for the media session.
 const MEDIA_INBOX: usize = 32;
+/// How long the host waits to leave a sealed invite on the rendezvous. The app's call loop
+/// waits on this, so it stays short; a node this slow gets the full link instead.
+const SHORTEN_LIMIT: Duration = Duration::from_secs(2);
 
 /// How a link reached its peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -229,6 +236,28 @@ impl CallNode {
                 .await
                 .map_err(CallError::Rendezvous)
         }
+    }
+
+    /// Host only: leaves `full_link` sealed on the call's rendezvous node `relay`, and returns
+    /// the short link that fetches it. Fails if the node cannot take it (too old, full, or not
+    /// answering); the full link still works then.
+    pub async fn shorten_invite(
+        &self,
+        relay: &RelayAddrs,
+        full_link: &str,
+    ) -> Result<String, CallError> {
+        if !self.has_rendezvous() {
+            return Err(CallError::Protocol("no rendezvous to hold the invite"));
+        }
+        let (short, sealed) = ShortInvite::create(full_link, &relay.addrs, &mut UnwrapErr(SysRng))
+            .map_err(|_| CallError::Protocol("cannot seal the invite"))?;
+        let tag = room_tag(&self.room_id);
+        let store = store_invite(&self.node, &relay.addrs, relay.key, tag, sealed);
+        tokio::time::timeout(SHORTEN_LIMIT, store)
+            .await
+            .map_err(|_| CallError::Timeout)?
+            .map_err(CallError::Rendezvous)?;
+        Ok(short.to_link())
     }
 
     /// This node's device key, which also signs its names and chat (`AppMessage::seal`).

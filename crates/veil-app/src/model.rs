@@ -140,7 +140,11 @@ pub struct Call {
     pub participants: Vec<Participant>,
     pub lobby: Vec<Waiting>,
     pub chat: Vec<Message>,
+    /// The link to share: short when possible.
     pub invite: String,
+    /// The same invite in full, which needs no fetch. Equal to `invite` when no short link
+    /// could be made.
+    pub invite_full: String,
     /// When the invite link stops working, in Unix seconds; 0 until there is one.
     pub invite_expires: u64,
     /// The host chose to keep each invite link working until the call ends.
@@ -181,6 +185,7 @@ impl Call {
             lobby: Vec::new(),
             chat: Vec::new(),
             invite: String::new(),
+            invite_full: String::new(),
             invite_expires: 0,
             invite_until_end: false,
             epoch: 0,

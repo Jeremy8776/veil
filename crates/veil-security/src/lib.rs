@@ -26,6 +26,7 @@ pub mod identity;
 pub mod invite;
 pub mod layer;
 pub mod safety;
+pub mod short_invite;
 
 pub use error::SecurityError;
 pub use identity::{Identity, PublicId};

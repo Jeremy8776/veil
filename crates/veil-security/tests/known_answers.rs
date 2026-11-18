@@ -10,6 +10,7 @@
 use veil_security::frame::{FrameReceiver, FrameSender};
 use veil_security::invite::{Invite, VERSION, lobby_pass};
 use veil_security::safety::safety_number;
+use veil_security::short_invite::ShortInvite;
 use veil_security::{Identity, Layer};
 
 fn hex(bytes: &[u8]) -> String {
@@ -58,6 +59,25 @@ fn invite_link_is_fixed() {
     let link = invite.to_link(&host).unwrap();
     assert_eq!(link, "veil:AQQEBAQEBAQEBAQEBAQEBATtSSjGKNHCxurpAziQWZVhKVknOlxj-TY2wUYUrIc30QEQMjAzLjAuMTEzLjc6NDQzMwEScmVsYXkuZXhhbXBsZTo0NDMzgKSn2gYFBQUFBQUFBQUFBQUFBQUFXDmmG12JKqATgmdSfk-RhgDPV-s3uNv7oZe647eZ_4BB9F7Tg7bi7lUMXfNpYscXeglfTYCA60IydscQOqH-Cg");
     assert_eq!(Invite::from_link(&link, 1_700_000_000).unwrap(), invite);
+}
+
+// The expected values were computed apart from this code, with Python's `hmac` and the
+// `cryptography` package's ChaCha20-Poly1305.
+#[test]
+fn short_invite_is_fixed() {
+    const FULL: &str = "veil:AQQEBAQEBAQEBAQEBAQEBATtSSjGKNHCxurpAziQWZVhKVknOlxj-TY2wUYUrIc30QEQMjAzLjAuMTEzLjc6NDQzMwEScmVsYXkuZXhhbXBsZTo0NDMzgKSn2gYFBQUFBQUFBQUFBQUFBQUFXDmmG12JKqATgmdSfk-RhgDPV-s3uNv7oZe647eZ_4BB9F7Tg7bi7lUMXfNpYscXeglfTYCA60IydscQOqH-Cg";
+    const SEALED: &str = "d2d3a225162399da18da3fb17b3a4b5bf2e73c8b79d4bde8c69804f140b0653adca329400ee8f46e6435af3b481bcc0426db9a32f25faad78194c1afd78d944d5ab51f199e5610c9d2c02e5e3bf151057b04031c0a9ce15373a3725e0cfc2f2a12bee43bfdc2dd6f1bcdd4b83c08166464b756cd9bf2d9cc22c99242dfae7eeeb8665fc04d21cb812bef62c6335dcc6bb0909d1f107ca1e719856ff99437c07c6c051d6d2250f58cee7db6ddbbedefd8bfa9b2c2f34a0f47fee122261ee6f60d7513a6c2741eb388fbad56e51ba0f992310b80a064f166d70b8de47dff28a0271236af90fa7db18f790808e42e6f51a0725e78ddc92ef82df1f27d";
+    let link = "veil:~AcsAcQcRUQcHBwcHBwcHBwcHBwcHBwc";
+    let short = ShortInvite::from_link(link).unwrap();
+    assert_eq!(short.to_link(), link);
+    assert_eq!(short.servers(), ["203.0.113.7:4433".parse().unwrap()]);
+    assert_eq!(hex(&short.id().unwrap()), "f6bf49d4e099b849a74227ef34dbd02394856ef7704d2e7768c563de3e08bf02");
+    let sealed: Vec<u8> = (0..SEALED.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&SEALED[i..i + 2], 16).unwrap())
+        .collect();
+    let now = 1_700_000_000;
+    assert_eq!(short.open(&sealed, now).unwrap(), Invite::from_link(FULL, now).unwrap());
 }
 
 #[test]

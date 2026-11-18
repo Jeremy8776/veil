@@ -4,6 +4,15 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Changed
+
+- Invite links are now short, about 45 characters instead of a few hundred. The link holds
+  where to fetch the invite and the key that opens it, and the call's rendezvous keeps the
+  invite encrypted until the call ends. Guests need this version to use a short link. "Copy
+  full link" gives the long form, which also works for older versions. Veil shows the long
+  form by itself when the rendezvous cannot hold the invite or cannot be reached from as far
+  as the call can.
+
 ### Fixed
 
 - Guests on the internet can now reach each other, not only the host. With "Open a port on my

@@ -52,8 +52,8 @@ pub struct VeilApp {
     pub want_mic: bool,
     /// Devices on this machine, read when the pre-join screen opens.
     pub devices: crate::devices::DeviceLists,
-    /// The invite being joined, checked on the home screen.
-    pub joining: Option<veil_security::invite::Invite>,
+    /// The invite link being joined, checked on the home screen.
+    pub joining: Option<veil_security::short_invite::InviteLink>,
     /// The next call is the simulated demo.
     pub demo: bool,
     /// Everyone else's video in the current call, by participant id.

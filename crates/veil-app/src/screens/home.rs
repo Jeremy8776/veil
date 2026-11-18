@@ -3,12 +3,13 @@
 //!
 //! Invariants:
 //! - An invite is checked here (signature, expiry) before any device or network starts, so a
-//!   bad link is reported where it was pasted.
+//!   bad link is reported where it was pasted. A short link is checked for its form only: the
+//!   invite it stands for is fetched and verified when the call starts.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, Align, Layout, RichText, TextEdit};
-use veil_security::invite::Invite;
+use veil_security::short_invite::InviteLink;
 
 use crate::app::VeilApp;
 use crate::icons::Icon;
@@ -50,7 +51,7 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
             ui.label(RichText::new("Or join with an invite link").color(MUTED));
             let field = ui.add(
                 TextEdit::singleline(&mut app.invite)
-                    .hint_text("veil://join/…")
+                    .hint_text("veil:…")
                     .desired_width(f32::INFINITY),
             );
             let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -214,7 +215,7 @@ fn device_key(app: &mut VeilApp, ui: &mut egui::Ui) -> Option<String> {
 }
 
 /// Reads an invite link, or says plainly what is wrong with it.
-fn check_invite(text: &str) -> Result<Invite, String> {
+fn check_invite(text: &str) -> Result<InviteLink, String> {
     let text = text.trim();
     if text.is_empty() {
         return Err(String::from("Paste the invite link you were sent."));
@@ -222,7 +223,7 @@ fn check_invite(text: &str) -> Result<Invite, String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    Invite::from_link(text, now).map_err(|e| format!("This invite link does not work: {e}"))
+    InviteLink::parse(text, now).map_err(|e| format!("This invite link does not work: {e}"))
 }
 
 fn start(app: &mut VeilApp, host: bool) {

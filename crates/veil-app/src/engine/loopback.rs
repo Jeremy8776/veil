@@ -15,7 +15,7 @@
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use eframe::egui;
-use veil_security::invite::Invite;
+use veil_security::short_invite::InviteLink;
 
 use super::plan::NetConfig;
 use super::{Captured, Engine, Role, Taps};
@@ -74,7 +74,8 @@ fn loopback_host_admits_a_guest_and_both_see_and_hear_each_other() {
         .unwrap()
         .as_secs();
     let first_invite = host_call.invite.clone();
-    let invite = Invite::from_link(&first_invite, now).unwrap();
+    let invite = InviteLink::parse(&first_invite, now).unwrap();
+    assert!(matches!(invite, InviteLink::Short(_)), "this join goes through a short link");
     println!("invite: {}", host_call.invite);
 
     let guest =
@@ -209,7 +210,7 @@ fn loopback_joining_an_unreachable_host_never_holds_the_interface() {
     let mut host_call = Call::live("Call".into(), "Host", true, Instant::now());
     wait_for("an invite", &host, &mut host_call, |c| !c.invite.is_empty());
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let invite = Invite::from_link(&host_call.invite, now).unwrap();
+    let invite = InviteLink::parse(&host_call.invite_full, now).unwrap();
     drop(host);
 
     // Leaving while still reaching the host (the hang Windows logged on 16/11/2026).
@@ -252,7 +253,7 @@ fn loopback_guest_sees_the_host_end_the_call() {
     let mut host_call = Call::live("Call".into(), "Host", true, Instant::now());
     wait_for("an invite", &host, &mut host_call, |c| !c.invite.is_empty());
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let invite = Invite::from_link(&host_call.invite, now).unwrap();
+    let invite = InviteLink::parse(&host_call.invite_full, now).unwrap();
     let guest = Engine::start(Role::Guest(Box::new(invite)), NetConfig::default(), "Guest".into(), Default::default(), fresh_keys(), ctx).unwrap();
     let mut guest_call = Call::live("Call".into(), "Guest", false, Instant::now());
     wait_for("a knock", &host, &mut host_call, |c| c.lobby.len() == 1);

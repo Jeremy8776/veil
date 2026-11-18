@@ -19,6 +19,8 @@
 //!
 //! Invariants:
 //! - Each invite has a one-time token, so a fresh one is made after every knock.
+//! - The link shown is short when the rendezvous can hold it and reaches as far as the call
+//!   (`invites::can_shorten`). The full link is always kept beside it.
 //! - The rendezvous sees addresses and a room hash only, never keys or media
 //!   (`docs/ARCHITECTURE.md` section 2), and lives exactly as long as the call. The forwarder
 //!   sees sealed frames only, and admits only devices on the host's signed roster ticket.
@@ -90,7 +92,7 @@ pub async fn run(
     let mut addrs = advertised(&config, lan, port);
     let mut until_end = false;
     let mut relay = RelayAddrs::from(rendezvous);
-    let mut expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
+    let mut expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
     if expires == 0 {
         return Err("Cannot make an invite.".into());
     }
@@ -128,7 +130,7 @@ pub async fn run(
                 // A fresh link with the chosen lifetime; one already sent keeps its own.
                 Some(Command::Act(Action::InviteUntilEnd(chosen))) => {
                     until_end = chosen;
-                    expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
+                    expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
                 }
                 Some(Command::Act(action)) => act(&host, &session.ids, &mut knocks, action).await,
             },
@@ -146,7 +148,7 @@ pub async fn run(
                     };
                     shared.update(|view| view.lobby.push(knocker));
                     // The knock used the invite's token: give out a fresh one.
-                    expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
+                    expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
                 }
                 // Joins and leaves go to the log, so a call across networks shows when the
                 // host heard of each.
@@ -203,7 +205,7 @@ pub async fn run(
                     }
                 });
                 if ports.settled() {
-                    expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
+                    expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
                 }
             }
             event = next_router(&mut relay_router) => {
@@ -220,12 +222,12 @@ pub async fn run(
                 relay.addrs = public.into_iter().chain([rendezvous.addr]).collect();
                 shared.update(|view| view.router = ports.view());
                 if ports.settled() {
-                    expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
+                    expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
                 }
             }
             // The link shown always works: one that ran out unused is replaced.
             () = until(expires) => {
-                expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
+                expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
             }
             verdict = reach.next() => shared.update(|view| view.reach = verdict),
         }
@@ -326,11 +328,28 @@ fn own_server(
     Ok(addr)
 }
 
+/// The link to show for `full`: a short one when that works as well, otherwise `full` itself.
+async fn shortened(
+    call: &CallNode,
+    addrs: &[SocketAddr],
+    relay: &RelayAddrs,
+    full: &str,
+) -> String {
+    if !invites::can_shorten(addrs, &relay.addrs) {
+        return full.to_string();
+    }
+    call.shorten_invite(relay, full).await.unwrap_or_else(|e| {
+        crate::note!("no short invite link, using the full one: {e}");
+        full.to_string()
+    })
+}
+
 /// Makes a fresh invite link that works for an hour or `until_end`, and shows it. Returns
 /// when to look again: the link's expiry, or a minute from now if no link could be made
 /// (logged), so a failure is retried without spinning.
 async fn new_invite(
     host: &HostHandle,
+    call: &CallNode,
     addrs: &[SocketAddr],
     relay: &RelayAddrs,
     until_end: bool,
@@ -338,11 +357,13 @@ async fn new_invite(
 ) -> u64 {
     let now = invites::now_unix();
     let expires = invites::expiry(until_end, now);
-    let addrs = addrs.iter().map(ToString::to_string).collect();
-    match host.invite(addrs, Some(relay.to_string()), expires).await {
-        Ok(link) => {
+    let listed = addrs.iter().map(ToString::to_string).collect();
+    match host.invite(listed, Some(relay.to_string()), expires).await {
+        Ok(full) => {
+            let link = shortened(call, addrs, relay, &full).await;
             shared.update(|view| {
                 view.invite = link;
+                view.invite_full = full;
                 view.invite_expires = expires;
                 view.invite_until_end = until_end;
             });
