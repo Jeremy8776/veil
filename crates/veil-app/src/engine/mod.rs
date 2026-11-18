@@ -53,10 +53,10 @@ use crate::convert::Rgba;
 use crate::keystore::KeyStore;
 use crate::media::{Worker, lock};
 use crate::model::{Action, Call, CallStatus};
-pub use view::Shared;
+pub use view::{Shared, is_screen, screen_key};
 use view::View;
 
-/// One camera picture, copied out of the camera for the encoder.
+/// One camera or screen picture, copied out for the encoder.
 pub struct Captured {
     pub width: u16,
     pub height: u16,
@@ -66,10 +66,11 @@ pub struct Captured {
     pub data: Vec<u8>,
 }
 
-/// Where the camera and microphone threads hand their output to the engine.
+/// Where the camera, screen and microphone threads hand their output to the engine.
 #[derive(Clone)]
 pub struct Taps {
     pub video: SyncSender<Captured>,
+    pub screen: SyncSender<Captured>,
     /// One 20 ms frame of interleaved samples (`AudioSettings::voice`).
     pub audio: mpsc::Sender<Vec<f32>>,
 }
@@ -122,14 +123,19 @@ impl Engine {
         let shared = Arc::new(Shared::new(ctx));
         // One picture waits at most: the encoder always takes the newest.
         let (video_tx, video_rx) = sync_channel(1);
+        let (screen_tx, screen_rx) = sync_channel(1);
         let (sound_tx, sound_rx) = mpsc::channel(8);
-        let (encoded_tx, encoded_rx) = mpsc::channel(16);
+        let (encoded_tx, encoded_rx) = mpsc::channel(32);
         let (video_in_tx, video_in_rx) = sync_channel(64);
         let (audio_in_tx, audio_in_rx) = sync_channel(128);
         let (keyframe_tx, keyframe_rx) = mpsc::unbounded_channel();
         let control = Arc::new(video_out::VideoControl::default());
+        let screen_control = Arc::new(video_out::VideoControl::default());
+        let camera = video_out::Stream::Camera;
+        let screen = video_out::Stream::Screen;
         let workers = vec![
-            video_out::spawn(video_rx, encoded_tx, control.clone()),
+            video_out::spawn(video_rx, encoded_tx.clone(), control.clone(), camera),
+            video_out::spawn(screen_rx, encoded_tx, screen_control.clone(), screen),
             video_in::spawn(video_in_rx, keyframe_tx, shared.clone()),
             audio_out::spawn(audio_in_rx, shared.clone(), playback),
         ];
@@ -140,6 +146,7 @@ impl Engine {
             video_in: video_in_tx,
             audio_in: audio_in_tx,
             control,
+            screen_control,
         };
         let (commands, commands_rx) = mpsc::unbounded_channel();
         let task_shared = shared.clone();
@@ -177,6 +184,7 @@ impl Engine {
             keys,
             taps: Taps {
                 video: video_tx,
+                screen: screen_tx,
                 audio: sound_tx,
             },
             _workers: workers,
@@ -243,7 +251,12 @@ impl Engine {
         (self.shared.stats(), levels)
     }
 
-    /// Pictures decoded since the last call, by participant id.
+    /// Who is sharing their screen now, by participant id.
+    pub fn sharers(&self) -> Vec<u32> {
+        self.shared.sharers()
+    }
+
+    /// Pictures decoded since the last call: by participant id, or [`screen_key`] of it.
     pub fn take_pictures(&self) -> Vec<(u32, Rgba)> {
         self.shared.take_pictures()
     }

@@ -10,7 +10,7 @@
 //! |---|---|
 //! | 0 | version, 1 |
 //! | 1 | codec: 0 H.264, 1 HEVC, 2 AV1 |
-//! | 2 | flags: bit 0 `needs_lower`, every other bit zero |
+//! | 2 | flags: bit 0 `needs_lower`, bit 1 `screen`, every other bit zero |
 //! | 3..11 | picture number on the sender's capture timeline |
 //! | 11..15 | distance back to the reference picture; 0 for a keyframe |
 //! | 15..23 | capture time in microseconds, sender's own clock |
@@ -22,6 +22,9 @@
 //!   read past the buffer or allocate.
 //! - A layer's reference is on the same spatial layer. `needs_lower` means it also needs the
 //!   spatial layer below for the same picture (SVC). Simulcast layers never set it.
+//! - `screen` marks a shared screen, a stream of its own beside the camera. It is inside the
+//!   sealed frame, so a forwarder cannot tell. A version without it refuses these headers and
+//!   so ignores a share rather than showing it as the camera.
 
 use veil_security::frame::{HEADER_LEN, MAX_FRAME_LEN, TAG_LEN};
 
@@ -31,6 +34,7 @@ use crate::ladder::MAX_DIMENSION;
 pub const VERSION: u8 = 1;
 pub const VIDEO_HEADER_LEN: usize = 27;
 const NEEDS_LOWER: u8 = 0b1;
+const SCREEN: u8 = 0b10;
 
 /// Largest bitstream one sealed frame can carry after both headers and the tag.
 pub const MAX_BITSTREAM_LEN: usize = MAX_FRAME_LEN - VIDEO_HEADER_LEN - HEADER_LEN - TAG_LEN;
@@ -70,6 +74,8 @@ pub struct VideoHeader {
     pub reference: Option<u64>,
     /// Also needs the spatial layer below for the same picture.
     pub needs_lower: bool,
+    /// This picture belongs to the sender's shared screen, not their camera.
+    pub screen: bool,
     pub timestamp_us: u64,
     pub width: u16,
     pub height: u16,
@@ -91,7 +97,8 @@ impl VideoHeader {
         let mut out = Vec::with_capacity(VIDEO_HEADER_LEN + bitstream.len());
         out.push(VERSION);
         out.push(self.codec.byte());
-        out.push(if self.needs_lower { NEEDS_LOWER } else { 0 });
+        let lower = if self.needs_lower { NEEDS_LOWER } else { 0 };
+        out.push(lower | if self.screen { SCREEN } else { 0 });
         out.extend_from_slice(&self.picture.to_be_bytes());
         out.extend_from_slice(&distance.to_be_bytes());
         out.extend_from_slice(&self.timestamp_us.to_be_bytes());
@@ -110,7 +117,7 @@ impl VideoHeader {
             return Err(MediaError::Malformed("version"));
         }
         let codec = Codec::from_byte(head[1])?;
-        if head[2] & !NEEDS_LOWER != 0 {
+        if head[2] & !(NEEDS_LOWER | SCREEN) != 0 {
             return Err(MediaError::Malformed("flags"));
         }
         let picture = u64::from_be_bytes(array(&head[3..11])?);
@@ -131,6 +138,7 @@ impl VideoHeader {
             picture,
             reference,
             needs_lower: head[2] & NEEDS_LOWER != 0,
+            screen: head[2] & SCREEN != 0,
             timestamp_us: u64::from_be_bytes(array(&head[15..23])?),
             width,
             height,
@@ -163,6 +171,7 @@ mod tests {
             picture: 1_000,
             reference: Some(996),
             needs_lower: true,
+            screen: false,
             timestamp_us: 16_667,
             width: 1_920,
             height: 1_080,
@@ -186,6 +195,19 @@ mod tests {
     }
 
     #[test]
+    fn the_screen_mark_round_trips_and_stays_off_the_camera() {
+        let screen = VideoHeader {
+            screen: true,
+            ..header()
+        };
+        let bytes = screen.write(b"x").unwrap();
+        assert_eq!(bytes[2], NEEDS_LOWER | SCREEN);
+        assert!(VideoHeader::read(&bytes).unwrap().0.screen);
+        let camera = header().write(b"x").unwrap();
+        assert!(!VideoHeader::read(&camera).unwrap().0.screen);
+    }
+
+    #[test]
     fn bad_headers_are_refused() {
         let good = header().write(b"x").unwrap();
         let mut bad = good.clone();
@@ -195,7 +217,7 @@ mod tests {
         bad[1] = 9;
         assert!(VideoHeader::read(&bad).is_err(), "codec");
         let mut bad = good.clone();
-        bad[2] = 0b10;
+        bad[2] = 0b100;
         assert!(VideoHeader::read(&bad).is_err(), "flags");
         let mut bad = good.clone();
         bad[23..25].copy_from_slice(&0u16.to_be_bytes());

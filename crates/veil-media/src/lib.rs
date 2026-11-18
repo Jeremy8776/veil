@@ -39,6 +39,7 @@ pub mod platform;
 pub mod remix;
 pub mod scale;
 pub mod schedule;
+pub mod screen;
 pub mod segment;
 pub mod simulcast;
 pub mod temporal;

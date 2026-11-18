@@ -1,5 +1,5 @@
 //! The call bar's own controls: microphone and camera (each with a device menu), Effects,
-//! Share and Raise. The panel buttons and Leave stay in `call.rs`.
+//! Share (`share.rs`) and Raise. The panel buttons and Leave stay in `call.rs`.
 //!
 //! Purpose: during a call you can pick another microphone, speaker or camera and set the
 //! microphone and speaker volume without leaving, from the small arrow beside Mute and beside
@@ -20,6 +20,7 @@ use crate::app::VeilApp;
 use crate::icons::Icon;
 use crate::screens::call::CallView;
 use crate::screens::call_menus;
+use crate::screens::share::SharePicker;
 use crate::theme::{self, RAISED, RAISED_HOVER};
 use crate::volume::{MIC_MAX, SPEAKER_MAX};
 use crate::widgets::{ControlState, chevron, control, device_error, level_meter};
@@ -71,15 +72,22 @@ pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
         ControlState::default(),
     );
     menu(&effects, |ui| effects_menu(app, ui));
-    let share = control(
-        ui,
-        Icon::Share,
-        "Share",
-        "Share your screen",
-        ControlState::default(),
-    );
-    if share.clicked() {
-        view.notify("Screen sharing is not built yet.");
+    let sharing = app.share.is_sharing();
+    let state = ControlState {
+        selected: sharing,
+        ..Default::default()
+    };
+    let (label, hint) = if sharing {
+        ("Stop share", "Stop sharing your screen")
+    } else {
+        ("Share", "Share a screen, a window or part of one")
+    };
+    if control(ui, Icon::Share, label, hint, state).clicked() {
+        if sharing {
+            app.share.stop();
+        } else {
+            view.picker = Some(SharePicker::open(app));
+        }
     }
     let raised = view.call.you().is_some_and(|p| p.hand_raised);
     let state = ControlState {

@@ -68,6 +68,12 @@ and a full relay can replace the longest-idle session of the address that holds 
 relay does not tell the members when it does this. A link still using a session keeps it unless
 the relay is full.
 
+**Screen sharing** starts only when you choose a screen or window and press Share, and the
+bar and a banner show while it runs. Its preview stays on your device. Pictures are sealed end
+to end like your camera, and window titles are neither logged nor sent. A forwarder sees one
+more video stream from you but not that it is a screen. Capture uses the `xcap` crate, which
+holds its own `unsafe` code. If the source goes away, sharing stops rather than moving on.
+
 **Filters and Background blur** run on your device, on each camera picture before your
 self-view and before it is encoded, so other members receive only the changed picture. Finding
 you in the picture is done by a small network built into Veil (see section 4). It runs on a

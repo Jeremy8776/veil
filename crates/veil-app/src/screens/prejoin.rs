@@ -85,7 +85,7 @@ fn heading(ui: &mut egui::Ui, title: &str) {
 
 fn wide(app: &mut VeilApp, ui: &mut egui::Ui, host: bool, title: &str, space: Vec2) {
     // The card's height depends on what it shows, so it is measured and used next frame.
-    let id = egui::Id::new("prejoin-card-size");
+    let id = ui.scope_id().with("prejoin-card-size");
     let card = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(CARD_GUESS);
     let gap = GAP + ui.spacing().item_spacing.x;
     let plan = wide_plan(space, card, gap);

@@ -7,12 +7,14 @@
 //! request a keyframe from that person.
 //!
 //! Invariants:
-//! - Decoders live and die on this thread, one per person.
+//! - Decoders live and die on this thread, one per stream: a person's camera and their shared
+//!   screen are decoded apart, told apart by the sealed video header.
 //! - Only one spatial layer is decoded per person; in a mesh every layer arrives, and the
 //!   largest is what a tile shows. If the largest stops for a second, the next one down is
 //!   used (it then waits for its own keyframe, through the gate).
 //! - A decoder error drops that decoder and asks for a keyframe; someone silent for 10 s is
-//!   forgotten.
+//!   forgotten, and a shared screen after 3 s, which is how a share ends for those watching.
+//! - A shared screen keeps its full size, so its text stays readable.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,13 +26,15 @@ use tokio::sync::mpsc;
 use veil_media::{Gate, MediaError, Verdict, VideoDecoder, VideoHeader};
 use veil_security::layer::Layer;
 
-use super::view::Shared;
+use super::view::{Shared, screen_key};
 use crate::media::Worker;
 
 /// The largest layer is given up after this long without a frame of it.
 const LAYER_TIMEOUT: Duration = Duration::from_secs(1);
 /// Someone is forgotten after this long without any video.
 const FORGET_AFTER: Duration = Duration::from_secs(10);
+/// A share sends pictures even when the screen is still, so this means it ended.
+const SCREEN_FORGET_AFTER: Duration = Duration::from_secs(3);
 
 /// One opened video frame from participant `id`.
 pub struct VideoIn {
@@ -76,6 +80,14 @@ impl Follow {
     }
 }
 
+/// A person's id, and whether this is their shared screen.
+type StreamId = (u32, bool);
+
+/// Where the interface finds a stream's pictures.
+fn picture_key((id, screen): StreamId) -> u32 {
+    if screen { screen_key(id) } else { id }
+}
+
 struct Source {
     follow: Follow,
     gate: Gate,
@@ -89,7 +101,7 @@ fn run(
     shared: &Shared,
     stop: &AtomicBool,
 ) {
-    let mut sources: HashMap<u32, Source> = HashMap::new();
+    let mut sources: HashMap<StreamId, Source> = HashMap::new();
     while !stop.load(Ordering::Relaxed) {
         let frame = match frames.recv_timeout(Duration::from_millis(200)) {
             Ok(frame) => frame,
@@ -103,7 +115,8 @@ fn run(
         let Ok((header, bitstream)) = VideoHeader::read(&frame.payload) else {
             continue;
         };
-        let source = sources.entry(frame.id).or_insert_with(|| Source {
+        let stream = (frame.id, header.screen);
+        let source = sources.entry(stream).or_insert_with(|| Source {
             follow: Follow::new(now),
             gate: Gate::default(),
             decoder: None,
@@ -122,7 +135,7 @@ fn run(
             }
         }
         match decode(source, bitstream, &header) {
-            Ok(Some((rgba, size))) => shared.put_picture(frame.id, rgba, size),
+            Ok(Some((rgba, size))) => shared.put_picture(picture_key(stream), rgba, size),
             Ok(None) => {}
             Err(e) => {
                 crate::note!("video decoder failed: {e}");
@@ -156,17 +169,18 @@ fn decode(
     let (w, h) = (usize::from(picture.width), usize::from(picture.height));
     // Tiles are rarely wider than half a 1080p picture; halving costs a quarter of the work.
     Ok(
-        crate::convert::nv12_to_rgba(picture.data, w, h, picture.stride, w > 960)
+        crate::convert::nv12_to_rgba(picture.data, w, h, picture.stride, w > 960 && !header.screen)
             .map(|rgba| (rgba, size)),
     )
 }
 
-fn forget_quiet(sources: &mut HashMap<u32, Source>, shared: &Shared) {
+fn forget_quiet(sources: &mut HashMap<StreamId, Source>, shared: &Shared) {
     let now = Instant::now();
-    sources.retain(|id, source| {
-        let keep = now.saturating_duration_since(source.last) < FORGET_AFTER;
+    sources.retain(|stream, source| {
+        let limit = if stream.1 { SCREEN_FORGET_AFTER } else { FORGET_AFTER };
+        let keep = now.saturating_duration_since(source.last) < limit;
         if !keep {
-            shared.forget_picture(*id);
+            shared.forget_picture(picture_key(*stream));
         }
         keep
     });
@@ -179,6 +193,13 @@ fn platform_decoder() -> Result<Box<dyn VideoDecoder>, MediaError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_persons_camera_and_screen_are_kept_apart() {
+        assert_eq!(picture_key((7, false)), 7);
+        assert_ne!(picture_key((7, true)), 7);
+        assert_ne!(picture_key((7, true)), picture_key((8, true)));
+    }
 
     #[test]
     fn the_largest_layer_is_followed_and_a_stopped_one_is_given_up() {

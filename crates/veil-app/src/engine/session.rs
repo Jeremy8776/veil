@@ -53,6 +53,20 @@ pub struct Pipes {
     pub video_in: SyncSender<VideoIn>,
     pub audio_in: SyncSender<AudioIn>,
     pub control: Arc<VideoControl>,
+    pub screen_control: Arc<VideoControl>,
+}
+
+impl Pipes {
+    fn controls(&self) -> [&VideoControl; 2] {
+        [&self.control, &self.screen_control]
+    }
+
+    /// A keyframe request does not say which stream broke, so both answer.
+    fn ask_keyframes(&self) {
+        for control in self.controls() {
+            control.keyframe.store(true, Ordering::Relaxed);
+        }
+    }
 }
 
 pub struct Session {
@@ -148,10 +162,9 @@ impl Session {
             }
         }
         let watching = !self.others.is_empty();
-        self.pipes
-            .control
-            .watching
-            .store(watching, Ordering::Relaxed);
+        for control in self.pipes.controls() {
+            control.watching.store(watching, Ordering::Relaxed);
+        }
         let mut people: Vec<Person> = self
             .others
             .iter()
@@ -190,7 +203,7 @@ impl Session {
             crate::note!("call: linking up took {:?}", started.elapsed());
         }
         // Whoever just linked up needs a keyframe to start decoding.
-        self.pipes.control.keyframe.store(true, Ordering::Relaxed);
+        self.pipes.ask_keyframes();
         self.announcer.restart(Instant::now());
         self.refresh_paths();
         self.announce().await;
@@ -341,7 +354,7 @@ impl Session {
     fn on_incoming(&mut self, incoming: &Incoming) {
         let (packet, video) = match &incoming.media {
             Media::KeyframeRequest => {
-                self.pipes.control.keyframe.store(true, Ordering::Relaxed);
+                self.pipes.ask_keyframes();
                 return;
             }
             Media::App(sealed) => {

@@ -18,7 +18,7 @@ use eframe::egui;
 use veil_security::short_invite::InviteLink;
 
 use super::plan::NetConfig;
-use super::{Captured, Engine, Role, Taps};
+use super::{Captured, Engine, Role, Taps, screen_key};
 use crate::model::{Action, Call, CallStatus};
 
 const WIDTH: u16 = 1_280;
@@ -282,6 +282,53 @@ fn loopback_guest_sees_the_host_end_the_call() {
     println!("guest saw {:?} after {:?}", guest_call.status, t.elapsed());
     assert!(t.elapsed() < Duration::from_secs(1), "the guest heard late");
     assert_eq!(guest_call.status, CallStatus::Ended("The host ended the call.".into()));
+}
+
+/// A shared screen arrives as its own stream, beside the sender's camera.
+#[test]
+#[ignore = "opens ports, the H.264 encoder and the speaker"]
+fn loopback_a_shared_screen_arrives_beside_the_camera() {
+    let ctx = egui::Context::default();
+    let host = Engine::start(Role::Host, NetConfig::default(), "Host".into(), Default::default(), fresh_keys(), ctx.clone()).unwrap();
+    let mut host_call = Call::live("Call".into(), "Host", true, Instant::now());
+    wait_for("an invite", &host, &mut host_call, |c| !c.invite.is_empty());
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let invite = InviteLink::parse(&host_call.invite_full, now).unwrap();
+    let guest = Engine::start(Role::Guest(Box::new(invite)), NetConfig::default(), "Guest".into(), Default::default(), fresh_keys(), ctx).unwrap();
+    let mut guest_call = Call::live("Call".into(), "Guest", false, Instant::now());
+    wait_for("a knock", &host, &mut host_call, |c| c.lobby.len() == 1);
+    host.act(Action::Admit(host_call.lobby[0].id));
+    wait_for("admission", &guest, &mut guest_call, |c| {
+        c.status == CallStatus::Live && c.participants.len() == 2
+    });
+    let sender = guest_call.participants[1].id;
+    let taps = host.taps();
+    let start = Instant::now();
+    let mut keys = Vec::new();
+    let mut n = 0;
+    while start.elapsed() < Duration::from_secs(20) {
+        let _ = taps.video.try_send(picture(n));
+        let _ = taps.screen.try_send(picture(n));
+        n += 1;
+        std::thread::sleep(Duration::from_millis(33));
+        keys.extend(guest.take_pictures().into_iter().map(|(key, _)| key));
+        if keys.contains(&sender) && keys.contains(&screen_key(sender)) {
+            break;
+        }
+    }
+    assert!(keys.contains(&sender), "the camera arrives");
+    assert!(keys.contains(&screen_key(sender)), "the screen arrives");
+    assert_eq!(guest.sharers(), [sender]);
+    assert!(host.sharers().is_empty(), "only the guest received a share");
+
+    // Stopping is silence: those watching drop the share after a few seconds.
+    let stopped = Instant::now();
+    while !guest.sharers().is_empty() && stopped.elapsed() < Duration::from_secs(8) {
+        let _ = taps.video.try_send(picture(n));
+        n += 1;
+        std::thread::sleep(Duration::from_millis(33));
+    }
+    assert!(guest.sharers().is_empty(), "the share ends for the guest");
 }
 
 /// A key that lasts this test only: nothing is saved.

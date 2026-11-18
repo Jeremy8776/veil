@@ -30,6 +30,7 @@ mod logo;
 mod media;
 mod model;
 mod screens;
+mod share;
 mod system_fonts;
 mod theme;
 mod update;

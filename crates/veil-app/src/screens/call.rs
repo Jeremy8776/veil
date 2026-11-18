@@ -19,12 +19,13 @@ use eframe::egui::{
 };
 
 use crate::app::VeilApp;
-use crate::engine::Engine;
+use crate::engine::{Engine, screen_key};
 use crate::icons::Icon;
 use crate::layout;
 use crate::model::{Call, CallStatus, Participant};
 use crate::screens::panels::{self, Panel};
 use crate::screens::security_panel::Verifying;
+use crate::screens::share::{self, SharePicker};
 use crate::screens::{call_top, controls, invite, stats};
 use crate::theme::{self, GAP, MUTED, PAGE, SURFACE};
 use crate::widgets::{self, ControlState, Tile, Tone, control, pill};
@@ -47,6 +48,10 @@ pub struct CallView {
     blur_notice_shown: bool,
     /// The call stats overlay is on.
     pub stats: bool,
+    /// The Share picker, while it is open.
+    pub picker: Option<SharePicker>,
+    /// Who is sharing their screen, by participant id.
+    sharers: Vec<u32>,
     /// The real call; `None` in a demo. Dropping it leaves the call.
     engine: Option<Engine>,
 }
@@ -63,6 +68,8 @@ impl CallView {
             notice: None,
             blur_notice_shown: false,
             stats: false,
+            picker: None,
+            sharers: Vec::new(),
         }
     }
 
@@ -107,6 +114,8 @@ impl CallView {
             }
             engine.sync(&mut self.call, now);
             app.upload_remote(engine.take_pictures());
+            self.sharers = engine.sharers();
+            app.keep_screens(&self.sharers);
             // A guest's timer starts when the host lets them in, not in the lobby.
             if !was_live && self.call.status == CallStatus::Live && !self.call.is_host {
                 self.call.started = now;
@@ -117,6 +126,9 @@ impl CallView {
         }
         if self.panel == Some(Panel::Chat) {
             self.call.unread = 0;
+        }
+        if app.share.take_stopped() {
+            self.notify("Screen sharing stopped.");
         }
         self.sync_you(app);
         self.shortcuts(app, ui);
@@ -132,6 +144,11 @@ impl CallView {
                     .inner_margin(egui::Margin::same(12)),
             )
             .show(ui, |ui| self.stage(app, ui, now));
+        if let Some(mut picker) = self.picker.take()
+            && picker.show(app, ui)
+        {
+            self.picker = Some(picker);
+        }
         // The timer and the demo speakers move on their own.
         ui.ctx().request_repaint_after(Duration::from_millis(250));
         stay
@@ -177,6 +194,10 @@ impl CallView {
         if let Some((text, colour)) = self.banner_text() {
             area.min.y += banner(ui, area, text, colour) + GAP;
         }
+        if app.share.is_sharing() {
+            let text = "You are sharing your screen";
+            area.min.y += banner(ui, area, text, theme::ACCENT) + GAP;
+        }
         let people = &self.call.participants;
         // Each other person's tile width, so the engine asks only for the layers it needs.
         let scale = ui.ctx().pixels_per_point();
@@ -187,13 +208,25 @@ impl CallView {
             }
             draw(app, ui, rect, person);
         };
-        match self.view {
-            View::Gallery => {
+        // Someone's shared screen takes the stage, and everyone moves to the strip below it.
+        let shared = self.sharers.iter().find_map(|id| {
+            let person = people.iter().find(|p| p.id == *id)?;
+            Some((person, app.remote_video(screen_key(*id))?))
+        });
+        match (shared, self.view) {
+            (Some((person, video)), _) => {
+                let (stage, strip) = layout::speaker(people.len(), area, GAP);
+                share::stage(ui, stage, video, &person.name);
+                for (person, rect) in people.iter().zip(strip) {
+                    show(person, rect);
+                }
+            }
+            (None, View::Gallery) => {
                 for (person, rect) in people.iter().zip(layout::gallery(people.len(), area, GAP)) {
                     show(person, rect);
                 }
             }
-            View::Speaker => {
+            (None, View::Speaker) => {
                 let focus = self.call.focus().map(|p| p.id);
                 let others: Vec<&Participant> =
                     people.iter().filter(|p| Some(p.id) != focus).collect();

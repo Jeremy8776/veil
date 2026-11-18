@@ -43,6 +43,8 @@ pub struct VeilApp {
     pub invite: String,
     pub home_error: Option<String>,
     pub media: LocalMedia,
+    /// Sharing your screen (`share.rs`).
+    pub share: crate::share::ScreenShare,
     /// Your camera, as last uploaded.
     pub preview: Option<TextureHandle>,
     /// Microphone level, smoothed for the meter.
@@ -82,6 +84,7 @@ impl VeilApp {
             invite: String::new(),
             home_error: None,
             media: LocalMedia::new(ctx.clone()),
+            share: crate::share::ScreenShare::new(ctx.clone()),
             preview: None,
             level: 0.0,
             want_camera: true,
@@ -132,6 +135,7 @@ impl VeilApp {
             match Engine::start(role, config, name.clone(), playback, keys, self.ctx.clone()) {
                 Ok(engine) => {
                     self.media.set_taps(Some(engine.taps()));
+                    self.share.set_tap(Some(engine.taps().screen));
                     let title = if host {
                         format!("{name}'s call")
                     } else {
@@ -155,6 +159,7 @@ impl VeilApp {
     }
 
     pub fn leave(&mut self, call: &Call) {
+        self.stop_sharing();
         self.media.set_taps(None);
         self.media.set_camera(false);
         self.media.set_mic(false);
@@ -168,6 +173,19 @@ impl VeilApp {
             lasted: call.elapsed(Instant::now()),
             reason,
         };
+    }
+
+    fn stop_sharing(&mut self) {
+        self.share.stop();
+        self.share.set_tap(None);
+    }
+
+    /// Drops the pictures of shares that have ended.
+    pub fn keep_screens(&mut self, sharers: &[u32]) {
+        self.remote.retain(|key, _| {
+            !crate::engine::is_screen(*key)
+                || sharers.iter().any(|id| crate::engine::screen_key(*id) == *key)
+        });
     }
 
     /// Uploads pictures that arrived for other people's tiles.
@@ -197,6 +215,7 @@ impl VeilApp {
     }
 
     pub fn go_home(&mut self) {
+        self.stop_sharing();
         self.media.set_taps(None);
         self.media.set_camera(false);
         self.media.set_mic(false);

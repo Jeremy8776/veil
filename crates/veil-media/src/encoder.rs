@@ -156,6 +156,7 @@ mod tests {
                     picture: plan.picture,
                     reference: plan.reference,
                     needs_lower: layer.needs_lower,
+                    screen: false,
                     timestamp_us: picture.timestamp_us,
                     width: layer.width,
                     height: layer.height,

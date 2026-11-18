@@ -1,7 +1,8 @@
-//! Your camera, encoded: a thread that turns captured pictures into H.264 simulcast layers.
+//! Your video, encoded: a thread that turns captured pictures into H.264 layers.
 //!
-//! Purpose: the camera thread hands over each picture ([`Captured`]); this thread fits a
-//! ladder to the camera's size ([`ladder_for`]), plans each picture with a [`Schedule`], encodes
+//! Purpose: one thread per [`Stream`]. The camera or screen thread hands over each picture
+//! ([`Captured`]); this thread fits a ladder to its size ([`ladder_for`], [`screen_ladder`]),
+//! plans each picture with a [`Schedule`], encodes
 //! it with Media Foundation (GPU first), and writes a [`VideoHeader`] in front of each layer.
 //! The session task seals and sends what comes out.
 //!
@@ -12,6 +13,8 @@
 //! - A failed encoder is dropped and reopened at most every few seconds; the call goes on
 //!   without your video meanwhile.
 //! - Keyframe requests set a flag; [`Schedule`] limits how often they are obeyed.
+//! - A shared screen is one layer, marked as spatial 0 and temporal 0, so a forwarder passes it
+//!   to everyone whatever size they ask for. Only the sealed header says it is a screen.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -32,6 +35,18 @@ const RETRY: Duration = Duration::from_secs(5);
 const THUMB_WIDTH: u32 = 640;
 /// The largest layer sent: 1080p.
 const TOP_WIDTH: u32 = 1_920;
+/// The longest side of a shared screen as sent.
+/// shortcut: 1080p-class, so text on a larger screen is scaled. Raise it with a higher-rate
+/// capture path and a bitrate that follows the link.
+const SCREEN_EDGE: u32 = 1_920;
+const SCREEN_BITRATE: u32 = 4_000_000;
+
+/// Which of your two video streams a thread encodes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stream {
+    Camera,
+    Screen,
+}
 
 /// Flags the session task sets for this thread.
 #[derive(Default)]
@@ -78,6 +93,26 @@ pub fn ladder_for(width: u16, height: u16, fps: u32) -> Result<Ladder, MediaErro
     Ladder::new(fps.clamp(1, 60), 2, rungs)
 }
 
+/// One layer for a shared `width` x `height` picture, at most [`SCREEN_EDGE`] on its longest
+/// side, keeping its shape.
+pub fn screen_ladder(width: u16, height: u16, fps: u32) -> Result<Ladder, MediaError> {
+    let (w, h) = (u32::from(width), u32::from(height));
+    if w == 0 || h == 0 {
+        return Err(MediaError::BadConfig("screen size"));
+    }
+    let longest = w.max(h);
+    let fit = |side: u32| (side * SCREEN_EDGE.min(longest) / longest).max(2) & !1;
+    let size = (
+        u16::try_from(fit(w)).unwrap_or(u16::MAX),
+        u16::try_from(fit(h)).unwrap_or(u16::MAX),
+    );
+    let area = u64::from(size.0) * u64::from(size.1);
+    let bps = u64::from(SCREEN_BITRATE) * area / (1_920 * 1_080);
+    let bitrate = u32::try_from(bps.clamp(1_000_000, u64::from(SCREEN_BITRATE)))
+        .unwrap_or(SCREEN_BITRATE);
+    Ladder::new(fps.clamp(1, 60), 1, vec![rung(Tier::Thumb, size, 0, bitrate)])
+}
+
 /// The architecture's 3 Mbit/s for 1080p, scaled by picture area, at least 0.5 Mbit/s.
 fn bitrate((w, h): (u16, u16)) -> u32 {
     let area = u64::from(w) * u64::from(h);
@@ -99,8 +134,9 @@ pub fn spawn(
     pictures: Receiver<Captured>,
     out: mpsc::Sender<Encoded>,
     control: Arc<VideoControl>,
+    stream: Stream,
 ) -> Worker {
-    Worker::spawn(move |stop| run(&pictures, &out, &control, &stop))
+    Worker::spawn(move |stop| run(&pictures, &out, &control, stream, &stop))
 }
 
 struct Active {
@@ -113,6 +149,7 @@ fn run(
     pictures: &Receiver<Captured>,
     out: &mpsc::Sender<Encoded>,
     control: &VideoControl,
+    stream: Stream,
     stop: &AtomicBool,
 ) {
     let mut active: Option<Active> = None;
@@ -136,7 +173,7 @@ fn run(
             if Instant::now() < retry_at {
                 continue;
             }
-            match open(size) {
+            match open(size, stream) {
                 Ok(opened) => active = Some(opened),
                 Err(e) => {
                     *lock(&control.error) = Some(e.to_string());
@@ -151,7 +188,7 @@ fn run(
             current.schedule.request_keyframe();
             resumed = false;
         }
-        match encode(current, &picture) {
+        match encode(current, &picture, stream) {
             Ok(layers) => {
                 for layer in layers {
                     // A full queue means the network is behind: drop, the gate recovers.
@@ -168,8 +205,11 @@ fn run(
     }
 }
 
-fn open(size: (u16, u16, u32)) -> Result<Active, MediaError> {
-    let ladder = ladder_for(size.0, size.1, size.2)?;
+fn open(size: (u16, u16, u32), stream: Stream) -> Result<Active, MediaError> {
+    let ladder = match stream {
+        Stream::Camera => ladder_for(size.0, size.1, size.2)?,
+        Stream::Screen => screen_ladder(size.0, size.1, size.2)?,
+    };
     let encoder = platform_encoder(&ladder)?;
     Ok(Active {
         size,
@@ -182,7 +222,11 @@ fn platform_encoder(ladder: &Ladder) -> Result<Box<dyn VideoEncoder>, MediaError
     veil_media::platform::video_encoder(ladder)
 }
 
-fn encode(active: &mut Active, picture: &Captured) -> Result<Vec<Encoded>, MediaError> {
+fn encode(
+    active: &mut Active,
+    picture: &Captured,
+    stream: Stream,
+) -> Result<Vec<Encoded>, MediaError> {
     let plan = active.schedule.next(Instant::now());
     if plan.layers.is_empty() {
         return Ok(Vec::new());
@@ -204,6 +248,7 @@ fn encode(active: &mut Active, picture: &Captured) -> Result<Vec<Encoded>, Media
                 picture: plan.picture,
                 reference: plan.reference,
                 needs_lower: layer.needs_lower,
+                screen: stream == Stream::Screen,
                 timestamp_us: raw.timestamp_us,
                 width: layer.width,
                 height: layer.height,
@@ -227,6 +272,20 @@ mod tests {
             .iter()
             .map(|r| (r.width, r.height, r.top_temporal))
             .collect()
+    }
+
+    #[test]
+    fn a_screen_is_one_layer_that_keeps_its_shape() {
+        let wide = screen_ladder(3_840, 2_160, 10).unwrap();
+        assert_eq!(sizes(&wide), [(1_920, 1_080, 0)]);
+        assert_eq!(wide.rungs()[0].tier.spatial(), 0);
+        assert_eq!(wide.rungs()[0].bitrate_bps, SCREEN_BITRATE);
+        let tall = screen_ladder(1_440, 2_560, 10).unwrap();
+        assert_eq!(sizes(&tall), [(1_080, 1_920, 0)]);
+        let small = screen_ladder(800, 600, 10).unwrap();
+        assert_eq!(sizes(&small), [(800, 600, 0)]);
+        assert_eq!(small.rungs()[0].bitrate_bps, 1_000_000);
+        assert!(screen_ladder(0, 600, 10).is_err());
     }
 
     #[test]
