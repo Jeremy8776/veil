@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinSet;
-use veil_net::{Node, NodeAddr};
+use veil_net::Node;
 use veil_rendezvous::protocol::ServerMsg;
 use veil_rendezvous::{Ask, Punch, RendezvousClient, punch, room_tag};
 use veil_security::{Identity, PublicId};

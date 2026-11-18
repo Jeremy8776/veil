@@ -62,6 +62,12 @@ which the rendezvous does not check.
 The asker gets the same silence whether the member declines or is not there, so the
 rendezvous never says who is online.
 
+A relay limits who can hold its relay sessions. Two members hold at most 4 together, and one
+IPv4 address or IPv6 /64 holds at most 128. A session unused for 30 seconds can be taken back,
+and a full relay can replace the longest-idle session of the address that holds the most. The
+relay does not tell the members when it does this. A link still using a session keeps it unless
+the relay is full.
+
 **Filters and Background blur** run on your device, on each camera picture before your
 self-view and before it is encoded, so other members receive only the changed picture. Finding
 you in the picture is done by a small network built into Veil (see section 4). It runs on a
