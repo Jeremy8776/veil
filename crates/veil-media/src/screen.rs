@@ -1,6 +1,6 @@
 //! Screen capture: a whole screen, one window, or part of either, as NV12 for the encoder.
 //!
-//! Purpose: lists what can be shared ([`choices`]), grabs its pictures ([`ScreenCapture`]) and
+//! Purpose: lists what can be shared ([`open_all`]), grabs its pictures ([`ScreenCapture`]) and
 //! turns them into the packed NV12 the video encoders take. The `xcap` crate does the
 //! operating system's part: GDI on Windows, Core Graphics on macOS, and X11 or the desktop
 //! portal on Linux.
@@ -8,6 +8,8 @@
 //! Invariants:
 //! - A source is only ever captured by the id the person chose. If it goes away the capture
 //!   fails; it never falls back to another window or screen.
+//! - A window is captured whether or not it is focused or covered. A minimised one has no
+//!   picture, which [`ScreenCapture::grab`] reports as `None`, not as a failure.
 //! - This process's own windows are not offered, so sharing Veil's window cannot show itself.
 //! - A crop is kept as fractions of the source, so it still fits after a window is resized.
 //! - Output sizes are even and at most [`MAX_DIMENSION`], as 4:2:0 and the ladder need.
@@ -23,7 +25,7 @@ use crate::ladder::MAX_DIMENSION;
 const MIN_SIZE: u32 = 16;
 const UNAVAILABLE: MediaError = MediaError::Unavailable("screen capture");
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ScreenSource {
     Monitor(u32),
     Window(u32),
@@ -62,18 +64,23 @@ pub struct Grabbed {
     pub rgba: Vec<u8>,
 }
 
-/// Screens first, the main one at the top, then windows from front to back. Leaves out
-/// minimised, empty and untitled windows and those of process `own_pid`.
-pub fn choices(own_pid: u32) -> Result<Vec<ScreenChoice>, MediaError> {
+/// Everything that can be shared, each already open: screens first, the main one at the top,
+/// then windows from front to back. Leaves out minimised, empty and untitled windows and those
+/// of process `own_pid`.
+pub fn open_all(own_pid: u32) -> Result<Vec<(ScreenChoice, ScreenCapture)>, MediaError> {
     let mut monitors = xcap::Monitor::all().map_err(|_| UNAVAILABLE)?;
     monitors.sort_by_key(|m| !m.is_primary().unwrap_or(false));
     let mut list = Vec::new();
-    for (index, monitor) in monitors.iter().enumerate() {
+    for (index, monitor) in monitors.into_iter().enumerate() {
         if let Ok(id) = monitor.id() {
-            list.push(ScreenChoice {
+            let choice = ScreenChoice {
                 source: ScreenSource::Monitor(id),
                 label: format!("Screen {}", index + 1),
-            });
+            };
+            let capture = ScreenCapture {
+                target: Target::Monitor(monitor),
+            };
+            list.push((choice, capture));
         }
     }
     // Screens can still be shared on a system that cannot list windows.
@@ -84,10 +91,14 @@ pub fn choices(own_pid: u32) -> Result<Vec<ScreenChoice>, MediaError> {
             && window.height().unwrap_or(0) >= MIN_SIZE;
         let title = window.title().unwrap_or_default();
         if let (true, false, Ok(id)) = (shown, title.trim().is_empty(), window.id()) {
-            list.push(ScreenChoice {
+            let choice = ScreenChoice {
                 source: ScreenSource::Window(id),
                 label: title,
-            });
+            };
+            let capture = ScreenCapture {
+                target: Target::Window(window),
+            };
+            list.push((choice, capture));
         }
     }
     Ok(list)
@@ -120,17 +131,19 @@ impl ScreenCapture {
         target.map(|target| Self { target }).ok_or(UNAVAILABLE)
     }
 
-    pub fn grab(&self) -> Result<Grabbed, MediaError> {
+    /// The source's picture now, or `None` while it is a minimised window.
+    pub fn grab(&self) -> Result<Option<Grabbed>, MediaError> {
         let image = match &self.target {
             Target::Monitor(monitor) => monitor.capture_image(),
+            Target::Window(window) if window.is_minimized().unwrap_or(false) => return Ok(None),
             Target::Window(window) => window.capture_image(),
         }
         .map_err(|_| UNAVAILABLE)?;
-        Ok(Grabbed {
+        Ok(Some(Grabbed {
             width: image.width(),
             height: image.height(),
             rgba: image.into_raw(),
-        })
+        }))
     }
 }
 
@@ -232,10 +245,9 @@ mod tests {
     #[test]
     #[ignore = "captures the screen"]
     fn the_first_screen_can_be_captured_and_converted() {
-        let list = choices(std::process::id()).unwrap();
+        let list = open_all(std::process::id()).unwrap();
         println!("{} sources", list.len());
-        let capture = ScreenCapture::open(list[0].source).unwrap();
-        let picture = capture.grab().unwrap();
+        let picture = list[0].1.grab().unwrap().unwrap();
         let area = region(picture.width, picture.height, None).unwrap();
         let mut out = Vec::new();
         to_nv12(&picture, area, &mut out).unwrap();

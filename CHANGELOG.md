@@ -21,9 +21,11 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   runs short, each address gets an equal part, and spare capacity stays available to anyone.
 ### Added
 
-- Share your screen during a call, next to your camera: a whole screen, one window, or a part
-  of either that you drag out on a preview. The picture is sealed end to end like your camera,
-  and only the sealed header says it is a screen. People on older versions do not see it.
+- Share your screen during a call, next to your camera. Pick a screen or an application from
+  live thumbnails, and optionally select an area of it. A shared window or area keeps going
+  when you switch to another app. You see what you are sending, and a small bar over your
+  other apps lets you stop. The picture is sealed end to end like your camera, and only the
+  sealed header says it is a screen. People on older versions do not see it.
 - Calls use IPv6 when both ends have it, and prefer it. Most UK broadband now gives every
   home an IPv6 address, and IPv6 has no NAT, so two people with IPv6 can usually link
   directly even when their IPv4 is behind carrier-grade NAT. The host's public IPv6 address

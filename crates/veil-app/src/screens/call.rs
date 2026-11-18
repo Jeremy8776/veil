@@ -149,6 +149,7 @@ impl CallView {
         {
             self.picker = Some(picker);
         }
+        share::bar(app, ui.ctx());
         // The timer and the demo speakers move on their own.
         ui.ctx().request_repaint_after(Duration::from_millis(250));
         stay
@@ -194,10 +195,6 @@ impl CallView {
         if let Some((text, colour)) = self.banner_text() {
             area.min.y += banner(ui, area, text, colour) + GAP;
         }
-        if app.share.is_sharing() {
-            let text = "You are sharing your screen";
-            area.min.y += banner(ui, area, text, theme::ACCENT) + GAP;
-        }
         let people = &self.call.participants;
         // Each other person's tile width, so the engine asks only for the layers it needs.
         let scale = ui.ctx().pixels_per_point();
@@ -208,15 +205,23 @@ impl CallView {
             }
             draw(app, ui, rect, person);
         };
-        // Someone's shared screen takes the stage, and everyone moves to the strip below it.
-        let shared = self.sharers.iter().find_map(|id| {
+        // A shared screen takes the stage, and everyone moves to the strip below it. Someone
+        // else's comes first; your own is what you are sending, so it always stays in view.
+        let theirs = self.sharers.iter().find_map(|id| {
             let person = people.iter().find(|p| p.id == *id)?;
-            Some((person, app.remote_video(screen_key(*id))?))
+            let label = format!("{} is sharing", person.name);
+            Some((label, app.remote_video(screen_key(*id))?))
         });
-        match (shared, self.view) {
-            (Some((person, video)), _) => {
+        let yours = app.share_video();
+        let corner = yours.filter(|_| theirs.is_some());
+        let shown = theirs.or_else(|| Some(("You are sharing".to_string(), yours?)));
+        match (shown, self.view) {
+            (Some((label, video)), _) => {
                 let (stage, strip) = layout::speaker(people.len(), area, GAP);
-                share::stage(ui, stage, video, &person.name);
+                share::stage(ui, stage, video, &label);
+                if let Some(own) = corner {
+                    share::own_view(ui, stage, own);
+                }
                 for (person, rect) in people.iter().zip(strip) {
                     show(person, rect);
                 }

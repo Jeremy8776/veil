@@ -1,176 +1,334 @@
-//! Screen sharing on the call screen: the picker, and someone's shared screen on the stage.
+//! Screen sharing on the call screen: the picker, the shared picture and the floating bar.
 //!
-//! Purpose: the Share button opens [`SharePicker`]: choose a screen or window, see it, and
-//! optionally drag over the picture to share only that part. A shared screen is drawn whole
-//! ([`stage`]), never cropped to fit, because its text has to stay readable.
+//! Purpose: the Share button opens [`SharePicker`], laid out like a browser's share dialog: a
+//! Screen tab and an Application tab, each a grid of live thumbnails. "Select area" shows the
+//! chosen source large, to drag out the part to share. A shared picture is drawn whole
+//! ([`stage`]), never cropped to fit, because its text has to stay readable. While you share, a
+//! small always-on-top [`bar`] says so, with Stop sharing and Hide, wherever you are working.
 //!
 //! Invariants:
-//! - Nothing goes to the call until Share is pressed in the picker.
+//! - Nothing goes to the call until a source is chosen and Share is pressed.
 //! - The crop is held as fractions of the source (`veil_media::screen::Crop`).
+//!
+//! shortcut: the bar assumes the screen holding Veil starts at the desktop's origin, so on some
+//! multi-screen layouts it opens on another screen. It can be dragged.
+
+use std::collections::HashMap;
 
 use eframe::egui::{
     self, Align, Align2, Color32, CornerRadius, FontId, Layout, Modal, Pos2, Rect, RichText,
-    ScrollArea, Sense, Stroke, TextWrapMode, TextureHandle, TextureId, TextureOptions, pos2, vec2,
+    ScrollArea, Sense, Stroke, TextureHandle, TextureId, TextureOptions, Ui, ViewportBuilder,
+    ViewportCommand, ViewportId, pos2, text::LayoutJob, text::TextWrapping, vec2,
 };
 use veil_media::screen::{Crop, ScreenChoice, ScreenSource};
 
 use crate::app::VeilApp;
+use crate::convert::Rgba;
 use crate::icons::Icon;
-use crate::theme::{self, MUTED};
+use crate::share::ShareBar;
+use crate::theme::{self, MUTED, TEXT};
 use crate::widgets::{Tone, card, device_error, pill};
 
-const LIST_W: f32 = 230.0;
 /// A drag smaller than this fraction of the picture counts as a click.
 const MIN_CROP: f32 = 0.03;
 const WHOLE: Rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+const CELL_W: f32 = 240.0;
+const CELL_GAP: f32 = 12.0;
+const CELL_LABEL_H: f32 = 28.0;
+const BAR_SIZE: egui::Vec2 = vec2(470.0, 56.0);
+/// How far above the bottom of the screen the bar opens.
+const BAR_MARGIN: f32 = 96.0;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Screen,
+    Application,
+}
+
+impl Tab {
+    fn holds(self, source: ScreenSource) -> bool {
+        matches!(
+            (self, source),
+            (Self::Screen, ScreenSource::Monitor(_))
+                | (Self::Application, ScreenSource::Window(_))
+        )
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Choose,
+    SelectArea,
+}
+
+/// What the person did in the picker this frame.
+#[derive(Default)]
+struct Clicked {
+    pick: Option<ScreenSource>,
+    share: bool,
+    close: bool,
+    step: Option<Step>,
+}
 
 pub struct SharePicker {
+    tab: Tab,
+    step: Step,
     selected: Option<ScreenSource>,
     /// The chosen part of the picture, as fractions of it.
     crop: Option<Rect>,
     drag_from: Option<Pos2>,
     preview: Option<TextureHandle>,
+    thumbnails: HashMap<ScreenSource, TextureHandle>,
+}
+
+fn image_of(picture: &Rgba) -> egui::ColorImage {
+    egui::ColorImage::from_rgba_unmultiplied([picture.width, picture.height], &picture.pixels)
 }
 
 impl SharePicker {
     pub fn open(app: &mut VeilApp) -> Self {
-        app.share.list();
+        app.share.browse();
         Self {
+            tab: Tab::Screen,
+            step: Step::Choose,
             selected: None,
             crop: None,
             drag_from: None,
             preview: None,
+            thumbnails: HashMap::new(),
         }
     }
 
-    fn select(&mut self, app: &mut VeilApp, source: ScreenSource) {
-        self.selected = Some(source);
-        self.crop = None;
-        self.drag_from = None;
-        self.preview = None;
-        app.share.start_preview(source);
-    }
-
-    /// Draws the picker. Returns false once it is closed.
-    pub fn show(&mut self, app: &mut VeilApp, ui: &egui::Ui) -> bool {
-        let ctx = ui.ctx().clone();
-        self.upload_preview(app, &ctx);
-        let choices = app.share.choices();
-        if self.selected.is_none()
-            && let Some(first) = choices.as_ref().and_then(|list| list.first())
-        {
-            self.select(app, first.source);
+    fn upload(&mut self, app: &VeilApp, ctx: &egui::Context) {
+        let options = TextureOptions::LINEAR;
+        if let Some(picture) = app.share.take_preview() {
+            let image = image_of(&picture);
+            match &mut self.preview {
+                Some(texture) => texture.set(image, options),
+                None => self.preview = Some(ctx.load_texture("share-preview", image, options)),
+            }
         }
-        let screen = ctx.content_rect().size();
-        let width = (screen.x - 80.0).clamp(520.0, 900.0);
-        let mut keep = true;
-        let mut share = false;
-        let modal = Modal::new(ui.scope_id().with("share-picker"))
-            .frame(card())
-            .show(&ctx, |ui| {
-                ui.set_width(width);
-                ui.label(RichText::new("Share").font(theme::bold(18.0)));
-                ui.add_space(10.0);
-                let picture_w = width - LIST_W - 16.0;
-                let picture_h = (picture_w * 9.0 / 16.0).min(screen.y - 220.0).max(160.0);
-                ui.horizontal_top(|ui| {
-                    ui.vertical(|ui| {
-                        ui.set_width(LIST_W);
-                        ui.set_height(picture_h);
-                        if let Some(source) = self.list(ui, choices.as_deref(), picture_h) {
-                            self.select(app, source);
-                        }
-                    });
-                    ui.add_space(8.0);
-                    ui.vertical(|ui| self.picture(ui, vec2(picture_w, picture_h)));
-                });
-                ui.add_space(6.0);
-                let hint = if self.crop.is_some() {
-                    "Click the picture to share all of it"
-                } else {
-                    "Drag on the picture to share part of it"
-                };
-                ui.label(RichText::new(hint).small().color(MUTED));
-                device_error(ui, app.share.error());
-                ui.add_space(10.0);
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let ready = self.selected.is_some();
-                    ui.add_enabled_ui(ready, |ui| {
-                        share = pill(ui, Some(Icon::Share), "Share", Tone::Primary, 120.0).clicked();
-                    });
-                    if pill(ui, None, "Cancel", Tone::Quiet, 100.0).clicked() {
-                        keep = false;
-                    }
-                });
-            });
-        if let (true, Some(source)) = (share, self.selected) {
-            app.share.start(source, self.crop.map(to_crop));
-            return false;
-        }
-        if !keep || modal.should_close() {
-            app.share.stop_preview();
-            return false;
-        }
-        true
-    }
-
-    fn upload_preview(&mut self, app: &VeilApp, ctx: &egui::Context) {
-        let Some(picture) = app.share.take_preview() else {
-            return;
-        };
-        let image = egui::ColorImage::from_rgba_unmultiplied(
-            [picture.width, picture.height],
-            &picture.pixels,
-        );
-        match &mut self.preview {
-            Some(texture) => texture.set(image, TextureOptions::LINEAR),
-            None => {
-                let options = TextureOptions::LINEAR;
-                self.preview = Some(ctx.load_texture("share-preview", image, options));
+        for (source, picture) in app.share.take_thumbnails() {
+            let image = image_of(&picture);
+            match self.thumbnails.get_mut(&source) {
+                Some(texture) => texture.set(image, options),
+                None => {
+                    let texture = ctx.load_texture("share-thumbnail", image, options);
+                    self.thumbnails.insert(source, texture);
+                }
             }
         }
     }
 
-    /// The list of screens and windows. Returns a newly chosen source.
-    fn list(
+    /// Draws the picker. Returns false once it is closed.
+    pub fn show(&mut self, app: &mut VeilApp, ui: &Ui) -> bool {
+        let ctx = ui.ctx().clone();
+        self.upload(app, &ctx);
+        let choices = app.share.choices();
+        let error = app.share.error();
+        let screen = ctx.content_rect().size();
+        let width = (screen.x - 80.0).clamp(540.0, 900.0);
+        let height = (screen.y - 230.0).clamp(240.0, 500.0);
+        let mut clicked = Clicked::default();
+        let modal = Modal::new(ui.scope_id().with("share-picker"))
+            .frame(card())
+            .show(&ctx, |ui| {
+                ui.set_width(width);
+                let title = match self.step {
+                    Step::Choose => "Choose what to share",
+                    Step::SelectArea => "Select an area",
+                };
+                ui.label(RichText::new(title).font(theme::bold(18.0)));
+                ui.add_space(10.0);
+                match self.step {
+                    Step::Choose => {
+                        self.tabs(ui);
+                        ui.add_space(10.0);
+                        self.grid(ui, choices.as_deref(), vec2(width, height), &mut clicked);
+                    }
+                    Step::SelectArea => self.picture(ui, vec2(width, height)),
+                }
+                device_error(ui, error.clone());
+                ui.add_space(12.0);
+                self.footer(ui, &mut clicked);
+            });
+        self.apply(app, clicked, modal.should_close())
+    }
+
+    fn apply(&mut self, app: &mut VeilApp, clicked: Clicked, dismissed: bool) -> bool {
+        if let Some(source) = clicked.pick
+            && self.selected != Some(source)
+        {
+            self.selected = Some(source);
+            self.crop = None;
+        }
+        if let (true, Some(source)) = (clicked.share, self.selected) {
+            app.share.start(source, self.crop.map(to_crop));
+            return false;
+        }
+        if clicked.close || dismissed {
+            app.share.close_picker();
+            return false;
+        }
+        match (clicked.step, self.selected) {
+            (Some(Step::SelectArea), Some(source)) => {
+                self.step = Step::SelectArea;
+                self.preview = None;
+                app.share.start_preview(source);
+            }
+            (Some(Step::Choose), _) => {
+                self.step = Step::Choose;
+                self.drag_from = None;
+                app.share.stop_preview();
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn tabs(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 20.0;
+            for (tab, label) in [(Tab::Screen, "Screen"), (Tab::Application, "Application")] {
+                let on = self.tab == tab;
+                let colour = if on { TEXT } else { MUTED };
+                let text = RichText::new(label).font(theme::bold(14.0)).color(colour);
+                let response = ui.add(egui::Label::new(text).sense(Sense::click()));
+                let rect = response.rect;
+                if on {
+                    let y = rect.bottom() + 5.0;
+                    let line = Stroke::new(2.0, theme::ACCENT);
+                    ui.painter().hline(rect.x_range(), y, line);
+                }
+                if response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                    self.tab = tab;
+                }
+            }
+        });
+        ui.add_space(5.0);
+        ui.separator();
+    }
+
+    fn grid(
         &self,
-        ui: &mut egui::Ui,
+        ui: &mut Ui,
         choices: Option<&[ScreenChoice]>,
-        height: f32,
-    ) -> Option<ScreenSource> {
+        size: egui::Vec2,
+        clicked: &mut Clicked,
+    ) {
+        let height = size.y - 34.0;
         let Some(choices) = choices else {
-            ui.label(RichText::new("Looking…").color(MUTED));
-            return None;
+            ui.allocate_ui(vec2(size.x, height), |ui| {
+                ui.set_min_size(vec2(size.x, height));
+                ui.label(RichText::new("Looking…").color(MUTED));
+            });
+            return;
         };
-        let mut chosen = None;
-        ui.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
+        let shown: Vec<&ScreenChoice> =
+            choices.iter().filter(|c| self.tab.holds(c.source)).collect();
+        // Room is left for the scroll bar.
+        let (columns, cell_w) = grid_columns(size.x - 14.0);
+        let thumb_h = cell_w * 9.0 / 16.0;
         ScrollArea::vertical()
             .id_salt("share-sources")
             .max_height(height)
+            .min_scrolled_height(height)
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                let windows = |c: &&ScreenChoice| matches!(c.source, ScreenSource::Window(_));
-                let (apps, screens): (Vec<_>, Vec<_>) = choices.iter().partition(windows);
-                for (title, group) in [("Screens", screens), ("Windows", apps)] {
-                    if group.is_empty() {
-                        continue;
-                    }
-                    ui.label(RichText::new(title).small().color(MUTED));
-                    for choice in group {
-                        let on = self.selected == Some(choice.source);
-                        let row = ui.selectable_label(on, &choice.label);
-                        if row.on_hover_text(&choice.label).clicked() && !on {
-                            chosen = Some(choice.source);
+                for row in shown.chunks(columns) {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = CELL_GAP;
+                        for choice in row {
+                            self.cell(ui, choice, vec2(cell_w, thumb_h), clicked);
                         }
-                    }
-                    ui.add_space(6.0);
+                    });
+                    ui.add_space(CELL_GAP);
                 }
             });
-        chosen
+    }
+
+    fn cell(&self, ui: &mut Ui, choice: &ScreenChoice, thumb: egui::Vec2, clicked: &mut Clicked) {
+        let size = thumb + vec2(0.0, CELL_LABEL_H);
+        let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+        let label = choice.label.as_str();
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
+        let on = self.selected == Some(choice.source);
+        let picture = Rect::from_min_size(rect.min, thumb);
+        let painter = ui.painter();
+        let radius = CornerRadius::same(8);
+        painter.rect_filled(picture, radius, theme::TILE);
+        if let Some(texture) = self.thumbnails.get(&choice.source) {
+            let image = contain(texture.size(), picture.shrink(2.0));
+            painter.image(texture.id(), image, WHOLE, Color32::WHITE);
+        }
+        let ring = match (on, response.hovered() || response.has_focus()) {
+            (true, _) => Some(Stroke::new(2.5, theme::ACCENT)),
+            (false, true) => Some(Stroke::new(1.5, theme::MUTED)),
+            (false, false) => None,
+        };
+        if let Some(ring) = ring {
+            painter.rect_stroke(picture, radius, ring, egui::StrokeKind::Outside);
+        }
+        let colour = if on { TEXT } else { MUTED };
+        let mut job =
+            LayoutJob::simple_singleline(label.to_string(), FontId::proportional(13.0), colour);
+        job.wrap = TextWrapping {
+            max_width: rect.width() - 4.0,
+            max_rows: 1,
+            break_anywhere: true,
+            overflow_character: Some('…'),
+            ..Default::default()
+        };
+        let galley = painter.layout_job(job);
+        let at = pos2(rect.left() + 2.0, picture.bottom() + 7.0);
+        painter.galley(at, galley, colour);
+        let response = response.on_hover_text(label);
+        if response.clicked() {
+            clicked.pick = Some(choice.source);
+        }
+        if response.double_clicked() {
+            clicked.pick = Some(choice.source);
+            clicked.share = true;
+        }
+    }
+
+    fn footer(&self, ui: &mut Ui, clicked: &mut Clicked) {
+        ui.horizontal(|ui| {
+            match self.step {
+                Step::Choose => {
+                    let label = if self.crop.is_some() { "Change area" } else { "Select area" };
+                    ui.add_enabled_ui(self.selected.is_some(), |ui| {
+                        let hint = "Share only part of this. It stays the same when you switch \
+                                    to another app.";
+                        if pill(ui, None, label, Tone::Quiet, 120.0).on_hover_text(hint).clicked() {
+                            clicked.step = Some(Step::SelectArea);
+                        }
+                    });
+                }
+                Step::SelectArea => {
+                    if pill(ui, None, "Back", Tone::Quiet, 90.0).clicked() {
+                        clicked.step = Some(Step::Choose);
+                    }
+                    let hint = if self.crop.is_some() {
+                        "Click the picture to use all of it"
+                    } else {
+                        "Drag on the picture"
+                    };
+                    ui.label(RichText::new(hint).small().color(MUTED));
+                }
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add_enabled_ui(self.selected.is_some(), |ui| {
+                    clicked.share |=
+                        pill(ui, Some(Icon::Share), "Share", Tone::Primary, 120.0).clicked();
+                });
+                clicked.close = pill(ui, None, "Cancel", Tone::Quiet, 100.0).clicked();
+            });
+        });
     }
 
     /// The chosen source, with its crop drawn over it and dragged out on it.
-    fn picture(&mut self, ui: &mut egui::Ui, size: egui::Vec2) {
+    fn picture(&mut self, ui: &mut Ui, size: egui::Vec2) {
         let (rect, response) = ui.allocate_exact_size(size, Sense::click_and_drag());
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, CornerRadius::same(8), theme::TILE);
@@ -213,6 +371,13 @@ impl SharePicker {
     }
 }
 
+/// How many thumbnails fit across `width`, and how wide each one is.
+fn grid_columns(width: f32) -> (usize, f32) {
+    let columns = (((width + CELL_GAP) / (CELL_W + CELL_GAP)) as usize).max(1);
+    let gaps = CELL_GAP * (columns - 1) as f32;
+    (columns, (width - gaps) / columns as f32)
+}
+
 fn to_crop(rect: Rect) -> Crop {
     Crop {
         left: rect.left(),
@@ -229,14 +394,13 @@ pub fn contain(size: [usize; 2], area: Rect) -> Rect {
     Rect::from_center_size(area.center(), vec2(w * scale, h * scale))
 }
 
-/// Someone's shared screen, whole, with their name.
-pub fn stage(ui: &egui::Ui, rect: Rect, (texture, size): (TextureId, [usize; 2]), name: &str) {
+/// A shared screen, whole, with a line saying whose it is.
+pub fn stage(ui: &Ui, rect: Rect, (texture, size): (TextureId, [usize; 2]), label: &str) {
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, CornerRadius::same(theme::RADIUS), Color32::BLACK);
     painter.image(texture, contain(size, rect), WHOLE, Color32::WHITE);
-    let text = format!("{name} is sharing");
     let font = FontId::proportional(13.0);
-    let galley = painter.layout_no_wrap(text, font, Color32::WHITE);
+    let galley = painter.layout_no_wrap(label.to_string(), font, Color32::WHITE);
     let tag = Rect::from_min_size(
         pos2(rect.left() + 8.0, rect.bottom() - 32.0),
         galley.size() + vec2(16.0, 8.0),
@@ -244,6 +408,77 @@ pub fn stage(ui: &egui::Ui, rect: Rect, (texture, size): (TextureId, [usize; 2])
     painter.rect_filled(tag, CornerRadius::same(6), Color32::from_black_alpha(190));
     let at = Align2::LEFT_CENTER.pos_in_rect(&tag.shrink2(vec2(8.0, 0.0)));
     painter.galley(at - vec2(0.0, galley.size().y / 2.0), galley, Color32::WHITE);
+}
+
+/// What you are sending, small in the corner while someone else's share has the stage.
+pub fn own_view(ui: &Ui, stage: Rect, (texture, size): (TextureId, [usize; 2])) {
+    let width = (stage.width() * 0.22).clamp(160.0, 300.0);
+    let corner = Rect::from_min_size(
+        stage.right_bottom() - vec2(width + 10.0, width * 9.0 / 16.0 + 10.0),
+        vec2(width, width * 9.0 / 16.0),
+    );
+    let painter = ui.painter_at(stage);
+    painter.rect_filled(corner, CornerRadius::same(6), Color32::BLACK);
+    painter.image(texture, contain(size, corner), WHOLE, Color32::WHITE);
+    let line = Stroke::new(1.5, theme::ACCENT);
+    painter.rect_stroke(corner, CornerRadius::same(6), line, egui::StrokeKind::Outside);
+}
+
+/// The floating "you are sharing" bar, shown over other apps until hidden or stopped.
+pub fn bar(app: &VeilApp, ctx: &egui::Context) {
+    if !app.share.is_sharing() || app.share.bar_hidden() || ctx.embed_viewports() {
+        return;
+    }
+    let monitor = ctx
+        .input(|i| i.viewport().monitor_size)
+        .unwrap_or(vec2(1_920.0, 1_080.0));
+    let builder = ViewportBuilder::default()
+        .with_title("Veil is sharing your screen")
+        .with_inner_size(BAR_SIZE)
+        .with_position(pos2(
+            (monitor.x - BAR_SIZE.x) / 2.0,
+            monitor.y - BAR_SIZE.y - BAR_MARGIN,
+        ))
+        .with_decorations(false)
+        .with_resizable(false)
+        .with_taskbar(false)
+        .with_always_on_top();
+    let control = app.share.bar();
+    ctx.show_viewport_deferred(
+        ViewportId::from_hash_of("veil-share-bar"),
+        builder,
+        move |ui, _class| bar_contents(ui, &control),
+    );
+}
+
+fn bar_contents(ui: &mut Ui, control: &ShareBar) {
+    let frame = egui::Frame::new()
+        .fill(theme::SURFACE)
+        .inner_margin(egui::Margin::symmetric(14, 8));
+    egui::CentralPanel::default().frame(frame).show(ui, |ui| {
+        ui.horizontal_centered(|ui| {
+            let text = RichText::new("Sharing your screen").color(TEXT);
+            let handle = ui.add(egui::Label::new(text).sense(Sense::drag()));
+            if handle.drag_started() {
+                ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
+            }
+            let mut close = ui.input(|i| i.viewport().close_requested());
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if pill(ui, None, "Hide", Tone::Quiet, 70.0).clicked() {
+                    close = true;
+                }
+                if pill(ui, None, "Stop sharing", Tone::Danger, 130.0).clicked() {
+                    control.stop();
+                    close = true;
+                }
+            });
+            if close {
+                control.hide();
+                ui.ctx().send_viewport_cmd(ViewportCommand::Visible(false));
+                ui.ctx().request_repaint_of(ViewportId::ROOT);
+            }
+        });
+    });
 }
 
 #[cfg(test)]
@@ -266,5 +501,21 @@ mod tests {
         let rect = Rect::from_min_max(pos2(0.25, 0.5), pos2(0.75, 1.0));
         let crop = to_crop(rect);
         assert_eq!((crop.left, crop.top, crop.right, crop.bottom), (0.25, 0.5, 0.75, 1.0));
+    }
+
+    #[test]
+    fn each_tab_holds_its_own_sources() {
+        assert!(Tab::Screen.holds(ScreenSource::Monitor(1)));
+        assert!(!Tab::Screen.holds(ScreenSource::Window(1)));
+        assert!(Tab::Application.holds(ScreenSource::Window(1)));
+        assert!(!Tab::Application.holds(ScreenSource::Monitor(1)));
+    }
+
+    #[test]
+    fn thumbnails_fill_the_width_of_the_grid() {
+        let (columns, width) = grid_columns(760.0);
+        assert_eq!(columns, 3);
+        assert!((width * 3.0 + CELL_GAP * 2.0 - 760.0).abs() < 0.01);
+        assert_eq!(grid_columns(100.0), (1, 100.0));
     }
 }

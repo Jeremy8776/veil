@@ -45,6 +45,8 @@ pub struct VeilApp {
     pub media: LocalMedia,
     /// Sharing your screen (`share.rs`).
     pub share: crate::share::ScreenShare,
+    /// What you are sending while you share, as last uploaded.
+    share_view: Option<TextureHandle>,
     /// Your camera, as last uploaded.
     pub preview: Option<TextureHandle>,
     /// Microphone level, smoothed for the meter.
@@ -85,6 +87,7 @@ impl VeilApp {
             home_error: None,
             media: LocalMedia::new(ctx.clone()),
             share: crate::share::ScreenShare::new(ctx.clone()),
+            share_view: None,
             preview: None,
             level: 0.0,
             want_camera: true,
@@ -242,10 +245,30 @@ impl VeilApp {
                 }
             }
         }
+        if !self.share.is_sharing() {
+            self.share_view = None;
+        } else if let Some(picture) = self.share.take_sending() {
+            let image = egui::ColorImage::from_rgba_unmultiplied(
+                [picture.width, picture.height],
+                &picture.pixels,
+            );
+            match &mut self.share_view {
+                Some(texture) => texture.set(image, TextureOptions::LINEAR),
+                None => {
+                    let texture = ctx.load_texture("sharing", image, TextureOptions::LINEAR);
+                    self.share_view = Some(texture);
+                }
+            }
+        }
         let target = self.media.level();
         // Fast attack, slow release, like a hardware meter.
         let rate = if target > self.level { 0.6 } else { 0.15 };
         self.level += (target - self.level) * rate;
+    }
+
+    /// What you are sending while you share.
+    pub fn share_video(&self) -> Option<(egui::TextureId, [usize; 2])> {
+        self.share_view.as_ref().map(|t| (t.id(), t.size()))
     }
 
     /// Your camera texture and its size, for a tile. It shows exactly what you send.
