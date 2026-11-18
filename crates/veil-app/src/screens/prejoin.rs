@@ -114,7 +114,7 @@ fn toggles(app: &mut VeilApp, ui: &mut egui::Ui) {
         selected: mirrored,
         ..Default::default()
     };
-    if control(ui, Icon::Video, "Mirror", MIRROR_HINT, mirror).clicked() {
+    if control(ui, Icon::Mirror, "Mirror", MIRROR_HINT, mirror).clicked() {
         app.media.set_mirror(!mirrored);
     }
 }

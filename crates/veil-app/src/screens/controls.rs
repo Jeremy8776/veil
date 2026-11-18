@@ -167,6 +167,7 @@ fn video_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     }
     device_error(ui, app.media.camera_error());
     call_menus::divider(ui);
+    call_menus::section(ui, Icon::Mirror, "Mirror");
     let mirrored = app.media.mirror();
     let mirror = call_menus::choice(ui, "Mirror video", mirrored);
     if mirror.on_hover_text(MIRROR_HINT).clicked() {
