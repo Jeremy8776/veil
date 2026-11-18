@@ -7,6 +7,7 @@
 //! Invariants:
 //! - Nothing here is bundled; the font belongs to the operating system.
 //! - Without an icon font, [`Icon::paint`] draws the icon from strokes, so it needs no font.
+//! - [`Icon::Mirror`] is always drawn, because the icon fonts have no clear mirror glyph.
 //! - An "off" state (camera off) is the "on" icon with a slash painted across, not a
 //!   separate glyph, so it looks the same in both fonts.
 
@@ -51,11 +52,13 @@ pub enum Icon {
     Effects,
     /// A raised hand, from the symbol font (the icon fonts have none).
     Hand,
+    /// A shape and its reflection either side of a dashed line, for mirroring your video.
+    Mirror,
 }
 
 impl Icon {
-    fn codepoint(self) -> char {
-        match self {
+    fn codepoint(self) -> Option<char> {
+        let glyph = match self {
             Self::Mic => '\u{E720}',
             Self::MicOff => '\u{EC54}',
             Self::Video => '\u{E714}',
@@ -76,12 +79,14 @@ impl Icon {
             Self::Info => '\u{E946}',
             Self::Effects => '\u{E790}',
             Self::Hand => '\u{270B}',
-        }
+            Self::Mirror => return None,
+        };
+        Some(glyph)
     }
 
     /// The glyph, when the icon font loaded.
     pub fn glyph(self) -> Option<char> {
-        HAVE_FONT.load(Ordering::Relaxed).then(|| self.codepoint())
+        HAVE_FONT.load(Ordering::Relaxed).then(|| self.codepoint()).flatten()
     }
 
     /// Paints the icon centred at `center`: the font glyph, or vector strokes without it.
@@ -254,6 +259,17 @@ impl Icon {
                 poly(&[(0.18, -0.05), (0.18, -0.32)]),
                 poly(&[(-0.25, 0.12), (-0.42, -0.08)]),
             ],
+            Self::Mirror => vec![
+                poly(&[(0.0, -0.45), (0.0, -0.27)]),
+                poly(&[(0.0, -0.09), (0.0, 0.09)]),
+                poly(&[(0.0, 0.27), (0.0, 0.45)]),
+                Shape::convex_polygon(
+                    vec![p(-0.13, -0.3), p(-0.13, 0.3), p(-0.45, 0.3)],
+                    colour,
+                    stroke,
+                ),
+                closed(&[(0.13, -0.3), (0.13, 0.3), (0.45, 0.3)]),
+            ],
         }
     }
 
@@ -280,7 +296,7 @@ impl Icon {
 mod tests {
     use super::*;
 
-    const ALL: [Icon; 19] = [
+    const ALL: [Icon; 20] = [
         Icon::Mic,
         Icon::MicOff,
         Icon::Video,
@@ -300,7 +316,14 @@ mod tests {
         Icon::Volume,
         Icon::Info,
         Icon::Hand,
+        Icon::Mirror,
     ];
+
+    #[test]
+    fn the_mirror_icon_never_uses_the_font() {
+        set_available(true);
+        assert_eq!(Icon::Mirror.glyph(), None);
+    }
 
     #[test]
     fn drawn_icons_stay_inside_their_square() {
