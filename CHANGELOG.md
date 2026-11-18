@@ -2,6 +2,13 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Fixed
+
+- `veil.log` now records the error when Veil cannot start, for example with no graphics
+  driver, display or font. Before, the log stopped at the version line.
+
 ## 0.1.8, 18/11/2026
 
 ### Security

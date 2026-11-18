@@ -97,8 +97,9 @@ thread of its own while blur is on, and nothing is sent anywhere to do it.
 - `logs\veil.log` and `logs\veil.previous.log` (from 0.1.3, `veil-app/src/log.rs`): this run's
   log and the last run's, for you to send when something goes wrong. "Logs" on the home
   screen opens the folder. Nothing reads or sends them but you. They hold the version, call
-  states (connecting, lobby, live, ended and why), timings, device and encoder errors, and
-  error text from the network, which can include a server's or peer's IP address. People
+  states (connecting, lobby, live, ended and why), timings, device and encoder errors, the
+  error that stopped Veil if it could not start or run, and error text from the network,
+  which can include a server's or peer's IP address. People
   appear at most as the first 8 hex digits of their device key: no names, chat, invite links
   or keys. Each file stops at 5 MB. They are plain text, not sealed. On macOS they are in
   `~/Library/Logs/Veil`, on Linux in `$XDG_STATE_HOME/veil` (or `~/.local/state/veil`).

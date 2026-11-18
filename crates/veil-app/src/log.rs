@@ -97,6 +97,19 @@ pub fn note(text: &str) {
     }
 }
 
+/// Logs the error that ended the app, then hands the result back unchanged. Without this, a
+/// window that could not open (no graphics driver, display or font) reached stderr only.
+pub fn record_exit<T, E: std::fmt::Display>(result: Result<T, E>) -> Result<T, E> {
+    if let Err(why) = &result {
+        note(&exit_line(why));
+    }
+    result
+}
+
+fn exit_line(why: &impl std::fmt::Display) -> String {
+    format!("Veil stopped: {why}")
+}
+
 /// `2026-11-17 14:52:49.123Z`: UTC, so logs from people in other zones line up.
 fn clock(at: SystemTime) -> String {
     let since = at.duration_since(UNIX_EPOCH).unwrap_or_default();
@@ -172,6 +185,13 @@ mod tests {
         assert_eq!(clock(at), "2026-11-23 14:52:49.123Z");
         assert_eq!(clock(UNIX_EPOCH), "1970-01-01 00:00:00.000Z");
         assert_eq!(civil(11_016), (2000, 2, 29), "leap day");
+    }
+
+    #[test]
+    fn an_exit_error_is_named_and_handed_back() {
+        assert_eq!(exit_line(&"no system UI font found"), "Veil stopped: no system UI font found");
+        assert_eq!(record_exit(Err::<(), _>("no display")), Err("no display"));
+        assert_eq!(record_exit(Ok::<_, &str>(7)), Ok(7));
     }
 
     #[test]
