@@ -178,7 +178,10 @@ release file is listed in `SHA256SUMS.txt` with build provenance from GitHub.
   forwarder, a member who changes their own copy of Veil could still send video or sound that
   shows in another member's tile, or stop that member's real video and sound from showing
   until the key next changes. Relays and forwarders cannot.
-  Names and chat are different: each is signed with the sender's device key, so no member
+  A shared screen is different: each picture is signed with the sender's device key, so no
+  member can show one as someone else's share. A member can still stop a real share's
+  pictures from showing in the same way.
+  Names and chat are different too: each is signed with the sender's device key, so no member
   can send one as someone else (fixed 16/11/2026), stop someone else's (fixed 17/11/2026), or
   replay one from an earlier call (fixed 17/11/2026).
 - After the key changes, frames sealed under the previous key are still accepted for 2 s, so

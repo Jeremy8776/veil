@@ -32,6 +32,7 @@ mod pinhole;
 pub mod plan;
 mod reach;
 mod router;
+mod screen_proof;
 mod session;
 pub mod stats;
 mod video_in;

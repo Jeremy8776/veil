@@ -24,7 +24,9 @@
 //!   spatial layer below for the same picture (SVC). Simulcast layers never set it.
 //! - `screen` marks a shared screen, a stream of its own beside the camera. It is inside the
 //!   sealed frame, so a forwarder cannot tell. A version without it refuses these headers and
-//!   so ignores a share rather than showing it as the camera.
+//!   so ignores a share rather than showing it as the camera. In such a frame the sender's
+//!   signature sits between this header and the bitstream (`veil-app`'s `screen_proof.rs`), and
+//!   is removed before the frame is read for decoding.
 
 use veil_security::frame::{HEADER_LEN, MAX_FRAME_LEN, TAG_LEN};
 

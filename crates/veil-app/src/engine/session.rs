@@ -12,7 +12,7 @@
 //!
 //! Invariants:
 //! - Who sent a frame or message is its authenticated sender index (MLS leaf), never the link
-//!   it came on.
+//!   it came on. A shared screen also needs that leaf's device signature (`screen_proof.rs`).
 //! - Nothing is sent before the first epoch's keys; nothing is encoded while you are alone.
 //! - Full queues to the decoder and playback threads drop the packet; this task never blocks
 //!   on them.
@@ -36,6 +36,7 @@ use veil_security::safety::{safety_number, side};
 
 use super::audio_out::AudioIn;
 use super::names::{Announcer, Names};
+use super::screen_proof;
 use super::stats::Sampler;
 use super::video_in::VideoIn;
 use super::video_out::{Encoded, VideoControl};
@@ -305,7 +306,18 @@ impl Session {
         let Some(sender) = &mut self.sender else {
             return;
         };
-        match sender.encrypt_layer(encoded.layer, &encoded.payload) {
+        let signed;
+        let payload = if screen_proof::is_screen(&encoded.payload) {
+            let (binding, id) = (sender.binding(), sender.next_frame_id());
+            let proof =
+                screen_proof::sign(&self.identity, binding, &id, encoded.layer, &encoded.payload);
+            let Some(proof) = proof else { return };
+            signed = proof;
+            signed.as_slice()
+        } else {
+            encoded.payload.as_slice()
+        };
+        match sender.encrypt_layer(encoded.layer, payload) {
             Ok(sealed) => {
                 self.frame_id = self.frame_id.wrapping_add(1);
                 self.media.send_frame(self.frame_id, &sealed).await;
@@ -381,11 +393,19 @@ impl Session {
             return;
         };
         if let Some(layer) = layer {
-            let _ = self.pipes.video_in.try_send(VideoIn {
-                id,
-                layer,
-                payload: plain,
-            });
+            // A shared screen must carry the signature of the device that holds this leaf.
+            let payload = if screen_proof::is_screen(&plain) {
+                let Some((device, binding)) = ring.signer(packet, leaf, Instant::now()) else {
+                    return;
+                };
+                match screen_proof::check(&device, &binding, packet, layer, plain) {
+                    Some(payload) => payload,
+                    None => return,
+                }
+            } else {
+                plain
+            };
+            let _ = self.pipes.video_in.try_send(VideoIn { id, layer, payload });
             return;
         }
         let Ok((header, opus)) = AudioHeader::read(&plain) else {

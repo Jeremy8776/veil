@@ -116,6 +116,8 @@ section 3.3 is the goal. What runs now is simpler:
   so those watching know that the share goes on.
 - A flag inside the sealed video header marks the stream as a screen. Receivers decode camera
   and screen apart. A forwarder sees one more stream and cannot tell that it is a screen.
+- Each screen picture carries a signature from the sender's device key, inside the sealed
+  frame. A picture that the named member's device did not sign is dropped.
 - A receiver treats a share that has been silent for 3 seconds as ended.
 
 Windows captures through Windows Graphics Capture. Linux and macOS take repeated screenshots
