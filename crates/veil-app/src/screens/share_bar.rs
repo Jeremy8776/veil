@@ -7,7 +7,7 @@
 //! - On Windows the bar is kept out of screen captures, so people watching a share of the whole
 //!   screen do not see it. You still do.
 //! - Change only opens the picker. What you share stays the same until you choose something
-//!   else, and Cancel leaves it alone.
+//!   else, and Cancel leaves it alone. Those watching see a still picture while it is open.
 //!
 //! shortcut: the bar assumes the screen holding Veil starts at the desktop's origin, so on some
 //! multi-screen layouts it opens on another screen. It can be dragged.

@@ -71,7 +71,8 @@ the relay is full.
 **Screen sharing** starts only when you choose a screen or window and press Share. While it
 runs, the call shows what you are sending and a small bar over your other apps says so. On
 Windows that bar is kept out of captures, so those watching do not see it. The
-picker's thumbnails and preview stay on your device. Pictures are sealed end
+picker's thumbnails and preview stay on your device: while the picker is open, and for half a
+second after it closes, those watching get a still picture. Pictures are sealed end
 to end like your camera, and window titles are neither logged nor sent. A forwarder sees one
 more video stream from you but not that it is a screen. On Windows the live share and the
 picker's thumbnails use Windows Graphics Capture, which includes the mouse pointer. The first
