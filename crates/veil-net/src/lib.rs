@@ -27,6 +27,7 @@ pub mod accept;
 pub mod control;
 pub mod endpoint;
 pub mod error;
+pub mod family;
 pub mod frames;
 pub mod node_addr;
 pub mod node_name;

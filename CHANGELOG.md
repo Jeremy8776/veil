@@ -15,6 +15,28 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 - One sender can no longer use up a relay's whole capacity and starve other calls. When a relay
   runs short, each address gets an equal part, and spare capacity stays available to anyone.
+### Added
+
+- Calls use IPv6 when both ends have it, and prefer it. Most UK broadband now gives every
+  home an IPv6 address, and IPv6 has no NAT, so two people with IPv6 can usually link
+  directly even when their IPv4 is behind carrier-grade NAT. The host's public IPv6 address
+  goes in every invite, members tell the rendezvous theirs, and every dial tries IPv6 first
+  and IPv4 a quarter of a second later.
+- With "Open a port on my router" on, the host also asks the router (PCP) to let the call's
+  port through its IPv6 firewall, and removes it when the call ends.
+- With a public node that has an IPv6 address, the reachability check in People covers the
+  host's IPv6 address too. People says "Reachable from the internet" if either one is.
+- Call stats show "IPv6" beside the path of a link that runs over IPv6.
+
+- People on mobile data connect sooner. Veil no longer waits for each way of connecting to
+  fail before trying the next: the relay is tried after 5 seconds at most, instead of about
+  half a minute. Calls also start with smaller packets, which more mobile networks carry.
+
+### Compatibility
+
+- Older versions still join calls from this version, and the other way round. Invites keep
+  their format; an older version skips the IPv6 address it cannot dial and uses IPv4. Only
+  calls where both ends run this version link over IPv6.
 
 ## 0.1.8, 18/11/2026
 

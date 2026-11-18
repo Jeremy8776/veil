@@ -28,6 +28,7 @@ mod host;
 mod invites;
 mod loopback;
 mod names;
+mod pinhole;
 pub mod plan;
 mod reach;
 mod router;

@@ -6,7 +6,7 @@
 //!   ignored, not taken as the answer, and the wait goes on.
 //! - The whole exchange is bounded: [`WAITS`] in total, about 1.75 s.
 
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use tokio::net::UdpSocket;
@@ -26,16 +26,17 @@ const MAX_ANSWER: usize = 1100;
 /// Sends `request` from `local` to `server` until `accept` takes an answer, or the waits run
 /// out (`Ok(None)`).
 pub async fn exchange<T>(
-    local: Ipv4Addr,
-    server: SocketAddrV4,
+    local: impl Into<IpAddr>,
+    server: impl Into<SocketAddr>,
     request: &[u8],
     mut accept: impl FnMut(&[u8]) -> Option<T>,
 ) -> Result<Option<T>, String> {
+    let server: SocketAddr = server.into();
     let socket = UdpSocket::bind(SocketAddr::new(local.into(), 0))
         .await
         .map_err(|e| format!("cannot open a socket: {e}"))?;
     socket
-        .connect(SocketAddr::V4(server))
+        .connect(server)
         .await
         .map_err(|e| format!("cannot reach {server}: {e}"))?;
     let mut buf = [0u8; MAX_ANSWER];
@@ -86,7 +87,7 @@ mod tests {
                 }
             }
         });
-        let answer = exchange(Ipv4Addr::LOCALHOST, addr, b"hi", |d| {
+        let answer = exchange(std::net::Ipv4Addr::LOCALHOST, addr, b"hi", |d| {
             (d == b"ok").then_some(7)
         })
         .await?;

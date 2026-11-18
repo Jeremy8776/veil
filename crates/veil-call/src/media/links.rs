@@ -20,7 +20,8 @@ use super::write::SEND_DEADLINE;
 use super::{Carrier, Ctx, EARLY_WAIT, Extra, MAX_EARLY, MAX_EARLY_UNKNOWN, State};
 use crate::CallError;
 use crate::inbound::Inbound;
-use crate::node::{Path, dial};
+use crate::dial::dial;
+use crate::node::Path;
 use crate::presence::Presence;
 use crate::routes::Peer;
 

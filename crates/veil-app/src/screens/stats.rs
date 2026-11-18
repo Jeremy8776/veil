@@ -109,9 +109,14 @@ fn table(ui: &mut egui::Ui, shown: &Shown<'_>) {
         });
 }
 
-/// Name, path, RTT, loss, down and up for one row.
+/// Name, path (with ", IPv6" for a link over IPv6), RTT, loss, down and up for one row.
 fn link_cells(name: &str, path: &str, link: Option<&LinkRow>) -> Vec<String> {
-    let mut cells = vec![short_name(name), path.to_string()];
+    let path = if link.is_some_and(|l| l.ipv6) {
+        format!("{path}, IPv6")
+    } else {
+        path.to_string()
+    };
+    let mut cells = vec![short_name(name), path];
     match link {
         Some(l) => cells.extend([ms(l.rtt), loss(l.loss), rate(l.down_kbps), rate(l.up_kbps)]),
         // Through a forwarder the numbers are on its row.

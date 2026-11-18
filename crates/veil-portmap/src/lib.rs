@@ -21,7 +21,8 @@
 //! or shared. A router given a public address that is still not the one the internet sees
 //! goes unnoticed. Compare with a rendezvous's reflected address once `veil-call` exposes it.
 //!
-//! shortcut: IPv4 only. PCP can map IPv6 pinholes too; add it when invites prefer IPv6.
+//! IPv6 has no NAT, only the router's firewall: [`Pinhole`] asks the router with PCP to let
+//! the call's port through to this machine's public IPv6 address (`pinhole.rs`).
 //!
 //! shortcut: a UPnP router that allows permanent mappings only (error 725) gets one, removed
 //! when the call ends; if Veil crashes it stays until the router restarts or someone removes
@@ -29,16 +30,20 @@
 
 pub mod addr;
 mod gateway;
+mod gateway6;
 mod natpmp;
 mod pcp;
+pub mod pinhole;
 mod udp;
 pub mod upnp;
 
 use std::fmt;
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
 use std::time::Duration;
 
 use tokio::time::{Instant, timeout};
+
+pub use pinhole::Pinhole;
 
 /// The lease asked for. Routers may grant less; renewal happens at half of what was granted.
 pub const LIFETIME: Duration = Duration::from_secs(20 * 60);
@@ -239,7 +244,7 @@ async fn open_pcp(local: Ipv4Addr, gateway: Ipv4Addr, port: u16) -> Result<Lease
     let mut nonce = [0u8; 12];
     getrandom::fill(&mut nonce).map_err(|e| Fallback::Failed(format!("no randomness: {e}")))?;
     let request = pcp::Request {
-        client: local,
+        client: local.into(),
         nonce,
         internal_port: port,
         external_port: port,
@@ -250,11 +255,14 @@ async fn open_pcp(local: Ipv4Addr, gateway: Ipv4Addr, port: u16) -> Result<Lease
         .await
         .map_err(Fallback::Failed)?;
     match answer {
-        None => Err(Fallback::Failed(String::from("no answer"))),
+        // `parse` takes answers in the request's family only, so no IPv6 address comes back.
+        None | Some(pcp::Answer::Mapped { external: IpAddr::V6(_), .. }) => {
+            Err(Fallback::Failed(String::from("no answer")))
+        }
         Some(pcp::Answer::NatPmpOnly) => Err(Fallback::NatPmp),
         Some(pcp::Answer::Refused(code)) => Err(Fallback::Failed(pcp::result_name(code).into())),
         Some(pcp::Answer::Mapped {
-            external,
+            external: IpAddr::V4(external),
             external_port,
             lifetime,
         }) => Ok(Lease {
@@ -285,12 +293,14 @@ async fn pcp_exchange(
     let bytes = request.encode(LIFETIME);
     match udp::exchange(local, server, &bytes, |d| request.parse(d)).await? {
         Some(pcp::Answer::Mapped {
-            external,
+            external: IpAddr::V4(external),
             external_port,
             lifetime,
         }) => Ok((SocketAddrV4::new(external, external_port), lifetime)),
         Some(pcp::Answer::Refused(code)) => Err(pcp::result_name(code).into()),
-        Some(pcp::Answer::NatPmpOnly) | None => Err(String::from("no answer")),
+        Some(pcp::Answer::Mapped { .. } | pcp::Answer::NatPmpOnly) | None => {
+            Err(String::from("no answer"))
+        }
     }
 }
 
@@ -443,6 +453,35 @@ mod tests {
                 println!("closed");
             }
             Err(e) => println!("no mapping: {e}"),
+        }
+    }
+
+    /// The IPv6 twin of `real_router`:
+    /// `cargo test -j 8 -p veil-portmap real_router_ipv6 -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore = "talks to this network's router"]
+    async fn real_router_ipv6() {
+        let socket = std::net::UdpSocket::bind("[::]:0").ok();
+        let local = socket
+            .and_then(|s| s.connect("[2001:db8::1]:9").ok().map(|()| s))
+            .and_then(|s| s.local_addr().ok())
+            .and_then(|a| match a.ip() {
+                std::net::IpAddr::V6(ip) if !ip.is_unicast_link_local() => Some(ip),
+                _ => None,
+            });
+        let Some(local) = local else {
+            println!("no public IPv6 address");
+            return;
+        };
+        println!("router: {:?}", gateway6::find(SERVER_PORT).await);
+        match Pinhole::open(local, 47710).await {
+            Ok(mut pinhole) => {
+                println!("PCP opened {}", pinhole.external());
+                println!("renewed, changed: {:?}", pinhole.renew().await);
+                pinhole.close().await;
+                println!("closed");
+            }
+            Err(e) => println!("no pinhole: {e}"),
         }
     }
 }

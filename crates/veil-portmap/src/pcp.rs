@@ -8,8 +8,10 @@
 //! - An answer counts only if it is a MAP response with this request's nonce, protocol and
 //!   internal port (`parse`). Anything else is ignored.
 //! - The same nonce renews and then deletes the mapping (lifetime 0), as the RFC requires.
+//! - IPv4 requests map a port through the router's NAT; IPv6 requests open a pinhole in its
+//!   firewall (RFC 6887 section 11). An answer counts only in the request's own family.
 
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 
 const VERSION: u8 = 2;
@@ -22,7 +24,9 @@ const LEN: usize = 60;
 /// A MAP request's fixed fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Request {
-    pub client: Ipv4Addr,
+    /// This machine's address: its LAN IPv4 address, or its public IPv6 address for a
+    /// pinhole. It must be the address the request is sent from.
+    pub client: IpAddr,
     pub nonce: [u8; 12],
     pub internal_port: u16,
     /// The external port asked for; the router may give another.
@@ -33,7 +37,7 @@ pub struct Request {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Answer {
     Mapped {
-        external: Ipv4Addr,
+        external: IpAddr,
         external_port: u16,
         lifetime: Duration,
     },
@@ -50,13 +54,17 @@ impl Request {
         out[0] = VERSION;
         out[1] = OP_MAP;
         out[4..8].copy_from_slice(&secs(lifetime).to_be_bytes());
-        out[8..24].copy_from_slice(&self.client.to_ipv6_mapped().octets());
+        out[8..24].copy_from_slice(&as_v6(self.client).octets());
         out[24..36].copy_from_slice(&self.nonce);
         out[36] = UDP;
         out[40..42].copy_from_slice(&self.internal_port.to_be_bytes());
         out[42..44].copy_from_slice(&self.external_port.to_be_bytes());
-        // No preferred external address: the IPv4-mapped all-zeros address.
-        out[44..60].copy_from_slice(&Ipv4Addr::UNSPECIFIED.to_ipv6_mapped().octets());
+        // No preferred external address: the all-zeros address of the request's family.
+        let any = match self.client {
+            IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+        };
+        out[44..60].copy_from_slice(&as_v6(any).octets());
         out
     }
 
@@ -83,7 +91,7 @@ impl Request {
             return Some(Answer::Refused(result));
         }
         let lifetime = Duration::from_secs(u64::from(be32(&data[4..8])));
-        let external = mapped_v4(&data[44..60])?;
+        let external = external(&data[44..60], self.client.is_ipv4())?;
         Some(Answer::Mapped {
             external,
             external_port: be16(&data[42..44]),
@@ -123,9 +131,23 @@ fn be32(b: &[u8]) -> u32 {
     u32::from_be_bytes([b[0], b[1], b[2], b[3]])
 }
 
-fn mapped_v4(b: &[u8]) -> Option<Ipv4Addr> {
+/// PCP's 16-byte address field: IPv4 as an IPv4-mapped address.
+fn as_v6(ip: IpAddr) -> Ipv6Addr {
+    match ip {
+        IpAddr::V4(v4) => v4.to_ipv6_mapped(),
+        IpAddr::V6(v6) => v6,
+    }
+}
+
+/// The assigned external address, only in the request's family.
+fn external(b: &[u8], v4: bool) -> Option<IpAddr> {
     let octets: [u8; 16] = b.try_into().ok()?;
-    Ipv6Addr::from(octets).to_ipv4_mapped()
+    let ip = Ipv6Addr::from(octets);
+    match ip.to_ipv4_mapped() {
+        Some(mapped) if v4 => Some(IpAddr::V4(mapped)),
+        None if !v4 => Some(IpAddr::V6(ip)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -134,7 +156,7 @@ mod tests {
 
     fn request() -> Request {
         Request {
-            client: Ipv4Addr::new(192, 168, 1, 20),
+            client: Ipv4Addr::new(192, 168, 1, 20).into(),
             nonce: [7; 12],
             internal_port: 7710,
             external_port: 7710,
@@ -142,13 +164,13 @@ mod tests {
     }
 
     /// The router's answer: the request turned round, as RFC 6887 section 11.4 describes.
-    fn answer(req: &Request, result: u8, external: Ipv4Addr, port: u16) -> Vec<u8> {
+    fn answer(req: &Request, result: u8, external: impl Into<IpAddr>, port: u16) -> Vec<u8> {
         let mut out = req.encode(Duration::from_secs(1200)).to_vec();
         out[1] = RESPONSE | OP_MAP;
         out[3] = result;
         out[8..24].fill(0); // epoch and reserved
         out[42..44].copy_from_slice(&port.to_be_bytes());
-        out[44..60].copy_from_slice(&external.to_ipv6_mapped().octets());
+        out[44..60].copy_from_slice(&as_v6(external.into()).octets());
         out
     }
 
@@ -169,7 +191,7 @@ mod tests {
         assert_eq!(
             req.parse(&answer(&req, 0, ext, 40000)),
             Some(Answer::Mapped {
-                external: ext,
+                external: ext.into(),
                 external_port: 40000,
                 lifetime: Duration::from_secs(1200),
             })
@@ -195,6 +217,30 @@ mod tests {
             "our own request"
         );
         assert_eq!(req.parse(&[2, 0x81, 0]), None, "short");
+    }
+
+    #[test]
+    fn an_ipv6_pinhole_asks_from_and_for_the_public_address() {
+        let me: Ipv6Addr = "2a00:23c5:1234:5600::1".parse().unwrap_or(Ipv6Addr::LOCALHOST);
+        let req = Request {
+            client: me.into(),
+            ..request()
+        };
+        let bytes = req.encode(Duration::from_secs(1200));
+        assert_eq!(&bytes[8..24], &me.octets());
+        assert_eq!(&bytes[44..60], &[0u8; 16], "no preferred external address");
+        assert_eq!(
+            req.parse(&answer(&req, 0, me, 7710)),
+            Some(Answer::Mapped {
+                external: me.into(),
+                external_port: 7710,
+                lifetime: Duration::from_secs(1200),
+            })
+        );
+        // An IPv4 answer to an IPv6 request, or the other way round, is not ours.
+        let v4 = Ipv4Addr::new(81, 2, 69, 160);
+        assert_eq!(req.parse(&answer(&req, 0, v4, 7710)), None);
+        assert_eq!(request().parse(&answer(&request(), 0, me, 7710)), None);
     }
 
     #[test]

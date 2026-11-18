@@ -18,6 +18,8 @@ use crate::node::Path;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LinkStats {
     pub path: Path,
+    /// The link runs over IPv6. False for a relayed link, whose outer path is the relay's.
+    pub ipv6: bool,
     /// QUIC's smoothed round-trip time.
     pub rtt: Duration,
     pub sent_packets: u64,
@@ -34,10 +36,12 @@ impl MediaSession {
             s.links
                 .iter()
                 .map(|(peer, e)| {
-                    let quic = e.carrier.link().quic();
+                    let carrier = e.carrier.link();
+                    let quic = carrier.quic();
                     let stats = quic.stats();
                     let link = LinkStats {
                         path: e.path,
+                        ipv6: e.path != Path::Relayed && carrier.remote_addr().is_ipv6(),
                         rtt: quic.rtt(),
                         sent_packets: stats.path.sent_packets,
                         lost_packets: stats.path.lost_packets,

@@ -11,6 +11,8 @@
 //!   sources, refusing addresses nobody can dial (`0.0.0.0`, port 0). A node's host may be a
 //!   DNS name; `host.rs` and `guest.rs` resolve it when the call starts.
 //! - [`advertised`]: the invite's direct addresses. Each is given only if it can work.
+//!   A public IPv6 address comes straight after the configured ones: guests dial IPv6
+//!   first (`veil_net::family::dial_order`), and older versions skip what they cannot dial.
 //! - [`plan_for`]: this epoch's members as a mesh, or, past `Policy::mesh_max` (4 people) and
 //!   with a forwarder known, every member through the forwarder.
 //!
@@ -23,7 +25,7 @@
 //! shortcut: capacities are assumed, not measured, so the plan follows the policy alone: a
 //! mesh up to 4 people, the forwarder above that. Measure links to plan by real capacity.
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 
 use veil_call::{Directory, Peer};
 use veil_net::{NodeAddr, NodeName};
@@ -179,10 +181,19 @@ pub fn lan_ip() -> Option<IpAddr> {
     (!ip.is_unspecified() && !ip.is_loopback()).then_some(ip)
 }
 
-/// Addresses for the invite: configured ones first, then the LAN address, then this machine
+/// Addresses for the invite: configured ones first, then this machine's public IPv6 address
+/// (`v6`, from `veil_net::family::global_ipv6`), then the LAN address, then this machine
 /// itself (for a second copy of Veil on the same computer).
-pub fn advertised(config: &NetConfig, lan: Option<IpAddr>, port: u16) -> Vec<SocketAddr> {
+pub fn advertised(
+    config: &NetConfig,
+    v6: Option<Ipv6Addr>,
+    lan: Option<IpAddr>,
+    port: u16,
+) -> Vec<SocketAddr> {
     let mut addrs = config.advertise.clone();
+    if let Some(ip) = v6.filter(|ip| veil_net::family::is_global_v6(*ip)) {
+        addrs.push(SocketAddr::new(ip.into(), port));
+    }
     if let Some(ip) = lan {
         addrs.push(SocketAddr::new(ip, port));
     }
@@ -360,13 +371,39 @@ mod tests {
             ..NetConfig::default()
         };
         let lan: IpAddr = "192.168.1.20".parse().unwrap();
-        let addrs = advertised(&config, Some(lan), 5000);
+        let addrs = advertised(&config, None, Some(lan), 5000);
         let text: Vec<String> = addrs.iter().map(ToString::to_string).collect();
         assert_eq!(
             text,
             ["198.51.100.2:7710", "192.168.1.20:5000", "127.0.0.1:5000"]
         );
-        assert_eq!(advertised(&NetConfig::default(), None, 1).len(), 1);
+        assert_eq!(advertised(&NetConfig::default(), None, None, 1).len(), 1);
+    }
+
+    #[test]
+    fn invites_offer_public_ipv6_after_configured_addresses() {
+        let config = NetConfig {
+            advertise: vec!["198.51.100.2:7710".parse().unwrap()],
+            ..NetConfig::default()
+        };
+        let lan: IpAddr = "192.168.1.20".parse().unwrap();
+        let v6: Ipv6Addr = "2a00:23c5:1234:5600::1".parse().unwrap();
+        let text: Vec<String> = advertised(&config, Some(v6), Some(lan), 5000)
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            text,
+            [
+                "198.51.100.2:7710",
+                "[2a00:23c5:1234:5600::1]:5000",
+                "192.168.1.20:5000",
+                "127.0.0.1:5000"
+            ]
+        );
+        // A private (unique local) IPv6 address never goes in an invite.
+        let ula: Ipv6Addr = "fd00::1".parse().unwrap();
+        assert_eq!(advertised(&NetConfig::default(), Some(ula), None, 1).len(), 1);
     }
 
     #[test]

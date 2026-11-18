@@ -12,6 +12,11 @@
 //! node, that address (or the first public address set by hand) is then checked from outside
 //! (`reach.rs`).
 //!
+//! The call's socket is dual-stack where the system allows it. A public IPv6 address goes in
+//! every invite and to the rendezvous, guests dial it first, and, with port opening on, the
+//! router is asked for an IPv6 pinhole (`pinhole.rs`). If the public node has an IPv6 address
+//! too, the IPv6 address is checked from outside as well.
+//!
 //! The forwarder for calls above 4 people is `VEIL_FORWARDER` if set. Otherwise, when the
 //! host also runs its own rendezvous, it runs its own forwarder on a third port, reachable
 //! at the same LAN address. With a `veil-node` rendezvous and no `VEIL_FORWARDER`, guests may
@@ -47,12 +52,13 @@ use veil_rendezvous::{RendezvousServer, room_tag};
 use veil_security::{Identity, PublicId};
 
 use super::plan::{NetConfig, advertised, lan_ip, plan_for, resolve};
-use super::reach::Checker;
+use super::pinhole::V6Port;
+use super::reach::Reachability;
 use super::router::{Event, PortStatus, Router};
 use super::session::{Pipes, Session};
 use super::view::{Knocker, Shared};
 use super::{Command, Ids, invites, short};
-use crate::model::{Action, CallStatus, Reachable};
+use crate::model::{Action, CallStatus};
 
 pub async fn run(
     identity: Identity,
@@ -67,11 +73,18 @@ pub async fn run(
     let room_id: [u8; 16] = Identity::generate().public().0[..16]
         .try_into()
         .map_err(|_| "room id")?;
-    let bind = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), config.port);
-    let node = Node::bind(&identity, bind).map_err(|e| format!("Cannot open the network: {e}"))?;
+    let node = Node::bind_any(&identity, config.port)
+        .map_err(|e| format!("Cannot open the network: {e}"))?;
     let port = node.local_addr().map_err(|e| e.to_string())?.port();
     let lan = lan_ip();
+    let v6 = if node.ipv6() { veil_net::family::global_ipv6() } else { None };
+    crate::note!("network: port {port}, IPv6 {}", v6.map_or_else(|| "none".into(), |ip| ip.to_string()));
     let configured = resolve(config.rendezvous.as_ref(), "rendezvous").await?;
+    // The public node's IPv6 address, for checking ours from outside.
+    let configured6 = match (&config.rendezvous, v6) {
+        (Some(node), Some(_)) => node.resolve_ipv6().await,
+        _ => None,
+    };
     let rendezvous = match configured {
         Some(addr) => addr,
         None => own_server(lan, Own::Rendezvous, &identity, room_id)?,
@@ -89,7 +102,7 @@ pub async fn run(
     if !call.has_rendezvous() {
         crate::note!("rendezvous {rendezvous} did not answer; direct links only");
     }
-    let mut addrs = advertised(&config, lan, port);
+    let mut addrs = advertised(&config, v6, lan, port);
     let mut until_end = false;
     let mut relay = RelayAddrs::from(rendezvous);
     let mut expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
@@ -105,18 +118,24 @@ pub async fn run(
         Some(_) => None,
     };
     let mut ports = PortStatus::new(router.as_ref(), relay_router.as_ref());
+    let mut v6_port = V6Port::start(config.open_port, v6, port);
     let mut router_addr: Option<SocketAddr> = None;
     // Only a public node can dial in from outside; the host's own rendezvous cannot.
-    let mut reach = Checker::default();
-    let checking = config
+    let mut reach = Reachability::default();
+    let mut checking = config
         .advertise
         .first()
         .is_some_and(|at| check(&mut reach, &call, configured, *at));
+    // Without a pinhole to wait for, the IPv6 address is checked at once.
+    let at6 = v6.map(|ip| SocketAddr::new(ip.into(), port));
+    if v6_port.is_none() {
+        checking |= at6.is_some_and(|at| check(&mut reach, &call, configured6, at));
+    }
     shared.update(|view| {
         view.status = CallStatus::Live;
         view.router = ports.view();
         if checking {
-            view.reach = Reachable::Checking;
+            view.reach = reach.shown();
         }
     });
     let media = call.media().map_err(|e| e.to_string())?;
@@ -201,7 +220,7 @@ pub async fn run(
                 shared.update(|view| {
                     view.router = ports.view();
                     if checking {
-                        view.reach = Reachable::Checking;
+                        view.reach = reach.shown();
                     }
                 });
                 if ports.settled() {
@@ -229,11 +248,22 @@ pub async fn run(
             () = until(expires) => {
                 expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
             }
+            // Whether or not the pinhole opened, the IPv6 address can be checked now.
+            _ = next_v6(&mut v6_port) => {
+                if at6.is_some_and(|at| check(&mut reach, &call, configured6, at)) {
+                    shared.update(|view| view.reach = reach.shown());
+                }
+            }
             verdict = reach.next() => shared.update(|view| view.reach = verdict),
         }
     };
+    let close_v6 = async {
+        if let Some(v6_port) = v6_port {
+            v6_port.close().await;
+        }
+    };
     // Together, because leaving waits about a second and each close may take 0.8 s of it.
-    tokio::join!(close_router(router), close_router(relay_router));
+    tokio::join!(close_router(router), close_router(relay_router), close_v6);
     result
 }
 
@@ -245,12 +275,25 @@ async fn close_router(router: Option<Router>) {
 
 /// Asks the public node `server`, if there is one, to dial `at` from outside. Returns whether
 /// a check started.
-fn check(reach: &mut Checker, call: &CallNode, server: Option<NodeAddr>, at: SocketAddr) -> bool {
+fn check(
+    reach: &mut Reachability,
+    call: &CallNode,
+    server: Option<NodeAddr>,
+    at: SocketAddr,
+) -> bool {
     let Some(server) = server else {
         return false;
     };
     reach.start(at, call.check_reach(server, at.port()));
     true
+}
+
+/// Whether the IPv6 pinhole opened, once; never when none was asked for.
+async fn next_v6(v6_port: &mut Option<V6Port>) -> bool {
+    match v6_port {
+        Some(v6_port) => v6_port.next().await,
+        None => std::future::pending().await,
+    }
 }
 
 /// The router's next change, or never when no port was asked for.
