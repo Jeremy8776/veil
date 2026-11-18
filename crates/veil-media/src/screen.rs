@@ -19,6 +19,8 @@
 //! pictures a second. Use `xcap`'s recorder or each system's capture stream for higher rates.
 
 use crate::MediaError;
+#[cfg(windows)]
+use crate::ffi::windows::is_app_window;
 use crate::ladder::MAX_DIMENSION;
 
 /// The smallest picture worth sending, in pixels each way.
@@ -64,18 +66,16 @@ pub struct Grabbed {
     pub rgba: Vec<u8>,
 }
 
-impl Grabbed {
-    /// True if every pixel has the same colour, as with a hidden helper window or an overlay.
-    pub fn is_blank(&self) -> bool {
-        let mut pixels = self.rgba.chunks_exact(4);
-        let Some(first) = pixels.next() else { return true };
-        pixels.all(|pixel| pixel[..3] == first[..3])
-    }
+/// shortcut: only Windows tells overlays from applications here. Add a rule for macOS and
+/// Linux if their window lists show the same clutter.
+#[cfg(not(windows))]
+fn is_app_window(_id: u32) -> bool {
+    true
 }
 
 /// Everything that can be shared, each already open: screens first, the main one at the top,
-/// then windows from front to back. Leaves out minimised, empty and untitled windows and those
-/// of process `own_pid`.
+/// then windows from front to back. Leaves out minimised, empty and untitled windows, overlays
+/// and helper windows, and those of process `own_pid`.
 pub fn open_all(own_pid: u32) -> Result<Vec<(ScreenChoice, ScreenCapture)>, MediaError> {
     let mut monitors = xcap::Monitor::all().map_err(|_| UNAVAILABLE)?;
     monitors.sort_by_key(|m| !m.is_primary().unwrap_or(false));
@@ -99,7 +99,8 @@ pub fn open_all(own_pid: u32) -> Result<Vec<(ScreenChoice, ScreenCapture)>, Medi
             && window.width().unwrap_or(0) >= MIN_SIZE
             && window.height().unwrap_or(0) >= MIN_SIZE;
         let title = window.title().unwrap_or_default();
-        if let (true, false, Ok(id)) = (shown, title.trim().is_empty(), window.id()) {
+        let id = window.id().ok().filter(|&id| is_app_window(id));
+        if let (true, false, Some(id)) = (shown, title.trim().is_empty(), id) {
             let choice = ScreenChoice {
                 source: ScreenSource::Window(id),
                 label: title,
@@ -262,17 +263,6 @@ mod tests {
         to_nv12(&picture, area, &mut out).unwrap();
         let (w, h) = (area.width as usize, area.height as usize);
         assert_eq!(out.len(), w * h * 3 / 2);
-    }
-
-    #[test]
-    fn only_a_picture_of_one_colour_is_blank() {
-        let mut picture = solid(4, 4, [0, 0, 0]);
-        assert!(picture.is_blank());
-        picture.rgba[3] = 9;
-        assert!(picture.is_blank(), "transparency is not a colour");
-        picture.rgba[60] = 1;
-        assert!(!picture.is_blank());
-        assert!(solid(0, 0, [0, 0, 0]).is_blank());
     }
 
     #[test]

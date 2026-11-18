@@ -21,6 +21,7 @@
 
 #![allow(unsafe_code)]
 
+mod app_window;
 mod audio;
 mod audio_devices;
 mod camera;
@@ -29,6 +30,7 @@ mod enumerate;
 mod protect;
 mod sample;
 
+pub use app_window::is_app_window;
 pub use audio::{WasapiCapture, WasapiPlayback};
 pub use audio_devices::{AudioDevice, microphones, speakers};
 pub use camera::{CameraInfo, MfCamera, cameras};

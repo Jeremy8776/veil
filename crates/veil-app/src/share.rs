@@ -7,8 +7,6 @@
 //! Invariants:
 //! - Nothing is captured for the call until you choose a source and press Share. Thumbnails and
 //!   the picker's preview stay on this device.
-//! - A window whose picture is one flat colour is not offered: these are hidden helpers and
-//!   overlays with nothing to share. Screens are always offered.
 //! - You can see what is sent: [`ScreenShare::take_sending`] gives the same converted pictures
 //!   the encoder gets, cropped as they are sent.
 //! - Losing focus changes nothing. A covered window is still captured, and a crop stays on the
@@ -223,24 +221,19 @@ fn browse_loop(state: &State, ctx: &egui::Context, stop: &AtomicBool) {
     while !stop.load(Ordering::Relaxed) {
         match screen::open_all(std::process::id()) {
             Ok(sources) => {
-                // Pictures come first, so an empty window never appears in the list.
-                let mut list = Vec::with_capacity(sources.len());
+                let list = sources.iter().map(|(choice, _)| choice.clone()).collect();
+                *lock(&state.choices) = Some(list);
+                ctx.request_repaint();
                 for (choice, capture) in &sources {
                     if stop.load(Ordering::Relaxed) {
                         return;
                     }
                     if let Ok(Some(picture)) = capture.grab() {
-                        let window = matches!(choice.source, ScreenSource::Window(_));
-                        if window && picture.is_blank() {
-                            continue;
-                        }
                         let small = shrink(&picture, THUMBNAIL_WIDTH);
                         lock(&state.thumbnails).insert(choice.source, small);
+                        ctx.request_repaint();
                     }
-                    list.push(choice.clone());
                 }
-                *lock(&state.choices) = Some(list);
-                ctx.request_repaint();
             }
             Err(e) => {
                 crate::note!("screen share: cannot list sources: {e}");
