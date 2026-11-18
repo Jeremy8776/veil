@@ -5,6 +5,8 @@
 //! hands the link on. Relayed links arrive on a virtual node and are routed the same way.
 //!
 //! Invariants:
+//! - A relay session carries one link. Its virtual node takes the first link within the wait
+//!   it is given and no other. The link then keeps the node; with no link the node is dropped.
 //! - A link that does not send a known first message in [`FIRST_MESSAGE`] is closed.
 //! - `Hello` goes to the host session only if this participant hosts; otherwise it is closed.
 //! - `Media` for another room is closed. Whether the key is a member is checked by the media
@@ -39,15 +41,23 @@ pub(crate) struct Router {
 }
 
 impl Router {
-    /// Accepts links on `node` until it closes. `relayed` marks a virtual node, which every
-    /// accepted link then keeps alive.
-    pub async fn accept_loop(self, node: Arc<Node>, relayed: bool) {
+    /// Accepts links on `node` until it closes.
+    pub async fn accept_loop(self, node: Arc<Node>) {
         while let Some(incoming) = node.accept().await {
             if let Ok(link) = incoming {
-                let via = relayed.then(|| node.clone());
-                tokio::spawn(self.clone().route(link, via));
+                tokio::spawn(self.clone().route(link, None));
             }
         }
+    }
+
+    /// Waits up to `wait` for the one link of a relay session on its virtual `node`, routes
+    /// it and ends. The link keeps `node` alive.
+    pub async fn accept_relayed(self, node: Arc<Node>, wait: Duration) {
+        let Ok(Some(Ok(link))) = tokio::time::timeout(wait, node.accept()).await else {
+            return;
+        };
+        node.stop_accepting().await;
+        tokio::spawn(self.route(link, Some(node)));
     }
 
     async fn route(self, link: Link, via: Option<Arc<Node>>) {
@@ -86,5 +96,57 @@ impl Router {
             }
             _ => inbound.link.close("unexpected first message"),
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use veil_security::Identity;
+
+    use super::*;
+
+    const ROOM: [u8; 16] = [3; 16];
+    const SOON: Duration = Duration::from_secs(5);
+
+    fn bind(identity: &Identity) -> Node {
+        Node::bind(identity, "127.0.0.1:0".parse().unwrap()).unwrap()
+    }
+
+    fn router() -> (Router, mpsc::Receiver<Inbound>) {
+        let (media, inbox) = mpsc::channel(4);
+        (Router { room_id: ROOM, host: None, media }, inbox)
+    }
+
+    #[tokio::test]
+    async fn a_session_with_no_link_lets_go_of_its_node() {
+        let node = Arc::new(bind(&Identity::generate()));
+        let (router, _inbox) = router();
+        let wait = router.accept_relayed(node.clone(), Duration::from_millis(20));
+        tokio::time::timeout(SOON, wait).await.expect("the wait ends by itself");
+        assert_eq!(Arc::strong_count(&node), 1);
+    }
+
+    #[tokio::test]
+    async fn a_session_routes_one_link_keeps_it_and_takes_no_other() {
+        let identity = Identity::generate();
+        let node = Arc::new(bind(&identity));
+        let (addr, key) = (node.local_addr().unwrap(), identity.public());
+        let (router, mut inbox) = router();
+        let waiting = tokio::spawn(router.accept_relayed(node.clone(), SOON));
+        drop(node);
+
+        let dialler = bind(&Identity::generate());
+        let link = dialler.connect(&[addr], key).await.unwrap();
+        let (mut out, _input) = link.open_control().await.unwrap().split();
+        out.send(&Control::Media { room_id: ROOM }).await.unwrap();
+        tokio::time::timeout(SOON, waiting).await.unwrap().unwrap();
+
+        let inbound = tokio::time::timeout(SOON, inbox.recv()).await.unwrap().unwrap();
+        assert!(inbound.via.is_some(), "the link holds its node");
+        assert_eq!(inbound.link.peer(), dialler.id());
+
+        let second = tokio::time::timeout(Duration::from_secs(1), dialler.connect(&[addr], key)).await;
+        assert!(!matches!(second, Ok(Ok(_))), "a session carries one link");
     }
 }

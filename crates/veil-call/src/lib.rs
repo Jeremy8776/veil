@@ -36,6 +36,7 @@ pub mod member;
 pub mod node;
 mod presence;
 pub mod relay_field;
+mod relay_places;
 pub mod routes;
 
 use std::fmt;

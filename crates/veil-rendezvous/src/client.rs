@@ -268,10 +268,9 @@ impl RendezvousClient {
     /// A virtual socket for a relay session. Bind a node to it with [`Node::bind_virtual`].
     pub fn relay_socket(&self, session: u32) -> Result<Arc<RelaySocket>, RendezvousError> {
         let (tx, rx) = mpsc::channel(INBOX);
-        self.inboxes
-            .lock()
-            .map_err(|_| RendezvousError::Closed)?
-            .insert(session, tx);
+        let mut inboxes = self.inboxes.lock().map_err(|_| RendezvousError::Closed)?;
+        add_inbox(&mut inboxes, session, tx);
+        drop(inboxes);
         Ok(Arc::new(RelaySocket::new(self.link.quic().clone(), session, rx)))
     }
 
@@ -316,6 +315,12 @@ impl RendezvousClient {
     }
 }
 
+/// Adds a session's inbox, and forgets those whose socket has gone.
+fn add_inbox(inboxes: &mut HashMap<u32, mpsc::Sender<Bytes>>, session: u32, inbox: mpsc::Sender<Bytes>) {
+    inboxes.retain(|_, open| !open.is_closed());
+    inboxes.insert(session, inbox);
+}
+
 fn deliver(inboxes: &Inboxes, session: u32, packet: Bytes) {
     let Ok(map) = inboxes.lock() else {
         return;
@@ -350,5 +355,25 @@ async fn demux_streams(conn: quinn::Connection, inboxes: Inboxes) {
                 deliver(&inboxes, session, Bytes::from(packet));
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_inbox_clears_those_of_closed_sockets() {
+        let mut inboxes = HashMap::new();
+        let (gone, gone_rx) = mpsc::channel(1);
+        let (open, _open_rx) = mpsc::channel(1);
+        let (new, _new_rx) = mpsc::channel(1);
+        add_inbox(&mut inboxes, 1, gone);
+        add_inbox(&mut inboxes, 2, open);
+        drop(gone_rx);
+        add_inbox(&mut inboxes, 3, new);
+        let mut left: Vec<u32> = inboxes.keys().copied().collect();
+        left.sort_unstable();
+        assert_eq!(left, [2, 3]);
     }
 }

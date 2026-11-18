@@ -17,6 +17,8 @@
 //!   ciphertext and never holds keys.
 //! - A punch dial-back is never kept. The peer that asked dials the link that is used; the
 //!   dial-back only opens this side's NAT mapping. This keeps one link per pair.
+//! - A relay session someone else opened holds a place only until its link arrives, or for
+//!   [`RELAY_WAIT`] if none does ([`RelayPlaces`]).
 //! - Another member's request (introduction or relay) is accepted only as [`Consent`]
 //!   allows: the host takes anyone (joiners dial its address, and the lobby decides who gets
 //!   in); a member takes only peers its current routes expect; a relay-only node never
@@ -30,8 +32,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::task::JoinSet;
-use veil_net::Node;
+use veil_net::{Node, NodeAddr};
 use veil_rendezvous::protocol::ServerMsg;
 use veil_rendezvous::{Ask, Punch, RendezvousClient, punch, room_tag};
 use veil_security::{Identity, PublicId};
@@ -40,6 +41,7 @@ use crate::CallError;
 use crate::host::Allowed;
 use crate::inbound::Router;
 use crate::relay_field::RelayAddrs;
+use crate::relay_places::RelayPlaces;
 
 /// How this participant registers in the call's rendezvous room.
 pub(crate) enum Seat {
@@ -51,8 +53,9 @@ pub(crate) enum Seat {
 }
 
 const COMMANDS: usize = 16;
-/// Relay sessions other members opened to this one. Sixteen is the call's size limit.
-const MAX_RELAYED: usize = 32;
+/// How long a relay session someone else opened waits for its link: a dial's whole allowance
+/// (`veil_net::endpoint::CONNECT_TIMEOUT`), and a little more.
+const RELAY_WAIT: Duration = Duration::from_secs(10);
 /// Requests kept while no route expects their sender yet. The server forgets them at 10 s.
 const WAIT: Duration = Duration::from_secs(8);
 const MAX_WAITING: usize = 64;
@@ -128,7 +131,7 @@ impl Presence {
             node,
             client,
             router,
-            relayed: JoinSet::new(),
+            relayed: RelayPlaces::default(),
             consent: consent.clone(),
             waiting: VecDeque::new(),
             allowed,
@@ -173,8 +176,8 @@ struct Actor {
     node: Arc<Node>,
     client: RendezvousClient,
     router: Router,
-    /// Accept loops of relay sessions others opened. Dropped with the actor.
-    relayed: JoinSet<()>,
+    /// Relay sessions others opened, waiting for their links. Dropped with the actor.
+    relayed: RelayPlaces,
     consent: Arc<Consent>,
     /// Requests not yet allowed, oldest first, with when they came.
     waiting: VecDeque<(PublicId, Ask, Instant)>,
@@ -278,21 +281,15 @@ impl Actor {
                     }
                 });
             }
-            ServerMsg::RelayReady { session, .. } => {
-                // Finished loops are reaped; past the limit a new session is ignored, so a
-                // misbehaving peer cannot grow this set without bound.
-                while self.relayed.try_join_next().is_some() {}
-                if self.relayed.len() >= MAX_RELAYED {
-                    return;
-                }
+            ServerMsg::RelayReady { session, peer } => {
                 let Ok(socket) = self.client.relay_socket(session) else {
                     return;
                 };
                 let Ok(inner) = Node::bind_virtual(&self.identity, socket) else {
                     return;
                 };
-                self.relayed
-                    .spawn(self.router.clone().accept_loop(Arc::new(inner), true));
+                let wait = self.router.clone().accept_relayed(Arc::new(inner), RELAY_WAIT);
+                self.relayed.start(peer, wait);
             }
             _ => {}
         }

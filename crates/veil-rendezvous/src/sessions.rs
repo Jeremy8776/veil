@@ -7,6 +7,9 @@
 //! - A session forwards only between its two members.
 //! - A session unused for [`SESSION_IDLE`] gives its place back when a limit is reached. Live
 //!   relayed links send a keep-alive every few seconds, so they are never idle this long.
+//! - Two members hold at most [`MAX_SESSIONS_PER_PAIR`] together. A further one replaces their
+//!   session idle longest, so one asker cannot fill the sessions of a member that accepts
+//!   anyone (the host).
 //! - One remote address block (`veil_net::accept::block`) holds at most
 //!   [`MAX_SESSIONS_PER_BLOCK`] sessions. Address blocks are the one thing a party cannot make
 //!   for free. A full relay-only call from one address needs 120.
@@ -22,6 +25,9 @@ use veil_security::PublicId;
 pub const MAX_SESSIONS: usize = 4_096;
 /// Relay sessions one member may hold. A call has at most 16 members.
 pub const MAX_SESSIONS_PER_MEMBER: usize = 16;
+/// Relay sessions two members may hold together. They need two (control and media); the rest
+/// leave room for retries. This also means one member cannot fill another's sessions.
+pub const MAX_SESSIONS_PER_PAIR: usize = 4;
 /// Relay sessions the members in one remote address block may hold together.
 pub const MAX_SESSIONS_PER_BLOCK: usize = MAX_SESSIONS / 32;
 /// Longer than the 20 s after which a QUIC link with no traffic ends.
@@ -134,8 +140,20 @@ impl<T> Sessions<T> {
         oldest.is_some_and(|id| self.map.remove(&id).is_some())
     }
 
+    /// Gives up the pair's session idle longest once the pair holds its limit.
+    fn replace_in_pair(&mut self, x: PublicId, y: PublicId) {
+        let pair = || self.map.iter().filter(|(_, s)| s.involves(x) && s.involves(y));
+        if pair().count() < MAX_SESSIONS_PER_PAIR {
+            return;
+        }
+        if let Some(id) = pair().min_by_key(|(_, s)| s.last_used).map(|(id, _)| *id) {
+            self.map.remove(&id);
+        }
+    }
+
     /// Opens a session, or returns `None` if a limit refuses it.
     pub(crate) fn open(&mut self, a: End<T>, b: End<T>, now: Instant) -> Option<u32> {
+        self.replace_in_pair(a.key, b.key);
         if self.member_full(a.key, now)
             || self.member_full(b.key, now)
             || self.block_full(a.block, now)
@@ -213,6 +231,24 @@ mod tests {
     fn session_ids_reuse_protocol_framing() {
         let packet = protocol::session_packet(5, b"x");
         assert_eq!(protocol::split_session(&packet).map(|(id, _)| id), Some(5));
+    }
+
+    #[test]
+    fn a_full_pair_gives_up_its_longest_idle_session_only() {
+        let start = Instant::now();
+        let at = |secs| start + Duration::from_secs(secs);
+        let mut t = Sessions::default();
+        let other_pair = t.open(end(1, 1), end(3, 3), start).unwrap();
+        let first = t.open(end(1, 1), end(2, 2), at(1)).unwrap();
+        let second = t.open(end(2, 2), end(1, 1), at(2)).unwrap();
+        t.open(end(1, 1), end(2, 2), at(3)).unwrap();
+        t.open(end(1, 1), end(2, 2), at(4)).unwrap();
+        assert!(t.route(first, key(1), at(5)).is_some(), "still carrying a link");
+
+        t.open(end(1, 1), end(2, 2), at(6)).unwrap();
+        assert!(t.route(second, key(1), at(6)).is_none());
+        assert!(t.route(first, key(1), at(6)).is_some());
+        assert!(t.route(other_pair, key(1), at(6)).is_some());
     }
 
     #[test]
