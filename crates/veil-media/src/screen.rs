@@ -74,6 +74,19 @@ fn is_app_window(_id: u32) -> bool {
     true
 }
 
+/// Keeps this app's window called `title` out of screen captures. True once done.
+#[cfg(windows)]
+pub fn hide_window_from_capture(title: &str) -> bool {
+    crate::ffi::windows::hide_from_capture(title)
+}
+
+/// shortcut: nothing is hidden here yet, so the bar shows in a whole-screen share. Add each
+/// system's call once sharing has been tested on it.
+#[cfg(not(windows))]
+pub fn hide_window_from_capture(_title: &str) -> bool {
+    true
+}
+
 /// Everything that can be shared, each already open: screens first, the main one at the top,
 /// then windows from front to back. Leaves out minimised, empty and untitled windows, overlays
 /// and helper windows, and those of process `own_pid`.

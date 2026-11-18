@@ -26,6 +26,7 @@ use crate::model::{Call, CallStatus, Participant};
 use crate::screens::panels::{self, Panel};
 use crate::screens::security_panel::Verifying;
 use crate::screens::share::{self, SharePicker};
+use crate::screens::share_bar;
 use crate::screens::{call_top, controls, invite, stats};
 use crate::theme::{self, GAP, MUTED, PAGE, SURFACE};
 use crate::widgets::{self, ControlState, Tile, Tone, control, pill};
@@ -144,12 +145,15 @@ impl CallView {
                     .inner_margin(egui::Margin::same(12)),
             )
             .show(ui, |ui| self.stage(app, ui, now));
+        if app.share.take_change_asked() && self.picker.is_none() {
+            self.picker = Some(SharePicker::open(app));
+        }
         if let Some(mut picker) = self.picker.take()
             && picker.show(app, ui)
         {
             self.picker = Some(picker);
         }
-        share::bar(app, ui.ctx());
+        share_bar::show(app, ui.ctx());
         // The timer and the demo speakers move on their own.
         ui.ctx().request_repaint_after(Duration::from_millis(250));
         stay

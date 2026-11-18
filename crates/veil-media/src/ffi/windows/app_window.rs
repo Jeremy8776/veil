@@ -1,21 +1,43 @@
-//! Tells application windows from overlays and helpers, for the screen share picker.
+//! Window rules for screen sharing: which windows to offer, and which to keep out of captures.
 //! Part of the Windows `ffi` module; the same rules apply (see `mod.rs`).
 //!
 //! Purpose: `xcap` lists every visible titled window, including tool windows such as graphics
 //! overlays and the hidden web views inside apps. Only windows a person would switch to with
-//! Alt+Tab are worth offering.
+//! Alt+Tab are worth offering. Veil's floating sharing bar is hidden from captures, so people
+//! watching a whole-screen share do not see it.
 //!
 //! Invariants:
-//! - Only reads a window's style and owner. Nothing is sent to the window.
+//! - Other apps' windows are only read: their style and owner. Nothing is sent to them.
+//! - Only a window of this process is ever changed.
 //! - A window that has gone away is harmless: capturing it fails later.
 
 use std::ffi::c_void;
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GW_OWNER, GWL_EXSTYLE, GetWindow, GetWindowLongW, WINDOW_EX_STYLE, WS_EX_APPWINDOW,
+    FindWindowW, GW_OWNER, GWL_EXSTYLE, GetWindow, GetWindowLongW, GetWindowThreadProcessId,
+    SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WS_EX_APPWINDOW,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
+use windows::core::{HSTRING, PCWSTR};
+
+/// Keeps this process's window called `title` out of screen captures. False if there is no
+/// such window yet, or this version of Windows refuses.
+pub fn hide_from_capture(title: &str) -> bool {
+    let title = HSTRING::from(title);
+    // SAFETY: `title` is a valid terminated string that outlives the call.
+    let Ok(window) = (unsafe { FindWindowW(PCWSTR::null(), &title) }) else {
+        return false;
+    };
+    let mut process = 0;
+    // SAFETY: the handle is passed by value and `process` is a valid out pointer.
+    unsafe { GetWindowThreadProcessId(window, Some(&mut process)) };
+    if process != std::process::id() {
+        return false;
+    }
+    // SAFETY: the window belongs to this process, as the call requires.
+    unsafe { SetWindowDisplayAffinity(window, WDA_EXCLUDEFROMCAPTURE) }.is_ok()
+}
 
 /// True if the window with this id (`xcap`'s id, the handle's low 32 bits, which are all of its
 /// meaningful bits) is an application window.

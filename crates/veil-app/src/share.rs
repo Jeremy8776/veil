@@ -22,7 +22,7 @@
 //! - Window titles are never logged or sent.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -37,9 +37,13 @@ use crate::media::{Worker, lock};
 const SHARE_FPS: u32 = 30;
 const PREVIEW_EVERY: Duration = Duration::from_millis(200);
 const THUMBNAILS_EVERY: Duration = Duration::from_secs(2);
-/// Preview pictures are shrunk to about this width.
+/// Your own view of a picture wider than this is halved.
 const PREVIEW_WIDTH: u32 = 960;
-const THUMBNAIL_WIDTH: u32 = 320;
+/// The largest size of the area preview and of a thumbnail, in pixels.
+const PREVIEW_BOX: (u32, u32) = (1_280, 720);
+const THUMBNAIL_BOX: (u32, u32) = (512, 288);
+/// Attempts to keep the floating bar out of captures: about five seconds' worth.
+const MAX_BAR_TRIES: u32 = 50;
 /// Failed pictures in a row before sharing stops: one second's worth.
 const MAX_FAILURES: u32 = SHARE_FPS;
 const CANNOT_CAPTURE: &str = "Cannot capture this. Check that Veil may record the screen.";
@@ -57,7 +61,12 @@ struct State {
     stopped: AtomicBool,
     /// Stop was pressed on the floating bar.
     stop_asked: AtomicBool,
+    /// Change was pressed on the floating bar.
+    change_asked: AtomicBool,
     bar_hidden: AtomicBool,
+    /// The bar no longer needs keeping out of captures.
+    bar_settled: AtomicBool,
+    bar_tries: AtomicU32,
 }
 
 /// What the floating sharing bar can do. It runs apart from the main window.
@@ -71,6 +80,27 @@ impl ShareBar {
 
     pub fn hide(&self) {
         self.0.bar_hidden.store(true, Ordering::Release);
+    }
+
+    pub fn change(&self) {
+        self.0.change_asked.store(true, Ordering::Release);
+    }
+
+    /// Keeps the bar's window, found by `title`, out of captures. True means try again soon:
+    /// the window may not exist yet.
+    pub fn keep_out_of_capture(&self, title: &str) -> bool {
+        let state = &self.0;
+        if state.bar_settled.load(Ordering::Acquire) {
+            return false;
+        }
+        let tries = state.bar_tries.fetch_add(1, Ordering::AcqRel) + 1;
+        let hidden = screen::hide_window_from_capture(title);
+        if !hidden && tries >= MAX_BAR_TRIES {
+            crate::note!("screen share: the bar could not be kept out of captures");
+        }
+        let settled = hidden || tries >= MAX_BAR_TRIES;
+        state.bar_settled.store(settled, Ordering::Release);
+        !settled
     }
 }
 
@@ -108,6 +138,11 @@ impl ScreenShare {
 
     pub fn bar_hidden(&self) -> bool {
         self.state.bar_hidden.load(Ordering::Acquire)
+    }
+
+    /// True once after Change was pressed on the floating bar.
+    pub fn take_change_asked(&self) -> bool {
+        self.state.change_asked.swap(false, Ordering::AcqRel)
     }
 
     /// Starts reading what can be shared, with thumbnails, until [`Self::close_picker`].
@@ -167,7 +202,10 @@ impl ScreenShare {
         *lock(&self.state.sending) = None;
         self.state.stopped.store(false, Ordering::Release);
         self.state.stop_asked.store(false, Ordering::Release);
+        self.state.change_asked.store(false, Ordering::Release);
         self.state.bar_hidden.store(false, Ordering::Release);
+        self.state.bar_settled.store(false, Ordering::Release);
+        self.state.bar_tries.store(0, Ordering::Release);
         let (state, ctx) = (self.state.clone(), self.ctx.clone());
         crate::note!("screen share: started");
         self.live = Some(Worker::spawn(move |stop| {
@@ -226,7 +264,7 @@ fn browse_loop(state: &State, ctx: &egui::Context, stop: &AtomicBool) {
                         return;
                     }
                     if let Ok(Some(picture)) = capture.grab() {
-                        let small = shrink(&picture, THUMBNAIL_WIDTH);
+                        let small = shrink(&picture, THUMBNAIL_BOX);
                         lock(&state.thumbnails).insert(choice.source, small);
                         ctx.request_repaint();
                     }
@@ -337,7 +375,7 @@ fn preview_loop(state: &State, ctx: &egui::Context, stop: &AtomicBool, source: S
     while !stop.load(Ordering::Relaxed) {
         match capture.grab() {
             Ok(Some(picture)) => {
-                *lock(&state.preview) = Some(shrink(&picture, PREVIEW_WIDTH));
+                *lock(&state.preview) = Some(shrink(&picture, PREVIEW_BOX));
                 ctx.request_repaint();
             }
             Ok(None) => {}
@@ -347,15 +385,33 @@ fn preview_loop(state: &State, ctx: &egui::Context, stop: &AtomicBool, source: S
     }
 }
 
-/// Keeps every n-th pixel, so the result is at most about `max_width` wide.
-fn shrink(picture: &Grabbed, max_width: u32) -> Rgba {
-    let step = (picture.width / max_width.max(1)).max(1) as usize;
+/// Shrinks to fit inside `(max_width, max_height)`. Each new pixel is the average of the block
+/// it replaces, so text stays legible. The result is opaque.
+fn shrink(picture: &Grabbed, (max_width, max_height): (u32, u32)) -> Rgba {
+    let across = picture.width.div_ceil(max_width.max(1));
+    let down = picture.height.div_ceil(max_height.max(1));
+    let step = across.max(down).max(1) as usize;
     let (width, height) = (picture.width as usize, picture.height as usize);
-    let (out_w, out_h) = (width.div_ceil(step), height.div_ceil(step));
+    let (out_w, out_h) = ((width / step).max(1), (height / step).max(1));
     let mut pixels = Vec::with_capacity(out_w * out_h * 4);
-    for y in (0..height).step_by(step) {
-        for x in (0..width).step_by(step) {
-            pixels.extend_from_slice(&picture.rgba[(y * width + x) * 4..][..4]);
+    let mut sums = vec![[0u32; 3]; out_w];
+    for out_y in 0..out_h {
+        sums.fill([0; 3]);
+        let rows = out_y * step..((out_y + 1) * step).min(height);
+        let block = (rows.len() * step.min(width)).max(1) as u32;
+        for y in rows {
+            let row = &picture.rgba[y * width * 4..][..width * 4];
+            for (sum, part) in sums.iter_mut().zip(row.chunks(step * 4)) {
+                for pixel in part.chunks_exact(4) {
+                    sum[0] += u32::from(pixel[0]);
+                    sum[1] += u32::from(pixel[1]);
+                    sum[2] += u32::from(pixel[2]);
+                }
+            }
+        }
+        for sum in &sums {
+            pixels.extend(sum.map(|channel| (channel / block) as u8));
+            pixels.push(u8::MAX);
         }
     }
     Rgba {
@@ -376,11 +432,41 @@ mod tests {
             height: 4,
             rgba: vec![7; 8 * 4 * 4],
         };
-        let small = shrink(&picture, 4);
+        let small = shrink(&picture, (4, 4));
         assert_eq!((small.width, small.height), (4, 2));
         assert_eq!(small.pixels.len(), 4 * 2 * 4);
-        let same = shrink(&picture, 100);
+        let same = shrink(&picture, (100, 100));
         assert_eq!((same.width, same.height), (8, 4));
+    }
+
+    #[test]
+    fn a_tall_picture_fits_the_height_too() {
+        let picture = Grabbed {
+            width: 4,
+            height: 16,
+            rgba: vec![7; 4 * 16 * 4],
+        };
+        let small = shrink(&picture, (4, 4));
+        assert_eq!((small.width, small.height), (1, 4));
+    }
+
+    #[test]
+    fn shrinking_averages_and_makes_pixels_opaque() {
+        let picture = Grabbed {
+            width: 2,
+            height: 2,
+            rgba: vec![0, 0, 0, 0, 200, 100, 40, 0, 0, 0, 0, 0, 200, 100, 40, 0],
+        };
+        let small = shrink(&picture, (1, 1));
+        assert_eq!(small.pixels, [100, 50, 20, 255]);
+    }
+
+    #[test]
+    fn change_on_the_bar_is_read_once() {
+        let share = ScreenShare::new(egui::Context::default());
+        share.bar().change();
+        assert!(share.take_change_asked());
+        assert!(!share.take_change_asked());
     }
 
     #[test]

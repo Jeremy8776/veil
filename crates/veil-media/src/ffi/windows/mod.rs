@@ -31,7 +31,7 @@ mod protect;
 mod sample;
 mod screen_stream;
 
-pub use app_window::is_app_window;
+pub use app_window::{hide_from_capture, is_app_window};
 pub use audio::{WasapiCapture, WasapiPlayback};
 pub use audio_devices::{AudioDevice, microphones, speakers};
 pub use camera::{CameraInfo, MfCamera, cameras};

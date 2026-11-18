@@ -1,31 +1,28 @@
-//! Screen sharing on the call screen: the picker, the shared picture and the floating bar.
+//! Screen sharing on the call screen: the picker and the shared picture.
 //!
 //! Purpose: the Share button opens [`SharePicker`], laid out like a browser's share dialog: a
 //! Screen tab and an Application tab, each a grid of live thumbnails. "Select area" shows the
 //! chosen source large, to drag out the part to share. A shared picture is drawn whole
-//! ([`stage`]), never cropped to fit, because its text has to stay readable. While you share, a
-//! small always-on-top [`bar`] says so, with Stop sharing and Hide, wherever you are working.
+//! ([`stage`]), never cropped to fit, because its text has to stay readable. The floating bar
+//! is `share_bar.rs`.
 //!
 //! Invariants:
 //! - Nothing goes to the call until a source is chosen and Share is pressed.
+//! - While you share, the picker changes the source only when you press Switch.
 //! - The crop is held as fractions of the source (`veil_media::screen::Crop`).
-//!
-//! shortcut: the bar assumes the screen holding Veil starts at the desktop's origin, so on some
-//! multi-screen layouts it opens on another screen. It can be dragged.
 
 use std::collections::HashMap;
 
 use eframe::egui::{
     self, Align, Align2, Color32, CornerRadius, FontId, Layout, Modal, Pos2, Rect, RichText,
-    ScrollArea, Sense, Stroke, TextureHandle, TextureId, TextureOptions, Ui, ViewportBuilder,
-    ViewportCommand, ViewportId, pos2, text::LayoutJob, text::TextWrapping, vec2,
+    ScrollArea, Sense, Stroke, TextureFilter, TextureHandle, TextureId, TextureOptions, Ui, pos2,
+    text::LayoutJob, text::TextWrapping, vec2,
 };
 use veil_media::screen::{Crop, ScreenChoice, ScreenSource};
 
 use crate::app::VeilApp;
 use crate::convert::Rgba;
 use crate::icons::Icon;
-use crate::share::ShareBar;
 use crate::theme::{self, MUTED, TEXT};
 use crate::widgets::{Tone, card, device_error, pill};
 
@@ -35,9 +32,8 @@ const WHOLE: Rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
 const CELL_W: f32 = 240.0;
 const CELL_GAP: f32 = 12.0;
 const CELL_LABEL_H: f32 = 28.0;
-const BAR_SIZE: egui::Vec2 = vec2(470.0, 56.0);
-/// How far above the bottom of the screen the bar opens.
-const BAR_MARGIN: f32 = 96.0;
+/// The space between a thumbnail and the edge of its tile.
+const THUMB_PAD: f32 = 6.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
@@ -108,12 +104,14 @@ impl SharePicker {
                 None => self.preview = Some(ctx.load_texture("share-preview", image, options)),
             }
         }
+        // Mipmaps keep small text from shimmering when a thumbnail is drawn smaller.
+        let small = options.with_mipmap_mode(Some(TextureFilter::Linear));
         for (source, picture) in app.share.take_thumbnails() {
             let image = image_of(&picture);
             match self.thumbnails.get_mut(&source) {
-                Some(texture) => texture.set(image, options),
+                Some(texture) => texture.set(image, small),
                 None => {
-                    let texture = ctx.load_texture("share-thumbnail", image, options);
+                    let texture = ctx.load_texture("share-thumbnail", image, small);
                     self.thumbnails.insert(source, texture);
                 }
             }
@@ -126,6 +124,7 @@ impl SharePicker {
         self.upload(app, &ctx);
         let choices = app.share.choices();
         let error = app.share.error();
+        let sharing = app.share.is_sharing();
         let screen = ctx.content_rect().size();
         let width = (screen.x - 80.0).clamp(540.0, 900.0);
         let height = (screen.y - 230.0).clamp(240.0, 500.0);
@@ -134,9 +133,10 @@ impl SharePicker {
             .frame(card())
             .show(&ctx, |ui| {
                 ui.set_width(width);
-                let title = match self.step {
-                    Step::Choose => "Choose what to share",
-                    Step::SelectArea => "Select an area",
+                let title = match (self.step, sharing) {
+                    (Step::Choose, false) => "Choose what to share",
+                    (Step::Choose, true) => "Change what you share",
+                    (Step::SelectArea, _) => "Select an area",
                 };
                 ui.label(RichText::new(title).font(theme::bold(18.0)));
                 ui.add_space(10.0);
@@ -150,7 +150,7 @@ impl SharePicker {
                 }
                 device_error(ui, error.clone());
                 ui.add_space(12.0);
-                self.footer(ui, &mut clicked);
+                self.footer(ui, sharing, &mut clicked);
             });
         self.apply(app, clicked, modal.should_close())
     }
@@ -253,23 +253,33 @@ impl SharePicker {
         let label = choice.label.as_str();
         response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
         let on = self.selected == Some(choice.source);
+        let lit = response.hovered() || response.has_focus();
         let picture = Rect::from_min_size(rect.min, thumb);
         let painter = ui.painter();
         let radius = CornerRadius::same(8);
-        painter.rect_filled(picture, radius, theme::TILE);
-        if let Some(texture) = self.thumbnails.get(&choice.source) {
-            let image = contain(texture.size(), picture.shrink(2.0));
-            painter.image(texture.id(), image, WHOLE, Color32::WHITE);
+        let fill = if lit { theme::RAISED_HOVER } else { theme::TILE };
+        painter.rect_filled(picture, radius, fill);
+        match self.thumbnails.get(&choice.source) {
+            Some(texture) => {
+                let image = contain(texture.size(), picture.shrink(THUMB_PAD));
+                egui::Image::new((texture.id(), image.size()))
+                    .corner_radius(CornerRadius::same(4))
+                    .paint_at(ui, image);
+            }
+            // Until its first picture arrives.
+            None => {
+                Icon::Share.paint(painter, picture.center(), 22.0, theme::LINE);
+            }
         }
-        let ring = match (on, response.hovered() || response.has_focus()) {
+        let ring = match (on, lit) {
             (true, _) => Some(Stroke::new(2.5, theme::ACCENT)),
-            (false, true) => Some(Stroke::new(1.5, theme::MUTED)),
+            (false, true) => Some(Stroke::new(1.0, theme::LINE)),
             (false, false) => None,
         };
         if let Some(ring) = ring {
             painter.rect_stroke(picture, radius, ring, egui::StrokeKind::Outside);
         }
-        let colour = if on { TEXT } else { MUTED };
+        let colour = if on || lit { TEXT } else { MUTED };
         let mut job =
             LayoutJob::simple_singleline(label.to_string(), FontId::proportional(13.0), colour);
         job.wrap = TextWrapping {
@@ -292,7 +302,7 @@ impl SharePicker {
         }
     }
 
-    fn footer(&self, ui: &mut Ui, clicked: &mut Clicked) {
+    fn footer(&self, ui: &mut Ui, sharing: bool, clicked: &mut Clicked) {
         ui.horizontal(|ui| {
             match self.step {
                 Step::Choose => {
@@ -319,8 +329,9 @@ impl SharePicker {
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.add_enabled_ui(self.selected.is_some(), |ui| {
+                    let label = if sharing { "Switch" } else { "Share" };
                     clicked.share |=
-                        pill(ui, Some(Icon::Share), "Share", Tone::Primary, 120.0).clicked();
+                        pill(ui, Some(Icon::Share), label, Tone::Primary, 120.0).clicked();
                 });
                 clicked.close = pill(ui, None, "Cancel", Tone::Quiet, 100.0).clicked();
             });
@@ -422,63 +433,6 @@ pub fn own_view(ui: &Ui, stage: Rect, (texture, size): (TextureId, [usize; 2])) 
     painter.image(texture, contain(size, corner), WHOLE, Color32::WHITE);
     let line = Stroke::new(1.5, theme::ACCENT);
     painter.rect_stroke(corner, CornerRadius::same(6), line, egui::StrokeKind::Outside);
-}
-
-/// The floating "you are sharing" bar, shown over other apps until hidden or stopped.
-pub fn bar(app: &VeilApp, ctx: &egui::Context) {
-    if !app.share.is_sharing() || app.share.bar_hidden() || ctx.embed_viewports() {
-        return;
-    }
-    let monitor = ctx
-        .input(|i| i.viewport().monitor_size)
-        .unwrap_or(vec2(1_920.0, 1_080.0));
-    let builder = ViewportBuilder::default()
-        .with_title("Veil is sharing your screen")
-        .with_inner_size(BAR_SIZE)
-        .with_position(pos2(
-            (monitor.x - BAR_SIZE.x) / 2.0,
-            monitor.y - BAR_SIZE.y - BAR_MARGIN,
-        ))
-        .with_decorations(false)
-        .with_resizable(false)
-        .with_taskbar(false)
-        .with_always_on_top();
-    let control = app.share.bar();
-    ctx.show_viewport_deferred(
-        ViewportId::from_hash_of("veil-share-bar"),
-        builder,
-        move |ui, _class| bar_contents(ui, &control),
-    );
-}
-
-fn bar_contents(ui: &mut Ui, control: &ShareBar) {
-    let frame = egui::Frame::new()
-        .fill(theme::SURFACE)
-        .inner_margin(egui::Margin::symmetric(14, 8));
-    egui::CentralPanel::default().frame(frame).show(ui, |ui| {
-        ui.horizontal_centered(|ui| {
-            let text = RichText::new("Sharing your screen").color(TEXT);
-            let handle = ui.add(egui::Label::new(text).sense(Sense::drag()));
-            if handle.drag_started() {
-                ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
-            }
-            let mut close = ui.input(|i| i.viewport().close_requested());
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if pill(ui, None, "Hide", Tone::Quiet, 70.0).clicked() {
-                    close = true;
-                }
-                if pill(ui, None, "Stop sharing", Tone::Danger, 130.0).clicked() {
-                    control.stop();
-                    close = true;
-                }
-            });
-            if close {
-                control.hide();
-                ui.ctx().send_viewport_cmd(ViewportCommand::Visible(false));
-                ui.ctx().request_repaint_of(ViewportId::ROOT);
-            }
-        });
-    });
 }
 
 #[cfg(test)]
