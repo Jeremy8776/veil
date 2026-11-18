@@ -28,6 +28,7 @@ mod logo;
 mod media;
 mod model;
 mod screens;
+mod system_fonts;
 mod theme;
 mod update;
 mod volume;
