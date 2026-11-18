@@ -10,6 +10,8 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   the standard font folders for a common font, and the deb and rpm packages install DejaVu Sans.
 - `veil.log` now records the error when Veil cannot start, for example with no graphics
   driver, display or font. Before, the log stopped at the version line.
+- A guest who is still linking up now sees at once that the host ended the call or removed
+  them, and can leave at once. Before, this could take about 11 seconds.
 
 ### Security
 

@@ -184,7 +184,8 @@ impl Session {
         for (peer, e) in self.media.apply(routes).await {
             crate::note!("cannot reach {}: {e}", short(&peer));
         }
-        // Dials hold the call loop (shortcut in host.rs), so leaves and chat wait meanwhile.
+        // Dials hold the host's call loop (shortcut in host.rs), so leaves and chat wait there.
+        // A guest still hears the call end and can leave (`guest::link_up`). Media waits on both.
         if started.elapsed() > Duration::from_secs(1) {
             crate::note!("call: linking up took {:?}", started.elapsed());
         }

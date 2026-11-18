@@ -12,7 +12,11 @@
 //!   host has the knock, so "waiting for the host" is never shown while still dialling.
 //! - Being removed, or the host ending the call, ends it here with a reason the end screen
 //!   shows.
+//! - Linking up can take seconds, but the end of the call and Leave are acted on at once
+//!   (`link_up`). Everything else that arrives meanwhile is handled afterwards, in order.
 
+use std::collections::VecDeque;
+use std::future::Future;
 use std::sync::Arc;
 
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -74,25 +78,110 @@ pub async fn run(
     shared.update(|view| view.status = CallStatus::Live);
     let media = call.media().map_err(|e| e.to_string())?;
     let mut session = Session::new(media, &identity, invite.host, your_name, shared.clone(), pipes);
+    let mut held = Held::default();
+    loop {
+        // What arrived during a link-up comes first, so nothing overtakes it.
+        let flow = if let Some(event) = held.events.pop_front() {
+            on_event(event, &mut session, &mut member.events, &mut commands, &mut held).await?
+        } else if let Some(text) = held.chat.pop_front() {
+            session.send_chat(&text).await;
+            Flow::Stay
+        } else {
+            tokio::select! {
+                command = commands.recv() => match command {
+                    None | Some(Command::Leave) => Flow::Leave,
+                    Some(Command::Act(Action::Chat(text))) => {
+                        session.send_chat(&text).await;
+                        Flow::Stay
+                    }
+                    // Only the host decides; the interface offers a guest nothing else to act on.
+                    Some(Command::Act(_)) => Flow::Stay,
+                },
+                event = member.events.recv() => {
+                    let event = event.unwrap_or(MemberEvent::Closed);
+                    on_event(event, &mut session, &mut member.events, &mut commands, &mut held)
+                        .await?
+                }
+                () = session.pump() => Flow::Stay,
+            }
+        };
+        if flow == Flow::Leave {
+            return Ok(());
+        }
+    }
+}
+
+/// Whether the call goes on for this guest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Flow {
+    Stay,
+    Leave,
+}
+
+/// What arrived during a link-up, in order. Both channels are already unbounded, so holding
+/// these here adds no new way to use up memory.
+#[derive(Default)]
+struct Held {
+    events: VecDeque<MemberEvent>,
+    chat: VecDeque<String>,
+}
+
+/// The reason to show if `event` ends the call for this guest.
+fn ending(event: &MemberEvent) -> Option<String> {
+    match event {
+        MemberEvent::Removed => Some("The host removed you from the call.".into()),
+        MemberEvent::Failed(e) => Some(format!("The call failed: {e}")),
+        MemberEvent::Closed => Some("The host ended the call.".into()),
+        MemberEvent::Keys(_) | MemberEvent::Routes(_) | MemberEvent::PlanRefused(_) => None,
+    }
+}
+
+async fn on_event(
+    event: MemberEvent,
+    session: &mut Session,
+    events: &mut UnboundedReceiver<MemberEvent>,
+    commands: &mut UnboundedReceiver<Command>,
+    held: &mut Held,
+) -> Result<Flow, String> {
+    if let Some(reason) = ending(&event) {
+        return Err(reason);
+    }
+    match event {
+        MemberEvent::Keys(keys) => session.on_keys(keys),
+        MemberEvent::Routes(routes) => {
+            return link_up(session.on_routes(routes), events, commands, held).await;
+        }
+        MemberEvent::PlanRefused(e) => crate::note!("refused the host's plan: {e}"),
+        // `ending` has already returned for these.
+        MemberEvent::Removed | MemberEvent::Closed | MemberEvent::Failed(_) => {}
+    }
+    Ok(Flow::Stay)
+}
+
+/// Waits for `linking` while still listening. The end of the call and Leave stop the wait,
+/// which drops any dial in progress. Anything else is kept for afterwards.
+async fn link_up(
+    linking: impl Future<Output = ()>,
+    events: &mut UnboundedReceiver<MemberEvent>,
+    commands: &mut UnboundedReceiver<Command>,
+    held: &mut Held,
+) -> Result<Flow, String> {
+    tokio::pin!(linking);
     loop {
         tokio::select! {
+            () = &mut linking => return Ok(Flow::Stay),
+            event = events.recv() => {
+                let event = event.unwrap_or(MemberEvent::Closed);
+                if let Some(reason) = ending(&event) {
+                    return Err(reason);
+                }
+                held.events.push_back(event);
+            }
             command = commands.recv() => match command {
-                None | Some(Command::Leave) => return Ok(()),
-                Some(Command::Act(Action::Chat(text))) => session.send_chat(&text).await,
-                // Only the host decides; the interface offers a guest nothing else to act on.
+                None | Some(Command::Leave) => return Ok(Flow::Leave),
+                Some(Command::Act(Action::Chat(text))) => held.chat.push_back(text),
                 Some(Command::Act(_)) => {}
             },
-            event = member.events.recv() => match event {
-                Some(MemberEvent::Keys(keys)) => session.on_keys(keys),
-                Some(MemberEvent::Routes(routes)) => session.on_routes(routes).await,
-                Some(MemberEvent::PlanRefused(e)) => {
-                    crate::note!("refused the host's plan: {e}");
-                }
-                Some(MemberEvent::Removed) => return Err("The host removed you from the call.".into()),
-                Some(MemberEvent::Failed(e)) => return Err(format!("The call failed: {e}")),
-                Some(MemberEvent::Closed) | None => return Err("The host ended the call.".into()),
-            },
-            () = session.pump() => {}
         }
     }
 }
@@ -121,7 +210,72 @@ fn join_error(e: &CallError) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::future::pending;
+    use std::time::Duration;
+
+    use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+
     use super::*;
+
+    type Channels = (
+        UnboundedSender<MemberEvent>,
+        UnboundedReceiver<MemberEvent>,
+        UnboundedSender<Command>,
+        UnboundedReceiver<Command>,
+    );
+
+    fn channels() -> Channels {
+        let (event_tx, events) = unbounded_channel();
+        let (command_tx, commands) = unbounded_channel();
+        (event_tx, events, command_tx, commands)
+    }
+
+    #[tokio::test]
+    async fn the_host_ending_the_call_interrupts_a_link_up() {
+        let (event_tx, mut events, _command_tx, mut commands) = channels();
+        event_tx.send(MemberEvent::Closed).unwrap();
+        let result = link_up(pending(), &mut events, &mut commands, &mut Held::default()).await;
+        assert_eq!(result, Err("The host ended the call.".to_string()));
+    }
+
+    #[tokio::test]
+    async fn being_removed_interrupts_a_link_up() {
+        let (event_tx, mut events, _command_tx, mut commands) = channels();
+        event_tx.send(MemberEvent::Removed).unwrap();
+        let result = link_up(pending(), &mut events, &mut commands, &mut Held::default()).await;
+        assert_eq!(result, Err("The host removed you from the call.".to_string()));
+    }
+
+    #[tokio::test]
+    async fn leaving_interrupts_a_link_up() {
+        let (_event_tx, mut events, command_tx, mut commands) = channels();
+        command_tx.send(Command::Leave).map_err(|_| "closed").unwrap();
+        let result = link_up(pending(), &mut events, &mut commands, &mut Held::default()).await;
+        assert_eq!(result, Ok(Flow::Leave));
+    }
+
+    #[tokio::test]
+    async fn other_arrivals_wait_in_order_until_the_link_up_ends() {
+        let (event_tx, mut events, command_tx, mut commands) = channels();
+        event_tx.send(MemberEvent::PlanRefused(CallError::Closed)).unwrap();
+        event_tx.send(MemberEvent::PlanRefused(CallError::Timeout)).unwrap();
+        for text in ["first", "second"] {
+            let chat = Command::Act(Action::Chat(text.into()));
+            command_tx.send(chat).map_err(|_| "closed").unwrap();
+        }
+        let mut held = Held::default();
+        let linking = tokio::time::sleep(Duration::from_millis(50));
+        let result = link_up(linking, &mut events, &mut commands, &mut held).await;
+        assert_eq!(result, Ok(Flow::Stay));
+        assert!(matches!(
+            held.events.make_contiguous(),
+            [
+                MemberEvent::PlanRefused(CallError::Closed),
+                MemberEvent::PlanRefused(CallError::Timeout)
+            ]
+        ));
+        assert_eq!(held.chat, ["first", "second"]);
+    }
 
     #[test]
     fn join_errors_read_plainly() {
