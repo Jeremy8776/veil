@@ -10,5 +10,7 @@
     <string>Veil sends your camera to the people in your call, encrypted end to end.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Veil sends your microphone to the people in your call, encrypted end to end.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Veil sends the screen or window you choose to the people in your call, encrypted end to end.</string>
 </dict>
 </plist>

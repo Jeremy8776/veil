@@ -17,6 +17,8 @@ mod app;
 mod connection;
 mod convert;
 mod demo;
+#[cfg(feature = "dev-ui")]
+mod dev_start;
 mod devices;
 mod engine;
 mod firewall;
@@ -28,11 +30,15 @@ mod logo;
 mod media;
 mod model;
 mod screens;
+mod share;
 mod system_fonts;
 mod theme;
 mod update;
 mod volume;
 mod widgets;
+
+/// The main window's title. Screen sharing also finds the window by it.
+const WINDOW_TITLE: &str = "Veil";
 
 use eframe::egui;
 
@@ -46,7 +52,7 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     log::start(log::folder().as_deref());
-    let mut viewport = egui::ViewportBuilder::default().with_title("Veil");
+    let mut viewport = egui::ViewportBuilder::default().with_title(WINDOW_TITLE);
     // A bad icon is cosmetic: the window opens with the default icon instead.
     if let Ok(icon) = eframe::icon_data::from_png_bytes(APP_ICON_PNG) {
         viewport = viewport.with_icon(icon);
@@ -67,7 +73,10 @@ fn main() -> eframe::Result {
             let found = theme::load_fonts(&cc.egui_ctx)?;
             icons::set_available(found.icons);
             theme::apply(&cc.egui_ctx);
-            Ok(Box::new(app::VeilApp::new(&cc.egui_ctx)))
+            let app = app::VeilApp::new(&cc.egui_ctx);
+            #[cfg(feature = "dev-ui")]
+            let app = dev_start::opened(app);
+            Ok(Box::new(app))
         }),
     ))
 }

@@ -68,8 +68,9 @@ impl Session {
         if self.media.ready(Duration::from_secs(10)).await.is_err() {
             println!("  not every expected link arrived within 10 s");
         }
-        for (peer, path) in self.media.paths() {
-            println!("  link to {}: {path:?}", short(&peer));
+        for (peer, link) in self.media.link_stats() {
+            let family = if link.ipv6 { " over IPv6" } else { "" };
+            println!("  link to {}: {:?}{family}", short(&peer), link.path);
         }
     }
 

@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 use veil_security::PublicId;
+use veil_security::safety::Side;
 
 use super::names::labels;
 use super::stats::{Decoded, Stats};
@@ -39,6 +40,7 @@ pub struct Person {
     pub name: String,
     pub is_host: bool,
     pub safety: String,
+    pub side: Side,
     pub path: LinkPath,
 }
 
@@ -66,6 +68,18 @@ pub struct View {
     pub lobby: Vec<Knocker>,
     pub router: RouterPort,
     pub reach: Reachable,
+}
+
+/// Marks a picture key as someone's shared screen rather than their camera.
+const SCREEN_KEY: u32 = 1 << 31;
+
+/// The key of person `id`'s shared screen, among the pictures and the interface's textures.
+pub fn screen_key(id: u32) -> u32 {
+    id | SCREEN_KEY
+}
+
+pub fn is_screen(key: u32) -> bool {
+    key & SCREEN_KEY != 0
 }
 
 /// The newest picture from one person. `rgba` is taken by the interface once uploaded.
@@ -178,6 +192,7 @@ impl Shared {
     pub fn decoded(&self) -> HashMap<u32, Decoded> {
         lock(&self.pictures)
             .iter()
+            .filter(|(id, _)| !is_screen(**id))
             .map(|(id, p)| (*id, p.decoded))
             .collect()
     }
@@ -192,6 +207,18 @@ impl Shared {
 
     pub fn forget_picture(&self, id: u32) {
         lock(&self.pictures).remove(&id);
+        self.ctx.request_repaint();
+    }
+
+    /// Who is sharing their screen now, lowest id first.
+    pub fn sharers(&self) -> Vec<u32> {
+        let mut ids: Vec<u32> = lock(&self.pictures)
+            .keys()
+            .filter(|key| is_screen(**key))
+            .map(|key| key & !SCREEN_KEY)
+            .collect();
+        ids.sort_unstable();
+        ids
     }
 
     pub fn heard(&self, id: u32, change: impl FnOnce(&mut Heard)) {
@@ -234,6 +261,7 @@ impl Shared {
         Seen {
             video: lock(&self.pictures)
                 .iter()
+                .filter(|(id, _)| !is_screen(**id))
                 .map(|(id, p)| (*id, p.at))
                 .collect(),
             audio: lock(&self.heard).clone(),
@@ -291,6 +319,7 @@ pub fn apply(
             speaking: heard.is_some_and(|h| h.level > SPEAKING),
             path: person.path,
             safety: person.safety.clone(),
+            side: person.side,
             verified: verified(&person.device),
         });
     }
@@ -328,6 +357,7 @@ mod tests {
                     name: "Host".into(),
                     is_host: true,
                     safety: "12345".into(),
+                    side: Side::A,
                     path: LinkPath::Direct,
                 },
                 Person {
@@ -336,6 +366,7 @@ mod tests {
                     name: "Guest ab12cd34".into(),
                     is_host: false,
                     safety: "67890".into(),
+                    side: Side::B,
                     path: LinkPath::Pending,
                 },
             ],

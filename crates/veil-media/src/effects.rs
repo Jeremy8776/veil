@@ -1,7 +1,8 @@
 //! Sender-side picture filters, applied to a captured NV12 picture before it is encoded.
 //!
 //! Purpose: [`apply_filter`] changes tone and colour with three 256-entry lookup tables, one
-//! each for luma, U and V, so the cost per picture is one table read per byte.
+//! each for luma, U and V, so the cost per picture is one table read per byte. [`mirror`] flips
+//! a picture left to right.
 //!
 //! Invariants:
 //! - [`Filter::None`] returns at once and leaves the picture untouched.
@@ -80,9 +81,51 @@ pub fn apply_filter(data: &mut [u8], width: usize, height: usize, stride: usize,
     }
 }
 
+/// Flips a picture left to right. Row padding stays where it is, and each chroma pair keeps its
+/// U,V order.
+pub fn mirror(data: &mut [u8], width: usize, height: usize, stride: usize) {
+    if stride == 0 || width > stride {
+        return;
+    }
+    let luma_len = stride.saturating_mul(height);
+    let (luma, chroma) = match data.split_at_mut_checked(luma_len) {
+        Some(parts) => parts,
+        None => (data, &mut [][..]),
+    };
+    for row in luma.chunks_exact_mut(stride) {
+        row[..width].reverse();
+    }
+    for row in chroma.chunks_exact_mut(stride).take(height / 2) {
+        let pairs = &mut row[..width & !1];
+        pairs.reverse();
+        for pair in pairs.as_chunks_mut::<2>().0 {
+            pair.swap(0, 1);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mirror_flips_rows_and_keeps_padding_and_chroma_order() {
+        // 4x2, stride 6: padding is 90 and 91 in luma, 92 and 93 in chroma.
+        let mut d = vec![1, 2, 3, 4, 90, 91, 5, 6, 7, 8, 90, 91, 10, 20, 30, 40, 92, 93];
+        mirror(&mut d, 4, 2, 6);
+        assert_eq!(d, [4, 3, 2, 1, 90, 91, 8, 7, 6, 5, 90, 91, 30, 40, 10, 20, 92, 93]);
+        mirror(&mut d, 4, 2, 6);
+        assert_eq!(d[..4], [1, 2, 3, 4], "twice gives the picture back");
+    }
+
+    #[test]
+    fn mirror_is_safe_on_short_or_bad_sizes() {
+        let mut short = vec![1, 2, 3];
+        mirror(&mut short, 4, 2, 6);
+        mirror(&mut short, 4, 2, 0);
+        mirror(&mut short, 8, 2, 6);
+        assert_eq!(short, [1, 2, 3]);
+    }
 
     /// 4x2 picture, stride 6 (two bytes of padding): 12 luma bytes then 6 chroma bytes.
     fn picture(y: u8, u: u8, v: u8) -> Vec<u8> {

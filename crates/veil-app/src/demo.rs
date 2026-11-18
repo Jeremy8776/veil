@@ -11,6 +11,8 @@
 
 use std::time::{Duration, Instant};
 
+use veil_security::safety::Side;
+
 use crate::model::{Call, LinkPath, Message, Participant, Waiting};
 
 /// (name, muted, camera on, link path)
@@ -39,6 +41,7 @@ pub fn call(your_name: &str, is_host: bool, now: Instant) -> Call {
         speaking: false,
         path: LinkPath::Direct,
         safety: safety_number(1),
+        side: Side::A,
         verified: false,
     }];
     for (i, (name, muted, camera, path)) in PEOPLE.iter().enumerate() {
@@ -54,6 +57,7 @@ pub fn call(your_name: &str, is_host: bool, now: Instant) -> Call {
             speaking: false,
             path: *path,
             safety: safety_number(id),
+            side: Side::A,
             verified: false,
         });
     }
@@ -109,7 +113,7 @@ pub fn tick(call: &mut Call, now: Instant) {
             from: PEOPLE[1].0.to_string(),
             mine: false,
             at: MESSAGE_AT,
-            text: String::from("Can everyone see the safety numbers match on their side?"),
+            text: String::from("Has everyone checked their security codes?"),
         });
         call.unread += 1;
     }

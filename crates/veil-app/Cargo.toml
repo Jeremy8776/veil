@@ -7,6 +7,10 @@ rust-version = "1.91"
 publish.workspace = true
 license.workspace = true
 
+[features]
+# For tools/dev-ui.ps1: lets VEIL_START choose the first screen. Never on in releases.
+dev-ui = []
+
 [dependencies]
 tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "sync"] }
 veil-call = { path = "../veil-call" }

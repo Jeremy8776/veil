@@ -3,8 +3,8 @@
 //! Purpose: each runs on its own thread, because the platform objects block on reads and are
 //! not `Send`. The camera thread hands the newest picture to the interface; the microphone
 //! thread hands over a level from 0 to 1. During a call, [`Taps`] also pass each picture and
-//! each 20 ms of sound to the call engine, which encodes and encrypts them. A chosen
-//! [`Blur`] and then [`Filter`] are applied to each picture before either of those, and the
+//! each 20 ms of sound to the call engine, which encodes and encrypts them. Mirroring, a chosen
+//! [`Blur`] and then a [`Filter`] are applied to each picture before either of those, and the
 //! microphone volume (`volume.rs`) to each 20 ms of sound. The speaker choice and volume live
 //! here too ([`LocalMedia::playback`]) and the call's playback thread follows them.
 //!
@@ -12,8 +12,8 @@
 //! - Off means closed: turning the camera or microphone off stops its thread and releases the
 //!   device, so the operating system's in-use light goes out too.
 //! - Only the newest picture is kept; a slow interface skips pictures, never queues them.
-//! - The preview and the taps see the same picture, after any blur and filter. With neither
-//!   the picture is not copied or changed, and no blur worker thread exists.
+//! - The preview and the taps see the same picture, after any mirroring, blur and filter. With
+//!   none of them the picture is not copied or changed, and no blur worker thread exists.
 //! - If the blur worker cannot keep up, the camera turns itself off (the picture that could
 //!   not be blurred is neither shown nor sent) and a notice says why. Blur stays chosen, so the
 //!   background is never sent sharp without the person deciding to.
@@ -46,6 +46,9 @@ struct Shared {
     taps: Mutex<Option<Taps>>,
     filter: Mutex<Filter>,
     blur: Mutex<Blur>,
+    /// Flip each picture left to right, for the preview and the call.
+    /// shortcut: forgotten when Veil closes; save it once the app has saved preferences.
+    mirror: AtomicBool,
     /// Why the camera turned itself off for blur, until the camera or blur is chosen again.
     blur_notice: Mutex<Option<String>>,
     /// Set by the camera thread when it closed the camera itself.
@@ -254,6 +257,15 @@ impl LocalMedia {
         *lock(&self.shared.filter) = filter;
     }
 
+    pub fn mirror(&self) -> bool {
+        self.shared.mirror.load(Ordering::Relaxed)
+    }
+
+    /// Takes effect on the next picture, for the preview and the call alike.
+    pub fn set_mirror(&self, mirror: bool) {
+        self.shared.mirror.store(mirror, Ordering::Relaxed);
+    }
+
     pub fn blur(&self) -> Blur {
         *lock(&self.shared.blur)
     }
@@ -356,11 +368,15 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
         if blur == Blur::Off {
             blur_engine = None;
         }
-        let pixels: &[u8] = if filter == Filter::None && blur == Blur::Off {
+        let mirror = shared.mirror.load(Ordering::Relaxed);
+        let pixels: &[u8] = if !mirror && filter == Filter::None && blur == Blur::Off {
             picture.data
         } else {
             filtered.clear();
             filtered.extend_from_slice(picture.data);
+            if mirror {
+                veil_media::effects::mirror(&mut filtered, w, h, picture.stride);
+            }
             if blur != Blur::Off {
                 let engine = blur_engine.get_or_insert_with(BlurEngine::start);
                 if engine.apply(&mut filtered, w, h, picture.stride, blur) == BlurStatus::TooBusy {

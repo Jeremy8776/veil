@@ -7,6 +7,8 @@
 //! Invariants:
 //! - Nothing here is bundled; the font belongs to the operating system.
 //! - Without an icon font, [`Icon::paint`] draws the icon from strokes, so it needs no font.
+//! - [`Icon::Mirror`] and [`Icon::SpeakerView`] are always drawn, because the icon fonts have
+//!   no clear glyph for either.
 //! - An "off" state (camera off) is the "on" icon with a slash painted across, not a
 //!   separate glyph, so it looks the same in both fonts.
 
@@ -39,7 +41,8 @@ pub enum Icon {
     Lock,
     Shield,
     Grid,
-    Speaker,
+    /// One large tile above a strip of small ones, the layout it switches to.
+    SpeakerView,
     Copy,
     Close,
     Signal,
@@ -51,11 +54,13 @@ pub enum Icon {
     Effects,
     /// A raised hand, from the symbol font (the icon fonts have none).
     Hand,
+    /// A shape and its reflection either side of a dashed line, for mirroring your video.
+    Mirror,
 }
 
 impl Icon {
-    fn codepoint(self) -> char {
-        match self {
+    fn codepoint(self) -> Option<char> {
+        let glyph = match self {
             Self::Mic => '\u{E720}',
             Self::MicOff => '\u{EC54}',
             Self::Video => '\u{E714}',
@@ -66,7 +71,6 @@ impl Icon {
             Self::Lock => '\u{E72E}',
             Self::Shield => '\u{EA18}',
             Self::Grid => '\u{E8A9}',
-            Self::Speaker => '\u{E740}',
             Self::Copy => '\u{E8C8}',
             Self::Close => '\u{E711}',
             Self::Signal => '\u{E701}',
@@ -76,12 +80,14 @@ impl Icon {
             Self::Info => '\u{E946}',
             Self::Effects => '\u{E790}',
             Self::Hand => '\u{270B}',
-        }
+            Self::Mirror | Self::SpeakerView => return None,
+        };
+        Some(glyph)
     }
 
     /// The glyph, when the icon font loaded.
     pub fn glyph(self) -> Option<char> {
-        HAVE_FONT.load(Ordering::Relaxed).then(|| self.codepoint())
+        HAVE_FONT.load(Ordering::Relaxed).then(|| self.codepoint()).flatten()
     }
 
     /// Paints the icon centred at `center`: the font glyph, or vector strokes without it.
@@ -183,11 +189,12 @@ impl Icon {
                 boxed(r(-0.42, 0.06, -0.06, 0.42), 0.04),
                 boxed(r(0.06, 0.06, 0.42, 0.42), 0.04),
             ],
-            Self::Speaker => vec![
+            // The strip is filled: outlines this small blur at the top bar's icon size.
+            Self::SpeakerView => vec![
                 boxed(r(-0.45, -0.4, 0.45, 0.14), 0.04),
-                boxed(r(-0.45, 0.26, -0.17, 0.42), 0.02),
-                boxed(r(-0.14, 0.26, 0.14, 0.42), 0.02),
-                boxed(r(0.17, 0.26, 0.45, 0.42), 0.02),
+                Shape::rect_filled(r(-0.45, 0.26, -0.17, 0.42), 0.0, colour),
+                Shape::rect_filled(r(-0.14, 0.26, 0.14, 0.42), 0.0, colour),
+                Shape::rect_filled(r(0.17, 0.26, 0.45, 0.42), 0.0, colour),
             ],
             Self::Copy => vec![
                 poly(&[
@@ -254,6 +261,17 @@ impl Icon {
                 poly(&[(0.18, -0.05), (0.18, -0.32)]),
                 poly(&[(-0.25, 0.12), (-0.42, -0.08)]),
             ],
+            Self::Mirror => vec![
+                poly(&[(0.0, -0.45), (0.0, -0.27)]),
+                poly(&[(0.0, -0.09), (0.0, 0.09)]),
+                poly(&[(0.0, 0.27), (0.0, 0.45)]),
+                Shape::convex_polygon(
+                    vec![p(-0.13, -0.3), p(-0.13, 0.3), p(-0.45, 0.3)],
+                    colour,
+                    stroke,
+                ),
+                closed(&[(0.13, -0.3), (0.13, 0.3), (0.45, 0.3)]),
+            ],
         }
     }
 
@@ -280,7 +298,7 @@ impl Icon {
 mod tests {
     use super::*;
 
-    const ALL: [Icon; 19] = [
+    const ALL: [Icon; 20] = [
         Icon::Mic,
         Icon::MicOff,
         Icon::Video,
@@ -291,7 +309,7 @@ mod tests {
         Icon::Lock,
         Icon::Shield,
         Icon::Grid,
-        Icon::Speaker,
+        Icon::SpeakerView,
         Icon::Copy,
         Icon::Close,
         Icon::Signal,
@@ -300,7 +318,15 @@ mod tests {
         Icon::Volume,
         Icon::Info,
         Icon::Hand,
+        Icon::Mirror,
     ];
+
+    #[test]
+    fn always_drawn_icons_never_use_the_font() {
+        set_available(true);
+        assert_eq!(Icon::Mirror.glyph(), None);
+        assert_eq!(Icon::SpeakerView.glyph(), None);
+    }
 
     #[test]
     fn drawn_icons_stay_inside_their_square() {

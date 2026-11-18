@@ -19,9 +19,21 @@ mod join;
 mod session;
 mod wire;
 
+use std::net::SocketAddr;
 use std::process::ExitCode;
 
 use args::{Command, USAGE};
+use veil_net::Node;
+use veil_security::Identity;
+
+/// Binds `addr`. `[::]` is dual-stack, or IPv4 at the same port where the system has no IPv6.
+fn bind(identity: &Identity, addr: SocketAddr) -> Result<Node, String> {
+    let node = match addr {
+        SocketAddr::V6(v6) if v6.ip().is_unspecified() => Node::bind_any(identity, addr.port()),
+        _ => Node::bind(identity, addr),
+    };
+    node.map_err(|e| format!("bind {addr}: {e}"))
+}
 
 #[tokio::main]
 async fn main() -> ExitCode {
