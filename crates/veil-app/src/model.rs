@@ -92,6 +92,9 @@ pub enum RouterPort {
     Open(String),
     /// Not opened; the text is the guide for doing it by hand.
     Failed(String),
+    /// Guests can dial this address, but the host's rendezvous port did not open, so guests
+    /// on the internet cannot reach each other.
+    GuestsApart(String),
 }
 
 /// For a host with a public node: whether that node could dial the call's public address

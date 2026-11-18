@@ -62,7 +62,7 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, panel: Panel, now: Instant) 
 fn router(ui: &mut egui::Ui, port: &RouterPort) {
     let (text, colour, tip) = match port {
         RouterPort::Off => return,
-        RouterPort::Opening => ("Opening a port on your router…", MUTED, String::new()),
+        RouterPort::Opening => ("Opening router ports…", MUTED, String::new()),
         RouterPort::Open(addr) => (
             "Router port open",
             MUTED,
@@ -72,6 +72,15 @@ fn router(ui: &mut egui::Ui, port: &RouterPort) {
             ),
         ),
         RouterPort::Failed(guide) => ("Router did not open a port", theme::WARN, guide.clone()),
+        RouterPort::GuestsApart(addr) => (
+            "Guests may not see each other",
+            theme::WARN,
+            format!(
+                "Guests on the internet can reach you at {addr}, but your router did not open \
+                 the second port they use to reach each other. To fix this, add a public \
+                 veil-node under Settings > Connection > Rendezvous and relay."
+            ),
+        ),
     };
     ui.add_space(4.0);
     let label = ui.label(RichText::new(text).small().color(colour));

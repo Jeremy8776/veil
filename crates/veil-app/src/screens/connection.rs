@@ -117,8 +117,9 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
 
 /// The router setting's tooltip, also used by the question before the first hosted call.
 pub const ROUTER_HELP: &str = "While you host a call, Veil asks your router (UPnP, NAT-PMP or \
-     PCP) to open the call's UDP port to this computer, so guests on the internet can reach \
-     you directly. One port, for that call only: renewed while it runs, removed when it ends. \
+     PCP) to open the call's UDP port, and the UDP port guests use to reach each other, so \
+     people on the internet can join. Two ports, for that call only: renewed while it runs, \
+     removed when it ends. With your own rendezvous set, only the call's port is opened. \
      Your router must allow this; if it does not, Veil shows what to do instead.";
 
 /// Label, hint and tooltip for each field.

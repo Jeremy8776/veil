@@ -46,11 +46,11 @@ use veil_security::{Identity, PublicId};
 
 use super::plan::{NetConfig, advertised, lan_ip, plan_for, resolve};
 use super::reach::Checker;
-use super::router::{Event, Router};
+use super::router::{Event, PortStatus, Router};
 use super::session::{Pipes, Session};
 use super::view::{Knocker, Shared};
 use super::{Command, Ids, invites, short};
-use crate::model::{Action, CallStatus, Reachable, RouterPort};
+use crate::model::{Action, CallStatus, Reachable};
 
 pub async fn run(
     identity: Identity,
@@ -102,6 +102,7 @@ pub async fn run(
         None => Router::start(config.open_port, lan, rendezvous.addr.port()),
         Some(_) => None,
     };
+    let mut ports = PortStatus::new(router.as_ref(), relay_router.as_ref());
     let mut router_addr: Option<SocketAddr> = None;
     // Only a public node can dial in from outside; the host's own rendezvous cannot.
     let mut reach = Checker::default();
@@ -111,9 +112,7 @@ pub async fn run(
         .is_some_and(|at| check(&mut reach, &call, configured, *at));
     shared.update(|view| {
         view.status = CallStatus::Live;
-        if router.is_some() {
-            view.router = RouterPort::Opening;
-        }
+        view.router = ports.view();
         if checking {
             view.reach = Reachable::Checking;
         }
@@ -181,10 +180,11 @@ pub async fn run(
             },
             () = session.pump() => {}
             event = next_router(&mut router) => {
-                let (state, open) = match event {
-                    Event::Open(addr) => (RouterPort::Open(addr.to_string()), Some(addr)),
-                    Event::Failed(guide) => (RouterPort::Failed(guide), None),
+                let open = match &event {
+                    Event::Open(addr) => Some(*addr),
+                    Event::Failed(_) => None,
                 };
+                ports.call_changed(event);
                 // The router's address goes first in every invite from now on.
                 if open != router_addr {
                     addrs.retain(|a| Some(*a) != router_addr);
@@ -197,25 +197,31 @@ pub async fn run(
                 }
                 let checking = open.is_some_and(|at| check(&mut reach, &call, configured, at));
                 shared.update(|view| {
-                    view.router = state;
+                    view.router = ports.view();
                     if checking {
                         view.reach = Reachable::Checking;
                     }
                 });
-                expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
+                if ports.settled() {
+                    expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
+                }
             }
             event = next_router(&mut relay_router) => {
                 // The public address first, for guests on the internet; the LAN address stays
                 // for guests on this network, since many routers do not loop back.
-                let public = match event {
-                    Event::Open(addr) => Some(addr),
+                let public = match &event {
+                    Event::Open(addr) => Some(*addr),
                     Event::Failed(_) => None,
                 };
+                ports.rendezvous_changed(event);
                 if let Some(addr) = public {
                     crate::note!("rendezvous: guests on the internet reach it at {addr}");
                 }
                 relay.addrs = public.into_iter().chain([rendezvous.addr]).collect();
-                expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
+                shared.update(|view| view.router = ports.view());
+                if ports.settled() {
+                    expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
+                }
             }
             // The link shown always works: one that ran out unused is replaced.
             () = until(expires) => {
@@ -224,10 +230,15 @@ pub async fn run(
             verdict = reach.next() => shared.update(|view| view.reach = verdict),
         }
     };
-    for router in [router, relay_router].into_iter().flatten() {
+    // Together, because leaving waits about a second and each close may take 0.8 s of it.
+    tokio::join!(close_router(router), close_router(relay_router));
+    result
+}
+
+async fn close_router(router: Option<Router>) {
+    if let Some(router) = router {
         router.close().await;
     }
-    result
 }
 
 /// Asks the public node `server`, if there is one, to dial `at` from outside. Returns whether

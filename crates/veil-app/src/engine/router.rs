@@ -5,6 +5,11 @@
 //! address when the router gives one; the host then puts it first in a fresh invite. If the
 //! router does not open the port, [`guide`] says what the person can do by hand.
 //!
+//! A host running its own rendezvous opens two ports, one for the call and one for the
+//! rendezvous. [`PortStatus`] adds them up, so the host is told one thing and gives out a
+//! public invite only once both have answered: a link made in between would let guests reach
+//! the host but not each other.
+//!
 //! Invariants:
 //! - Nothing is asked of the router unless the person turned it on (Settings > Connection, or
 //!   the one-time question before their first hosted call).
@@ -17,6 +22,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use tokio::task::JoinHandle;
 use veil_portmap::{Failure, Lease};
+
+use crate::model::RouterPort;
 
 /// What changed with the router port.
 pub enum Event {
@@ -116,6 +123,66 @@ impl Router {
     }
 }
 
+/// How far one port has got.
+enum Side {
+    NotAsked,
+    Opening,
+    Open(SocketAddr),
+    Failed(String),
+}
+
+impl Side {
+    fn start(router: Option<&Router>) -> Self {
+        if router.is_some() { Self::Opening } else { Self::NotAsked }
+    }
+
+    fn after(event: Event) -> Self {
+        match event {
+            Event::Open(addr) => Self::Open(addr),
+            Event::Failed(text) => Self::Failed(text),
+        }
+    }
+}
+
+/// The call's port and the host's rendezvous port, added up for the host and its invites.
+pub struct PortStatus {
+    call: Side,
+    rendezvous: Side,
+}
+
+impl PortStatus {
+    pub fn new(call: Option<&Router>, rendezvous: Option<&Router>) -> Self {
+        Self {
+            call: Side::start(call),
+            rendezvous: Side::start(rendezvous),
+        }
+    }
+
+    pub fn call_changed(&mut self, event: Event) {
+        self.call = Side::after(event);
+    }
+
+    pub fn rendezvous_changed(&mut self, event: Event) {
+        self.rendezvous = Side::after(event);
+    }
+
+    /// Whether the router has answered for every port asked for.
+    pub fn settled(&self) -> bool {
+        !matches!(self.call, Side::Opening) && !matches!(self.rendezvous, Side::Opening)
+    }
+
+    /// What the host is shown.
+    pub fn view(&self) -> RouterPort {
+        match (&self.call, &self.rendezvous) {
+            (Side::Opening, _) | (_, Side::Opening) => RouterPort::Opening,
+            (Side::NotAsked, _) => RouterPort::Off,
+            (Side::Failed(guide), _) => RouterPort::Failed(guide.clone()),
+            (Side::Open(addr), Side::Failed(_)) => RouterPort::GuestsApart(addr.to_string()),
+            (Side::Open(addr), _) => RouterPort::Open(addr.to_string()),
+        }
+    }
+}
+
 /// What to do by hand when the router did not open the port.
 pub fn guide(failure: &Failure, port: u16, lan: Option<Ipv4Addr>) -> String {
     match failure {
@@ -139,7 +206,8 @@ pub fn guide(failure: &Failure, port: u16, lan: Option<Ipv4Addr>) -> String {
                 "Your router did not open a port ({why}). To let guests on the internet reach \
                  you, either turn on UPnP or NAT-PMP in your router's settings, or forward UDP \
                  port {port} to {me}, then set Call port to {port} and add your public IP and \
-                 port under Settings > Connection > Public addresses. Guests on your own \
+                 port under Settings > Connection > Public addresses. They will reach you, \
+                 but not each other without a public rendezvous. Guests on your own \
                  network can still join."
             )
         }
@@ -163,6 +231,51 @@ mod tests {
         assert!(text.contains("UPnP: no router answered"), "{text}");
         let none = guide(&Failure::Unavailable(Vec::new()), 7710, None);
         assert!(none.contains("no IPv4 address"), "{none}");
+    }
+
+    #[test]
+    fn both_ports_must_answer_before_the_host_is_told() {
+        let addr = SocketAddr::from(([203, 0, 113, 9], 7710));
+        let mut ports = PortStatus {
+            call: Side::Opening,
+            rendezvous: Side::Opening,
+        };
+        ports.call_changed(Event::Open(addr));
+        assert!(!ports.settled(), "the rendezvous port has not answered");
+        assert_eq!(ports.view(), RouterPort::Opening);
+        ports.rendezvous_changed(Event::Open(addr));
+        assert!(ports.settled());
+        assert_eq!(ports.view(), RouterPort::Open(addr.to_string()));
+    }
+
+    #[test]
+    fn a_closed_rendezvous_port_is_shown() {
+        let addr = SocketAddr::from(([203, 0, 113, 9], 7710));
+        let mut ports = PortStatus {
+            call: Side::Open(addr),
+            rendezvous: Side::Opening,
+        };
+        ports.rendezvous_changed(Event::Failed(String::from("no")));
+        assert!(ports.settled());
+        assert_eq!(ports.view(), RouterPort::GuestsApart(addr.to_string()));
+        ports.call_changed(Event::Failed(String::from("guide")));
+        assert_eq!(ports.view(), RouterPort::Failed(String::from("guide")));
+    }
+
+    #[test]
+    fn a_configured_rendezvous_needs_only_the_call_port() {
+        let addr = SocketAddr::from(([203, 0, 113, 9], 7710));
+        let mut ports = PortStatus {
+            call: Side::Opening,
+            rendezvous: Side::NotAsked,
+        };
+        assert!(!ports.settled());
+        ports.call_changed(Event::Open(addr));
+        assert!(ports.settled());
+        assert_eq!(ports.view(), RouterPort::Open(addr.to_string()));
+        let off = PortStatus::new(None, None);
+        assert!(off.settled());
+        assert_eq!(off.view(), RouterPort::Off);
     }
 
     #[test]
