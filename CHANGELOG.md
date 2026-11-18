@@ -2,6 +2,14 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Changed
+
+- Background blur's outline follows the person more closely: hair, fingers and shoulders keep
+  their shape instead of looking blocky, and the edge no longer flickers when you sit still. It
+  still keeps up when you move. Nothing new is downloaded and the app is no bigger.
+
 ## 0.1.6, 17/11/2026
 
 ### Added
