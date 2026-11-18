@@ -183,6 +183,18 @@ impl Node {
         self.ready.lock().await.recv().await.map(Ok)
     }
 
+    /// Takes no more incoming links, and closes any not yet returned by [`Self::accept`]. Links
+    /// already accepted, and dialling, go on working. `accept` then returns `None`.
+    pub async fn stop_accepting(&self) {
+        self.acceptor.abort();
+        self.endpoint.set_server_config(None);
+        let mut ready = self.ready.lock().await;
+        ready.close();
+        while let Ok(link) = ready.try_recv() {
+            link.close("not accepting");
+        }
+    }
+
     pub fn close(&self) {
         self.endpoint.close(0u32.into(), b"bye");
     }

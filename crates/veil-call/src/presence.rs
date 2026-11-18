@@ -17,6 +17,10 @@
 //!   ciphertext and never holds keys.
 //! - A punch dial-back is never kept. The peer that asked dials the link that is used; the
 //!   dial-back only opens this side's NAT mapping. This keeps one link per pair.
+//! - A relay session someone else opened holds a place only until its link arrives, or for
+//!   [`RELAY_WAIT`] if none does ([`RelayPlaces`]).
+//! - A dial-back happens only for an introduction this participant just agreed to, within the
+//!   limits in [`DialBacks`]. Any other `Punch` notice is ignored, whoever sent it.
 //! - Another member's request (introduction or relay) is accepted only as [`Consent`]
 //!   allows: the host takes anyone (joiners dial its address, and the lobby decides who gets
 //!   in); a member takes only peers its current routes expect; a relay-only node never
@@ -37,9 +41,11 @@ use veil_rendezvous::{Ask, Punch, RendezvousClient, punch, room_tag};
 use veil_security::{Identity, PublicId};
 
 use crate::CallError;
+use crate::dial_back::DialBacks;
 use crate::host::Allowed;
 use crate::inbound::Router;
 use crate::relay_field::RelayAddrs;
+use crate::relay_places::RelayPlaces;
 
 /// How this participant registers in the call's rendezvous room.
 pub(crate) enum Seat {
@@ -51,8 +57,9 @@ pub(crate) enum Seat {
 }
 
 const COMMANDS: usize = 16;
-/// Relay sessions other members opened to this one. Sixteen is the call's size limit.
-const MAX_RELAYED: usize = 32;
+/// How long a relay session someone else opened waits for its link: a dial's whole allowance
+/// (`veil_net::endpoint::CONNECT_TIMEOUT`), and a little more.
+const RELAY_WAIT: Duration = Duration::from_secs(10);
 /// Requests kept while no route expects their sender yet. The server forgets them at 10 s.
 const WAIT: Duration = Duration::from_secs(8);
 const MAX_WAITING: usize = 64;
@@ -72,6 +79,8 @@ pub(crate) struct Consent {
     pub relay_only: AtomicBool,
     /// Peers the current routes link to.
     pub expected: Mutex<HashSet<PublicId>>,
+    /// Introductions agreed to, and the dial-backs they led to.
+    pub dial_backs: Mutex<DialBacks>,
 }
 
 impl Consent {
@@ -80,6 +89,27 @@ impl Consent {
             return false;
         }
         self.open || self.expected.lock().is_ok_and(|e| e.contains(from))
+    }
+
+    /// Whether to accept this request. Accepting an introduction allows one dial-back.
+    pub fn agree(&self, from: &PublicId, kind: Ask) -> bool {
+        let allowed = self.allows(from, kind);
+        if allowed
+            && kind == Ask::Introduce
+            && let Ok(mut backs) = self.dial_backs.lock()
+        {
+            backs.agree(*from, Instant::now());
+        }
+        allowed
+    }
+
+    /// Whether a `Punch` notice for `peer`, naming `addrs` addresses, should be dialled.
+    fn may_dial_back(&self, peer: &PublicId, addrs: usize) -> bool {
+        self.allows(peer, Ask::Introduce)
+            && self
+                .dial_backs
+                .lock()
+                .is_ok_and(|mut backs| backs.allow(*peer, addrs, Instant::now()))
     }
 }
 
@@ -121,14 +151,15 @@ impl Presence {
                 .map_err(CallError::Rendezvous)?;
         }
         let policy = consent.clone();
-        client.set_consent(Arc::new(move |from, kind| policy.allows(from, kind)));
+        client.set_consent(Arc::new(move |from, kind| policy.agree(from, kind)));
         let (commands, rx) = mpsc::channel(COMMANDS);
         let actor = Actor {
             identity: Identity::from_secret(&identity.secret_bytes()),
             node,
             client,
             router,
-            relayed: JoinSet::new(),
+            relayed: RelayPlaces::default(),
+            dial_backs: JoinSet::new(),
             consent: consent.clone(),
             waiting: VecDeque::new(),
             allowed,
@@ -173,8 +204,10 @@ struct Actor {
     node: Arc<Node>,
     client: RendezvousClient,
     router: Router,
-    /// Accept loops of relay sessions others opened. Dropped with the actor.
-    relayed: JoinSet<()>,
+    /// Relay sessions others opened, waiting for their links. Dropped with the actor.
+    relayed: RelayPlaces,
+    /// Dial-backs under way. Dropped with the actor.
+    dial_backs: JoinSet<()>,
     consent: Arc<Consent>,
     /// Requests not yet allowed, oldest first, with when they came.
     waiting: VecDeque<(PublicId, Ask, Instant)>,
@@ -229,7 +262,7 @@ impl Actor {
                 let now = Instant::now();
                 self.waiting.retain(|(.., at)| now.duration_since(*at) < WAIT);
                 for (from, kind, at) in std::mem::take(&mut self.waiting) {
-                    if self.consent.allows(&from, kind) {
+                    if self.consent.agree(&from, kind) {
                         let _ = self.client.accept(from, kind).await;
                     } else {
                         self.waiting.push_back((from, kind, at));
@@ -242,7 +275,7 @@ impl Actor {
     /// Accepts another member's request if consent allows; otherwise keeps it a moment, in
     /// case the routes that expect that member are about to arrive.
     async fn request(&mut self, from: PublicId, kind: Ask) {
-        if self.consent.allows(&from, kind) {
+        if self.consent.agree(&from, kind) {
             let _ = self.client.accept(from, kind).await;
             return;
         }
@@ -266,33 +299,31 @@ impl Actor {
                 addrs,
                 delay_ms,
             } => {
+                while self.dial_backs.try_join_next().is_some() {}
+                if !self.consent.may_dial_back(&peer, addrs.len()) {
+                    return;
+                }
                 let plan = Punch {
                     peer,
                     addrs,
                     delay: std::time::Duration::from_millis(u64::from(delay_ms)),
                 };
                 let node = self.node.clone();
-                tokio::spawn(async move {
+                self.dial_backs.spawn(async move {
                     if let Ok(link) = punch(&node, &plan).await {
                         link.close("punch only");
                     }
                 });
             }
-            ServerMsg::RelayReady { session, .. } => {
-                // Finished loops are reaped; past the limit a new session is ignored, so a
-                // misbehaving peer cannot grow this set without bound.
-                while self.relayed.try_join_next().is_some() {}
-                if self.relayed.len() >= MAX_RELAYED {
-                    return;
-                }
+            ServerMsg::RelayReady { session, peer } => {
                 let Ok(socket) = self.client.relay_socket(session) else {
                     return;
                 };
                 let Ok(inner) = Node::bind_virtual(&self.identity, socket) else {
                     return;
                 };
-                self.relayed
-                    .spawn(self.router.clone().accept_loop(Arc::new(inner), true));
+                let wait = self.router.clone().accept_relayed(Arc::new(inner), RELAY_WAIT);
+                self.relayed.start(peer, wait);
             }
             _ => {}
         }
@@ -325,5 +356,26 @@ mod tests {
         host.relay_only.store(true, Ordering::Relaxed);
         assert!(!host.allows(&stranger, Ask::Introduce));
         assert!(host.allows(&stranger, Ask::Relay));
+    }
+
+    #[test]
+    fn only_an_agreed_introduction_allows_a_dial_back() {
+        let peer = PublicId([1; 32]);
+        let host = Consent {
+            open: true,
+            ..Consent::default()
+        };
+        assert!(!host.may_dial_back(&peer, 1), "nothing was agreed");
+        assert!(host.agree(&peer, Ask::Relay));
+        assert!(!host.may_dial_back(&peer, 1), "a relay is not an introduction");
+        assert!(host.agree(&peer, Ask::Introduce));
+        assert!(host.may_dial_back(&peer, 1));
+
+        // Agreed, then this node went relay-only before the notice came.
+        let other = PublicId([2; 32]);
+        assert!(host.agree(&other, Ask::Introduce));
+        host.relay_only.store(true, Ordering::Relaxed);
+        assert!(!host.may_dial_back(&other, 1));
+        assert!(!host.agree(&other, Ask::Introduce), "and it agrees to no more");
     }
 }

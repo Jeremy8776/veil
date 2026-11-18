@@ -28,6 +28,7 @@
 
 pub mod app_msg;
 pub mod call_plan;
+mod dial_back;
 pub mod host;
 mod inbound;
 pub mod keyring;
@@ -36,6 +37,7 @@ pub mod member;
 pub mod node;
 mod presence;
 pub mod relay_field;
+mod relay_places;
 pub mod routes;
 
 use std::fmt;

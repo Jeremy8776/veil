@@ -23,9 +23,11 @@ use openmls::prelude::{
     StagedWelcome, PURE_CIPHERTEXT_WIRE_FORMAT_POLICY,
 };
 use openmls_traits::OpenMlsProvider;
+use openmls_traits::crypto::OpenMlsCrypto as _;
 use openmls_traits::signatures::{Signer, SignerError};
 use openmls_traits::types::SignatureScheme;
-use tls_codec::{Deserialize as _, Serialize as _};
+use tls_codec::{Deserialize as _, Serialize as _, VLBytes};
+use veil_net::control::{self, Control};
 use veil_security::frame::{FrameReceiver, FrameSender};
 use veil_security::{Identity, PublicId};
 use zeroize::Zeroizing;
@@ -35,6 +37,9 @@ use crate::provider::{CIPHERSUITE, VeilProvider};
 
 /// Most members in one call, matching the agreed scope of about 16 people.
 pub const MAX_MEMBERS: usize = 16;
+/// Longest key package the host reads. An honest one is about 300 bytes. With every member of a
+/// full call at this size, the largest Welcome is about 30 KiB, under half the control limit.
+pub const MAX_KEY_PACKAGE_LEN: usize = 2_048;
 /// Exporter label for the media epoch secret.
 const EXPORTER_LABEL: &str = "veil-media-v1";
 const HOST_LEAF: u32 = 0;
@@ -93,6 +98,13 @@ fn decode(bytes: &[u8]) -> Result<MlsMessageBodyIn, GroupError> {
         return Err(GroupError::Malformed("trailing bytes"));
     }
     Ok(message.extract())
+}
+
+/// Refuses a message that could not be sent on a control stream.
+fn check_sendable(message: &Control) -> Result<(), GroupError> {
+    control::encode(message)
+        .map(drop)
+        .map_err(|_| GroupError::Malformed("message too large to send"))
 }
 
 /// Key ids are bounded to 32-byte Ed25519 keys before comparison.
@@ -230,6 +242,34 @@ impl Group {
             .find_map(|(index, d)| (d == *device).then_some(index))
     }
 
+    /// Refuses a public key the host cannot encrypt to, using the operation commits depend on.
+    fn check_can_encrypt_to(&self, public_key: &[u8]) -> Result<(), GroupError> {
+        self.provider
+            .crypto()
+            .hpke_seal(CIPHERSUITE.hpke_config(), public_key, b"veil-key-check", b"", b"")
+            .map(drop)
+            .map_err(|_| GroupError::Malformed("unusable public key"))
+    }
+
+    /// Moves to the pending commit's epoch only if `built` holds messages that can be sent.
+    /// Otherwise the commit is dropped and the group stays in its current epoch.
+    fn finish_commit<T>(&mut self, built: Result<T, GroupError>) -> Result<T, GroupError> {
+        match built {
+            Ok(messages) => {
+                self.mls
+                    .merge_pending_commit(&self.provider)
+                    .map_err(GroupError::mls)?;
+                Ok(messages)
+            }
+            Err(error) => {
+                self.mls
+                    .clear_pending_commit(self.provider.storage())
+                    .map_err(GroupError::mls)?;
+                Err(error)
+            }
+        }
+    }
+
     /// Host only: adds the joiner whose QUIC link is pinned to `device`.
     pub fn add(&mut self, key_package: &[u8], device: &PublicId) -> Result<Admission, GroupError> {
         if !self.is_host() {
@@ -240,6 +280,9 @@ impl Group {
         }
         if self.leaf_of(device).is_some() {
             return Err(GroupError::AlreadyMember);
+        }
+        if key_package.len() > MAX_KEY_PACKAGE_LEN {
+            return Err(GroupError::Malformed("key package too long"));
         }
         let mut reader = key_package;
         let package =
@@ -259,17 +302,26 @@ impl Group {
         if leaf.signature_key().as_slice() != device.0 || identity.identity() != device.0 {
             return Err(GroupError::WrongDevice);
         }
+        // Every later commit encrypts to this leaf, so one unusable key would block them all.
+        let encryption_key = leaf
+            .encryption_key()
+            .tls_serialize_detached()
+            .map_err(|_| GroupError::Malformed("encode"))?;
+        let encryption_key = VLBytes::tls_deserialize(&mut encryption_key.as_slice())
+            .map_err(|_| GroupError::Malformed("encryption key"))?;
+        self.check_can_encrypt_to(encryption_key.as_slice())?;
+        self.check_can_encrypt_to(package.hpke_init_key().as_slice())?;
         let (commit, welcome, _) = self
             .mls
             .add_members(&self.provider, &DeviceSigner(&self.identity), &[package])
             .map_err(GroupError::mls)?;
-        self.mls
-            .merge_pending_commit(&self.provider)
-            .map_err(GroupError::mls)?;
-        Ok(Admission {
-            commit: encode(&commit)?,
-            welcome: encode(&welcome)?,
-        })
+        let built = encode(&commit).and_then(|commit| {
+            let welcome = encode(&welcome)?;
+            check_sendable(&Control::Commit(commit.clone()))?;
+            check_sendable(&Control::Welcome(welcome.clone()))?;
+            Ok(Admission { commit, welcome })
+        });
+        self.finish_commit(built)
     }
 
     /// Host only: removes a member. Returns the `Control::Commit` for everyone, including the
@@ -290,10 +342,11 @@ impl Group {
                 &[LeafNodeIndex::new(leaf)],
             )
             .map_err(GroupError::mls)?;
-        self.mls
-            .merge_pending_commit(&self.provider)
-            .map_err(GroupError::mls)?;
-        encode(&commit)
+        let built = encode(&commit).and_then(|commit| {
+            check_sendable(&Control::Commit(commit.clone()))?;
+            Ok(commit)
+        });
+        self.finish_commit(built)
     }
 
     /// Applies a commit received as `Control::Commit`. Refuses commits not sent by the host.

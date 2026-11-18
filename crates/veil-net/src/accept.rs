@@ -140,8 +140,10 @@ async fn run(endpoint: quinn::Endpoint, ready: mpsc::Sender<Link>) {
                 conn.closed().await;
                 drop(slot);
             });
-            // Nobody accepting any more: the link is dropped and closes.
-            let _ = ready.send(link).await;
+            // Nobody accepting any more. The task above holds the connection, so close it.
+            if let Err(unwanted) = ready.send(link).await {
+                unwanted.0.close("not accepting");
+            }
         });
     }
 }

@@ -122,7 +122,7 @@ impl CallNode {
             ..Consent::default()
         });
         let mut tasks = Tasks::default();
-        tasks.0.push(tokio::spawn(router.clone().accept_loop(node.clone(), false)));
+        tasks.0.push(tokio::spawn(router.clone().accept_loop(node.clone())));
         let mut presence = None;
         if let Some(server) = rendezvous
             && let Ok((handle, task)) = Presence::start(
