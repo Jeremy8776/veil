@@ -17,6 +17,8 @@ mod app;
 mod connection;
 mod convert;
 mod demo;
+#[cfg(feature = "dev-ui")]
+mod dev_start;
 mod devices;
 mod engine;
 mod firewall;
@@ -67,7 +69,10 @@ fn main() -> eframe::Result {
             let found = theme::load_fonts(&cc.egui_ctx)?;
             icons::set_available(found.icons);
             theme::apply(&cc.egui_ctx);
-            Ok(Box::new(app::VeilApp::new(&cc.egui_ctx)))
+            let app = app::VeilApp::new(&cc.egui_ctx);
+            #[cfg(feature = "dev-ui")]
+            let app = dev_start::opened(app);
+            Ok(Box::new(app))
         }),
     ))
 }
