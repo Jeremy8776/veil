@@ -39,7 +39,7 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   calls where both ends run this version link over IPv6.
 ### Added
 
-- You can mirror your video, before a call or from the video menu in a call. It flips your
+- You can mirror your video, before a call or from Effects in a call. It flips your
   picture left to right for everyone in the call. It is off by default.
 
 ### Changed
