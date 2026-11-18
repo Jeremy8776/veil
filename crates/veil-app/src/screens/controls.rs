@@ -176,7 +176,7 @@ fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
     call_menus::filter_swatches(ui, &app.media);
     call_menus::divider(ui);
     let mirrored = app.media.mirror();
-    let mirror = call_menus::choice(ui, "Mirror video", mirrored);
+    let mirror = call_menus::toggle_button(ui, Icon::Mirror, "Mirror video", mirrored);
     if mirror.on_hover_text(MIRROR_HINT).clicked() {
         app.media.set_mirror(!mirrored);
     }
