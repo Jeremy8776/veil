@@ -24,6 +24,10 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   host's IPv6 address too. People says "Reachable from the internet" if either one is.
 - Call stats show "IPv6" beside the path of a link that runs over IPv6.
 
+- People on mobile data connect sooner. Veil no longer waits for each way of connecting to
+  fail before trying the next: the relay is tried after 5 seconds at most, instead of about
+  half a minute. Calls also start with smaller packets, which more mobile networks carry.
+
 ### Compatibility
 
 - Older versions still join calls from this version, and the other way round. Invites keep

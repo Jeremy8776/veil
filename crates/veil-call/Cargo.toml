@@ -21,7 +21,7 @@ veil-security = { path = "../veil-security" }
 veil-topology = { path = "../veil-topology" }
 
 [dev-dependencies]
-tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "net"] }
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "net", "test-util"] }
 
 [lints]
 workspace = true

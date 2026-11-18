@@ -39,7 +39,9 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const KEEP_ALIVE: Duration = Duration::from_secs(4);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(20);
 const DATAGRAM_BUFFER: usize = 16 * 1024 * 1024;
-const INITIAL_MTU: u16 = 1_400;
+/// Mobile networks often carry less than 1,400 bytes per packet, and QUIC finds any larger size
+/// by itself, so calls start small rather than losing their first packets.
+const INITIAL_MTU: u16 = 1_280;
 /// Relayed (inner) links stay at QUIC's minimum so each packet fits one outer datagram.
 const RELAYED_MTU: u16 = 1_200;
 const MAX_CANDIDATES: usize = 16;
@@ -55,7 +57,7 @@ fn transport(initial_mtu: u16) -> Result<Arc<TransportConfig>, NetError> {
     t.datagram_receive_buffer_size(Some(DATAGRAM_BUFFER));
     t.datagram_send_buffer_size(DATAGRAM_BUFFER);
     // Start above QUIC's 1,200-byte floor so a relayed inner packet (1,200 bytes plus a
-    // 4-byte session header) fits one outer datagram. If the path is smaller, quinn's
+    // 4-byte session header and the outer link's own overhead) fits one outer datagram. If the path is smaller, quinn's
     // black-hole detection falls back and the relay uses its stream path instead.
     t.initial_mtu(initial_mtu);
     // shortcut: quinn's default loss-based congestion control. Real-time video wants a
