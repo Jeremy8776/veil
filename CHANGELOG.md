@@ -63,6 +63,9 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   another app and paste theirs: Veil compares the whole number. Older versions can still
   compare by hand.
 - Speaker view has its own icon, and the arrows beside Mute and Stop video are centred.
+- Veil for Linux now needs glibc 2.39 or later: Ubuntu 24.04, Debian 13, Fedora 40 or newer.
+  Ubuntu 22.04 and Debian 12 can no longer run it, because screen capture needs a newer
+  PipeWire than they have.
 
 ## 0.1.8, 18/11/2026
 

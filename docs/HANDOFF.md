@@ -323,7 +323,7 @@ approach as ArtCraft's packaging):
 |---|---|---|
 | Windows x64 (`windows-2025`, static CRT) | `.msi` for all users, with the "Veil" UDP firewall rule; `-portable.zip` | `packaging/windows/package.ps1`, `veil.wxs`, `sign.ps1` |
 | macOS universal (`macos-15`) | `.dmg` with `Veil.app` (hardened runtime, camera and microphone entitlements); `.tar.gz` with `veil-node` and `veil-probe` | `packaging/macos/package.sh`, `import-cert.sh` |
-| Linux x64 (`ubuntu-22.04`, glibc 2.35) | `.AppImage`, `.deb`, `.rpm` (nfpm), `.tar.gz` | `packaging/linux/package.sh` |
+| Linux x64 (`ubuntu-24.04`, glibc 2.39) | `.AppImage`, `.deb`, `.rpm` (nfpm), `.tar.gz` | `packaging/linux/package.sh` |
 
 Then it writes `SHA256SUMS.txt`, signs it with the release key (`SHA256SUMS.txt.sig`, the
 `checksums` job) and creates a **draft** release. Build provenance is attested once the
