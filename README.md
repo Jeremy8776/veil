@@ -114,6 +114,13 @@ cargo test -p veil-security -p veil-topology
 python tools/licences.py --check
 ```
 
+To work on the interface, this rebuilds and reopens Veil in its demo call whenever you save a
+change:
+
+```bash
+powershell -ExecutionPolicy Bypass -File tools/dev-ui.ps1
+```
+
 ## Run your own server
 
 `veil-node` can be your rendezvous, relay and forwarder, so calls never touch anyone else's
