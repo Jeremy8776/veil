@@ -192,8 +192,8 @@ impl VeilApp {
     }
 
     /// Someone else's newest picture, for their tile.
-    pub fn remote_video(&self, id: u32) -> Option<(egui::TextureId, [usize; 2], bool)> {
-        self.remote.get(&id).map(|t| (t.id(), t.size(), false))
+    pub fn remote_video(&self, id: u32) -> Option<(egui::TextureId, [usize; 2])> {
+        self.remote.get(&id).map(|t| (t.id(), t.size()))
     }
 
     pub fn go_home(&mut self) {
@@ -229,9 +229,9 @@ impl VeilApp {
         self.level += (target - self.level) * rate;
     }
 
-    /// Your camera texture and its size, for a tile.
-    pub fn preview_video(&self) -> Option<(egui::TextureId, [usize; 2], bool)> {
-        self.preview.as_ref().map(|t| (t.id(), t.size(), true))
+    /// Your camera texture and its size, for a tile. It shows exactly what you send.
+    pub fn preview_video(&self) -> Option<(egui::TextureId, [usize; 2])> {
+        self.preview.as_ref().map(|t| (t.id(), t.size()))
     }
 }
 

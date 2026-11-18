@@ -206,8 +206,8 @@ pub fn avatar(painter: &egui::Painter, center: egui::Pos2, radius: f32, name: &s
 /// What one video tile shows.
 pub struct Tile<'a> {
     pub name: &'a str,
-    /// The picture to draw, its size in pixels, and whether to mirror it (your own camera).
-    pub video: Option<(TextureId, [usize; 2], bool)>,
+    /// The picture to draw and its size in pixels.
+    pub video: Option<(TextureId, [usize; 2])>,
     pub muted: bool,
     pub speaking: bool,
     pub hand_raised: bool,
@@ -221,8 +221,8 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
     let radius = CornerRadius::same(RADIUS);
     painter.rect_filled(rect, radius, theme::TILE);
     match tile.video {
-        Some((texture, size, mirror)) => {
-            let uv = cover_uv(size, rect.size(), mirror);
+        Some((texture, size)) => {
+            let uv = cover_uv(size, rect.size());
             painter.image(texture, rect, uv, Color32::WHITE);
             // Rounds the picture's corners by covering them in the page colour.
             painter.rect_stroke(
@@ -292,7 +292,7 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
 
 /// The part of a `size` picture that fills a tile of `tile` size without stretching, centred,
 /// flipped left to right for `mirror`.
-pub fn cover_uv(size: [usize; 2], tile: egui::Vec2, mirror: bool) -> Rect {
+pub fn cover_uv(size: [usize; 2], tile: egui::Vec2) -> Rect {
     let picture = size[0] as f32 / size[1].max(1) as f32;
     let target = tile.x / tile.y.max(1.0);
     let (w, h) = if picture > target {
@@ -301,11 +301,7 @@ pub fn cover_uv(size: [usize; 2], tile: egui::Vec2, mirror: bool) -> Rect {
         (1.0, picture / target)
     };
     let (x0, y0) = ((1.0 - w) / 2.0, (1.0 - h) / 2.0);
-    if mirror {
-        Rect::from_min_max(pos2(x0 + w, y0), pos2(x0, y0 + h))
-    } else {
-        Rect::from_min_max(pos2(x0, y0), pos2(x0 + w, y0 + h))
-    }
+    Rect::from_min_max(pos2(x0, y0), pos2(x0 + w, y0 + h))
 }
 
 /// A row of segments lighting up with the microphone level, 0 to 1.
@@ -467,17 +463,4 @@ pub fn centred_row<R>(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui) -> R) -> 
         ui.ctx().request_repaint();
     }
     inner
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_mirrored_picture_swaps_only_its_left_and_right() {
-        let plain = cover_uv([1_280, 720], vec2(320.0, 180.0), false);
-        let mirrored = cover_uv([1_280, 720], vec2(320.0, 180.0), true);
-        assert_eq!((mirrored.min.x, mirrored.max.x), (plain.max.x, plain.min.x));
-        assert_eq!((mirrored.min.y, mirrored.max.y), (plain.min.y, plain.max.y));
-    }
 }

@@ -14,8 +14,11 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 ### Added
 
 - You can mirror your video, before a call or from the video menu in a call. It flips your
-  picture left to right for you and for everyone in the call, so text you hold up reads
-  backwards to them while it is on. It is off by default.
+  picture left to right for everyone in the call. It is off by default.
+
+### Changed
+
+- Your own video now shows exactly what others see. It used to be mirrored on your screen only.
 
 ## 0.1.8, 18/11/2026
 
