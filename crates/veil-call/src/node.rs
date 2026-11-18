@@ -26,6 +26,7 @@ use veil_security::{Identity, PublicId};
 use crate::host::HostHandle;
 use crate::inbound::{Inbound, Router};
 use crate::presence::{Consent, Presence, Seat};
+use crate::relay_field::RelayAddrs;
 use crate::{CallError, media};
 
 /// Incoming media links waiting for the media session.
@@ -90,6 +91,7 @@ impl CallNode {
         host: HostHandle,
     ) -> Self {
         let seat = Seat::Host(host.allowed());
+        let rendezvous = rendezvous.map(RelayAddrs::from);
         Self::launch(identity, node, room_id, rendezvous, Some(host), seat).await
     }
 
@@ -97,7 +99,7 @@ impl CallNode {
         identity: &Identity,
         node: Node,
         room_id: [u8; 16],
-        rendezvous: Option<NodeAddr>,
+        rendezvous: Option<RelayAddrs>,
         host: Option<HostHandle>,
         seat: Seat,
     ) -> Self {
@@ -116,8 +118,15 @@ impl CallNode {
         tasks.0.push(tokio::spawn(router.clone().accept_loop(node.clone(), false)));
         let mut presence = None;
         if let Some(server) = rendezvous
-            && let Ok((handle, task)) =
-                Presence::start(identity, node.clone(), server, router, consent.clone(), seat).await
+            && let Ok((handle, task)) = Presence::start(
+                identity,
+                node.clone(),
+                &server,
+                router,
+                consent.clone(),
+                seat,
+            )
+            .await
         {
             presence = Some(handle);
             tasks.0.push(task);
@@ -135,10 +144,11 @@ impl CallNode {
     }
 
     /// Starts a joiner's node for the call an invite names, using the invite's relay field as
-    /// the rendezvous node when it holds a `key@ip:port` address.
+    /// the rendezvous node when it holds `key@ip:port`, perhaps with more addresses
+    /// ([`RelayAddrs`]), all dialled at once.
     pub async fn for_invite(identity: &Identity, node: Node, invite: &Invite) -> Self {
-        let rendezvous = invite.relay.as_deref().and_then(|r| r.parse::<NodeAddr>().ok());
-        Self::for_invite_via(identity, node, invite, rendezvous).await
+        let rendezvous = invite.relay.as_deref().and_then(RelayAddrs::parse);
+        Self::start_guest(identity, node, invite, rendezvous).await
     }
 
     /// Starts a joiner's node for the call an invite names, with `rendezvous` as the
@@ -148,6 +158,15 @@ impl CallNode {
         node: Node,
         invite: &Invite,
         rendezvous: Option<NodeAddr>,
+    ) -> Self {
+        Self::start_guest(identity, node, invite, rendezvous.map(RelayAddrs::from)).await
+    }
+
+    async fn start_guest(
+        identity: &Identity,
+        node: Node,
+        invite: &Invite,
+        rendezvous: Option<RelayAddrs>,
     ) -> Self {
         let seat = Seat::Guest {
             host: invite.host,

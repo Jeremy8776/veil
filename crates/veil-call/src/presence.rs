@@ -31,7 +31,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinSet;
-use veil_net::{Node, NodeAddr};
+use veil_net::Node;
 use veil_rendezvous::protocol::ServerMsg;
 use veil_rendezvous::{Ask, Punch, RendezvousClient, punch, room_tag};
 use veil_security::{Identity, PublicId};
@@ -39,6 +39,7 @@ use veil_security::{Identity, PublicId};
 use crate::CallError;
 use crate::host::Allowed;
 use crate::inbound::Router;
+use crate::relay_field::RelayAddrs;
 
 /// How this participant registers in the call's rendezvous room.
 pub(crate) enum Seat {
@@ -94,12 +95,12 @@ impl Presence {
     pub async fn start(
         identity: &Identity,
         node: Arc<Node>,
-        server: NodeAddr,
+        server: &RelayAddrs,
         router: Router,
         consent: Arc<Consent>,
         seat: Seat,
     ) -> Result<(Self, tokio::task::JoinHandle<()>), CallError> {
-        let mut client = RendezvousClient::connect(&node, &[server.addr], server.key)
+        let mut client = RendezvousClient::connect(&node, &server.addrs, server.key)
             .await
             .map_err(CallError::Rendezvous)?;
         let local = node.local_addr()?;

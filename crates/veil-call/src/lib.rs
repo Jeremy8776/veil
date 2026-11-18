@@ -35,6 +35,7 @@ pub mod media;
 pub mod member;
 pub mod node;
 mod presence;
+pub mod relay_field;
 pub mod routes;
 
 use std::fmt;
@@ -52,6 +53,7 @@ pub use keyring::KeyRing;
 pub use media::{Incoming, LinkStats, Media, MediaSession, SEND_DEADLINE};
 pub use member::{MemberEvent, MemberHandle, join, join_with};
 pub use node::{CallNode, Path};
+pub use relay_field::RelayAddrs;
 pub use routes::{Directory, Peer, Routes};
 
 /// Frame keys for one epoch.
