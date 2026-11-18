@@ -7,7 +7,7 @@
 #   $DIST/veil-<version>-linux-x64.rpm        Fedora, openSUSE, RHEL, ...
 #   $DIST/veil-<version>-linux-x64.tar.gz     veil-app, veil-node, veil-probe and the licences
 #
-# Build on an old distribution (CI: Ubuntu 22.04, glibc 2.35) so the programs run on newer
+# Build on an old distribution (CI: Ubuntu 24.04, glibc 2.39) so the programs run on newer
 # ones. The approach follows ArtCraft's packaging/linux/package.sh.
 #
 # Needs: cargo, nfpm (deb, rpm), appimagetool and the AppImage runtime. In CI these are

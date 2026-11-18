@@ -53,7 +53,7 @@ Builds are on the [latest release](https://github.com/Jeremy8776/veil/releases/l
 | Windows 10 and 11 | `veil-<version>-windows-x64.msi` | Installs for all users and lets calls through the firewall. Windows asks for permission once |
 | | `veil-<version>-windows-x64-portable.zip` | Unzip anywhere, no admin rights. The host's "Allow guests" button adds the firewall rule |
 | macOS 11 and later | `veil-<version>-macos-universal.dmg` | Drag Veil to Applications. Apple Silicon and Intel |
-| Linux x64 | `.AppImage`, `.deb`, `.rpm` or `.tar.gz` | glibc 2.35 or later (Ubuntu 22.04, Debian 12, Fedora 36) |
+| Linux x64 | `.AppImage`, `.deb`, `.rpm` or `.tar.gz` | glibc 2.39 or later (Ubuntu 24.04, Debian 13, Fedora 40) |
 
 To check a download by hand: its SHA-256 (`Get-FileHash` on Windows, `shasum -a 256` on
 macOS, `sha256sum` on Linux) must match its line in `SHA256SUMS.txt`.

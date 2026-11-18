@@ -198,9 +198,9 @@ jobs:
 
   linux:
     needs: version
-    # The oldest hosted image, so the programs need only glibc 2.35 (Ubuntu 22.04, Debian 12,
-    # Fedora 36 and later). Reads no secrets.
-    runs-on: ubuntu-22.04
+    # The oldest image whose PipeWire is new enough for xcap, so the programs need glibc 2.39
+    # (Ubuntu 24.04, Debian 13, Fedora 40 and later). Reads no secrets.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       VEIL_VERSION: ${{ needs.version.outputs.version }}

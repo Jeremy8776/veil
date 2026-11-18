@@ -4619,7 +4619,7 @@ dependencies = [
 
 [[package]]
 name = "veil-app"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "ed25519-dalek",
  "eframe",
@@ -4642,7 +4642,7 @@ dependencies = [
 
 [[package]]
 name = "veil-call"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "bytes",
  "getrandom 0.4.3",
@@ -4659,7 +4659,7 @@ dependencies = [
 
 [[package]]
 name = "veil-forward"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "bytes",
  "postcard",
@@ -4673,7 +4673,7 @@ dependencies = [
 
 [[package]]
 name = "veil-group"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "chacha20poly1305",
  "ed25519-dalek",
@@ -4695,7 +4695,7 @@ dependencies = [
 
 [[package]]
 name = "veil-media"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "block2 0.6.2",
  "cc",
@@ -4718,7 +4718,7 @@ dependencies = [
 
 [[package]]
 name = "veil-net"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64",
  "bytes",
@@ -4735,7 +4735,7 @@ dependencies = [
 
 [[package]]
 name = "veil-node"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "serde",
  "tokio",
@@ -4750,7 +4750,7 @@ dependencies = [
 
 [[package]]
 name = "veil-portmap"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "getrandom 0.4.3",
  "tokio",
@@ -4759,7 +4759,7 @@ dependencies = [
 
 [[package]]
 name = "veil-probe"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "tokio",
  "veil-call",
@@ -4772,7 +4772,7 @@ dependencies = [
 
 [[package]]
 name = "veil-rendezvous"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "bytes",
  "getrandom 0.4.3",
@@ -4786,7 +4786,7 @@ dependencies = [
 
 [[package]]
 name = "veil-security"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64",
  "chacha20poly1305",
@@ -4802,7 +4802,7 @@ dependencies = [
 
 [[package]]
 name = "veil-topology"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "vello_common"
