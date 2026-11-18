@@ -23,9 +23,10 @@ use openmls::prelude::{
     StagedWelcome, PURE_CIPHERTEXT_WIRE_FORMAT_POLICY,
 };
 use openmls_traits::OpenMlsProvider;
+use openmls_traits::crypto::OpenMlsCrypto as _;
 use openmls_traits::signatures::{Signer, SignerError};
 use openmls_traits::types::SignatureScheme;
-use tls_codec::{Deserialize as _, Serialize as _};
+use tls_codec::{Deserialize as _, Serialize as _, VLBytes};
 use veil_net::control::{self, Control};
 use veil_security::frame::{FrameReceiver, FrameSender};
 use veil_security::{Identity, PublicId};
@@ -241,6 +242,15 @@ impl Group {
             .find_map(|(index, d)| (d == *device).then_some(index))
     }
 
+    /// Refuses a public key the host cannot encrypt to, using the operation commits depend on.
+    fn check_can_encrypt_to(&self, public_key: &[u8]) -> Result<(), GroupError> {
+        self.provider
+            .crypto()
+            .hpke_seal(CIPHERSUITE.hpke_config(), public_key, b"veil-key-check", b"", b"")
+            .map(drop)
+            .map_err(|_| GroupError::Malformed("unusable public key"))
+    }
+
     /// Moves to the pending commit's epoch only if `built` holds messages that can be sent.
     /// Otherwise the commit is dropped and the group stays in its current epoch.
     fn finish_commit<T>(&mut self, built: Result<T, GroupError>) -> Result<T, GroupError> {
@@ -292,6 +302,15 @@ impl Group {
         if leaf.signature_key().as_slice() != device.0 || identity.identity() != device.0 {
             return Err(GroupError::WrongDevice);
         }
+        // Every later commit encrypts to this leaf, so one unusable key would block them all.
+        let encryption_key = leaf
+            .encryption_key()
+            .tls_serialize_detached()
+            .map_err(|_| GroupError::Malformed("encode"))?;
+        let encryption_key = VLBytes::tls_deserialize(&mut encryption_key.as_slice())
+            .map_err(|_| GroupError::Malformed("encryption key"))?;
+        self.check_can_encrypt_to(encryption_key.as_slice())?;
+        self.check_can_encrypt_to(package.hpke_init_key().as_slice())?;
         let (commit, welcome, _) = self
             .mls
             .add_members(&self.provider, &DeviceSigner(&self.identity), &[package])

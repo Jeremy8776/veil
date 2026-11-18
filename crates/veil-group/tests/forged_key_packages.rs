@@ -184,6 +184,46 @@ fn an_oversized_key_package_is_refused_and_the_epoch_stays() {
     assert_eq!(group.epoch(), epoch + 2);
 }
 
+/// The attacker is refused, and the host can still admit and remove other people.
+fn assert_refused_without_harm(edit: impl Fn(&mut Forged)) {
+    let (_, mut group) = host();
+    let member = Identity::generate();
+    group.add(&honest_package(&member), &member.public()).unwrap();
+    let epoch = group.epoch();
+
+    let attacker = Identity::generate();
+    let mut forged = Forged::honest(&attacker);
+    edit(&mut forged);
+    let refused = group.add(&forged.signed(&attacker), &attacker.public());
+    assert!(refused.is_err());
+    assert_eq!(group.epoch(), epoch);
+    assert_eq!(group.members().len(), 2);
+
+    let next = Identity::generate();
+    group.add(&honest_package(&next), &next.public()).unwrap();
+    group.remove(&member.public()).unwrap();
+}
+
+#[test]
+fn an_all_zero_leaf_key_is_refused() {
+    assert_refused_without_harm(|p| p.encryption_key = vec![0; 32]);
+}
+
+#[test]
+fn a_short_leaf_key_is_refused() {
+    assert_refused_without_harm(|p| p.encryption_key = vec![7; 31]);
+}
+
+#[test]
+fn a_long_leaf_key_is_refused() {
+    assert_refused_without_harm(|p| p.encryption_key = vec![7; 33]);
+}
+
+#[test]
+fn an_unusable_init_key_is_refused() {
+    assert_refused_without_harm(|p| p.init_key = vec![0; 32]);
+}
+
 #[test]
 fn a_full_call_of_packages_at_the_limit_can_still_be_delivered() {
     let (_, mut group) = host();
