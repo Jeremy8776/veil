@@ -105,6 +105,23 @@ Policy chooses the order of preference. The default is: enterprise node, then se
 then a participant. An organisation can forbid participant forwarding entirely ("our servers
 only"), or forbid servers entirely ("peers only").
 
+### 3.5 Screen sharing today
+
+A shared screen is a second video stream from the same person, beside their camera. Item 7 in
+section 3.3 is the goal. What runs now is simpler:
+
+- The sender has a second encoder with one layer. The picture is at most 1,920 pixels on its
+  longest side and uses at most 4 Mbit/s.
+- Up to 30 pictures a second go out. When the screen is still, the last picture is sent again,
+  so those watching know that the share goes on.
+- A flag inside the sealed video header marks the stream as a screen. Receivers decode camera
+  and screen apart. A forwarder sees one more stream and cannot tell that it is a screen.
+- A receiver treats a share that has been silent for 3 seconds as ended.
+
+Windows captures through Windows Graphics Capture. Linux and macOS take repeated screenshots
+through `xcap`. Linux Wayland sessions cannot share yet, because `xcap` would write each picture
+to a file there.
+
 ## 4. Enterprise integration
 
 - **One deployable.** `veil-node` is one binary and one container image. Configuration turns
