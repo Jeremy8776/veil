@@ -2,6 +2,33 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+## 0.1.7, 18/11/2026
+
+### Fixed
+
+- Updating from the app now opens Veil again when it is done, on Windows, macOS and Linux.
+  Veil gets the new version ready while it is open, so a problem shows in the app, then
+  closes, and a helper swaps in the new version once Veil has closed. If the swap fails, the
+  old version opens instead and the log says why.
+- "Update available" opens the release page on macOS and Linux too. A Veil run straight from
+  the disk image, or from Downloads, links to the release page instead of failing to update.
+- The microphone, speaker, camera and Effects menus in a call work again. Choosing from them
+  used to close the menu without changing anything.
+- The lock in the call's top bar showed as an empty box. It now shows the lock icon.
+
+### Changed
+
+- The call menus are now tick lists: one click picks a device. Volume is a slim slider, blur
+  is an Off / Light / Strong switch, and filters are swatches.
+- Mute and Stop video are joined to their menu arrows as one split button.
+- The call's top bar groups the name, time and an Encrypted badge on the left, and the
+  people count, Invite, stats and view on the right. The count opens People.
+- Background blur's outline follows the person more closely: hair, fingers and shoulders keep
+  their shape instead of looking blocky, and the edge no longer flickers when you sit still. It
+  still keeps up when you move. Nothing new is downloaded and the app is no bigger.
+
 ## 0.1.6, 17/11/2026
 
 ### Added

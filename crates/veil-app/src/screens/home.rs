@@ -137,7 +137,7 @@ fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
                 Install::Idle | Install::Failed(_) => {
                     let button = ui.small_button("Install").on_hover_text(
                         "Downloads it from GitHub, checks Veil's release signature, then \
-                             installs it. Veil closes to finish.",
+                             installs it. Veil restarts to finish.",
                     );
                     if button.clicked() {
                         app.updates.install(version, ui.ctx());

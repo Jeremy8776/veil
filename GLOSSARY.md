@@ -15,3 +15,7 @@ _Avoid_: Lens, AR effect, face effect
 **Background blur**:
 An Effect that blurs everything in the picture except the person in front of the camera.
 _Avoid_: Portrait mode, bokeh, blur (alone)
+
+**Blur add-on**:
+An optional download, made only when the person asks for it, that lets Background blur trace the person's outline more precisely. Veil works fully without it.
+_Avoid_: Plugin, pack, premium, model (alone), HD blur

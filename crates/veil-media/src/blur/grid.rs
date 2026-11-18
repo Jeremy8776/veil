@@ -41,6 +41,17 @@ pub const EDGE: (f32, f32) = (64.0, 192.0);
 /// it to be worth dividing; it keeps its plain value. Only pixels well inside the person are.
 const MIN_WEIGHT: u16 = 4;
 
+/// Mask values (after bilinear upscaling) that count as the outline band. Only band pixels are
+/// refined by the guided filter; the rest keep the plain upscaled mask.
+const BAND: (u8, u8) = (8, 247);
+
+/// Guided filter window radius on the small grid (2 = 5x5 small pixels, about 25x25 at 720p).
+const GUIDE_R: usize = 2;
+
+/// Guided filter regularisation, in luma units squared: luma edges much softer than
+/// `sqrt(GUIDE_EPS)` (about 25 levels) are not followed, so flat areas do not turn noisy.
+const GUIDE_EPS: f32 = 625.0;
+
 fn edge_lut() -> [u8; 256] {
     std::array::from_fn(|i| {
         let t = ((i as f32 - EDGE.0) / (EDGE.1 - EDGE.0)).clamp(0.0, 1.0);
@@ -113,6 +124,17 @@ pub struct Pipeline {
     b_row: Vec<u8>,
     mc_row: Vec<u8>,
     full: Vec<bool>,
+    /// Guided filter coefficients on the small grid: refined mask = `ga * luma + gb`.
+    ga: Vec<f32>,
+    gb: Vec<f32>,
+    /// Guided filter scratch planes on the small grid, and one padded row.
+    g_ip: Vec<f32>,
+    g_ii: Vec<f32>,
+    g_tmp: Vec<f32>,
+    g_pad: Vec<f32>,
+    /// `ga`, `gb` interpolated to the current full-size row's height.
+    va: Vec<f32>,
+    vb: Vec<f32>,
     mx: Axis,
     my: Axis,
     cx: Axis,
@@ -152,6 +174,14 @@ impl Pipeline {
             b_row: vec![0; w],
             mc_row: vec![0; w],
             full: vec![false; MH],
+            ga: vec![0.0; PLANE],
+            gb: vec![0.0; PLANE],
+            g_ip: vec![0.0; PLANE],
+            g_ii: vec![0.0; PLANE],
+            g_tmp: vec![0.0; PLANE],
+            g_pad: vec![0.0; MW + 2 * GUIDE_R],
+            va: vec![0.0; MW],
+            vb: vec![0.0; MW],
             mx: axis(MW, w),
             my: axis(MH, h),
             cx: axis(CW, w / 2),
@@ -166,6 +196,12 @@ impl Pipeline {
     #[cfg(test)]
     pub fn force_general(&mut self) {
         self.fast = false;
+    }
+
+    /// The last row [`Pipeline::mask_row`] made (tests).
+    #[cfg(test)]
+    pub fn last_mask_row(&self) -> &[u8] {
+        &self.m_row
     }
 
     /// Shrinks the picture to the small grid. Reads only.
@@ -287,9 +323,84 @@ impl Pipeline {
         unweight(&mut self.ua, &self.pc, &self.wc, &self.suv);
     }
 
+    /// Fast guided filter (He and Sun, 2015) coefficients on the small grid: the mask `p` is
+    /// fitted as `a * I + b` per window of the small luma `I`. Applied at full size, the fitted
+    /// mask follows the full picture's edges instead of the blocky small grid.
+    pub(super) fn guide(&mut self, mask: &[u8]) {
+        let (mi, mp) = (&mut self.ga, &mut self.gb);
+        for ((((i, p), ip), ii), (&l, &m)) in mi
+            .iter_mut()
+            .zip(mp.iter_mut())
+            .zip(&mut self.g_ip)
+            .zip(&mut self.g_ii)
+            .zip(self.sy.iter().zip(mask))
+        {
+            let (l, m) = (f32::from(l), f32::from(m));
+            (*i, *p, *ip, *ii) = (l, m, l * m, l * l);
+        }
+        for plane in [&mut self.ga, &mut self.gb, &mut self.g_ip, &mut self.g_ii] {
+            box_mean(plane, &mut self.g_tmp, &mut self.g_pad);
+        }
+        for (((a, b), &ip), &ii) in self
+            .ga
+            .iter_mut()
+            .zip(self.gb.iter_mut())
+            .zip(&self.g_ip)
+            .zip(&self.g_ii)
+        {
+            let (mi, mp) = (*a, *b);
+            let k = (ip - mi * mp) / (ii - mi * mi + GUIDE_EPS);
+            (*a, *b) = (k, mp - k * mi);
+        }
+        for plane in [&mut self.ga, &mut self.gb] {
+            box_mean(plane, &mut self.g_tmp, &mut self.g_pad);
+        }
+    }
+
+    /// Fills `m_row` with the mask for full-size row `y` of luma row `luma`, before the edge
+    /// step: bilinear from the small grid, refined by the guided filter in the outline band.
+    pub(super) fn mask_row(&mut self, mask: &[u8], y: usize, luma: &[u8]) {
+        let (a, b, wy) = (self.my.i0[y], self.my.i1[y], self.my.w[y]);
+        lerp(
+            &mask[a * MW..][..MW],
+            &mask[b * MW..][..MW],
+            wy,
+            &mut self.vt,
+        );
+        expand(
+            &self.vt,
+            &mut self.m_row,
+            1,
+            self.fast,
+            &self.mx,
+            &mut self.pad,
+        );
+        let t = f32::from(wy) / 256.0;
+        for (plane, v) in [(&self.ga, &mut self.va), (&self.gb, &mut self.vb)] {
+            let (r0, r1) = (&plane[a * MW..][..MW], &plane[b * MW..][..MW]);
+            for ((o, &p), &q) in v.iter_mut().zip(r0).zip(r1) {
+                *o = p + (q - p) * t;
+            }
+        }
+        for (x, (m, &l)) in self.m_row.iter_mut().zip(luma).enumerate() {
+            if *m < BAND.0 || *m > BAND.1 {
+                continue;
+            }
+            let (i0, i1, t) = (
+                self.mx.i0[x],
+                self.mx.i1[x],
+                f32::from(self.mx.w[x]) / 256.0,
+            );
+            let ka = self.va[i0] + (self.va[i1] - self.va[i0]) * t;
+            let kb = self.vb[i0] + (self.vb[i1] - self.vb[i0]) * t;
+            *m = (ka * f32::from(l) + kb).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+
     /// `out = m * orig + (1 - m) * blur_up`, in place. `mask` is 256x144, 255 = person.
     pub fn composite(&mut self, data: &mut [u8], stride: usize, mask: &[u8]) {
         let (w, h) = (self.w, self.h);
+        self.guide(mask);
         for (f, row) in self.full.iter_mut().zip(mask.chunks_exact(MW)) {
             *f = row.iter().all(|&v| v == 255);
         }
@@ -299,20 +410,7 @@ impl Pipeline {
             if self.full[a] && self.full[b] {
                 continue;
             }
-            lerp(
-                &mask[a * MW..][..MW],
-                &mask[b * MW..][..MW],
-                wy,
-                &mut self.vt,
-            );
-            expand(
-                &self.vt,
-                &mut self.m_row,
-                1,
-                self.fast,
-                &self.mx,
-                &mut self.pad,
-            );
+            self.mask_row(mask, y, &py[y * stride..][..w]);
             for m in self.m_row.iter_mut() {
                 *m = self.lut[usize::from(*m)];
             }
@@ -372,5 +470,31 @@ fn unweight(out: &mut [u8], weighted: &[u16], weight: &[u16], plain: &[u8]) {
         } else {
             ((u32::from(p) + u32::from(w) / 2) / u32::from(w)).min(255) as u8
         };
+    }
+}
+
+/// In-place mean over a `(2 * GUIDE_R + 1)` square on the small grid, edges repeated.
+fn box_mean(p: &mut [f32], tmp: &mut [f32], pad: &mut [f32]) {
+    const N: usize = 2 * GUIDE_R + 1;
+    for (src, dst) in p.chunks_exact(MW).zip(tmp.chunks_exact_mut(MW)) {
+        pad[..GUIDE_R].fill(src[0]);
+        pad[GUIDE_R..GUIDE_R + MW].copy_from_slice(src);
+        pad[GUIDE_R + MW..].fill(src[MW - 1]);
+        for (d, win) in dst.iter_mut().zip(pad.windows(N)) {
+            *d = win.iter().sum();
+        }
+    }
+    let k = 1.0 / (N * N) as f32;
+    for (y, dst) in p.chunks_exact_mut(MW).enumerate() {
+        dst.fill(0.0);
+        for dy in 0..N {
+            let sy = (y + dy).saturating_sub(GUIDE_R).min(MH - 1);
+            for (d, &s) in dst.iter_mut().zip(&tmp[sy * MW..][..MW]) {
+                *d += s;
+            }
+        }
+        for d in dst.iter_mut() {
+            *d *= k;
+        }
     }
 }
