@@ -8,8 +8,9 @@
 //! (`ClientMsg::Accept`). Until then the asker learns nothing about the target, not even
 //! that it is online, so holding an invite is not enough to learn members' IP addresses or
 //! to fill their relay slots. Requests expire after `REQUEST_TTL`; each member may have
-//! `MAX_REQUESTS_PER_MEMBER` open and hold `MAX_SESSIONS_PER_MEMBER` relay sessions.
-//! A link must open its control stream within `CONTROL_WAIT`, or it is closed.
+//! `MAX_REQUESTS_PER_MEMBER` open, and `sessions.rs` limits who holds relay sessions.
+//! A link must open its control stream within `CONTROL_WAIT` and register within
+//! `UNREGISTERED_WAIT`, or it is closed.
 //!
 //! Admission: a room is named by its tag and its host's key, and only the host may open it.
 //! Everyone else must be on the host's allow list (`ClientMsg::Allow`: members, and joiners
@@ -29,6 +30,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{Semaphore, mpsc};
+use veil_net::accept::block;
 use veil_net::{Link, NetError, Node};
 use veil_security::PublicId;
 
@@ -40,12 +42,16 @@ use crate::protocol::{
     Ask, ClientMsg, MAX_ADDRS, MAX_PASSES, Refusal, STREAM_HEADER, ServerMsg,
     parse_stream_header, split_session,
 };
+use crate::sessions::{End, Sessions};
+pub use crate::sessions::{
+    MAX_SESSIONS, MAX_SESSIONS_PER_BLOCK, MAX_SESSIONS_PER_MEMBER, SESSION_IDLE,
+};
 
 pub const MAX_ROOMS: usize = 10_000;
 pub const MAX_MEMBERS_PER_ROOM: usize = 64;
-pub const MAX_SESSIONS: usize = 4_096;
-/// Relay sessions one member may hold. A call has at most 16 members.
-pub const MAX_SESSIONS_PER_MEMBER: usize = 16;
+/// A link that has not joined a room by then is closed. Checks and invite transfers on a link
+/// of their own finish well within it.
+pub const UNREGISTERED_WAIT: Duration = Duration::from_secs(60);
 /// Requests one member may have waiting for an answer.
 pub const MAX_REQUESTS_PER_MEMBER: usize = 16;
 /// How long a request waits for its target to accept.
@@ -54,36 +60,11 @@ const OUTBOX: usize = 64;
 /// A link that opens no control stream in this time is dropped.
 const CONTROL_WAIT: Duration = Duration::from_secs(10);
 
-/// A relay session between exactly two members. Generic so routing can be unit tested.
-#[derive(Clone)]
-struct Session<T> {
-    a: (PublicId, T),
-    b: (PublicId, T),
-}
-
-impl<T> Session<T> {
-    /// Where a packet from `from` goes. `None` if `from` is not in this session.
-    fn other(&self, from: PublicId) -> Option<&T> {
-        if from == self.a.0 {
-            Some(&self.b.1)
-        } else if from == self.b.0 {
-            Some(&self.a.1)
-        } else {
-            None
-        }
-    }
-
-    fn involves(&self, key: PublicId) -> bool {
-        self.a.0 == key || self.b.0 == key
-    }
-}
-
 struct State {
     rooms: HashMap<RoomKey, Room>,
-    sessions: HashMap<u32, Session<quinn::Connection>>,
+    sessions: Sessions<quinn::Connection>,
     /// Requests waiting for their target: (from, to, kind) to when asked.
     requests: HashMap<(PublicId, PublicId, Ask), Instant>,
-    next_session: u32,
     relay_disabled: bool,
     /// When set, the only room this server serves.
     only_room: Option<RoomKey>,
@@ -97,9 +78,8 @@ impl Default for State {
     fn default() -> Self {
         Self {
             rooms: HashMap::new(),
-            sessions: HashMap::new(),
+            sessions: Sessions::default(),
             requests: HashMap::new(),
-            next_session: 0,
             relay_disabled: false,
             only_room: None,
             total: Bucket::with_rate(TOTAL_RATE, TOTAL_BURST, Instant::now()),
@@ -111,7 +91,7 @@ impl Default for State {
 impl State {
     /// Drops `key`'s relay sessions and requests.
     fn forget(&mut self, key: PublicId) {
-        self.sessions.retain(|_, session| !session.involves(key));
+        self.sessions.forget(key);
         self.requests.retain(|(from, to, _), _| *from != key && *to != key);
     }
 }
@@ -128,6 +108,7 @@ pub struct RendezvousServer {
     state: Shared,
     /// Reachability checks running, all links together (`reach.rs`).
     checks: Arc<Semaphore>,
+    unregistered_wait: Duration,
 }
 
 impl RendezvousServer {
@@ -136,7 +117,15 @@ impl RendezvousServer {
             node,
             state: Shared::default(),
             checks: Arc::new(Semaphore::new(reach::MAX_RUNNING)),
+            unregistered_wait: UNREGISTERED_WAIT,
         }
+    }
+
+    /// Changes how long a link may stay without joining a room (default
+    /// [`UNREGISTERED_WAIT`]).
+    pub fn with_unregistered_wait(mut self, wait: Duration) -> Self {
+        self.unregistered_wait = wait;
+        self
     }
 
     /// Turns the relay role off: reflection and introductions still work, relay requests
@@ -178,13 +167,14 @@ impl RendezvousServer {
     pub async fn run(self) {
         while let Some(incoming) = self.node.accept().await {
             if let Ok(link) = incoming {
-                tokio::spawn(serve(link, self.state.clone(), self.checks.clone()));
+                let (state, checks) = (self.state.clone(), self.checks.clone());
+                tokio::spawn(serve(link, state, checks, self.unregistered_wait));
             }
         }
     }
 }
 
-async fn serve(link: Link, state: Shared, checks: Arc<Semaphore>) {
+async fn serve(link: Link, state: Shared, checks: Arc<Semaphore>, unregistered_wait: Duration) {
     let Ok(Ok(control)) = tokio::time::timeout(CONTROL_WAIT, link.accept_control()).await else {
         return;
     };
@@ -206,7 +196,22 @@ async fn serve(link: Link, state: Shared, checks: Arc<Semaphore>) {
     let mut room: Option<RoomKey> = None;
     let mut mine = LinkChecks::default();
     let mut fetches = 0;
-    while let Ok(message) = input.recv::<ClientMsg>().await {
+    let register_by = tokio::time::Instant::now() + unregistered_wait;
+    loop {
+        let received = if room.is_some() {
+            input.recv::<ClientMsg>().await
+        } else {
+            match tokio::time::timeout_at(register_by, input.recv::<ClientMsg>()).await {
+                Ok(received) => received,
+                Err(_) => {
+                    link.close("register in time");
+                    break;
+                }
+            }
+        };
+        let Ok(message) = received else {
+            break;
+        };
         // Needs no room and no shared state, so it runs apart from `handle`.
         if let ClientMsg::CheckReach { port } = message {
             mine.start(&checks, &link, port, &outbox);
@@ -401,7 +406,7 @@ fn ask(
     if mine >= MAX_REQUESTS_PER_MEMBER {
         return refuse(Refusal::Full);
     }
-    if kind == Ask::Relay && sessions_of(s, me) >= MAX_SESSIONS_PER_MEMBER {
+    if kind == Ask::Relay && s.sessions.member_full(me, now) {
         return refuse(Refusal::Full);
     }
     s.requests.insert((me, peer, kind), now);
@@ -463,25 +468,17 @@ fn accept(
         Ask::Relay => {
             let (asker_conn, asker_box) = (asker.conn.clone(), asker.outbox.clone());
             let (my_conn, my_box) = (mine.conn.clone(), mine.outbox.clone());
-            if s.sessions.len() >= MAX_SESSIONS
-                || sessions_of(s, from) >= MAX_SESSIONS_PER_MEMBER
-                || sessions_of(s, me) >= MAX_SESSIONS_PER_MEMBER
-            {
+            let end = |key, to: quinn::Connection| End {
+                key,
+                block: block(to.remote_address().ip()),
+                to,
+            };
+            let opened = s
+                .sessions
+                .open(end(from, asker_conn), end(me, my_conn), Instant::now());
+            let Some(id) = opened else {
                 return vec![(asker_box, ServerMsg::Refused(Refusal::Full))];
-            }
-            let mut id = s.next_session;
-            // Bounded: fewer than MAX_SESSIONS ids are taken, so a free one is found quickly.
-            while s.sessions.contains_key(&id) {
-                id = id.wrapping_add(1);
-            }
-            s.next_session = id.wrapping_add(1);
-            s.sessions.insert(
-                id,
-                Session {
-                    a: (from, asker_conn),
-                    b: (me, my_conn),
-                },
-            );
+            };
             vec![
                 (asker_box, ServerMsg::RelayReady { session: id, peer: me }),
                 (my_box, ServerMsg::RelayReady { session: id, peer: from }),
@@ -490,13 +487,9 @@ fn accept(
     }
 }
 
-fn sessions_of(s: &State, key: PublicId) -> usize {
-    s.sessions.values().filter(|session| session.involves(key)).count()
-}
-
 fn route(state: &Shared, session: u32, from: PublicId) -> Option<quinn::Connection> {
-    let s = lock(state)?;
-    s.sessions.get(&session)?.other(from).cloned()
+    let mut s = lock(state)?;
+    s.sessions.route(session, from, Instant::now()).cloned()
 }
 
 /// Whether the server's total relay budget has room for `bytes` now.
@@ -558,27 +551,5 @@ async fn forward_streams(conn: quinn::Connection, me: PublicId, state: Shared, b
                 let _ = out.finish();
             }
         });
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::protocol;
-
-    #[test]
-    fn session_routes_only_between_its_two_members() {
-        let (a, b, stranger) = (PublicId([1; 32]), PublicId([2; 32]), PublicId([3; 32]));
-        let s = Session { a: (a, 'A'), b: (b, 'B') };
-        assert_eq!(s.other(a), Some(&'B'));
-        assert_eq!(s.other(b), Some(&'A'));
-        assert_eq!(s.other(stranger), None);
-        assert!(s.involves(a) && !s.involves(stranger));
-    }
-
-    #[test]
-    fn session_ids_reuse_protocol_framing() {
-        let packet = protocol::session_packet(5, b"x");
-        assert_eq!(split_session(&packet).map(|(id, _)| id), Some(5));
     }
 }

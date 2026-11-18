@@ -45,6 +45,7 @@ pub mod protocol;
 pub mod reach;
 mod room;
 pub mod server;
+mod sessions;
 pub mod socket;
 
 use std::fmt;
