@@ -39,6 +39,8 @@ pub struct CallView {
     pub panel: Option<Panel>,
     pub view: View,
     pub draft: String,
+    /// The person whose safety number is open in the Security panel.
+    pub verifying: Option<u32>,
     notice: Option<(String, Instant)>,
     /// Whether the blur-off notice has been shown as a toast, so it shows once.
     blur_notice_shown: bool,
@@ -56,6 +58,7 @@ impl CallView {
             panel: None,
             view: View::Gallery,
             draft: String::new(),
+            verifying: None,
             notice: None,
             blur_notice_shown: false,
             stats: false,

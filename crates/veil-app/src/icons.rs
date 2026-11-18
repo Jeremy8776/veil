@@ -7,7 +7,8 @@
 //! Invariants:
 //! - Nothing here is bundled; the font belongs to the operating system.
 //! - Without an icon font, [`Icon::paint`] draws the icon from strokes, so it needs no font.
-//! - [`Icon::Mirror`] is always drawn, because the icon fonts have no clear mirror glyph.
+//! - [`Icon::Mirror`] and [`Icon::SpeakerView`] are always drawn, because the icon fonts have
+//!   no clear glyph for either.
 //! - An "off" state (camera off) is the "on" icon with a slash painted across, not a
 //!   separate glyph, so it looks the same in both fonts.
 
@@ -40,7 +41,8 @@ pub enum Icon {
     Lock,
     Shield,
     Grid,
-    Speaker,
+    /// One large tile above a strip of small ones, the layout it switches to.
+    SpeakerView,
     Copy,
     Close,
     Signal,
@@ -69,7 +71,6 @@ impl Icon {
             Self::Lock => '\u{E72E}',
             Self::Shield => '\u{EA18}',
             Self::Grid => '\u{E8A9}',
-            Self::Speaker => '\u{E740}',
             Self::Copy => '\u{E8C8}',
             Self::Close => '\u{E711}',
             Self::Signal => '\u{E701}',
@@ -79,7 +80,7 @@ impl Icon {
             Self::Info => '\u{E946}',
             Self::Effects => '\u{E790}',
             Self::Hand => '\u{270B}',
-            Self::Mirror => return None,
+            Self::Mirror | Self::SpeakerView => return None,
         };
         Some(glyph)
     }
@@ -188,11 +189,12 @@ impl Icon {
                 boxed(r(-0.42, 0.06, -0.06, 0.42), 0.04),
                 boxed(r(0.06, 0.06, 0.42, 0.42), 0.04),
             ],
-            Self::Speaker => vec![
+            // The strip is filled: outlines this small blur at the top bar's icon size.
+            Self::SpeakerView => vec![
                 boxed(r(-0.45, -0.4, 0.45, 0.14), 0.04),
-                boxed(r(-0.45, 0.26, -0.17, 0.42), 0.02),
-                boxed(r(-0.14, 0.26, 0.14, 0.42), 0.02),
-                boxed(r(0.17, 0.26, 0.45, 0.42), 0.02),
+                Shape::rect_filled(r(-0.45, 0.26, -0.17, 0.42), 0.0, colour),
+                Shape::rect_filled(r(-0.14, 0.26, 0.14, 0.42), 0.0, colour),
+                Shape::rect_filled(r(0.17, 0.26, 0.45, 0.42), 0.0, colour),
             ],
             Self::Copy => vec![
                 poly(&[
@@ -307,7 +309,7 @@ mod tests {
         Icon::Lock,
         Icon::Shield,
         Icon::Grid,
-        Icon::Speaker,
+        Icon::SpeakerView,
         Icon::Copy,
         Icon::Close,
         Icon::Signal,
@@ -320,9 +322,10 @@ mod tests {
     ];
 
     #[test]
-    fn the_mirror_icon_never_uses_the_font() {
+    fn always_drawn_icons_never_use_the_font() {
         set_available(true);
         assert_eq!(Icon::Mirror.glyph(), None);
+        assert_eq!(Icon::SpeakerView.glyph(), None);
     }
 
     #[test]

@@ -191,6 +191,15 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
     response
 }
 
+/// A small chevron centred on `center`, pointing up or down.
+pub fn chevron(painter: &egui::Painter, center: egui::Pos2, up: bool, colour: Color32) {
+    let tip = if up { -2.0 } else { 2.0 };
+    let tip_at = pos2(center.x, center.y + tip);
+    let stroke = Stroke::new(1.6, colour);
+    painter.line_segment([pos2(center.x - 4.0, center.y - tip), tip_at], stroke);
+    painter.line_segment([tip_at, pos2(center.x + 4.0, center.y - tip)], stroke);
+}
+
 /// A round avatar with initials, coloured from the name.
 pub fn avatar(painter: &egui::Painter, center: egui::Pos2, radius: f32, name: &str) {
     painter.circle_filled(center, radius, theme::avatar_colour(name));

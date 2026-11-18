@@ -64,7 +64,7 @@ pub fn show(view: &mut CallView, ui: &mut Ui, now: Instant) {
 
 fn right_side(view: &mut CallView, ui: &mut Ui) {
     let (icon, label, next) = match view.view {
-        View::Gallery => (Icon::Speaker, "Speaker view", View::Speaker),
+        View::Gallery => (Icon::SpeakerView, "Speaker view", View::Speaker),
         View::Speaker => (Icon::Grid, "Gallery view", View::Gallery),
     };
     if widgets::icon_button(ui, icon, label).clicked() {

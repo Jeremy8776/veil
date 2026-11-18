@@ -22,7 +22,7 @@ use crate::screens::call::CallView;
 use crate::screens::call_menus;
 use crate::theme::{self, RAISED, RAISED_HOVER};
 use crate::volume::{MIC_MAX, SPEAKER_MAX};
-use crate::widgets::{ControlState, control, device_error, level_meter};
+use crate::widgets::{ControlState, chevron, control, device_error, level_meter};
 
 /// Width of the arrow beside Mute and Stop video. It joins its button with no gap.
 pub const MENU_W: f32 = 22.0;
@@ -138,7 +138,7 @@ fn audio_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
         level_meter(ui, app.level, ui.available_width());
     }
     call_menus::divider(ui);
-    call_menus::section(ui, Icon::Speaker, "Speaker");
+    call_menus::section(ui, Icon::Volume, "Speaker");
     let speakers = &app.devices.speakers;
     if let Some(id) = call_menus::device_list(
         ui,
@@ -213,11 +213,8 @@ fn menu_button(ui: &mut egui::Ui, label: &str, hint: &str) -> egui::Response {
             let stroke = Stroke::new(2.0, theme::ACCENT);
             painter.rect_stroke(rect, corners, stroke, egui::StrokeKind::Inside);
         }
-        // An upward chevron, level with the control's icon: the menu opens above the bar.
-        let c = pos2(rect.center().x, rect.top() + 22.0);
-        let stroke = Stroke::new(1.6, theme::MUTED);
-        painter.line_segment([pos2(c.x - 4.0, c.y + 2.0), pos2(c.x, c.y - 2.0)], stroke);
-        painter.line_segment([pos2(c.x, c.y - 2.0), pos2(c.x + 4.0, c.y + 2.0)], stroke);
+        // An upward chevron, centred on the divider: the menu opens above the bar.
+        chevron(painter, rect.center(), true, theme::MUTED);
     }
     response
 }

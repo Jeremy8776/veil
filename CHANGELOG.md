@@ -45,6 +45,9 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 ### Changed
 
 - Your own video now shows exactly what others see. It used to be mirrored on your screen only.
+- The Security panel is now a short list of who you have verified. Press Verify beside someone
+  to see their safety number, compare it, and confirm with "They match".
+- Speaker view has its own icon, and the arrows beside Mute and Stop video are centred.
 
 ## 0.1.8, 18/11/2026
 
