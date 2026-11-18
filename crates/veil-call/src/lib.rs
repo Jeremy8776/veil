@@ -28,6 +28,7 @@
 
 pub mod app_msg;
 pub mod call_plan;
+mod dial_back;
 pub mod host;
 mod inbound;
 pub mod keyring;

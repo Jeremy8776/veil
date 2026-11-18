@@ -43,6 +43,9 @@ pub async fn check_reach(
 }
 const MAX_PENDING: usize = 64;
 const INBOX: usize = 1_024;
+/// The longest a punch waits before dialling. The server only evens out the two members'
+/// round trips, so a longer delay in a notice is not one to honour.
+pub const MAX_PUNCH_DELAY: Duration = Duration::from_secs(2);
 
 type Inboxes = Arc<Mutex<HashMap<u32, mpsc::Sender<Bytes>>>>;
 
@@ -58,7 +61,7 @@ pub struct Punch {
 // When both dials succeed there are two links. `veil-call` keeps only the one dialled by the
 // member that asked for the introduction and closes the other side's dial-back.
 pub async fn punch(node: &Node, punch: &Punch) -> Result<Link, NetError> {
-    tokio::time::sleep(punch.delay).await;
+    tokio::time::sleep(punch.delay.min(MAX_PUNCH_DELAY)).await;
     node.connect(&punch.addrs, punch.peer).await
 }
 

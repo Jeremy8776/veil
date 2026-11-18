@@ -8,7 +8,9 @@ use veil_net::Node;
 use veil_net::control::Control;
 use veil_rendezvous::protocol::ServerMsg;
 use veil_rendezvous::socket::RELAY_PEER;
-use veil_rendezvous::{Ask, Refusal, RendezvousClient, RendezvousError, RendezvousServer, punch, room_tag};
+use veil_rendezvous::{
+    Ask, Punch, Refusal, RendezvousClient, RendezvousError, RendezvousServer, punch, room_tag,
+};
 use veil_security::frame::{FrameReceiver, FrameSender};
 use veil_security::{Identity, PublicId};
 
@@ -114,6 +116,18 @@ async fn introduction_lets_two_members_connect_directly() {
     let link = with_timeout(punch(&a.node, &plan_a)).await.unwrap();
     assert_eq!(link.peer(), b_key);
     assert_eq!(with_timeout(accept).await.unwrap(), a_key);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_punch_does_not_wait_as_long_as_a_notice_says() {
+    let node = Node::bind(&Identity::generate(), localhost()).unwrap();
+    let plan = Punch {
+        peer: PublicId([1; 32]),
+        addrs: Vec::new(),
+        delay: Duration::from_secs(3_600),
+    };
+    // With no addresses the dial fails as soon as the wait is over.
+    assert!(with_timeout(punch(&node, &plan)).await.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

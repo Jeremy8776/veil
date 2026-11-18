@@ -55,7 +55,10 @@ own. "Copy full link" avoids the fetch.
 The rendezvous passes on a member's address only after that member agrees. A request for an
 introduction or a relay session goes to the member first, and the member's app agrees only
 if its current routes expect the one asking (the host agrees to anyone holding the invite).
-A relay-only member never agrees to an introduction.
+A relay-only member never agrees to an introduction. A member dials back only for an
+introduction it has just agreed to, at most once every 10 seconds for each peer and 16 times
+every 10 seconds in all. A dial-back goes to the addresses that peer listed at the rendezvous,
+which the rendezvous does not check.
 The asker gets the same silence whether the member declines or is not there, so the
 rendezvous never says who is online.
 
