@@ -1,7 +1,7 @@
 //! Sharing your screen: the capture threads behind the Share button.
 //!
 //! Purpose: keeps the picker's list and thumbnails fresh, keeps a preview of the source whose
-//! area is being chosen, and, once you press Share, hands about twenty pictures a second to the
+//! area is being chosen, and, once you press Share, hands up to thirty pictures a second to the
 //! call engine's screen encoder (`engine/video_out.rs`). The camera carries on separately.
 //!
 //! Invariants:
@@ -34,10 +34,7 @@ use crate::convert::{Rgba, nv12_to_rgba};
 use crate::engine::Captured;
 use crate::media::{Worker, lock};
 
-/// A 2560x1440 screen takes about 30 ms to capture and convert, so this leaves time to spare.
-const SHARE_FPS: u32 = 20;
-/// Your own view of the share is refreshed once every this many pictures.
-const SENDING_EVERY: u32 = 2;
+const SHARE_FPS: u32 = 30;
 const PREVIEW_EVERY: Duration = Duration::from_millis(200);
 const THUMBNAILS_EVERY: Duration = Duration::from_secs(2);
 /// Preview pictures are shrunk to about this width.
@@ -253,7 +250,7 @@ fn share_loop(
     source: ScreenSource,
     crop: Option<Crop>,
 ) {
-    let capture = match ScreenCapture::open(source) {
+    let capture = match ScreenCapture::open_live(source) {
         Ok(capture) => capture,
         Err(e) => return give_up(state, ctx, &e.to_string()),
     };
@@ -261,7 +258,7 @@ fn share_loop(
     let started = Instant::now();
     let mut nv12 = Vec::new();
     let mut size = None;
-    let (mut failures, mut pictures) = (0, 0u32);
+    let mut failures = 0;
     while !stop.load(Ordering::Relaxed) {
         if state.stop_asked.swap(false, Ordering::AcqRel) {
             crate::note!("screen share: stopped from the bar");
@@ -274,10 +271,7 @@ fn share_loop(
             Next::Fresh(width, height) => {
                 failures = 0;
                 size = Some((width, height));
-                if pictures.is_multiple_of(SENDING_EVERY) {
-                    show_sending(state, ctx, &nv12, width, height);
-                }
-                pictures = pictures.wrapping_add(1);
+                show_sending(state, ctx, &nv12, width, height);
             }
             // The last picture goes out again, so those watching know the share goes on.
             Next::Hold => failures = 0,
@@ -313,7 +307,7 @@ fn show_sending(state: &State, ctx: &egui::Context, nv12: &[u8], width: u16, hei
 enum Next {
     /// A new picture of this size is in the buffer.
     Fresh(u16, u16),
-    /// The source cannot be seen for now: the buffer keeps the last picture.
+    /// Nothing new to see for now: the buffer keeps the last picture.
     Hold,
     Failed,
 }

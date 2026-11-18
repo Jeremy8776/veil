@@ -3,7 +3,8 @@
 //! Purpose: lists what can be shared ([`open_all`]), grabs its pictures ([`ScreenCapture`]) and
 //! turns them into the packed NV12 the video encoders take. The `xcap` crate does the
 //! operating system's part: GDI on Windows, Core Graphics on macOS, and X11 or the desktop
-//! portal on Linux.
+//! portal on Linux. A live share on Windows uses a picture stream instead
+//! ([`ScreenCapture::open_live`]).
 //!
 //! Invariants:
 //! - A source is only ever captured by the id the person chose. If it goes away the capture
@@ -15,12 +16,12 @@
 //! - Output sizes are even and at most [`MAX_DIMENSION`], as 4:2:0 and the ladder need.
 //! - Colour is BT.709 limited range, the same as cameras and `veil-app`'s `convert.rs`.
 //!
-//! shortcut: each picture is a full screenshot converted on the CPU, which suits about twenty
-//! pictures a second. Use `xcap`'s recorder or each system's capture stream for higher rates.
+//! shortcut: off Windows each live picture is still a full screenshot, which limits the rate.
+//! Use each system's capture stream there once sharing has been tested on it.
 
 use crate::MediaError;
 #[cfg(windows)]
-use crate::ffi::windows::is_app_window;
+use crate::ffi::windows::{ScreenStream, is_app_window};
 use crate::ladder::MAX_DIMENSION;
 
 /// The smallest picture worth sending, in pixels each way.
@@ -117,6 +118,8 @@ pub fn open_all(own_pid: u32) -> Result<Vec<(ScreenChoice, ScreenCapture)>, Medi
 enum Target {
     Monitor(xcap::Monitor),
     Window(xcap::Window),
+    #[cfg(windows)]
+    Stream(ScreenStream),
 }
 
 /// An open source. It holds system handles, so it stays on the thread that opened it.
@@ -141,9 +144,24 @@ impl ScreenCapture {
         target.map(|target| Self { target }).ok_or(UNAVAILABLE)
     }
 
-    /// The source's picture now, or `None` while it is a minimised window.
+    /// Opens `source` for a live share: a picture stream where there is one, otherwise the
+    /// same screenshots as [`Self::open`].
+    pub fn open_live(source: ScreenSource) -> Result<Self, MediaError> {
+        #[cfg(windows)]
+        if let Ok(stream) = ScreenStream::open(source) {
+            return Ok(Self {
+                target: Target::Stream(stream),
+            });
+        }
+        Self::open(source)
+    }
+
+    /// The source's picture now. `None` means there is no new one: a minimised window, or on
+    /// a live stream a source that has not changed.
     pub fn grab(&self) -> Result<Option<Grabbed>, MediaError> {
         let image = match &self.target {
+            #[cfg(windows)]
+            Target::Stream(stream) => return stream.next(),
             Target::Monitor(monitor) => monitor.capture_image(),
             Target::Window(window) if window.is_minimized().unwrap_or(false) => return Ok(None),
             Target::Window(window) => window.capture_image(),
