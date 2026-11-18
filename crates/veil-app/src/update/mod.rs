@@ -33,6 +33,8 @@ mod apply;
 mod download;
 mod verify;
 
+pub use apply::finish_from_args;
+
 /// The repository releases come from.
 pub const REPO: &str = "Jeremy8776/veil";
 const API: &str = "https://api.github.com/repos/Jeremy8776/veil/releases/latest";
@@ -74,7 +76,6 @@ impl Version {
     }
 
     /// The release page for this version, built here, never read from GitHub's answer.
-    #[cfg_attr(not(windows), allow(dead_code, reason = "only `open` reads it, Windows only"))]
     pub fn link(self) -> String {
         format!("https://github.com/{REPO}/releases/tag/v{self}")
     }
@@ -189,8 +190,18 @@ impl Updates {
         let spawned = std::thread::Builder::new()
             .name(String::from("update install"))
             .spawn(move || {
-                let mut report = |line: String| set(Install::Working(line), &state, &ctx);
+                let mut report = |line: String| {
+                    // Progress lines repeat each percent; the log keeps the steps only.
+                    if !line.starts_with("Downloading") {
+                        crate::note!("update to {version}: {line}");
+                    }
+                    set(Install::Working(line), &state, &ctx);
+                };
                 let result = apply::run(&kind, version, &key, &mut report);
+                match &result {
+                    Ok(()) => crate::note!("update to {version}: installer started, closing"),
+                    Err(why) => crate::note!("update to {version} failed ({kind:?}): {why}"),
+                }
                 set(
                     match result {
                         Ok(()) => Install::Started,
@@ -324,10 +335,22 @@ pub fn open(version: Version) {
         .spawn();
 }
 
-// shortcut: links open on Windows only. Use the platform's opener with the macOS and Linux
-// back ends.
+/// Opens a release page in your browser.
 #[cfg(not(windows))]
-pub fn open(_: Version) {}
+pub fn open(version: Version) {
+    let opener = if cfg!(target_os = "macos") {
+        "/usr/bin/open"
+    } else {
+        "/usr/bin/xdg-open"
+    };
+    // The link is built from three numbers and passed as one argument: no shell reads it.
+    if let Err(e) = std::process::Command::new(opener)
+        .arg(version.link())
+        .spawn()
+    {
+        crate::note!("cannot open the release page with {opener} ({e})");
+    }
+}
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
