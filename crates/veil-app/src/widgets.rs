@@ -290,8 +290,7 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
     }
 }
 
-/// The part of a `size` picture that fills a tile of `tile` size without stretching, centred,
-/// flipped left to right for `mirror`.
+/// The part of a `size` picture that fills a tile of `tile` size without stretching, centred.
 pub fn cover_uv(size: [usize; 2], tile: egui::Vec2) -> Rect {
     let picture = size[0] as f32 / size[1].max(1) as f32;
     let target = tile.x / tile.y.max(1.0);
