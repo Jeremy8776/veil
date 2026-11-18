@@ -4253,6 +4253,7 @@ dependencies = [
  "quinn",
  "rustls",
  "serde",
+ "socket2",
  "tokio",
  "veil-security",
  "zeroize",

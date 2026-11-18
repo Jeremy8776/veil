@@ -441,7 +441,8 @@ private keys never leave the device. OS randomness is `getrandom::SysRng`.
 - A lost audio device is an error and the app opens it again, and an open default device
   does not follow a change of Windows' default (`veil-media/src/ffi/windows/audio.rs`). No echo cancellation of Veil's own
   where the device has none.
-- Router ports (`veil-portmap/src/lib.rs`): IPv4 only; a second NAT is spotted only from a
+- Router ports (`veil-portmap/src/lib.rs`): IPv6 pinholes by PCP only (no UPnP IGDv2
+  pinholes), and no IPv6 router lookup on macOS (`gateway6.rs`); a second NAT is spotted only from a
   private or shared router address, not by comparing with a rendezvous's reflection; a UPnP
   router that allows permanent mappings only keeps one after a crash.
 - H.264 decoding is on the CPU; the GPU path needs a D3D11 device manager
@@ -604,6 +605,19 @@ Work, in order:
 4. The two-machine internet test (below), with and without a mapped port.
 5. The optional default node.
 Video filters (#21) and background blur (#28) were merged and shipped in 0.1.4.
+
+IPv6 (done 17/11/2026, branch `claude/ipv6-first-7000b2`): participants bind one dual-stack
+socket (`Node::bind_any`; `[::]` is dual-stack on every system). The host's public IPv6
+address (`veil_net::family::global_ipv6`, the source address the routing table picks, often a
+temporary one) goes in invites after configured addresses; members send theirs to the
+rendezvous in `Register`'s existing `local_addrs`, so no wire change and 0.1.5/0.1.6 still
+interoperate. `Node::connect` dials IPv6 first and IPv4 after 250 ms (`family::dial_order`).
+With port opening on, `veil_portmap::Pinhole` asks the IPv6 router by PCP (none answered on
+Jeremy's network, as for IPv4); with a public node that has IPv6 (`NodeName::resolve_ipv6`),
+`engine/reach.rs` checks the IPv6 address too. Call stats and `veil-probe` link lines say
+"over IPv6". Tested on one machine only: `veil-probe` host and joiner linked Direct over IPv6,
+and an IPv4-only joiner linked over IPv4. For a public `veil-node` to reflect and check IPv6,
+set `listen = "[::]:4433"`. Not yet tried between two real IPv6 networks.
 
 ## Next, in suggested order
 

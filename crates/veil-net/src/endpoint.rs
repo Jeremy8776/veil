@@ -4,13 +4,19 @@
 //! nodes behind NAT dial each other at the same moment (timed by a rendezvous message), each
 //! outgoing packet opens the mapping the other side's packet needs.
 //!
-//! Dialling tries every candidate address at once and keeps the first link that completes.
+//! Dialling tries every candidate address and keeps the first link that completes. IPv6
+//! candidates start first and IPv4 ones a moment later (`family::dial_order`), so IPv6 wins
+//! when both ends have it.
+//!
+//! A node bound to `[::]` is dual-stack on every system (`family::dual_stack`): one socket
+//! for both families, as hole punching needs. [`Node::bind_any`] binds that way and falls
+//! back to IPv4 where the system has no IPv6.
 //!
 //! Media paths: each video frame travels on its own unidirectional stream (a 4K keyframe sent
 //! as a burst of datagrams lost about 15% of its fragments even on localhost). Audio frames
 //! are small and loss-tolerant, so they travel as single datagrams.
 
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,7 +28,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use veil_security::{Identity, PublicId};
 
-use crate::{NetError, accept, control, tls};
+use crate::{NetError, accept, control, family, tls};
 
 /// Largest sealed video frame: the security layer's frame limit plus its header and tag.
 pub const MAX_SEALED_FRAME: usize = veil_security::frame::MAX_FRAME_LEN
@@ -76,10 +82,36 @@ impl Drop for Node {
 
 impl Node {
     pub fn bind(identity: &Identity, addr: SocketAddr) -> Result<Self, NetError> {
+        let socket = match addr {
+            // Windows and some BSDs make `[::]` IPv6 only; Veil wants both families on it.
+            SocketAddr::V6(v6) if v6.ip().is_unspecified() => {
+                family::dual_stack(addr.port()).or_else(|_| std::net::UdpSocket::bind(addr))?
+            }
+            _ => std::net::UdpSocket::bind(addr)?,
+        };
+        Self::on_socket(identity, socket)
+    }
+
+    /// Binds `port` (0 for any) for both IPv4 and IPv6 on one socket, or IPv4 only where the
+    /// system cannot make a dual-stack socket. For participants, who dial and are dialled
+    /// in either family.
+    pub fn bind_any(identity: &Identity, port: u16) -> Result<Self, NetError> {
+        match family::dual_stack(port) {
+            Ok(socket) => Self::on_socket(identity, socket),
+            Err(_) => Self::bind(identity, SocketAddr::from((Ipv4Addr::UNSPECIFIED, port))),
+        }
+    }
+
+    fn on_socket(identity: &Identity, socket: std::net::UdpSocket) -> Result<Self, NetError> {
         let key = tls::certified_key(identity)?;
         let mut server = quinn::ServerConfig::with_crypto(Arc::new(tls::server_config(key.clone())?));
         server.transport_config(transport(INITIAL_MTU)?);
-        let endpoint = quinn::Endpoint::server(server, addr)?;
+        let endpoint = quinn::Endpoint::new(
+            quinn::EndpointConfig::default(),
+            Some(server),
+            socket,
+            Arc::new(quinn::TokioRuntime),
+        )?;
         Ok(Self::new(endpoint, key, identity.public(), INITIAL_MTU))
     }
 
@@ -122,7 +154,13 @@ impl Node {
         Ok(self.endpoint.local_addr()?)
     }
 
-    /// Dials every address at once and returns the first link that proves it holds `expected`.
+    /// Whether this node can dial and be dialled over IPv6.
+    pub fn ipv6(&self) -> bool {
+        self.endpoint.local_addr().is_ok_and(|a| a.is_ipv6())
+    }
+
+    /// Dials every address, IPv6 first and IPv4 a moment later (`family::dial_order`), and
+    /// returns the first link that proves it holds `expected`.
     pub async fn connect(&self, addrs: &[SocketAddr], expected: PublicId) -> Result<Link, NetError> {
         let crypto = tls::client_config(self.key.clone(), expected)?;
         let link = self.dial(addrs, crypto).await?;
@@ -154,23 +192,30 @@ impl Node {
         config.transport_config(transport(self.mtu)?);
 
         let mut attempts = JoinSet::new();
-        let mut last_error = String::from("no attempt started");
-        for addr in addrs.iter().take(MAX_CANDIDATES) {
-            match self.endpoint.connect_with(config.clone(), *addr, SERVER_NAME) {
-                Ok(connecting) => {
-                    attempts.spawn(async move {
-                        tokio::time::timeout(CONNECT_TIMEOUT, connecting).await
-                    });
+        let mut last_error = String::new();
+        for (addr, wait) in family::dial_order(addrs, self.ipv6(), MAX_CANDIDATES) {
+            let endpoint = self.endpoint.clone();
+            let config = config.clone();
+            attempts.spawn(async move {
+                tokio::time::sleep(wait).await;
+                let connecting = endpoint
+                    .connect_with(config, addr, SERVER_NAME)
+                    .map_err(|e| e.to_string())?;
+                match tokio::time::timeout(CONNECT_TIMEOUT, connecting).await {
+                    Ok(Ok(conn)) => Ok(conn),
+                    Ok(Err(e)) => Err(e.to_string()),
+                    Err(_) => Err(NetError::Timeout.to_string()),
                 }
-                Err(e) => last_error = e.to_string(),
-            }
+            });
+        }
+        if attempts.is_empty() {
+            return Err(NetError::Connect(String::from("no address in a family this node can reach")));
         }
         while let Some(result) = attempts.join_next().await {
             match result {
                 // Dropping `attempts` aborts the rest.
-                Ok(Ok(Ok(conn))) => return Link::new(conn),
-                Ok(Ok(Err(e))) => last_error = e.to_string(),
-                Ok(Err(_)) => last_error = NetError::Timeout.to_string(),
+                Ok(Ok(conn)) => return Link::new(conn),
+                Ok(Err(e)) => last_error = e,
                 Err(e) => last_error = e.to_string(),
             }
         }
@@ -221,8 +266,11 @@ impl Link {
         self.peer
     }
 
+    /// The peer's address. An IPv4 peer on a dual-stack socket shows as plain IPv4, not as
+    /// an IPv4-mapped IPv6 address.
     pub fn remote_addr(&self) -> SocketAddr {
-        self.conn.remote_address()
+        let addr = self.conn.remote_address();
+        SocketAddr::new(addr.ip().to_canonical(), addr.port())
     }
 
     pub fn rtt(&self) -> Duration {

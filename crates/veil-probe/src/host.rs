@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::time::{MissedTickBehavior, interval};
 use veil_call::{CallNode, Directory, HostEvent, HostHandle, Peer};
-use veil_net::Node;
+use veil_security::invite::MAX_ADDRS;
 use veil_security::safety::safety_number;
 use veil_security::{Identity, PublicId};
 use veil_topology::{NodeId, NodeKind, Plan, Policy, plan};
@@ -22,14 +22,23 @@ const FORWARDER_ID: NodeId = NodeId(u32::MAX);
 const ASSUMED_KBPS: u64 = 100_000;
 const INVITE_LIFETIME: Duration = Duration::from_secs(3_600);
 
-pub async fn run(args: HostArgs) -> Result<(), String> {
+pub async fn run(mut args: HostArgs) -> Result<(), String> {
     let identity = Identity::generate();
     // A fresh key's public half is 32 random-looking bytes, so its first 16 make a room id
     // without adding a random number dependency.
     let room_id: [u8; 16] = Identity::generate().public().0[..16]
         .try_into()
         .map_err(|_| "room id")?;
-    let node = Node::bind(&identity, args.bind).map_err(|e| format!("bind {}: {e}", args.bind))?;
+    let node = crate::bind(&identity, args.bind)?;
+    // A public IPv6 address joins the invite by itself, so two IPv6 machines link over it.
+    let port = node.local_addr().map_err(|e| e.to_string())?.port();
+    if let Some(ip) = node.ipv6().then(veil_net::family::global_ipv6).flatten() {
+        let addr = std::net::SocketAddr::new(ip.into(), port);
+        println!("public IPv6 address {addr} goes in the invite");
+        if !args.advertise.contains(&addr) && args.advertise.len() < MAX_ADDRS {
+            args.advertise.push(addr);
+        }
+    }
     let (host, mut events) = HostHandle::start(&identity, room_id).map_err(|e| e.to_string())?;
     let mut call = CallNode::start(
         &identity,

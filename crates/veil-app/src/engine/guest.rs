@@ -13,7 +13,6 @@
 //! - Being removed, or the host ending the call, ends it here with a reason the end screen
 //!   shows.
 
-use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -48,8 +47,9 @@ pub async fn run(
             () = wait_for_leave(&mut commands) => return Ok(()),
         },
     };
-    let bind =SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
-    let node = Node::bind(&identity, bind).map_err(|e| format!("Cannot open the network: {e}"))?;
+    // Dual-stack where the system allows it, so a host's IPv6 address is dialled first.
+    let node =
+        Node::bind_any(&identity, 0).map_err(|e| format!("Cannot open the network: {e}"))?;
     let rendezvous = resolve(config.rendezvous.as_ref(), "rendezvous").await?;
     // Registering with the rendezvous and finding a path to the host can take half a minute
     // over the internet, so Leave is honoured throughout, not only in the lobby.

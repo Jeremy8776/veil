@@ -10,6 +10,9 @@
 //! - [`Checker::next`] is cancel-safe for `tokio::select!`: the check runs on a task of its
 //!   own, and awaiting its handle can be repeated.
 //! - A check that could not run (an old or unreachable node) shows nothing, not "unreachable".
+//! - IPv4 and IPv6 are checked apart ([`Reachability`]): the IPv6 check needs the public node to
+//!   have an IPv6 address too. People shows one answer: reachable if either family is, with
+//!   both answers in the tooltip.
 
 use std::future::Future;
 use std::net::SocketAddr;
@@ -68,12 +71,82 @@ impl Drop for Checker {
     }
 }
 
+/// Both families' checks and their latest answers.
+#[derive(Default)]
+pub struct Reachability {
+    v4: Checker,
+    v6: Checker,
+    shown: [Reachable; 2],
+}
+
+impl Reachability {
+    /// Starts checking `expected` in its own family, replacing that family's last check.
+    pub fn start(
+        &mut self,
+        expected: SocketAddr,
+        check: impl Future<Output = Result<Reach, CallError>> + Send + 'static,
+    ) {
+        let family = usize::from(expected.is_ipv6());
+        self.shown[family] = Reachable::Checking;
+        if expected.is_ipv6() { &mut self.v6 } else { &mut self.v4 }.start(expected, check);
+    }
+
+    /// What People shows now.
+    pub fn shown(&self) -> Reachable {
+        combine(&self.shown[0], &self.shown[1])
+    }
+
+    /// Waits for either family's next answer and returns what People shows then. Cancel-safe,
+    /// as [`Checker::next`] is.
+    pub async fn next(&mut self) -> Reachable {
+        tokio::select! {
+            v4 = self.v4.next() => self.shown[0] = v4,
+            v6 = self.v6.next() => self.shown[1] = v6,
+        }
+        self.shown()
+    }
+}
+
+/// One answer from the IPv4 and IPv6 answers: still checking while either is, then reachable
+/// if either family is (guests with that family can dial in), then not reachable. The tooltip
+/// gives every answer there is.
+pub fn combine(v4: &Reachable, v6: &Reachable) -> Reachable {
+    let tips = || {
+        [v4, v6]
+            .into_iter()
+            .filter_map(|r| match r {
+                Reachable::Yes(t) | Reachable::No(t) => Some(t.as_str()),
+                Reachable::Unknown | Reachable::Checking => None,
+            })
+            .collect::<Vec<_>>()
+            .join("
+
+")
+    };
+    let any = |want: fn(&Reachable) -> bool| want(v4) || want(v6);
+    if any(|r| matches!(r, Reachable::Checking)) {
+        Reachable::Checking
+    } else if any(|r| matches!(r, Reachable::Yes(_))) {
+        Reachable::Yes(tips())
+    } else if any(|r| matches!(r, Reachable::No(_))) {
+        Reachable::No(tips())
+    } else {
+        Reachable::Unknown
+    }
+}
+
 /// What People says about `expected`, given the public node's answer.
 pub fn verdict(expected: SocketAddr, result: Result<Reach, String>) -> Reachable {
     let Ok(reach) = result else {
         return Reachable::Unknown;
     };
     if reach.addr.ip() != expected.ip() {
+        if expected.is_ipv6() {
+            // No NAT on IPv6: another address means this computer sent from another of its
+            // own (a newer privacy address), which says nothing about `expected`.
+            crate::note!("reach: asked for {expected}, the node saw {}", reach.addr);
+            return Reachable::Unknown;
+        }
         return Reachable::No(format!(
             "Your public node sees this computer at {}, not {}. Your internet provider probably \
              shares one public address between customers, so guests on the internet cannot \
@@ -156,6 +229,28 @@ mod tests {
             matches!(&v, Reachable::No(t) if t.contains("100.64.3.4") && t.contains("relay")),
             "{v:?}"
         );
+    }
+
+    #[test]
+    fn either_family_reachable_is_reachable_with_both_answers() {
+        let yes = Reachable::Yes("v6 yes".into());
+        let no = Reachable::No("v4 no".into());
+        assert_eq!(combine(&no, &yes), Reachable::Yes("v4 no
+
+v6 yes".into()));
+        assert_eq!(combine(&no, &Reachable::Unknown), Reachable::No("v4 no".into()));
+        assert_eq!(combine(&Reachable::Checking, &yes), Reachable::Checking);
+        assert_eq!(combine(&Reachable::Unknown, &Reachable::Unknown), Reachable::Unknown);
+    }
+
+    #[test]
+    fn another_ipv6_address_is_not_a_shared_address() {
+        let ip = |last| std::net::Ipv6Addr::new(0x2a00, 0x23c5, 0, 0, 0, 0, 0, last);
+        let at = SocketAddr::from((ip(1), 7710));
+        let seen = SocketAddr::from((ip(2), 7710));
+        assert_eq!(verdict(at, Ok(Reach { addr: seen, open: true })), Reachable::Unknown);
+        let v = verdict(at, Ok(Reach { addr: at, open: true }));
+        assert!(matches!(&v, Reachable::Yes(t) if t.contains("[2a00:23c5::1]:7710")), "{v:?}");
     }
 
     #[test]

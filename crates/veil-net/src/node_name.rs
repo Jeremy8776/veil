@@ -13,7 +13,8 @@
 //!   labels, last label not all digits) before it reaches the resolver, so a mistyped IP
 //!   such as `203.0.113.999` is refused rather than looked up.
 //! - [`NodeName::resolve`] never returns an unspecified address (`0.0.0.0`, `::`), and gives
-//!   up after [`RESOLVE_TIMEOUT`].
+//!   up after [`RESOLVE_TIMEOUT`]. [`NodeName::resolve_ipv6`] returns a public IPv6
+//!   address only.
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -71,21 +72,10 @@ impl NodeName {
     }
 
     /// The address to dial now. A name is looked up each time, so a node on dynamic DNS is
-    /// found at its current address. IPv4 answers come first because Veil's sockets are IPv4.
+    /// found at its current address. IPv4 answers come first: a public node is usually
+    /// reached over IPv4, and every participant has IPv4.
     pub async fn resolve(&self) -> Result<NodeAddr, NetError> {
-        let addr = match &self.target {
-            Target::Addr(addr) => usable(std::iter::once(*addr)),
-            Target::Name { host, port } => {
-                let found = tokio::time::timeout(
-                    RESOLVE_TIMEOUT,
-                    tokio::net::lookup_host((host.as_str(), *port)),
-                )
-                .await
-                .map_err(|_| NetError::Timeout)?
-                .map_err(|e| NetError::Connect(format!("cannot look up {host}: {e}")))?;
-                usable(found)
-            }
-        };
+        let addr = usable(self.lookup().await?);
         let addr = addr.ok_or_else(|| {
             NetError::Connect(format!("{} has no address Veil can dial", self.host()))
         })?;
@@ -93,6 +83,35 @@ impl NodeName {
             key: self.key,
             addr,
         })
+    }
+
+    /// The node's IPv6 address, if it has one: for a check that must run over IPv6 (the
+    /// host's reachability check of its own IPv6 address).
+    pub async fn resolve_ipv6(&self) -> Option<NodeAddr> {
+        let addr = self.lookup().await.ok()?.into_iter().find(|a| match a {
+            SocketAddr::V6(v6) => {
+                crate::family::is_global_v6(*v6.ip()) && a.port() != 0
+            }
+            SocketAddr::V4(_) => false,
+        })?;
+        Some(NodeAddr {
+            key: self.key,
+            addr,
+        })
+    }
+
+    async fn lookup(&self) -> Result<Vec<SocketAddr>, NetError> {
+        match &self.target {
+            Target::Addr(addr) => Ok(vec![*addr]),
+            Target::Name { host, port } => Ok(tokio::time::timeout(
+                RESOLVE_TIMEOUT,
+                tokio::net::lookup_host((host.as_str(), *port)),
+            )
+            .await
+            .map_err(|_| NetError::Timeout)?
+            .map_err(|e| NetError::Connect(format!("cannot look up {host}: {e}")))?
+            .collect()),
+        }
     }
 
     fn host(&self) -> String {
@@ -269,6 +288,19 @@ mod tests {
         // `.invalid` never resolves (RFC 2606).
         let name: NodeName = format!("{}@veil.invalid:4433", key()).parse().unwrap();
         assert!(name.resolve().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn ipv6_lookup_gives_public_ipv6_only() {
+        let named = |addr: &str| format!("{}@{addr}", key()).parse::<NodeName>().unwrap();
+        let public = named("[2a02:c7f::9]:4433");
+        assert_eq!(
+            public.resolve_ipv6().await.unwrap().addr,
+            "[2a02:c7f::9]:4433".parse().unwrap()
+        );
+        for addr in ["203.0.113.7:4433", "[::]:4433", "[fe80::1]:4433", "[2a02:c7f::9]:0"] {
+            assert!(named(addr).resolve_ipv6().await.is_none(), "{addr}");
+        }
     }
 
     #[test]

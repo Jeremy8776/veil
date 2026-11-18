@@ -33,12 +33,12 @@ see this:
 | Party | Sees |
 |---|---|
 | The network | Which addresses talk to which, when, and how much |
-| Rendezvous node | Members' IP addresses, a hash of the room id, when people join. When a host with a configured `veil-node` has a public port (opened on the router, or set by hand), the node also learns that port: it dials the host back once, from a separate port with a throwaway key, to check guests can reach it. It dials only the asker's own IP. While a host's room is open, the node also stores its sealed invites for short links, and sees when each is stored and which IP addresses fetch one. It cannot read them |
+| Rendezvous node | Members' IP addresses, a hash of the room id, when people join. Each member with IPv6 also tells it its public IPv6 address, so other members can be introduced to it and dial it over IPv6. When a host with a configured `veil-node` has a public port (opened on the router, or set by hand), the node also learns that port: it dials the host back once, from a separate port with a throwaway key, to check guests can reach it. It dials only the asker's own IP. If that node has an IPv6 address too, it does the same for the host's public IPv6 address. While a host's room is open, the node also stores its sealed invites for short links, and sees when each is stored and which IP addresses fetch one. It cannot read them |
 | Relay | Members' IP addresses, encrypted traffic volume and timing |
 | Forwarder | Members' device keys and the room hash (from the host's roster ticket), traffic volume and timing, and each video frame's layer marker: which resolution tier and frame-rate step it is, and whether it is a keyframe. Names and chat pass through it sealed: it sees when one is sent and how large it is, not who sent it or what it says |
-| Other members | Your device key, the display name you chose, your chat messages, and your IP address unless you use relay-only mode. Chat is not stored: it is gone when the call ends |
-| Your router | With "Open a port on my router" on, while you host: this computer's LAN address, the ports opened for the call, and that a program called "Veil" asked for them (section 3) |
-| Anyone holding an invite link | The host's device key and the addresses in it: the host's LAN address and port, the router's public address and port when the router opened one, and any public address set in `VEIL_ADVERTISE`. If the host runs its own rendezvous, also that rendezvous's LAN address and port, and its public port when the router opened one. The desktop app puts these in every invite so a guest can dial directly. Through the rendezvous they can also learn the host's public address, since joiners punch through to the host. They cannot learn any other member's address: a member accepts an introduction only from peers its current routes link to |
+| Other members | Your device key, the display name you chose, your chat messages, and your IP addresses (IPv4 and, if you have one, your public IPv6 address) unless you use relay-only mode. Chat is not stored: it is gone when the call ends |
+| Your router | With "Open a port on my router" on, while you host: this computer's LAN address, the ports opened for the call, and that a program called "Veil" asked for them (section 3). With IPv6, also this computer's public IPv6 address, in a PCP request to let the call's port through the router's firewall |
+| Anyone holding an invite link | The host's device key and the addresses in it: the host's LAN address and port, the router's public address and port when the router opened one, the host's public IPv6 address and port when it has one, and any public address set in `VEIL_ADVERTISE`. If the host runs its own rendezvous, also that rendezvous's LAN address and port, and its public port when the router opened one. The desktop app puts these in every invite so a guest can dial directly. Through the rendezvous they can also learn the host's public address, since joiners punch through to the host. They cannot learn any other member's address: a member accepts an introduction only from peers its current routes link to |
 
 When the desktop app hosts without a configured `veil-node`, it runs a rendezvous, relay and
 forwarder of its own on extra ports for the length of the call. They see what any rendezvous,
@@ -181,7 +181,10 @@ Veil sends nothing to its authors and has no built-in servers. Every rendezvous,
 forwarder address comes from an invite, a config file or an environment variable you control
 (`VEIL_RENDEZVOUS`, `VEIL_ADVERTISE`, `VEIL_PORT` for the desktop app). To find its LAN
 address, the app asks the operating system which interface would route to a documentation
-address (192.0.2.1); no packet is sent. Addresses in the source
+address (192.0.2.1); no packet is sent. It finds its public IPv6 address the same way, with
+2001:db8::1. On Windows and macOS that is usually a temporary (privacy) address, which the
+system replaces about once a day; Veil never uses a link-local or private (ULA) IPv6 address
+in an invite. Addresses in the source
 code are from the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24,
 2001:db8::/32) and appear only in tests.
 
