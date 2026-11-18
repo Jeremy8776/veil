@@ -3,7 +3,7 @@
 //! button (`crate::firewall`), and before their first hosted call is asked once whether Veil
 //! may open a port on the router (`engine/router.rs`).
 
-use eframe::egui::{self, Align, Layout, RichText, Sense, vec2};
+use eframe::egui::{self, Align, Layout, Rect, RichText, Sense, UiBuilder, Vec2, vec2};
 
 use crate::app::VeilApp;
 use crate::firewall::State;
@@ -14,6 +14,41 @@ use crate::widgets::{
     self, ControlState, Tile, Tone, card, control, device_error as status, device_picker as picker,
     level_meter, pill,
 };
+
+/// Above this width the preview and the card sit side by side.
+const WIDE_FROM: f32 = 1000.0;
+const GAP: f32 = 16.0;
+/// The title and the space under it.
+const HEADER_H: f32 = 46.0;
+/// The space under the preview and the row of buttons.
+const CONTROLS_H: f32 = 66.0;
+const MIN_PREVIEW_W: f32 = 320.0;
+const MAX_PREVIEW_W: f32 = 1200.0;
+/// The card's size until it has been measured, on the first frame.
+const CARD_GUESS: Vec2 = vec2(362.0, 730.0);
+
+/// Where the side-by-side layout goes in the space available.
+#[derive(Debug, PartialEq)]
+struct WidePlan {
+    preview_w: f32,
+    offset: Vec2,
+}
+
+/// Makes the preview as large as the window allows, then centres the title, preview and card
+/// together. A block too large for the window starts at its top left corner.
+fn wide_plan(space: Vec2, card: Vec2, gap: f32) -> WidePlan {
+    let tallest = (space.y - HEADER_H - CONTROLS_H) * 16.0 / 9.0;
+    let preview_w = (space.x - card.x - gap)
+        .min(tallest)
+        .min(MAX_PREVIEW_W)
+        .max(MIN_PREVIEW_W);
+    let column_h = preview_w * 9.0 / 16.0 + CONTROLS_H;
+    let block = vec2(preview_w + gap + card.x, HEADER_H + column_h.max(card.y));
+    WidePlan {
+        preview_w,
+        offset: ((space - block) / 2.0).max(Vec2::ZERO),
+    }
+}
 
 pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
     egui::CentralPanel::default()
@@ -28,31 +63,60 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
                 (false, true) => "Start a call",
                 (false, false) => "Join a call",
             };
-            ui.label(RichText::new(title).font(theme::bold(26.0)));
-            ui.add_space(12.0);
-            let wide = ui.available_width() > 1000.0;
-            let preview_w = if wide {
-                (ui.available_width() - 380.0).min(820.0)
+            let space = ui.available_size();
+            if space.x > WIDE_FROM {
+                wide(app, ui, host, title, space);
             } else {
-                ui.available_width().min(720.0)
-            };
-            let layout = if wide {
-                Layout::left_to_right(Align::Min)
-            } else {
-                Layout::top_down(Align::Min)
-            };
-            ui.with_layout(layout, |ui| {
-                ui.vertical(|ui| {
-                    ui.set_width(preview_w);
-                    preview(app, ui, preview_w);
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| toggles(app, ui));
+                heading(ui, title);
+                let preview_w = space.x.min(720.0);
+                ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                    preview_column(app, ui, preview_w);
+                    ui.add_space(GAP);
+                    ui.vertical(|ui| details(app, ui, host));
                 });
-                ui.add_space(16.0);
-                // Its own column: inside the row, a card would lay its contents out sideways.
-                ui.vertical(|ui| details(app, ui, host));
-            });
+            }
         });
+}
+
+fn heading(ui: &mut egui::Ui, title: &str) {
+    ui.label(RichText::new(title).font(theme::bold(26.0)));
+    ui.add_space(12.0);
+}
+
+fn wide(app: &mut VeilApp, ui: &mut egui::Ui, host: bool, title: &str, space: Vec2) {
+    // The card's height depends on what it shows, so it is measured and used next frame.
+    let id = egui::Id::new("prejoin-card-size");
+    let card = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(CARD_GUESS);
+    let gap = GAP + ui.spacing().item_spacing.x;
+    let plan = wide_plan(space, card, gap);
+    let area = Rect::from_min_size(
+        ui.available_rect_before_wrap().min + plan.offset,
+        space - plan.offset,
+    );
+    ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
+        heading(ui, title);
+        let measured = ui
+            .with_layout(Layout::left_to_right(Align::Min), |ui| {
+                preview_column(app, ui, plan.preview_w);
+                ui.add_space(GAP);
+                // Its own column: inside the row, a card would lay its contents out sideways.
+                ui.vertical(|ui| details(app, ui, host)).response.rect.size()
+            })
+            .inner;
+        if (measured - card).length() > 0.5 {
+            ui.ctx().data_mut(|d| d.insert_temp(id, measured));
+            ui.ctx().request_repaint();
+        }
+    });
+}
+
+fn preview_column(app: &mut VeilApp, ui: &mut egui::Ui, width: f32) {
+    ui.vertical(|ui| {
+        ui.set_width(width);
+        preview(app, ui, width);
+        ui.add_space(8.0);
+        ui.horizontal(|ui| toggles(app, ui));
+    });
 }
 
 fn preview(app: &VeilApp, ui: &mut egui::Ui, width: f32) {
@@ -250,5 +314,34 @@ fn router_question(app: &mut VeilApp, ui: &mut egui::Ui) {
             crate::note!("router choice not saved: {problems:?}");
             app.connection.saved = settings;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CARD: Vec2 = vec2(360.0, 700.0);
+
+    #[test]
+    fn a_large_window_centres_a_large_preview() {
+        let plan = wide_plan(vec2(2400.0, 1300.0), CARD, 24.0);
+        assert_eq!(plan.preview_w, MAX_PREVIEW_W);
+        assert_eq!(plan.offset.x, (2400.0 - (1200.0 + 24.0 + 360.0)) / 2.0);
+        assert!(plan.offset.y > 0.0);
+    }
+
+    #[test]
+    fn a_short_window_limits_the_preview_by_height() {
+        let plan = wide_plan(vec2(1800.0, 700.0), CARD, 24.0);
+        assert!(plan.preview_w * 9.0 / 16.0 + HEADER_H + CONTROLS_H <= 700.5);
+        assert!(plan.offset.x > 0.0, "the spare width is shared on both sides");
+    }
+
+    #[test]
+    fn a_block_too_large_for_the_window_starts_at_the_corner() {
+        let plan = wide_plan(vec2(1001.0, 500.0), vec2(360.0, 900.0), 24.0);
+        assert_eq!(plan.offset.y, 0.0);
+        assert!(plan.preview_w >= MIN_PREVIEW_W);
     }
 }

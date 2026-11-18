@@ -12,6 +12,8 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   driver, display or font. Before, the log stopped at the version line.
 - A guest who is still linking up now sees at once that the host ended the call or removed
   them, and can leave at once. Before, this could take about 11 seconds.
+- The Start a call and Join a call screens now sit in the middle of the window, and the
+  preview grows with it. Before, they stayed in the top left corner of a large window.
 
 ### Security
 
