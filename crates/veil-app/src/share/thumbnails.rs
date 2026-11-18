@@ -1,18 +1,23 @@
 //! The share picker's live thumbnails: the capture thread behind them, and shrinking pictures.
 //!
-//! Purpose: keeps the list of sources current and refreshes the thumbnails you can see.
+//! Purpose: keeps the list of sources current and shows the open tab live. Each source on that
+//! tab gets the same capture a share uses (`ScreenCapture::open_live`): a picture stream on
+//! Windows, screenshots elsewhere.
 //!
 //! Invariants:
 //! - Thumbnails stay on this device.
-//! - The first pass fills both tabs. After that only the open tab is captured.
-//! - The rest between passes follows what a pass cost, so capture takes about a quarter of one
-//!   processor core at most. A system with slow screenshots simply refreshes less often.
+//! - One still fills both tabs first. Streams exist only for sources on the open tab, and close
+//!   when the tab changes, the source goes away or the picker closes.
+//! - The rest between updates follows what an update cost, so capture takes about a quarter of
+//!   one processor core at most. A system with slow screenshots simply refreshes less often.
 
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use eframe::egui;
-use veil_media::screen::{self, Grabbed, ScreenSource};
+use veil_media::screen::{self, Grabbed, ScreenCapture, ScreenChoice, ScreenSource};
 
 use super::{CANNOT_CAPTURE, State, wait};
 use crate::convert::Rgba;
@@ -20,9 +25,11 @@ use crate::media::lock;
 
 /// The largest size of a thumbnail, in pixels.
 const THUMBNAIL_BOX: (u32, u32) = (512, 288);
+/// How often the list of sources is read again.
+const LIST_EVERY: Duration = Duration::from_secs(1);
 /// Time spent resting for each unit of time spent capturing.
 const REST_PER_WORK: u32 = 3;
-const MIN_REST: Duration = Duration::from_millis(150);
+const MIN_REST: Duration = Duration::from_millis(100);
 const MAX_REST: Duration = Duration::from_secs(2);
 
 fn rest_after(pass: Duration) -> Duration {
@@ -40,45 +47,114 @@ pub(super) fn browse_loop(state: &State, ctx: &egui::Context, stop: &AtomicBool)
         ctx.request_repaint();
         return;
     }
+    let mut live = HashMap::new();
+    let mut listed = Vec::new();
+    let mut next_list = Instant::now();
     let mut first_pass = true;
     while !stop.load(Ordering::Relaxed) {
-        let started = Instant::now();
-        let rest = match screen::open_all(std::process::id()) {
-            Ok(sources) => {
-                let list: Vec<_> = sources.iter().map(|(choice, _)| choice.clone()).collect();
-                let mut choices = lock(&state.choices);
-                if choices.as_ref() != Some(&list) {
-                    *choices = Some(list);
-                    ctx.request_repaint();
-                }
-                drop(choices);
-                for (choice, capture) in &sources {
-                    if stop.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    let windows_tab = state.windows_tab.load(Ordering::Acquire);
-                    if !first_pass && !on_open_tab(choice.source, windows_tab) {
-                        continue;
-                    }
-                    if let Ok(Some(picture)) = capture.grab() {
-                        let small = shrink(&picture, THUMBNAIL_BOX);
-                        lock(&state.thumbnails).insert(choice.source, small);
-                        ctx.request_repaint();
-                    }
-                }
+        let mut started = Instant::now();
+        if started >= next_list {
+            let Some(list) = read_list(state, ctx, stop, first_pass) else {
+                wait(MAX_REST, stop);
+                continue;
+            };
+            listed = list;
+            next_list = Instant::now() + LIST_EVERY;
+            if first_pass {
+                // The stills are up, so the live pictures can start straight away.
                 first_pass = false;
-                rest_after(started.elapsed())
+                started = Instant::now();
             }
-            Err(e) => {
-                crate::note!("screen share: cannot list sources: {e}");
-                *lock(&state.error) = Some(CANNOT_CAPTURE.to_string());
-                lock(&state.choices).get_or_insert_with(Vec::new);
-                ctx.request_repaint();
-                MAX_REST
-            }
-        };
-        wait(rest, stop);
+        }
+        refresh_open_tab(state, ctx, stop, &listed, &mut live);
+        wait(rest_after(started.elapsed()), stop);
     }
+}
+
+/// Publishes what can be shared, with a still of everything if `stills`. `None` if it cannot
+/// be read.
+fn read_list(
+    state: &State,
+    ctx: &egui::Context,
+    stop: &AtomicBool,
+    stills: bool,
+) -> Option<Vec<ScreenChoice>> {
+    let sources = match screen::open_all(std::process::id()) {
+        Ok(sources) => sources,
+        Err(e) => {
+            crate::note!("screen share: cannot list sources: {e}");
+            *lock(&state.error) = Some(CANNOT_CAPTURE.to_string());
+            lock(&state.choices).get_or_insert_with(Vec::new);
+            ctx.request_repaint();
+            return None;
+        }
+    };
+    let list: Vec<_> = sources.iter().map(|(choice, _)| choice.clone()).collect();
+    {
+        let mut choices = lock(&state.choices);
+        if choices.as_ref() != Some(&list) {
+            *choices = Some(list.clone());
+            ctx.request_repaint();
+        }
+    }
+    for (choice, capture) in sources.iter().filter(|_| stills) {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        if let Ok(Some(picture)) = capture.grab() {
+            keep(state, choice.source, &picture);
+            ctx.request_repaint();
+        }
+    }
+    Some(list)
+}
+
+/// Takes the newest picture of each source on the open tab, opening its capture if needed.
+fn refresh_open_tab(
+    state: &State,
+    ctx: &egui::Context,
+    stop: &AtomicBool,
+    listed: &[ScreenChoice],
+    live: &mut HashMap<ScreenSource, ScreenCapture>,
+) {
+    let windows_tab = state.windows_tab.load(Ordering::Acquire);
+    let wanted = |source: ScreenSource| {
+        on_open_tab(source, windows_tab) && listed.iter().any(|c| c.source == source)
+    };
+    live.retain(|source, _| wanted(*source));
+    let mut changed = false;
+    for choice in listed.iter().filter(|c| wanted(c.source)) {
+        if stop.load(Ordering::Relaxed) {
+            return;
+        }
+        let source = choice.source;
+        let capture = match live.entry(source) {
+            Entry::Occupied(open) => open.into_mut(),
+            Entry::Vacant(slot) => match ScreenCapture::open_live(source) {
+                Ok(capture) => slot.insert(capture),
+                Err(_) => continue,
+            },
+        };
+        match capture.grab() {
+            Ok(Some(picture)) => {
+                keep(state, source, &picture);
+                changed = true;
+            }
+            Ok(None) => {}
+            Err(_) => {
+                // Opened again on the next update, if the source is still listed.
+                live.remove(&source);
+            }
+        }
+    }
+    if changed {
+        ctx.request_repaint();
+    }
+}
+
+fn keep(state: &State, source: ScreenSource, picture: &Grabbed) {
+    let small = shrink(picture, THUMBNAIL_BOX);
+    lock(&state.thumbnails).insert(source, small);
 }
 
 /// Shrinks to fit inside `(max_width, max_height)`. Each new pixel is the average of the block
