@@ -32,6 +32,7 @@ use tokio::sync::{Semaphore, mpsc};
 use veil_net::{Link, NetError, Node};
 use veil_security::PublicId;
 
+use crate::invites::{MAX_FETCHES_PER_LINK, Shelf};
 use crate::limit::{Bucket, TOTAL_BURST, TOTAL_RATE};
 use crate::reach::{self, LinkChecks};
 use crate::room::{Member, Room, RoomKey};
@@ -88,6 +89,8 @@ struct State {
     only_room: Option<RoomKey>,
     /// Every relayed byte, all sessions together.
     total: Bucket,
+    /// Sealed invites for short links (`invites.rs`).
+    invites: Shelf,
 }
 
 impl Default for State {
@@ -100,6 +103,7 @@ impl Default for State {
             relay_disabled: false,
             only_room: None,
             total: Bucket::with_rate(TOTAL_RATE, TOTAL_BURST, Instant::now()),
+            invites: Shelf::default(),
         }
     }
 }
@@ -201,11 +205,19 @@ async fn serve(link: Link, state: Shared, checks: Arc<Semaphore>) {
 
     let mut room: Option<RoomKey> = None;
     let mut mine = LinkChecks::default();
+    let mut fetches = 0;
     while let Ok(message) = input.recv::<ClientMsg>().await {
         // Needs no room and no shared state, so it runs apart from `handle`.
         if let ClientMsg::CheckReach { port } = message {
             mine.start(&checks, &link, port, &outbox);
             continue;
+        }
+        if matches!(message, ClientMsg::GetInvite { .. }) {
+            fetches += 1;
+            if fetches > MAX_FETCHES_PER_LINK {
+                let _ = outbox.try_send(ServerMsg::Refused(Refusal::Full));
+                continue;
+            }
         }
         let replies = handle(message, &link, &mut room, &outbox, &state);
         for (to, reply) in replies {
@@ -214,14 +226,19 @@ async fn serve(link: Link, state: Shared, checks: Arc<Semaphore>) {
         }
     }
 
-    if let Some(mut s) = lock(&state) {
-        if let Some(key) = room
-            && let Some(r) = s.rooms.get_mut(&key)
-        {
+    // Only the link that registered holds the member's place. The same key's other links (a
+    // reachability check, storing an invite) must not take its relay sessions with them.
+    if let Some(key) = room
+        && let Some(mut s) = lock(&state)
+    {
+        if let Some(r) = s.rooms.get_mut(&key) {
             r.members.remove(&me);
             if r.members.is_empty() {
                 s.rooms.remove(&key);
             }
+        }
+        if key.1 == me {
+            s.invites.drop_room(&key);
         }
         s.forget(me);
     }
@@ -310,6 +327,22 @@ fn handle(
         ClientMsg::Accept { from, kind } => accept(&mut s, room, from, me, kind),
         // Taken by `serve` before it gets here.
         ClientMsg::CheckReach { .. } => Vec::new(),
+
+        ClientMsg::PutInvite { room_tag, id, sealed } => {
+            // The key is part of the room's name, so this finds only a room `me` hosts.
+            let key = (room_tag, me);
+            if !s.rooms.contains_key(&key) {
+                return refuse(Refusal::NotAllowed);
+            }
+            if !s.invites.put(key, id, sealed) {
+                return refuse(Refusal::Full);
+            }
+            vec![(outbox.clone(), ServerMsg::InviteStored)]
+        }
+        ClientMsg::GetInvite { id } => {
+            let sealed = s.invites.get(&id);
+            vec![(outbox.clone(), ServerMsg::SealedInvite { sealed })]
+        }
     }
 }
 

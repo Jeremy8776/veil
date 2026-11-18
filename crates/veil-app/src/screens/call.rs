@@ -76,6 +76,12 @@ impl CallView {
         }
     }
 
+    /// Puts the full invite link on the clipboard, for a guest the short one cannot reach.
+    pub fn copy_full_invite(&mut self, ctx: &egui::Context) {
+        ctx.copy_text(self.call.invite_full.clone());
+        self.notify("Full invite link copied");
+    }
+
     /// The host is alone in a real call: show the invite where it cannot be missed.
     fn waiting_for_guests(&self) -> bool {
         self.call.is_host

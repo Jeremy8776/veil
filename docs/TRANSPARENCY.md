@@ -33,7 +33,7 @@ see this:
 | Party | Sees |
 |---|---|
 | The network | Which addresses talk to which, when, and how much |
-| Rendezvous node | Members' IP addresses, a hash of the room id, when people join. When a host with a configured `veil-node` has a public port (opened on the router, or set by hand), the node also learns that port: it dials the host back once, from a separate port with a throwaway key, to check guests can reach it. It dials only the asker's own IP |
+| Rendezvous node | Members' IP addresses, a hash of the room id, when people join. When a host with a configured `veil-node` has a public port (opened on the router, or set by hand), the node also learns that port: it dials the host back once, from a separate port with a throwaway key, to check guests can reach it. It dials only the asker's own IP. While a host's room is open, the node also stores its sealed invites for short links, and sees when each is stored and which IP addresses fetch one. It cannot read them |
 | Relay | Members' IP addresses, encrypted traffic volume and timing |
 | Forwarder | Members' device keys and the room hash (from the host's roster ticket), traffic volume and timing, and each video frame's layer marker: which resolution tier and frame-rate step it is, and whether it is a keyframe. Names and chat pass through it sealed: it sees when one is sent and how large it is, not who sent it or what it says |
 | Other members | Your device key, the display name you chose, your chat messages, and your IP address unless you use relay-only mode. Chat is not stored: it is gone when the call ends |
@@ -43,6 +43,14 @@ see this:
 When the desktop app hosts without a configured `veil-node`, it runs a rendezvous, relay and
 forwarder of its own on extra ports for the length of the call. They see what any rendezvous,
 relay or forwarder sees (the table above), and they are the host's own machine.
+
+**Short invite links** hold the rendezvous's addresses in readable form and a random secret.
+Anyone holding one can fetch the invite, so it shows them everything a full link does. The
+guest fetches from those addresses with a throwaway key and does not check the server's key,
+because the link has no room for it. The invite is encrypted and signed, so a wrong server
+cannot read or change it, but whoever answers at those addresses sees the guest's IP address
+and can refuse to give the invite. This happens even if the guest set a rendezvous of their
+own. "Copy full link" avoids the fetch.
 
 The rendezvous passes on a member's address only after that member agrees. A request for an
 introduction or a relay session goes to the member first, and the member's app agrees only

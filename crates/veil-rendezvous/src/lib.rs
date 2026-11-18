@@ -13,6 +13,8 @@
 //!    the relay carries ciphertext it cannot read or alter.
 //! 4. **Check reach.** Dials a node back at its own public IP, so a host knows whether the
 //!    port it opened works from outside ([`reach`]).
+//! 5. **Hold invites.** Keeps a host's sealed invites for short links while its room is open
+//!    ([`invites`]). It cannot read them.
 //!
 //! Invariants:
 //! - The server never learns room ids. Members register under [`room_tag`], a hash of the
@@ -37,6 +39,7 @@
 )]
 
 pub mod client;
+pub mod invites;
 pub mod limit;
 pub mod protocol;
 pub mod reach;
@@ -47,6 +50,7 @@ pub mod socket;
 use std::fmt;
 
 pub use client::{Punch, Reach, RendezvousClient, check_reach, punch};
+pub use invites::{FetchError, fetch_invite, store_invite};
 pub use protocol::{Ask, Refusal, room_tag};
 pub use server::RendezvousServer;
 pub use socket::RelaySocket;

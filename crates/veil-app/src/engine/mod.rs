@@ -46,7 +46,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
-use veil_security::invite::Invite;
+use veil_security::short_invite::InviteLink;
 
 use crate::convert::Rgba;
 use crate::keystore::KeyStore;
@@ -76,7 +76,7 @@ pub struct Taps {
 /// Start a call, or join one from an invite.
 pub enum Role {
     Host,
-    Guest(Box<Invite>),
+    Guest(Box<InviteLink>),
 }
 
 /// What the interface asks of the session task.

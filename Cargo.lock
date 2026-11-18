@@ -4300,6 +4300,7 @@ name = "veil-rendezvous"
 version = "0.1.7"
 dependencies = [
  "bytes",
+ "getrandom 0.4.3",
  "quinn",
  "serde",
  "sha2",

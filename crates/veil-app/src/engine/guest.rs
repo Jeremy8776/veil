@@ -19,25 +19,36 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 use veil_call::{CallError, CallNode, MemberEvent, join_with};
 use veil_net::Node;
+use veil_rendezvous::fetch_invite;
 use veil_security::Identity;
-use veil_security::invite::Invite;
+use veil_security::short_invite::InviteLink;
 
-use super::Command;
 use super::plan::{NetConfig, resolve};
 use super::session::{Pipes, Session};
 use super::view::Shared;
+use super::{Command, invites};
 use crate::model::{Action, CallStatus};
 
 pub async fn run(
     identity: Identity,
-    invite: Invite,
+    link: InviteLink,
     config: NetConfig,
     your_name: &str,
     shared: Arc<Shared>,
     pipes: Pipes,
     mut commands: UnboundedReceiver<Command>,
 ) -> Result<(), String> {
-    let bind = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
+    // A short link names where the invite is, so it is fetched before anything else.
+    let invite = match link {
+        InviteLink::Full(invite) => invite,
+        InviteLink::Short(short) => tokio::select! {
+            fetched = fetch_invite(&short, invites::now_unix()) => {
+                fetched.map_err(|e| e.to_string())?
+            }
+            () = wait_for_leave(&mut commands) => return Ok(()),
+        },
+    };
+    let bind =SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
     let node = Node::bind(&identity, bind).map_err(|e| format!("Cannot open the network: {e}"))?;
     let rendezvous = resolve(config.rendezvous.as_ref(), "rendezvous").await?;
     // Registering with the rendezvous and finding a path to the host can take half a minute

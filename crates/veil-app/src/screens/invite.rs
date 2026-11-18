@@ -6,6 +6,7 @@
 //!   checks when they paste it.
 //! - Choosing "until the call ends" (or back) asks the engine for a fresh link; a link already
 //!   sent keeps the lifetime it was made with.
+//! - "Copy full link" shows only when the link on screen is a short one.
 
 use eframe::egui::{self, Rect, RichText, pos2, vec2};
 
@@ -39,6 +40,15 @@ pub fn now_unix() -> u64 {
 pub fn lifetime(view: &mut CallView, ui: &mut egui::Ui) {
     let text = lifetime_text(&view.call, now_unix());
     ui.label(RichText::new(text).small().color(MUTED));
+    if view.call.invite != view.call.invite_full {
+        let label = RichText::new("Copy full link").small().color(MUTED);
+        let full = ui
+            .add(egui::Button::new(label).frame(false))
+            .on_hover_text("A longer link for a guest who cannot connect with the short one.");
+        if full.clicked() {
+            view.copy_full_invite(ui.ctx());
+        }
+    }
     let mut until_end = view.call.invite_until_end;
     let keep = ui
         .checkbox(&mut until_end, "Keep links working until the call ends")

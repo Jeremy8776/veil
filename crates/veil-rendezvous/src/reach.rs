@@ -82,14 +82,18 @@ fn target(reflected: SocketAddr, port: u16) -> SocketAddr {
     SocketAddr::new(reflected.ip().to_canonical(), port)
 }
 
-/// Whether a handshake with `key` at `target` completes, dialled from a fresh socket.
-async fn dial(target: SocketAddr, key: PublicId) -> bool {
-    let any = if target.is_ipv4() {
+/// Where to bind a fresh socket that will dial `target`.
+pub(crate) fn any_addr(target: SocketAddr) -> SocketAddr {
+    if target.is_ipv4() {
         SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))
     } else {
         SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0))
-    };
-    let Ok(node) = Node::bind(&Identity::generate(), any) else {
+    }
+}
+
+/// Whether a handshake with `key` at `target` completes, dialled from a fresh socket.
+async fn dial(target: SocketAddr, key: PublicId) -> bool {
+    let Ok(node) = Node::bind(&Identity::generate(), any_addr(target)) else {
         return false;
     };
     let open = matches!(

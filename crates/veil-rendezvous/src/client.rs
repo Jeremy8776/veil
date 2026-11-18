@@ -10,6 +10,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use veil_net::{FramedSend, Link, NetError, Node, NodeAddr};
 use veil_security::PublicId;
+use veil_security::short_invite::SealedInvite;
 
 use crate::protocol::{Ask, ClientMsg, STREAM_HEADER, ServerMsg, parse_stream_header, split_session};
 use crate::{RelaySocket, RendezvousError};
@@ -89,7 +90,11 @@ impl RendezvousClient {
         addrs: &[SocketAddr],
         server: PublicId,
     ) -> Result<Self, RendezvousError> {
-        let link = node.connect(addrs, server).await?;
+        Self::attach(node.connect(addrs, server).await?).await
+    }
+
+    /// Starts the client on a link already open.
+    pub(crate) async fn attach(link: Link) -> Result<Self, RendezvousError> {
         let (out, mut input) = link.open_control().await?.split();
         let (tx, events) = mpsc::channel(MAX_PENDING);
         let inboxes = Inboxes::default();
@@ -202,6 +207,41 @@ impl RendezvousClient {
             ServerMsg::Reach { addr, open } => Ok(Reach { addr, open }),
             _ => Err(RendezvousError::Closed),
         }
+    }
+
+    /// Host only: leaves a sealed invite in the room. Prefer [`crate::store_invite`], which
+    /// uses a link of its own (see [`ClientMsg::PutInvite`]).
+    pub async fn put_invite(
+        &mut self,
+        room_tag: [u8; 32],
+        sealed: SealedInvite,
+    ) -> Result<(), RendezvousError> {
+        let SealedInvite { id, bytes } = sealed;
+        self.out
+            .send(&ClientMsg::PutInvite {
+                room_tag,
+                id,
+                sealed: bytes,
+            })
+            .await?;
+        self.answer(|m| matches!(m, ServerMsg::InviteStored)).await?;
+        Ok(())
+    }
+
+    /// Asks for the sealed invite stored under `id`.
+    pub async fn get_invite(&mut self, id: [u8; 32]) -> Result<Option<Vec<u8>>, RendezvousError> {
+        self.out.send(&ClientMsg::GetInvite { id }).await?;
+        match self
+            .answer(|m| matches!(m, ServerMsg::SealedInvite { .. }))
+            .await?
+        {
+            ServerMsg::SealedInvite { sealed } => Ok(sealed),
+            _ => Err(RendezvousError::Closed),
+        }
+    }
+
+    pub(crate) fn close(&self) {
+        self.link.close("done");
     }
 
     /// Requests this policy allows are accepted even while waiting for another answer, so

@@ -147,7 +147,10 @@ only"), or forbid servers entirely ("peers only").
 4. **Identity.** Ed25519 device keys. Safety numbers people can compare. Optional identity
    provider attestation.
 5. **Invites.** Signed by the host, with an expiry and a one-time join token. An invite carries
-   no media key. The host still admits each joiner from a lobby.
+   no media key. The host still admits each joiner from a lobby. A short link holds the
+   rendezvous addresses and a 128-bit secret. The rendezvous keeps the signed invite sealed
+   under that secret for as long as the host's room is open, and the guest verifies it as usual
+   after opening it (`veil_security::short_invite`).
 
 ### 5.2 Threat model
 

@@ -54,6 +54,16 @@ pub enum ClientMsg {
     /// this link's, and say whether it answered ([`ServerMsg::Reach`]). Needs no room. Send it
     /// on a link of its own: a server older than this message closes the link it arrives on.
     CheckReach { port: u16 },
+    /// Host only: keep this sealed invite for a short link while the room `room_tag`, which
+    /// this key hosts, is open ([`crate::invites`]). Send it on a link of its own, as for
+    /// `CheckReach`.
+    PutInvite {
+        room_tag: [u8; 32],
+        id: [u8; 32],
+        sealed: Vec<u8>,
+    },
+    /// Asks for the sealed invite stored under `id`. Needs no room.
+    GetInvite { id: [u8; 32] },
 }
 
 /// What a member asks of another.
@@ -87,6 +97,10 @@ pub enum ServerMsg {
         addr: SocketAddr,
         open: bool,
     },
+    /// The host's `PutInvite` took effect.
+    InviteStored,
+    /// The answer to [`ClientMsg::GetInvite`]; `None` if nothing is stored under that id.
+    SealedInvite { sealed: Option<Vec<u8>> },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]

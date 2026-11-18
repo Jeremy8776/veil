@@ -124,13 +124,33 @@ impl Node {
 
     /// Dials every address at once and returns the first link that proves it holds `expected`.
     pub async fn connect(&self, addrs: &[SocketAddr], expected: PublicId) -> Result<Link, NetError> {
+        let crypto = tls::client_config(self.key.clone(), expected)?;
+        let link = self.dial(addrs, crypto).await?;
+        if link.peer != expected {
+            // The verifier already enforces this; checked again so a future verifier change
+            // cannot silently drop the pin.
+            return Err(NetError::Identity);
+        }
+        Ok(link)
+    }
+
+    /// Dials without knowing the peer's key: whoever answers at `addrs` is accepted. Only for
+    /// fetching something that proves itself, such as a sealed invite, and from a node with a
+    /// throwaway identity, since the peer sees this node's key. Everything else uses
+    /// [`Self::connect`].
+    pub async fn connect_unverified(&self, addrs: &[SocketAddr]) -> Result<Link, NetError> {
+        self.dial(addrs, tls::unverified_client_config(self.key.clone())?).await
+    }
+
+    async fn dial(
+        &self,
+        addrs: &[SocketAddr],
+        crypto: quinn::crypto::rustls::QuicClientConfig,
+    ) -> Result<Link, NetError> {
         if addrs.is_empty() {
             return Err(NetError::NoAddresses);
         }
-        let mut config = quinn::ClientConfig::new(Arc::new(tls::client_config(
-            self.key.clone(),
-            expected,
-        )?));
+        let mut config = quinn::ClientConfig::new(Arc::new(crypto));
         config.transport_config(transport(self.mtu)?);
 
         let mut attempts = JoinSet::new();
@@ -147,15 +167,8 @@ impl Node {
         }
         while let Some(result) = attempts.join_next().await {
             match result {
-                Ok(Ok(Ok(conn))) => {
-                    let link = Link::new(conn)?;
-                    if link.peer != expected {
-                        // The verifier already enforces this; checked again so a future
-                        // verifier change cannot silently drop the pin.
-                        return Err(NetError::Identity);
-                    }
-                    return Ok(link); // dropping `attempts` aborts the rest
-                }
+                // Dropping `attempts` aborts the rest.
+                Ok(Ok(Ok(conn))) => return Link::new(conn),
                 Ok(Ok(Err(e))) => last_error = e.to_string(),
                 Ok(Err(_)) => last_error = NetError::Timeout.to_string(),
                 Err(e) => last_error = e.to_string(),

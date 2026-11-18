@@ -16,7 +16,8 @@ veil-net = { path = "../veil-net" }
 veil-security = { path = "../veil-security" }
 
 [dev-dependencies]
-tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time"] }
+getrandom = { version = "0.4.3", features = ["sys_rng"] }
+tokio ={ version = "1.40", features = ["rt-multi-thread", "macros", "time"] }
 
 [lints]
 workspace = true
