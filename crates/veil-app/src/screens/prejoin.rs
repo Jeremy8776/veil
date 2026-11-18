@@ -109,12 +109,13 @@ fn toggles(app: &mut VeilApp, ui: &mut egui::Ui) {
         app.want_camera = !app.want_camera;
         app.media.set_camera(app.want_camera);
     }
+    let mirrored = app.media.mirror();
     let mirror = ControlState {
-        selected: app.mirror_self,
+        selected: mirrored,
         ..Default::default()
     };
     if control(ui, Icon::Video, "Mirror", MIRROR_HINT, mirror).clicked() {
-        app.mirror_self = !app.mirror_self;
+        app.media.set_mirror(!mirrored);
     }
 }
 

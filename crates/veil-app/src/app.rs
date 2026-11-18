@@ -50,9 +50,6 @@ pub struct VeilApp {
     /// What you chose on the pre-join screen, kept for the call.
     pub want_camera: bool,
     pub want_mic: bool,
-    /// Show your own picture as a mirror does. Changes only what you see, never what is sent.
-    /// shortcut: forgotten when Veil closes; save it once the app has saved preferences.
-    pub mirror_self: bool,
     /// Devices on this machine, read when the pre-join screen opens.
     pub devices: crate::devices::DeviceLists,
     /// The invite link being joined, checked on the home screen.
@@ -89,7 +86,6 @@ impl VeilApp {
             level: 0.0,
             want_camera: true,
             want_mic: true,
-            mirror_self: true,
             devices: crate::devices::DeviceLists::default(),
             joining: None,
             demo: false,
@@ -235,9 +231,7 @@ impl VeilApp {
 
     /// Your camera texture and its size, for a tile.
     pub fn preview_video(&self) -> Option<(egui::TextureId, [usize; 2], bool)> {
-        self.preview
-            .as_ref()
-            .map(|t| (t.id(), t.size(), self.mirror_self))
+        self.preview.as_ref().map(|t| (t.id(), t.size(), true))
     }
 }
 
