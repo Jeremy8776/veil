@@ -43,6 +43,10 @@ pub struct VeilApp {
     pub invite: String,
     pub home_error: Option<String>,
     pub media: LocalMedia,
+    /// Sharing your screen (`share.rs`).
+    pub share: crate::share::ScreenShare,
+    /// What you are sending while you share, as last uploaded.
+    share_view: Option<TextureHandle>,
     /// Your camera, as last uploaded.
     pub preview: Option<TextureHandle>,
     /// Microphone level, smoothed for the meter.
@@ -82,6 +86,8 @@ impl VeilApp {
             invite: String::new(),
             home_error: None,
             media: LocalMedia::new(ctx.clone()),
+            share: crate::share::ScreenShare::new(ctx.clone()),
+            share_view: None,
             preview: None,
             level: 0.0,
             want_camera: true,
@@ -132,6 +138,7 @@ impl VeilApp {
             match Engine::start(role, config, name.clone(), playback, keys, self.ctx.clone()) {
                 Ok(engine) => {
                     self.media.set_taps(Some(engine.taps()));
+                    self.share.set_tap(Some(engine.taps().screen));
                     let title = if host {
                         format!("{name}'s call")
                     } else {
@@ -155,6 +162,7 @@ impl VeilApp {
     }
 
     pub fn leave(&mut self, call: &Call) {
+        self.stop_sharing();
         self.media.set_taps(None);
         self.media.set_camera(false);
         self.media.set_mic(false);
@@ -168,6 +176,19 @@ impl VeilApp {
             lasted: call.elapsed(Instant::now()),
             reason,
         };
+    }
+
+    fn stop_sharing(&mut self) {
+        self.share.stop();
+        self.share.set_tap(None);
+    }
+
+    /// Drops the pictures of shares that have ended.
+    pub fn keep_screens(&mut self, sharers: &[u32]) {
+        self.remote.retain(|key, _| {
+            !crate::engine::is_screen(*key)
+                || sharers.iter().any(|id| crate::engine::screen_key(*id) == *key)
+        });
     }
 
     /// Uploads pictures that arrived for other people's tiles.
@@ -192,11 +213,12 @@ impl VeilApp {
     }
 
     /// Someone else's newest picture, for their tile.
-    pub fn remote_video(&self, id: u32) -> Option<(egui::TextureId, [usize; 2], bool)> {
-        self.remote.get(&id).map(|t| (t.id(), t.size(), false))
+    pub fn remote_video(&self, id: u32) -> Option<(egui::TextureId, [usize; 2])> {
+        self.remote.get(&id).map(|t| (t.id(), t.size()))
     }
 
     pub fn go_home(&mut self) {
+        self.stop_sharing();
         self.media.set_taps(None);
         self.media.set_camera(false);
         self.media.set_mic(false);
@@ -223,15 +245,35 @@ impl VeilApp {
                 }
             }
         }
+        if !self.share.is_sharing() {
+            self.share_view = None;
+        } else if let Some(picture) = self.share.take_sending() {
+            let image = egui::ColorImage::from_rgba_unmultiplied(
+                [picture.width, picture.height],
+                &picture.pixels,
+            );
+            match &mut self.share_view {
+                Some(texture) => texture.set(image, TextureOptions::LINEAR),
+                None => {
+                    let texture = ctx.load_texture("sharing", image, TextureOptions::LINEAR);
+                    self.share_view = Some(texture);
+                }
+            }
+        }
         let target = self.media.level();
         // Fast attack, slow release, like a hardware meter.
         let rate = if target > self.level { 0.6 } else { 0.15 };
         self.level += (target - self.level) * rate;
     }
 
-    /// Your camera texture and its size, for a tile.
-    pub fn preview_video(&self) -> Option<(egui::TextureId, [usize; 2], bool)> {
-        self.preview.as_ref().map(|t| (t.id(), t.size(), true))
+    /// What you are sending while you share.
+    pub fn share_video(&self) -> Option<(egui::TextureId, [usize; 2])> {
+        self.share_view.as_ref().map(|t| (t.id(), t.size()))
+    }
+
+    /// Your camera texture and its size, for a tile. It shows exactly what you send.
+    pub fn preview_video(&self) -> Option<(egui::TextureId, [usize; 2])> {
+        self.preview.as_ref().map(|t| (t.id(), t.size()))
     }
 }
 

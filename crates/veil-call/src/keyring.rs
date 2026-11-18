@@ -28,7 +28,7 @@
 use std::time::{Duration, Instant};
 
 use veil_security::{PublicId, SecurityError};
-use veil_security::frame::{FrameReceiver, HEADER_LEN};
+use veil_security::frame::{BINDING_LEN, FrameReceiver, HEADER_LEN};
 
 use crate::app_msg::{AppError, AppMessage};
 
@@ -179,6 +179,18 @@ impl KeyRing {
         Ok((device, message))
     }
 
+    /// The device holding `leaf` and the signature binding, in the epoch `packet` names, for
+    /// checking a signature carried inside a frame that has already opened.
+    pub fn signer(
+        &mut self,
+        packet: &[u8],
+        leaf: u32,
+        now: Instant,
+    ) -> Option<(PublicId, [u8; BINDING_LEN])> {
+        let epoch = self.select(packet, now).ok()?;
+        Some((epoch.device(leaf)?, *epoch.receiver.binding()))
+    }
+
     fn open_inner(
         &mut self,
         packet: &[u8],
@@ -297,6 +309,20 @@ mod tests {
         let packet = old.encrypt(b"epoch one").unwrap();
         ring.rotate(2, r2, roster(&[1, 3]), now);
         assert_eq!(ring.open(&packet, now), Err(SecurityError::UnknownKey));
+    }
+
+    #[test]
+    fn the_signer_comes_from_the_epoch_the_frame_names() {
+        let now = Instant::now();
+        let (mut old_sender, old_receiver) = keys(1);
+        let (_, new_receiver) = keys(2);
+        let binding = *old_sender.binding();
+        let mut ring = KeyRing::new(1, old_receiver, [(3, PublicId([1; 32]))]);
+        let packet = old_sender.encrypt(b"epoch one").unwrap();
+        ring.rotate(2, new_receiver, [(5, PublicId([1; 32])), (3, PublicId([2; 32]))], now);
+        assert_eq!(ring.signer(&packet, 3, now), Some((PublicId([1; 32]), binding)));
+        assert_eq!(ring.signer(&packet, 4, now), None, "no such leaf");
+        assert_eq!(ring.signer(&packet, 3, now + GRACE), None, "epoch closed");
     }
 
     /// GHSA-rvhv-r5mr-2w3h, mesh: member 2 seals under member 3's leaf on its own link.

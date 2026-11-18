@@ -2,6 +2,8 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
 ## 0.1.9, 18/11/2026
 
 ### Fixed
@@ -10,6 +12,57 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   the standard font folders for a common font, and the deb and rpm packages install DejaVu Sans.
 - `veil.log` now records the error when Veil cannot start, for example with no graphics
   driver, display or font. Before, the log stopped at the version line.
+- A guest who is still linking up now sees at once that the host ended the call or removed
+  them, and can leave at once. Before, this could take about 11 seconds.
+- The Start a call and Join a call screens now sit in the middle of the window, and the
+  preview grows with it. Before, they stayed in the top left corner of a large window.
+
+### Security
+
+- One sender can no longer use up a relay's whole capacity and starve other calls. When a relay
+  runs short, each address gets an equal part, and spare capacity stays available to anyone.
+
+### Added
+
+- Share your screen during a call, next to your camera. Pick a screen or an application from
+  live thumbnails, and optionally select an area of it. A shared window or area keeps going
+  when you switch to another app. You see what you are sending, and a small bar over your
+  other apps lets you change it or stop. The picture is sealed end to end like your camera, and
+  only the sealed header says it is a screen. Each picture is signed by the sender's device, so
+  nobody in the call can pass off a picture as your share. The picker stays out of what you
+  share. Everyone needs this version to see a share.
+- Screen sharing has been tried on Windows only so far. On macOS Veil asks for the Screen
+  Recording permission. On Linux it needs an X11 session and is turned off under Wayland, where
+  each picture would be written to a file. The deb and rpm packages now need EGL and GBM.
+- You can mirror your video, before a call or from Effects in a call. It flips your
+  picture left to right for everyone in the call. It is off by default.
+- Calls use IPv6 when both ends have it, and prefer it. Most UK broadband now gives every
+  home an IPv6 address, and IPv6 has no NAT, so two people with IPv6 can usually link
+  directly even when their IPv4 is behind carrier-grade NAT. The host's public IPv6 address
+  goes in every invite, members tell the rendezvous theirs, and every dial tries IPv6 first
+  and IPv4 a quarter of a second later.
+- With "Open a port on my router" on, the host also asks the router (PCP) to let the call's
+  port through its IPv6 firewall, and removes it when the call ends.
+- With a public node that has an IPv6 address, the reachability check in People covers the
+  host's IPv6 address too. People says "Reachable from the internet" if either one is.
+- Call stats show "IPv6" beside the path of a link that runs over IPv6.
+- People on mobile data connect sooner. Veil no longer waits for each way of connecting to
+  fail before trying the next: the relay is tried after 5 seconds at most, instead of about
+  half a minute. Calls also start with smaller packets, which more mobile networks carry.
+
+### Compatibility
+
+- Older versions still join calls from this version, and the other way round. Invites keep
+  their format; an older version skips the IPv6 address it cannot dial and uses IPv4. Only
+  calls where both ends run this version link over IPv6.
+
+### Changed
+
+- Your own video now shows exactly what others see. It used to be mirrored on your screen only.
+- Verifying someone no longer means reading 60 digits. In the Security panel, swap codes through
+  another app and paste theirs: Veil compares the whole number. Older versions can still
+  compare by hand.
+- Speaker view has its own icon, and the arrows beside Mute and Stop video are centred.
 
 ## 0.1.8, 18/11/2026
 

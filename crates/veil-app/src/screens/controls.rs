@@ -1,5 +1,5 @@
 //! The call bar's own controls: microphone and camera (each with a device menu), Effects,
-//! Share and Raise. The panel buttons and Leave stay in `call.rs`.
+//! Share (`share.rs`) and Raise. The panel buttons and Leave stay in `call.rs`.
 //!
 //! Purpose: during a call you can pick another microphone, speaker or camera and set the
 //! microphone and speaker volume without leaving, from the small arrow beside Mute and beside
@@ -20,9 +20,10 @@ use crate::app::VeilApp;
 use crate::icons::Icon;
 use crate::screens::call::CallView;
 use crate::screens::call_menus;
+use crate::screens::share::SharePicker;
 use crate::theme::{self, RAISED, RAISED_HOVER};
 use crate::volume::{MIC_MAX, SPEAKER_MAX};
-use crate::widgets::{ControlState, control, device_error, level_meter};
+use crate::widgets::{ControlState, chevron, control, device_error, level_meter};
 
 /// Width of the arrow beside Mute and Stop video. It joins its button with no gap.
 pub const MENU_W: f32 = 22.0;
@@ -31,6 +32,8 @@ pub const CONTROLS: usize = 5;
 /// The arrows drawn here.
 pub const MENUS: usize = 2;
 const MENU_INNER: f32 = 280.0;
+/// Shown wherever mirroring can be turned on or off.
+pub const MIRROR_HINT: &str = "Flips your video left to right, for you and everyone in the call.";
 
 pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
     let mic_on = app.media.mic_on();
@@ -65,19 +68,26 @@ pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
         ui,
         Icon::Effects,
         "Effects",
-        "Filters and background blur",
+        "Filters, background blur and mirror",
         ControlState::default(),
     );
     menu(&effects, |ui| effects_menu(app, ui));
-    let share = control(
-        ui,
-        Icon::Share,
-        "Share",
-        "Share your screen",
-        ControlState::default(),
-    );
-    if share.clicked() {
-        view.notify("Screen sharing is not built yet.");
+    let sharing = app.share.is_sharing();
+    let state = ControlState {
+        selected: sharing,
+        ..Default::default()
+    };
+    let (label, hint) = if sharing {
+        ("Stop share", "Stop sharing your screen")
+    } else {
+        ("Share", "Share a screen, a window or part of one")
+    };
+    if control(ui, Icon::Share, label, hint, state).clicked() {
+        if sharing {
+            app.share.stop();
+        } else {
+            view.picker = Some(SharePicker::open(app));
+        }
     }
     let raised = view.call.you().is_some_and(|p| p.hand_raised);
     let state = ControlState {
@@ -136,7 +146,7 @@ fn audio_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
         level_meter(ui, app.level, ui.available_width());
     }
     call_menus::divider(ui);
-    call_menus::section(ui, Icon::Speaker, "Speaker");
+    call_menus::section(ui, Icon::Volume, "Speaker");
     let speakers = &app.devices.speakers;
     if let Some(id) = call_menus::device_list(
         ui,
@@ -172,6 +182,12 @@ fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
     call_menus::divider(ui);
     call_menus::section(ui, Icon::Effects, "Filter");
     call_menus::filter_swatches(ui, &app.media);
+    call_menus::divider(ui);
+    let mirrored = app.media.mirror();
+    let mirror = call_menus::toggle_button(ui, Icon::Mirror, "Mirror video", mirrored);
+    if mirror.on_hover_text(MIRROR_HINT).clicked() {
+        app.media.set_mirror(!mirrored);
+    }
 }
 
 /// The arrow beside a control that opens its device menu: the right half of a split
@@ -205,11 +221,8 @@ fn menu_button(ui: &mut egui::Ui, label: &str, hint: &str) -> egui::Response {
             let stroke = Stroke::new(2.0, theme::ACCENT);
             painter.rect_stroke(rect, corners, stroke, egui::StrokeKind::Inside);
         }
-        // An upward chevron, level with the control's icon: the menu opens above the bar.
-        let c = pos2(rect.center().x, rect.top() + 22.0);
-        let stroke = Stroke::new(1.6, theme::MUTED);
-        painter.line_segment([pos2(c.x - 4.0, c.y + 2.0), pos2(c.x, c.y - 2.0)], stroke);
-        painter.line_segment([pos2(c.x, c.y - 2.0), pos2(c.x + 4.0, c.y + 2.0)], stroke);
+        // An upward chevron, centred on the divider: the menu opens above the bar.
+        chevron(painter, rect.center(), true, theme::MUTED);
     }
     response
 }

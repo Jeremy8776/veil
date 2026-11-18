@@ -133,8 +133,8 @@ impl Presence {
         let mut client = RendezvousClient::connect(&node, &server.addrs, server.key)
             .await
             .map_err(CallError::Rendezvous)?;
-        let local = node.local_addr()?;
-        let locals = if local.ip().is_unspecified() { Vec::new() } else { vec![local] };
+        // A dual-stack node also gives its public IPv6 address, so members can dial it first.
+        let locals = veil_net::family::own_candidates(node.local_addr()?);
         let (host, pass, mut allowed) = match seat {
             Seat::Host(allowed) => (identity.public(), None, Some(allowed)),
             Seat::Guest { host, pass } => (host, Some(pass), None),

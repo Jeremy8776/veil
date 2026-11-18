@@ -12,7 +12,7 @@
 //!
 //! Invariants:
 //! - Who sent a frame or message is its authenticated sender index (MLS leaf), never the link
-//!   it came on.
+//!   it came on. A shared screen also needs that leaf's device signature (`screen_proof.rs`).
 //! - Nothing is sent before the first epoch's keys; nothing is encoded while you are alone.
 //! - Full queues to the decoder and playback threads drop the packet; this task never blocks
 //!   on them.
@@ -32,10 +32,11 @@ use veil_forward::Wanted;
 use veil_media::{AudioHeader, AudioSettings, OpusEncoder};
 use veil_security::{Identity, PublicId};
 use veil_security::frame::{FrameSender, frame_layer};
-use veil_security::safety::safety_number;
+use veil_security::safety::{safety_number, side};
 
 use super::audio_out::AudioIn;
 use super::names::{Announcer, Names};
+use super::screen_proof;
 use super::stats::Sampler;
 use super::video_in::VideoIn;
 use super::video_out::{Encoded, VideoControl};
@@ -53,6 +54,20 @@ pub struct Pipes {
     pub video_in: SyncSender<VideoIn>,
     pub audio_in: SyncSender<AudioIn>,
     pub control: Arc<VideoControl>,
+    pub screen_control: Arc<VideoControl>,
+}
+
+impl Pipes {
+    fn controls(&self) -> [&VideoControl; 2] {
+        [&self.control, &self.screen_control]
+    }
+
+    /// A keyframe request does not say which stream broke, so both answer.
+    fn ask_keyframes(&self) {
+        for control in self.controls() {
+            control.keyframe.store(true, Ordering::Relaxed);
+        }
+    }
 }
 
 pub struct Session {
@@ -148,10 +163,9 @@ impl Session {
             }
         }
         let watching = !self.others.is_empty();
-        self.pipes
-            .control
-            .watching
-            .store(watching, Ordering::Relaxed);
+        for control in self.pipes.controls() {
+            control.watching.store(watching, Ordering::Relaxed);
+        }
         let mut people: Vec<Person> = self
             .others
             .iter()
@@ -161,6 +175,7 @@ impl Session {
                 name: self.name_for(device),
                 is_host: *device == self.host,
                 safety: self.safety_with(device),
+                side: side(&self.me, device),
                 path: LinkPath::Pending,
             })
             .collect();
@@ -183,12 +198,13 @@ impl Session {
         for (peer, e) in self.media.apply(routes).await {
             crate::note!("cannot reach {}: {e}", short(&peer));
         }
-        // Dials hold the call loop (shortcut in host.rs), so leaves and chat wait meanwhile.
+        // Dials hold the host's call loop (shortcut in host.rs), so leaves and chat wait there.
+        // A guest still hears the call end and can leave (`guest::link_up`). Media waits on both.
         if started.elapsed() > Duration::from_secs(1) {
             crate::note!("call: linking up took {:?}", started.elapsed());
         }
         // Whoever just linked up needs a keyframe to start decoding.
-        self.pipes.control.keyframe.store(true, Ordering::Relaxed);
+        self.pipes.ask_keyframes();
         self.announcer.restart(Instant::now());
         self.refresh_paths();
         self.announce().await;
@@ -290,7 +306,18 @@ impl Session {
         let Some(sender) = &mut self.sender else {
             return;
         };
-        match sender.encrypt_layer(encoded.layer, &encoded.payload) {
+        let signed;
+        let payload = if screen_proof::is_screen(&encoded.payload) {
+            let (binding, id) = (sender.binding(), sender.next_frame_id());
+            let proof =
+                screen_proof::sign(&self.identity, binding, &id, encoded.layer, &encoded.payload);
+            let Some(proof) = proof else { return };
+            signed = proof;
+            signed.as_slice()
+        } else {
+            encoded.payload.as_slice()
+        };
+        match sender.encrypt_layer(encoded.layer, payload) {
             Ok(sealed) => {
                 self.frame_id = self.frame_id.wrapping_add(1);
                 self.media.send_frame(self.frame_id, &sealed).await;
@@ -339,7 +366,7 @@ impl Session {
     fn on_incoming(&mut self, incoming: &Incoming) {
         let (packet, video) = match &incoming.media {
             Media::KeyframeRequest => {
-                self.pipes.control.keyframe.store(true, Ordering::Relaxed);
+                self.pipes.ask_keyframes();
                 return;
             }
             Media::App(sealed) => {
@@ -366,11 +393,19 @@ impl Session {
             return;
         };
         if let Some(layer) = layer {
-            let _ = self.pipes.video_in.try_send(VideoIn {
-                id,
-                layer,
-                payload: plain,
-            });
+            // A shared screen must carry the signature of the device that holds this leaf.
+            let payload = if screen_proof::is_screen(&plain) {
+                let Some((device, binding)) = ring.signer(packet, leaf, Instant::now()) else {
+                    return;
+                };
+                match screen_proof::check(&device, &binding, packet, layer, plain) {
+                    Some(payload) => payload,
+                    None => return,
+                }
+            } else {
+                plain
+            };
+            let _ = self.pipes.video_in.try_send(VideoIn { id, layer, payload });
             return;
         }
         let Ok((header, opus)) = AudioHeader::read(&plain) else {

@@ -26,6 +26,8 @@ pub struct LinkRow {
     /// The person this link reaches; `None` for a forwarder (it carries everyone).
     pub id: Option<u32>,
     pub path: LinkPath,
+    /// The link runs over IPv6.
+    pub ipv6: bool,
     pub rtt: Duration,
     /// Packets lost in the last second, as a percentage of those sent.
     pub loss: Option<f32>,
@@ -101,6 +103,7 @@ impl Sampler {
             let mut row = LinkRow {
                 id: person(&peer),
                 path: super::session::link_path(&link.path),
+                ipv6: link.ipv6,
                 rtt: link.rtt,
                 loss: None,
                 down_kbps: None,
@@ -159,6 +162,7 @@ mod tests {
     fn link(sent: u64, lost: u64, up: u64, down: u64) -> LinkStats {
         LinkStats {
             path: Path::Direct,
+            ipv6: false,
             rtt: Duration::from_millis(23),
             sent_packets: sent,
             lost_packets: lost,

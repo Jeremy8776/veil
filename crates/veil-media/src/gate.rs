@@ -119,6 +119,7 @@ mod tests {
             picture,
             reference,
             needs_lower: false,
+            screen: false,
             timestamp_us: 0,
             width: 640,
             height: 360,

@@ -4,7 +4,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::time::{MissedTickBehavior, interval};
 use veil_call::{CallNode, MemberEvent, join};
-use veil_net::Node;
 use veil_security::Identity;
 use veil_security::invite::Invite;
 use veil_security::safety::safety_number;
@@ -18,7 +17,7 @@ pub async fn run(args: JoinArgs) -> Result<(), String> {
         .map_or(0, |d| d.as_secs());
     let invite = Invite::from_link(&args.link, now).map_err(|e| format!("invite: {e}"))?;
     let identity = Identity::generate();
-    let node = Node::bind(&identity, args.bind).map_err(|e| format!("bind {}: {e}", args.bind))?;
+    let node = crate::bind(&identity, args.bind)?;
     let mut call = CallNode::for_invite(&identity, node, &invite).await;
     call.set_relay_only(args.relay_only);
     println!(

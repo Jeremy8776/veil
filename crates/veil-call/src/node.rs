@@ -2,8 +2,8 @@
 //!
 //! Purpose: every participant, host or joiner, starts a [`CallNode`]. It accepts links on the
 //! node's socket and routes them (joiners to the host session, members to media), registers
-//! with the call's rendezvous node if there is one, and dials peers along the best path that
-//! works: direct, then a punched dial through an introduction, then a relay session.
+//! with the call's rendezvous node if there is one, and dials peers (`dial.rs`: direct, punched
+//! and relayed paths, started in stages).
 //!
 //! Invariants:
 //! - Every dial names the key it expects, on every path. A relayed link is still the two
@@ -20,13 +20,13 @@ use getrandom::SysRng;
 use getrandom::rand_core::UnwrapErr;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use veil_net::{Link, Node, NodeAddr};
-use veil_rendezvous::socket::RELAY_PEER;
-use veil_rendezvous::{punch, room_tag, store_invite};
+use veil_net::{Node, NodeAddr};
+use veil_rendezvous::{room_tag, store_invite};
 use veil_security::invite::{Invite, lobby_pass};
 use veil_security::short_invite::ShortInvite;
 use veil_security::{Identity, PublicId};
 
+use crate::dial::{Dialled, dial};
 use crate::host::HostHandle;
 use crate::inbound::{Inbound, Router};
 use crate::presence::{Consent, Presence, Seat};
@@ -50,14 +50,6 @@ pub enum Path {
     Relayed,
     /// To a forwarder, which carries every member's media.
     Forwarder,
-}
-
-/// A dialled link and what keeps it running.
-pub(crate) struct Dialled {
-    pub link: Link,
-    /// The virtual node of a relayed link. Must live as long as the link.
-    pub via: Option<Arc<Node>>,
-    pub path: Path,
 }
 
 pub struct CallNode {
@@ -272,46 +264,6 @@ impl CallNode {
     ) -> Result<Dialled, CallError> {
         dial(&self.node, self.presence.as_ref(), peer, addrs, self.relay_only).await
     }
-}
-
-/// Dials `peer` by the first path that works: direct, punched, relayed. `relay_only` skips the
-/// first two, so the peer never learns this node's address.
-pub(crate) async fn dial(
-    node: &Node,
-    presence: Option<&Presence>,
-    peer: PublicId,
-    addrs: &[SocketAddr],
-    relay_only: bool,
-) -> Result<Dialled, CallError> {
-    let mut last = CallError::Net(veil_net::NetError::NoAddresses);
-    if !relay_only {
-        if !addrs.is_empty() {
-            match node.connect(addrs, peer).await {
-                Ok(link) => return Ok(Dialled { link, via: None, path: Path::Direct }),
-                Err(e) => last = e.into(),
-            }
-        }
-        if let Some(presence) = presence {
-            let punched = match presence.introduce(peer).await {
-                Ok(plan) => punch(node, &plan).await.map_err(CallError::from),
-                Err(e) => Err(e),
-            };
-            match punched {
-                Ok(link) => return Ok(Dialled { link, via: None, path: Path::Punched }),
-                Err(e) => last = e,
-            }
-        }
-    }
-    let Some(presence) = presence else {
-        return Err(last);
-    };
-    let inner = presence.relay(peer).await?;
-    let link = inner.connect(&[RELAY_PEER], peer).await?;
-    Ok(Dialled {
-        link,
-        via: Some(inner),
-        path: Path::Relayed,
-    })
 }
 
 #[cfg(test)]

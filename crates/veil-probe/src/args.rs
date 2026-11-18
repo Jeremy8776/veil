@@ -16,11 +16,15 @@ host  starts a call, prints an invite link and admits whoever uses it. --adverti
       media through a veil-node forwarder instead of a mesh.
 join  joins the call in LINK. --relay-only never dials directly, so peers never see your address.
 
+The default bind ([::]) takes IPv4 and IPv6 on one socket (IPv4 only where the system has no
+IPv6). The host adds its public IPv6 address to the invite by itself, and every dial tries IPv6
+first, so two machines with IPv6 link over IPv6 (the link lines then say over IPv6).
+
 Both sides then send a sealed probe every second, as a video frame and as an audio datagram,
 and print round-trip times, the path each link took and the reply rate.";
 
-pub const DEFAULT_HOST_BIND: &str = "0.0.0.0:7710";
-pub const DEFAULT_JOIN_BIND: &str = "0.0.0.0:0";
+pub const DEFAULT_HOST_BIND: &str = "[::]:7710";
+pub const DEFAULT_JOIN_BIND: &str = "[::]:0";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {

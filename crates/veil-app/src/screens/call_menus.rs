@@ -1,5 +1,6 @@
 //! The pieces the call bar's pop-up menus are built from: the menu frame, section headings,
-//! choice rows with a tick, the volume slider, the blur switch and the filter swatches.
+//! choice rows with a tick, the volume slider, the blur switch, the filter swatches and a
+//! full-width on/off button.
 //!
 //! Purpose: the Audio, Video and Effects menus look like Zoom's and Teams' (a list you tick,
 //! not a drop-down inside a pop-up).
@@ -286,6 +287,39 @@ pub fn blur_switch(ui: &mut Ui, media: &LocalMedia) {
         )
         .on_hover_text("Turn the camera on again when fewer apps are running, or turn blur off.");
     }
+}
+
+/// A full-width button with an icon, filled in the accent colour while `on`. Sized and coloured
+/// like the blur switch above it.
+pub fn toggle_button(ui: &mut Ui, icon: Icon, label: &str, on: bool) -> Response {
+    const ICON: f32 = 16.0;
+    const GAP: f32 = 8.0;
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
+    response.widget_info(|| WidgetInfo::selected(Role::Button, true, on, label));
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+    let painter = ui.painter();
+    let fill = if on {
+        ACCENT
+    } else if response.hovered() {
+        RAISED_HOVER
+    } else {
+        RAISED
+    };
+    painter.rect_filled(rect, CornerRadius::same(8), fill);
+    if response.has_focus() {
+        painter.rect_stroke(rect, 8, Stroke::new(2.0, TEXT), StrokeKind::Inside);
+    }
+    let colour = if on { Color32::WHITE } else { TEXT };
+    let galley = painter.layout_no_wrap(label.to_string(), FontId::proportional(13.0), colour);
+    let left = rect.center().x - (ICON + GAP + galley.size().x) / 2.0;
+    let y = rect.center().y;
+    icon.paint(painter, pos2(left + ICON / 2.0, y), ICON, colour);
+    let text_at = pos2(left + ICON + GAP, y - galley.size().y / 2.0);
+    painter.galley(text_at, galley, colour);
+    response
 }
 
 fn blur_label(blur: Blur) -> &'static str {

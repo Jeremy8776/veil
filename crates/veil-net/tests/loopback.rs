@@ -138,3 +138,37 @@ async fn audio_packet_crosses_as_one_datagram() {
         .unwrap();
     assert_eq!(&got[..], &[9u8; 160][..]);
 }
+
+/// A dual-stack node is dialled over IPv4 and over IPv6 on one socket, and an IPv4 peer
+/// shows as plain IPv4.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dual_stack_node_takes_both_families() {
+    let host_id = Identity::generate();
+    let host = Node::bind_any(&host_id, 0).unwrap();
+    if !host.ipv6() {
+        eprintln!("no IPv6 on this machine; skipped");
+        return;
+    }
+    let port = host.local_addr().unwrap().port();
+    tokio::spawn(async move { while host.accept().await.is_some() {} });
+
+    let v4 = Node::bind(&Identity::generate(), localhost()).unwrap();
+    let link = v4
+        .connect(&[SocketAddr::from(([127, 0, 0, 1], port))], host_id.public())
+        .await
+        .unwrap();
+    assert!(link.remote_addr().is_ipv4());
+
+    let v6 = Node::bind_any(&Identity::generate(), 0).unwrap();
+    let link = v6
+        .connect(
+            &[
+                SocketAddr::from(([127, 0, 0, 1], port)),
+                SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port)),
+            ],
+            host_id.public(),
+        )
+        .await
+        .unwrap();
+    assert!(link.remote_addr().is_ipv6(), "IPv6 should win: {}", link.remote_addr());
+}

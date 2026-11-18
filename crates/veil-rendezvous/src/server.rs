@@ -35,7 +35,7 @@ use veil_net::{Link, NetError, Node};
 use veil_security::PublicId;
 
 use crate::invites::{MAX_FETCHES_PER_LINK, Shelf};
-use crate::limit::{Bucket, TOTAL_BURST, TOTAL_RATE};
+use crate::limit::{Bucket, FairShare, TOTAL_RATE};
 use crate::reach::{self, LinkChecks};
 use crate::room::{Member, Room, RoomKey};
 use crate::protocol::{
@@ -68,8 +68,8 @@ struct State {
     relay_disabled: bool,
     /// When set, the only room this server serves.
     only_room: Option<RoomKey>,
-    /// Every relayed byte, all sessions together.
-    total: Bucket,
+    /// Every relayed byte, all sessions together, shared fairly when short.
+    total: FairShare,
     /// Sealed invites for short links (`invites.rs`).
     invites: Shelf,
 }
@@ -82,7 +82,7 @@ impl Default for State {
             requests: HashMap::new(),
             relay_disabled: false,
             only_room: None,
-            total: Bucket::with_rate(TOTAL_RATE, TOTAL_BURST, Instant::now()),
+            total: FairShare::new(TOTAL_RATE, Instant::now()),
             invites: Shelf::default(),
         }
     }
@@ -150,7 +150,7 @@ impl RendezvousServer {
     /// [`crate::limit::TOTAL_RATE`]), with a tenth of a second of burst.
     pub fn with_total_rate(self, bytes_per_second: f64) -> Self {
         if let Some(mut s) = lock(&self.state) {
-            s.total = Bucket::with_rate(bytes_per_second, bytes_per_second / 10.0, Instant::now());
+            s.total = FairShare::new(bytes_per_second, Instant::now());
         }
         self
     }
@@ -492,9 +492,11 @@ fn route(state: &Shared, session: u32, from: PublicId) -> Option<quinn::Connecti
     s.sessions.route(session, from, Instant::now()).cloned()
 }
 
-/// Whether the server's total relay budget has room for `bytes` now.
-fn within_total(state: &Shared, bytes: usize) -> bool {
-    lock(state).is_some_and(|mut s| s.total.take(bytes, Instant::now()))
+/// Whether the server's total relay budget has room for `bytes` from `conn`'s address block.
+/// The address is read each time because a phone's can change during a call.
+fn within_total(state: &Shared, conn: &quinn::Connection, bytes: usize) -> bool {
+    let sender = block(conn.remote_address().ip());
+    lock(state).is_some_and(|mut s| s.total.take(sender, bytes, Instant::now()))
 }
 
 /// One member's bandwidth buckets, by relay session (`limit.rs`). Only sessions the member
@@ -518,7 +520,7 @@ async fn forward_datagrams(conn: quinn::Connection, me: PublicId, state: Shared,
         };
         if let Some(target) = route(&state, session, me)
             && within_limit(&buckets, session, datagram.len())
-            && within_total(&state, datagram.len())
+            && within_total(&state, &conn, datagram.len())
         {
             let _ = target.send_datagram(datagram);
         }
@@ -527,7 +529,7 @@ async fn forward_datagrams(conn: quinn::Connection, me: PublicId, state: Shared,
 
 async fn forward_streams(conn: quinn::Connection, me: PublicId, state: Shared, buckets: Buckets) {
     while let Ok(mut stream) = conn.accept_uni().await {
-        let (state, buckets) = (state.clone(), buckets.clone());
+        let (state, buckets, conn) = (state.clone(), buckets.clone(), conn.clone());
         tokio::spawn(async move {
             let mut head = [0u8; STREAM_HEADER];
             if stream.read_exact(&mut head).await.is_err() {
@@ -537,7 +539,7 @@ async fn forward_streams(conn: quinn::Connection, me: PublicId, state: Shared, b
             let Some(target) = route(&state, session, me) else {
                 return;
             };
-            if !within_limit(&buckets, session, len) || !within_total(&state, len) {
+            if !within_limit(&buckets, session, len) || !within_total(&state, &conn, len) {
                 return;
             }
             let mut packet = vec![0u8; len];

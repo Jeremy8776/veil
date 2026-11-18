@@ -1,9 +1,9 @@
-//! The call's side panels: People (with the lobby), Chat, and Security (safety numbers and
-//! how each person is connected). One is open at a time, on the right.
+//! The call's side panels: People (with the lobby), Chat, and Security (drawn by
+//! `security_panel.rs`). One is open at a time, on the right.
 //!
 //! Invariants:
 //! - Only the host sees Admit, Decline and Remove.
-//! - In a demo call, chat and safety numbers say they are not real.
+//! - In a demo call, chat says it is not real.
 //! - In a real call, chat is sealed on this device and sent to everyone in the call.
 //! - A person in the lobby shows their safety number on hover, so the host can compare it
 //!   before letting them in.
@@ -14,8 +14,9 @@ use std::time::Instant;
 use eframe::egui::{self, Align, Key, Layout, RichText, ScrollArea, Sense, TextEdit, vec2};
 
 use crate::icons::Icon;
-use crate::model::{LinkPath, Participant, Reachable, RouterPort, clock};
+use crate::model::{Participant, Reachable, RouterPort, clock};
 use crate::screens::call::CallView;
+use crate::screens::security_panel;
 use crate::theme::{self, MUTED, RAISED, SURFACE};
 use crate::widgets::{self, Tone, pill};
 
@@ -52,7 +53,7 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, panel: Panel, now: Instant) 
             match panel {
                 Panel::People => people(view, ui, now),
                 Panel::Chat => chat(view, ui, now),
-                Panel::Security => security(view, ui),
+                Panel::Security => security_panel::show(view, ui),
             }
         });
 }
@@ -154,12 +155,12 @@ Compare it with them before letting them in.",
                         );
                         if waiting.verified {
                             verified_tag(ui).on_hover_text(
-                                "You verified this device in an earlier call.                                  You still decide whether to let them in.",
+                                "You verified this device in an earlier call. You still decide whether to let them in.",
                             );
                         } else if !waiting.safety.is_empty() {
                             ui.label(RichText::new("New device").small().color(theme::WARN))
                                 .on_hover_text(
-                                    "You have not verified this device.                                      Compare the safety number before letting them in.",
+                                    "You have not verified this device. Compare the safety number before letting them in.",
                                 );
                         }
                     });
@@ -318,72 +319,6 @@ fn chat(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     });
 }
 
-fn security(view: &mut CallView, ui: &mut egui::Ui) {
-    let mut change = None;
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
-        Icon::Shield.paint(ui.painter(), rect.center(), 18.0, theme::SPEAKING);
-        ui.label(RichText::new("End-to-end encrypted").color(theme::SPEAKING))
-            .on_hover_text("Encrypted on each device. Relays and forwarders cannot open it.");
-        let epoch = format!("Key {}", view.call.epoch);
-        ui.label(RichText::new(epoch).small().color(MUTED))
-            .on_hover_text("A new key starts whenever someone joins or leaves.");
-    });
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        section(ui, "Safety numbers");
-        if view.call.demo {
-            ui.label(RichText::new("demo").small().color(theme::WARN))
-                .on_hover_text("Made up for the demo call.");
-        }
-        let (rect, response) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-        Icon::Info.paint(ui.painter(), rect.center(), 12.0, MUTED);
-        response.on_hover_text(
-            "Compare with each person over another channel. A match means nobody is in between.",
-        );
-    });
-    ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            for person in view.call.participants.iter().filter(|p| !p.is_you) {
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    person_avatar(ui, &person.name);
-                    ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 2.0;
-                        ui.label(&person.name);
-                        path_label(ui, person.path);
-                    });
-                });
-                let groups: Vec<&str> = person.safety.split(' ').collect();
-                for row in groups.chunks(4) {
-                    ui.label(RichText::new(row.join("  ")).monospace().size(13.0));
-                }
-                ui.horizontal(|ui| {
-                    if person.verified {
-                        verified_tag(ui).on_hover_text("Kept for future calls on this device.");
-                        let forget = ui
-                            .small_button("Forget")
-                            .on_hover_text("Stop treating this device as verified.");
-                        if forget.clicked() {
-                            change = Some((person.id, false));
-                        }
-                    } else {
-                        let mark = ui.small_button("Mark verified").on_hover_text(
-                            "Only after the numbers match over another channel.                              Kept for future calls.",
-                        );
-                        if mark.clicked() {
-                            change = Some((person.id, true));
-                        }
-                    }
-                });
-            }
-        });
-    if let Some((id, verified)) = change {
-        view.call.set_verified(id, verified);
-    }
-}
-
 /// A small green "Verified" label with a shield.
 fn verified_tag(ui: &mut egui::Ui) -> egui::Response {
     ui.horizontal(|ui| {
@@ -393,19 +328,6 @@ fn verified_tag(ui: &mut egui::Ui) -> egui::Response {
         ui.label(RichText::new("Verified").small().color(theme::SPEAKING));
     })
     .response
-}
-
-fn path_label(ui: &mut egui::Ui, path: LinkPath) {
-    let colour = match path {
-        LinkPath::Relayed => theme::WARN,
-        LinkPath::Pending => MUTED,
-        _ => theme::SPEAKING,
-    };
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
-        Icon::Signal.paint(ui.painter(), rect.center(), 12.0, colour);
-        ui.label(RichText::new(path.label()).small().color(colour));
-    });
 }
 
 fn section(ui: &mut egui::Ui, text: &str) {

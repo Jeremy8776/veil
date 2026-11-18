@@ -21,6 +21,7 @@
 
 #![allow(unsafe_code)]
 
+mod app_window;
 mod audio;
 mod audio_devices;
 mod camera;
@@ -28,12 +29,15 @@ mod decoder;
 mod enumerate;
 mod protect;
 mod sample;
+mod screen_stream;
 
+pub use app_window::{is_app_window, set_hidden_from_capture};
 pub use audio::{WasapiCapture, WasapiPlayback};
 pub use audio_devices::{AudioDevice, microphones, speakers};
 pub use camera::{CameraInfo, MfCamera, cameras};
 pub use decoder::MfDecoder;
 pub use protect::{protect, unprotect};
+pub use screen_stream::ScreenStream;
 
 use std::mem::ManuallyDrop;
 use std::time::{Duration, Instant};

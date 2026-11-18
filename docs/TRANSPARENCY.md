@@ -33,12 +33,12 @@ see this:
 | Party | Sees |
 |---|---|
 | The network | Which addresses talk to which, when, and how much |
-| Rendezvous node | Members' IP addresses, a hash of the room id, when people join. When a host with a configured `veil-node` has a public port (opened on the router, or set by hand), the node also learns that port: it dials the host back once, from a separate port with a throwaway key, to check guests can reach it. It dials only the asker's own IP. While a host's room is open, the node also stores its sealed invites for short links, and sees when each is stored and which IP addresses fetch one. It cannot read them |
+| Rendezvous node | Members' IP addresses, a hash of the room id, when people join. Each member with IPv6 also tells it its public IPv6 address, so other members can be introduced to it and dial it over IPv6. When a host with a configured `veil-node` has a public port (opened on the router, or set by hand), the node also learns that port: it dials the host back once, from a separate port with a throwaway key, to check guests can reach it. It dials only the asker's own IP. If that node has an IPv6 address too, it does the same for the host's public IPv6 address. While a host's room is open, the node also stores its sealed invites for short links, and sees when each is stored and which IP addresses fetch one. It cannot read them |
 | Relay | Members' IP addresses, encrypted traffic volume and timing |
 | Forwarder | Members' device keys and the room hash (from the host's roster ticket), traffic volume and timing, and each video frame's layer marker: which resolution tier and frame-rate step it is, and whether it is a keyframe. Names and chat pass through it sealed: it sees when one is sent and how large it is, not who sent it or what it says |
-| Other members | Your device key, the display name you chose, your chat messages, and your IP address unless you use relay-only mode. Chat is not stored: it is gone when the call ends |
-| Your router | With "Open a port on my router" on, while you host: this computer's LAN address, the ports opened for the call, and that a program called "Veil" asked for them (section 3) |
-| Anyone holding an invite link | The host's device key and the addresses in it: the host's LAN address and port, the router's public address and port when the router opened one, and any public address set in `VEIL_ADVERTISE`. If the host runs its own rendezvous, also that rendezvous's LAN address and port, and its public port when the router opened one. The desktop app puts these in every invite so a guest can dial directly. Through the rendezvous they can also learn the host's public address, since joiners punch through to the host. They cannot learn any other member's address: a member accepts an introduction only from peers its current routes link to |
+| Other members | Your device key, the display name you chose, your chat messages, and your IP addresses (IPv4 and, if you have one, your public IPv6 address) unless you use relay-only mode. Chat is not stored: it is gone when the call ends |
+| Your router | With "Open a port on my router" on, while you host: this computer's LAN address, the ports opened for the call, and that a program called "Veil" asked for them (section 3). With IPv6, also this computer's public IPv6 address, in a PCP request to let the call's port through the router's firewall |
+| Anyone holding an invite link | The host's device key and the addresses in it: the host's LAN address and port, the router's public address and port when the router opened one, the host's public IPv6 address and port when it has one, and any public address set in `VEIL_ADVERTISE`. If the host runs its own rendezvous, also that rendezvous's LAN address and port, and its public port when the router opened one. The desktop app puts these in every invite so a guest can dial directly. Through the rendezvous they can also learn the host's public address, since joiners punch through to the host. They cannot learn any other member's address: a member accepts an introduction only from peers its current routes link to |
 
 When the desktop app hosts without a configured `veil-node`, it runs a rendezvous, relay and
 forwarder of its own on extra ports for the length of the call. They see what any rendezvous,
@@ -67,6 +67,20 @@ IPv4 address or IPv6 /64 holds at most 128. A session unused for 30 seconds can 
 and a full relay can replace the longest-idle session of the address that holds the most. The
 relay does not tell the members when it does this. A link still using a session keeps it unless
 the relay is full.
+
+**Screen sharing** starts only when you choose a screen or window and press Share. While it
+runs, the call shows what you are sending and a small bar over your other apps says so. On
+Windows that bar is kept out of captures, so those watching do not see it. The
+picker's thumbnails and preview stay on your device. While the picker is open, and for half a
+second after it closes, Veil's window is kept out of captures on Windows. Where that cannot be
+done, those watching get a still picture for that time. Pictures are sealed end
+to end like your camera, and window titles are neither logged nor sent. A forwarder sees one
+more video stream from you but not that it is a screen. On Windows the live share and the
+picker's thumbnails use Windows Graphics Capture, which includes the mouse pointer. The first
+thumbnails, the area preview and other systems use the `xcap` crate, which holds its own
+`unsafe` code. If the source goes away,
+sharing stops rather than moving on. Sharing is turned off in Linux Wayland sessions, because
+`xcap` would have the desktop write each picture of your screen to a file there.
 
 **Filters and Background blur** run on your device, on each camera picture before your
 self-view and before it is encoded, so other members receive only the changed picture. Finding
@@ -164,7 +178,10 @@ release file is listed in `SHA256SUMS.txt` with build provenance from GitHub.
   forwarder, a member who changes their own copy of Veil could still send video or sound that
   shows in another member's tile, or stop that member's real video and sound from showing
   until the key next changes. Relays and forwarders cannot.
-  Names and chat are different: each is signed with the sender's device key, so no member
+  A shared screen is different: each picture is signed with the sender's device key, so no
+  member can show one as someone else's share. A member can still stop a real share's
+  pictures from showing in the same way.
+  Names and chat are different too: each is signed with the sender's device key, so no member
   can send one as someone else (fixed 16/11/2026), stop someone else's (fixed 17/11/2026), or
   replay one from an earlier call (fixed 17/11/2026).
 - After the key changes, frames sealed under the previous key are still accepted for 2 s, so
@@ -181,7 +198,10 @@ Veil sends nothing to its authors and has no built-in servers. Every rendezvous,
 forwarder address comes from an invite, a config file or an environment variable you control
 (`VEIL_RENDEZVOUS`, `VEIL_ADVERTISE`, `VEIL_PORT` for the desktop app). To find its LAN
 address, the app asks the operating system which interface would route to a documentation
-address (192.0.2.1); no packet is sent. Addresses in the source
+address (192.0.2.1); no packet is sent. It finds its public IPv6 address the same way, with
+2001:db8::1. On Windows and macOS that is usually a temporary (privacy) address, which the
+system replaces about once a day; Veil never uses a link-local or private (ULA) IPv6 address
+in an invite. Addresses in the source
 code are from the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24,
 2001:db8::/32) and appear only in tests.
 
@@ -292,10 +312,13 @@ Veil's licence. On Windows, `build.rs` embeds it in the exe with `winresource`.
 | `veil-media/src/ffi/windows/decoder.rs` | Microsoft's H.264 decoder transform (`CoCreateInstance` of `CLSID_MSH264DecoderMFT`, `IMFTransform`, `ICodecAPI` low latency, media types, `GetBlob` for the display area) and the shared NV12 copy in `sample.rs` | Decoding other members' video on Windows, on the CPU. The bitstream comes from another member and is parsed by Windows' decoder, so that decoder is part of the attack surface. Veil refuses any decoded size above 4K before allocating for it, and copies each picture out of the locked buffer within the bounds Windows reports |
 | `veil-media/src/ffi/windows/audio.rs`, `audio_devices.rs` | WASAPI (`IMMDeviceEnumerator` `EnumAudioEndpoints`, `GetDevice`, `GetDefaultAudioEndpoint`, each device's `GetId` and friendly name through `OpenPropertyStore`, `PropVariantToStringAlloc`, `PropVariantClear`, `CoTaskMemFree`, `IAudioClient` and `IAudioClient2` in shared, event-driven mode, `IAudioCaptureClient`, `IAudioRenderClient`, `CreateEventW`, `WaitForSingleObject`, `CloseHandle`) | Microphone and speakers on Windows, 48 kHz float, converted by Windows. Samples are copied byte by byte within the frame count WASAPI gives. The streams use the communications category, so Windows may apply the device's own echo cancellation and noise suppression. Device names and ids stay on this device; nothing about them is sent |
 | `veil-media/src/ffi/windows/camera.rs` | Media Foundation capture (`MFEnumDeviceSources`, the camera's `IMFMediaSource`, `MFCreateSourceReaderFromMediaSource`, `IMFSourceReader::ReadSample`, `IMF2DBuffer2::Lock2DSize`) | Camera pictures on Windows, converted to NV12 by Windows' own video processing. Each picture is copied out of the locked buffer, within the bounds Windows reports, before it is used. The camera's name stays on the device; nothing about it is sent |
+| `veil-media/src/ffi/windows/app_window.rs` | `GetWindowLongW` (extended style), `GetWindow` (owner), `FindWindowExW`, `GetWindowThreadProcessId`, `SetWindowDisplayAffinity` | Leaving overlays and helper windows out of the screen share picker, by reading those two properties of each window. Veil's sharing bar, and its main window while the picker is open, are found by their fixed titles, checked to belong to Veil, and kept out of screen captures |
+| `veil-media/src/ffi/windows/screen_stream.rs` | Windows Graphics Capture (`GraphicsCaptureItem` through `IGraphicsCaptureItemInterop`, `Direct3D11CaptureFramePool`, `GraphicsCaptureSession`) and Direct3D 11 (`D3D11CreateDevice`, `CreateTexture2D`, `CopySubresourceRegion`, `Map`, `Unmap`) | The live picture of a shared screen or window, and of the thumbnails while the picker is open. Each picture is copied out within the row pitch Windows reports. Thumbnails stay on your device. Only after you press Share are pictures sealed and sent like camera video |
 | `veil-media/src/ffi/windows/protect.rs` | DPAPI (`CryptProtectData`, `CryptUnprotectData` with `CRYPTPROTECT_UI_FORBIDDEN` and a per-purpose label as extra entropy, `LocalFree`) | Sealing `veil-app`'s saved device key and verified list to the signed-in Windows user. It sits in `veil-media` only because all of Veil's `unsafe` code does |
 | `veil-media/src/ffi/opus.rs` (every platform) | libopus: `opus_encoder_create`, `opus_encode_float`, `opus_encoder_ctl`, `opus_decoder_create`, `opus_decode_float`, the matching `_destroy` calls, `opus_get_version_string` | Opus audio. Every buffer is a Rust slice whose length is the count passed to libopus, and packet lengths are checked before decoding. Each state is freed once, on drop |
 | `veil-media/src/ffi/openh264.rs` (Linux and macOS; also built for its tests on Windows) | OpenH264's encoder and decoder through their vtables: `WelsCreateSVCEncoder`, `GetDefaultParams`, `InitializeExt`, `SetOption`, `ForceIntraFrame`, `EncodeFrame`, `WelsCreateDecoder`, `Initialize`, `DecodeFrameNoDelay`, `Uninitialize` and the matching `WelsDestroy*` calls | H.264 off Windows, one encoder per simulcast rung with temporal layers, and decoding other members' video. The bitstream comes from another member, so OpenH264's decoder is part of the attack surface. Veil refuses any decoded size above 4K, reads each output plane only within the rows and pitch OpenH264 reports, and copies it out before the next call. Each encoder and decoder is destroyed once, on drop |
 | `veil-media/src/ffi/macos` (`camera.rs`) | AVFoundation (`AVCaptureDevice` listing, permission request, formats and frame rates, `AVCaptureSession`, `AVCaptureDeviceInput`, `AVCaptureVideoDataOutput` with a sample buffer delegate on a serial dispatch queue) and CoreVideo (`CVPixelBufferLockBaseAddress`, plane base addresses, pitches and heights) | Camera pictures on macOS, converted to NV12 by AVFoundation. Each picture is copied out of the locked pixel buffer within the plane sizes CoreVideo reports, then unlocked. macOS asks the person for camera permission; a refusal stops the camera. The camera's name stays on the device |
+| `veil-media/src/ffi/macos/screen.rs` | Core Graphics (`CGPreflightScreenCaptureAccess`, `CGRequestScreenCaptureAccess`, `CGWindowListCopyWindowInfo`) and Core Foundation (`CFArrayGetCount`, `CFRelease`) | Checking the Screen Recording permission before capturing, and whether a shared window that is out of sight still exists. Only a yes or no is kept. No window's details are read |
 
 ## 6. Known shortcuts
 

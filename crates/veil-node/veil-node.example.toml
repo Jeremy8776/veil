@@ -5,6 +5,8 @@
 identity_file = "node.key"
 
 # Address reflection and hole-punch introductions. Relays when direct links fail.
+# "[::]:4433" listens on IPv4 and IPv6 at once, so the node can also reflect and check
+# members' IPv6 addresses. "0.0.0.0:4433" is IPv4 only.
 [rendezvous]
 listen = "0.0.0.0:4433"
 relay = true
