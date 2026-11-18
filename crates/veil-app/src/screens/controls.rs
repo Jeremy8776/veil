@@ -67,7 +67,7 @@ pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
         ui,
         Icon::Effects,
         "Effects",
-        "Filters and background blur",
+        "Filters, background blur and mirror",
         ControlState::default(),
     );
     menu(&effects, |ui| effects_menu(app, ui));
@@ -166,13 +166,6 @@ fn video_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
         app.media.choose_camera(id);
     }
     device_error(ui, app.media.camera_error());
-    call_menus::divider(ui);
-    call_menus::section(ui, Icon::Mirror, "Mirror");
-    let mirrored = app.media.mirror();
-    let mirror = call_menus::choice(ui, "Mirror video", mirrored);
-    if mirror.on_hover_text(MIRROR_HINT).clicked() {
-        app.media.set_mirror(!mirrored);
-    }
 }
 
 fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
@@ -181,6 +174,12 @@ fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
     call_menus::divider(ui);
     call_menus::section(ui, Icon::Effects, "Filter");
     call_menus::filter_swatches(ui, &app.media);
+    call_menus::divider(ui);
+    let mirrored = app.media.mirror();
+    let mirror = call_menus::choice(ui, "Mirror video", mirrored);
+    if mirror.on_hover_text(MIRROR_HINT).clicked() {
+        app.media.set_mirror(!mirrored);
+    }
 }
 
 /// The arrow beside a control that opens its device menu: the right half of a split
