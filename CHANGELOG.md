@@ -37,6 +37,14 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 - Older versions still join calls from this version, and the other way round. Invites keep
   their format; an older version skips the IPv6 address it cannot dial and uses IPv4. Only
   calls where both ends run this version link over IPv6.
+### Added
+
+- You can mirror your video, before a call or from the video menu in a call. It flips your
+  picture left to right for everyone in the call. It is off by default.
+
+### Changed
+
+- Your own video now shows exactly what others see. It used to be mirrored on your screen only.
 
 ## 0.1.8, 18/11/2026
 
