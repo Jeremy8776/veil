@@ -468,3 +468,16 @@ pub fn centred_row<R>(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui) -> R) -> 
     }
     inner
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_mirrored_picture_swaps_only_its_left_and_right() {
+        let plain = cover_uv([1_280, 720], vec2(320.0, 180.0), false);
+        let mirrored = cover_uv([1_280, 720], vec2(320.0, 180.0), true);
+        assert_eq!((mirrored.min.x, mirrored.max.x), (plain.max.x, plain.min.x));
+        assert_eq!((mirrored.min.y, mirrored.max.y), (plain.min.y, plain.max.y));
+    }
+}

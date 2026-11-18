@@ -11,6 +11,11 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 - `veil.log` now records the error when Veil cannot start, for example with no graphics
   driver, display or font. Before, the log stopped at the version line.
 
+### Added
+
+- You can turn off the mirrored view of your own video, before a call or from the video menu
+  in a call. It changes only what you see: others always see you the normal way round.
+
 ## 0.1.8, 18/11/2026
 
 ### Security

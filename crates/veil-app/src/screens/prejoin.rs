@@ -8,6 +8,7 @@ use eframe::egui::{self, Align, Layout, RichText, Sense, vec2};
 use crate::app::VeilApp;
 use crate::firewall::State;
 use crate::icons::Icon;
+use crate::screens::controls::MIRROR_HINT;
 use crate::theme::{self, MUTED};
 use crate::widgets::{
     self, ControlState, Tile, Tone, card, control, device_error as status, device_picker as picker,
@@ -107,6 +108,13 @@ fn toggles(app: &mut VeilApp, ui: &mut egui::Ui) {
     if control(ui, Icon::Video, label, "Camera on or off", cam).clicked() {
         app.want_camera = !app.want_camera;
         app.media.set_camera(app.want_camera);
+    }
+    let mirror = ControlState {
+        selected: app.mirror_self,
+        ..Default::default()
+    };
+    if control(ui, Icon::Video, "Mirror", MIRROR_HINT, mirror).clicked() {
+        app.mirror_self = !app.mirror_self;
     }
 }
 

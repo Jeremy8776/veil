@@ -31,6 +31,8 @@ pub const CONTROLS: usize = 5;
 /// The arrows drawn here.
 pub const MENUS: usize = 2;
 const MENU_INNER: f32 = 280.0;
+/// Shown wherever mirroring can be turned on or off.
+pub const MIRROR_HINT: &str = "Changes only what you see. Others see you the normal way round.";
 
 pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
     let mic_on = app.media.mic_on();
@@ -164,6 +166,11 @@ fn video_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
         app.media.choose_camera(id);
     }
     device_error(ui, app.media.camera_error());
+    call_menus::divider(ui);
+    let mirror = call_menus::choice(ui, "Mirror my video", app.mirror_self);
+    if mirror.on_hover_text(MIRROR_HINT).clicked() {
+        app.mirror_self = !app.mirror_self;
+    }
 }
 
 fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
