@@ -392,8 +392,9 @@ private keys never leave the device. OS randomness is `getrandom::SysRng`.
 
 ## Open shortcuts (each marked `shortcut:` in the code)
 
-- Relay sessions are capped at 16 Mbit/s each (`veil-rendezvous/src/limit.rs`), but there is
-  no fair queuing and no total cap for the server. Needed before relaying for many strangers.
+- Relay sessions are capped at 16 Mbit/s each and the server at 1 Gbit/s, shared fairly by
+  address block when short (`veil-rendezvous/src/limit.rs`). People behind one carrier-grade
+  NAT address count as one sender.
 - Congestion control is quinn's loss-based default; real-time video needs a delay-based one.
 - Every forwarder in a cascade receives every stream (topology planner).
 - The host is the only MLS committer, so the call ends when the host leaves (`group.rs`).
@@ -556,8 +557,8 @@ Decisions:
   NAT and Veil says a public node is needed: forwarding cannot work there.
 - **Default node: optional.** Veil may ship with the address of a public `veil-node` that
   Jeremy runs. It is off until the user turns it on, and TRANSPARENCY.md says what it sees
-  (IP addresses, timing, room hashes; never media). Not before the relay has fair queuing and
-  a total cap (Open shortcuts).
+  (IP addresses, timing, room hashes; never media). The relay's total cap and fair sharing
+  this needed are done (Open shortcuts).
 - **Servers are chosen in the app**, saved per device. Environment variables still override.
 - `design/` (icon concepts) stays out of git. From 17/11/2026 the icon is concept 33b without
   its teal square, the V cut out, in plain white. `tools/make-icons.py` (needs Pillow) writes
@@ -611,8 +612,7 @@ From 17/11/2026, first:
 - A call with Martin on 0.1.6 to find why leaves go unnoticed (logs from both sides), and
   to test #34 and #38 across the internet. See "0.1.5 and 0.1.6" above.
 - The hand tests listed there.
-- Later: the optional default node, after the relay gets fair queuing and a total cap.
-  Calls of three or more where no guest has an open port still need a rendezvous.
+- Later: the optional default node. Calls of three or more where no guest has an open port still need a rendezvous.
 
 Earlier list:
 

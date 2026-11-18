@@ -11,6 +11,11 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 - `veil.log` now records the error when Veil cannot start, for example with no graphics
   driver, display or font. Before, the log stopped at the version line.
 
+### Security
+
+- One sender can no longer use up a relay's whole capacity and starve other calls. When a relay
+  runs short, each address gets an equal part, and spare capacity stays available to anyone.
+
 ## 0.1.8, 18/11/2026
 
 ### Security
