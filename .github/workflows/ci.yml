@@ -65,7 +65,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libxcb-randr0-dev libpipewire-0.3-dev libasound2-dev libclang-dev nasm pkg-config
+            libxcb-randr0-dev libpipewire-0.3-dev libegl-dev libgbm-dev libdrm-dev \
+            libasound2-dev libclang-dev nasm pkg-config
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       # Clippy covers the `cfg(not(windows))` stubs that the Windows job never compiles.
       - name: Clippy
