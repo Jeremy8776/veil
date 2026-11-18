@@ -32,7 +32,7 @@ use veil_forward::Wanted;
 use veil_media::{AudioHeader, AudioSettings, OpusEncoder};
 use veil_security::{Identity, PublicId};
 use veil_security::frame::{FrameSender, frame_layer};
-use veil_security::safety::safety_number;
+use veil_security::safety::{safety_number, side};
 
 use super::audio_out::AudioIn;
 use super::names::{Announcer, Names};
@@ -161,6 +161,7 @@ impl Session {
                 name: self.name_for(device),
                 is_host: *device == self.host,
                 safety: self.safety_with(device),
+                side: side(&self.me, device),
                 path: LinkPath::Pending,
             })
             .collect();

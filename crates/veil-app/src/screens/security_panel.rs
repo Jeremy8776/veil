@@ -1,19 +1,23 @@
-//! The Security side panel: is this call encrypted, and who have you checked?
+//! The Security panel: is this call encrypted, and who have you checked?
 //!
-//! Purpose: one short row per person, with the next step on it. Safety numbers stay hidden
-//! until you choose to verify someone, so the panel reads as a checklist, not a wall of digits.
+//! Purpose: checking someone should not mean reading 60 digits. Each person copies their code,
+//! sends it through another app and pastes the one they get back. Veil compares all 60 digits
+//! (`veil_security::safety`) and marks the person verified when they match.
 //!
 //! Invariants:
 //! - One person is open at a time (`CallView::verifying`).
 //! - Nobody can be marked verified without a safety number to compare.
+//! - Your own code pasted back never counts as a match.
+//! - Comparing digits by hand stays available, for someone on an older version of Veil.
 //! - "Verified" is only a label for a device you compared. The host still admits.
-//! - In a demo call the panel says the numbers are made up.
+//! - In a demo call the panel says the codes are made up.
 //! - How someone is connected is a tooltip: it says nothing about who they are.
 
 use eframe::egui::{
-    self, Align2, CornerRadius, FontId, Margin, Response, RichText, Role, ScrollArea, Sense,
-    Stroke, StrokeKind, Ui, WidgetInfo, pos2, vec2,
+    self, Align2, Button, CornerRadius, FontId, Margin, Response, RichText, Role, ScrollArea,
+    Sense, Stroke, StrokeKind, TextEdit, Ui, WidgetInfo, pos2, vec2,
 };
+use veil_security::safety::{CodeCheck, check_code, share_code};
 
 use crate::icons::Icon;
 use crate::model::{LinkPath, Participant};
@@ -22,8 +26,26 @@ use crate::theme::{self, ACCENT, MUTED, RAISED, RAISED_HOVER, TEXT};
 use crate::widgets::{self, Tone, pill};
 
 const ROW_H: f32 = 48.0;
-/// Lines the details up under the name, past the avatar.
-const DETAILS_LEFT: i8 = 46;
+const NAME_LEFT: f32 = 46.0;
+/// Far longer than a share code, so a stray paste cannot grow without limit.
+const PASTE_LIMIT: usize = 200;
+
+/// The person open in the panel, and what has been entered for them.
+pub struct Verifying {
+    id: u32,
+    pasted: String,
+    by_hand: bool,
+}
+
+impl Verifying {
+    fn new(id: u32) -> Self {
+        Self {
+            id,
+            pasted: String::new(),
+            by_hand: false,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Status {
@@ -47,10 +69,18 @@ impl Status {
     fn label(self) -> &'static str {
         match self {
             Self::Verified => "Verified",
-            Self::Unverified => "Verify",
+            Self::Unverified => "Not verified",
             Self::Connecting => "Connecting",
         }
     }
+}
+
+/// What the person did in the open section.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Step {
+    Copied,
+    Confirmed,
+    Forgot,
 }
 
 /// The line under "Encrypted".
@@ -63,9 +93,34 @@ fn summary(verified: usize, total: usize) -> String {
     }
 }
 
-/// Which person is open after `id`'s row is clicked.
-fn toggled(open: Option<u32>, id: u32) -> Option<u32> {
-    if open == Some(id) { None } else { Some(id) }
+/// Who is open after `id`'s row is clicked. Opening someone starts with an empty form.
+fn toggled(open: Option<Verifying>, id: u32) -> Option<Verifying> {
+    match open {
+        Some(current) if current.id == id => None,
+        _ => Some(Verifying::new(id)),
+    }
+}
+
+/// What to say about a pasted code, and in which colour. `None` when nothing needs saying.
+fn paste_message(check: CodeCheck) -> Option<(&'static str, &'static str, egui::Color32)> {
+    match check {
+        CodeCheck::Match => None,
+        CodeCheck::OwnCode => Some((
+            "That is your own code.",
+            "Paste the code they sent you.",
+            theme::WARN,
+        )),
+        CodeCheck::Different => Some((
+            "Codes do not match.",
+            "Check it came from them. If it did, someone may be listening: leave the call.",
+            theme::DANGER_HOVER,
+        )),
+        CodeCheck::NotACode => Some((
+            "That is not a Veil code.",
+            "A code starts with VEIL-A or VEIL-B.",
+            MUTED,
+        )),
+    }
 }
 
 fn connection_hint(path: LinkPath) -> &'static str {
@@ -78,37 +133,52 @@ fn connection_hint(path: LinkPath) -> &'static str {
     }
 }
 
+fn first_name(name: &str) -> &str {
+    name.split_whitespace().next().unwrap_or(name)
+}
+
 pub fn show(view: &mut CallView, ui: &mut Ui) {
+    let demo = view.call.demo;
     let others = || view.call.participants.iter().filter(|p| !p.is_you);
     let total = others().count();
     let verified = others().filter(|p| p.verified).count();
-    header(ui, view, verified, total);
-    ui.add_space(8.0);
+    header(ui, view.call.epoch, demo, verified, total);
+    ui.add_space(10.0);
 
-    let mut open = view.verifying;
-    let mut change = None;
+    let mut open = view.verifying.take();
+    let mut done = None;
     ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.spacing_mut().item_spacing.y = 0.0;
             for person in others() {
-                let is_open = open == Some(person.id);
+                let is_open = open.as_ref().is_some_and(|o| o.id == person.id);
                 if row(ui, person, is_open).clicked() {
-                    open = toggled(open, person.id);
-                }
-                if is_open && let Some(verified) = details(ui, person) {
-                    change = Some((person.id, verified));
+                    open = toggled(open.take(), person.id);
+                } else if let Some(state) = open.as_mut().filter(|o| o.id == person.id)
+                    && let Some(step) = details(ui, person, demo, state)
+                {
+                    done = Some((person.id, person.name.clone(), step));
                 }
             }
         });
-    if let Some((id, verified)) = change {
-        view.call.set_verified(id, verified);
-        open = None;
-    }
     view.verifying = open;
+    match done {
+        Some((_, _, Step::Copied)) => view.notify("Your code is copied"),
+        Some((id, name, Step::Confirmed)) => {
+            view.call.set_verified(id, true);
+            view.verifying = None;
+            view.notify(&format!("{name} is verified"));
+        }
+        Some((id, _, Step::Forgot)) => {
+            view.call.set_verified(id, false);
+            view.verifying = None;
+        }
+        None => {}
+    }
 }
 
-fn header(ui: &mut Ui, view: &CallView, verified: usize, total: usize) {
+fn header(ui: &mut Ui, epoch: u64, demo: bool, verified: usize, total: usize) {
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(26.0, 36.0), Sense::hover());
         Icon::Shield.paint(ui.painter(), rect.center(), 20.0, theme::SPEAKING);
@@ -116,29 +186,28 @@ fn header(ui: &mut Ui, view: &CallView, verified: usize, total: usize) {
             ui.spacing_mut().item_spacing.y = 1.0;
             let tip = format!(
                 "Encrypted on each device. Relays and forwarders cannot open it.\n\
-                 Key {}: a new key starts whenever someone joins or leaves.",
-                view.call.epoch
+                 Key {epoch}: a new key starts whenever someone joins or leaves."
             );
             ui.label(RichText::new("Encrypted").color(theme::SPEAKING))
                 .on_hover_text(tip);
             ui.horizontal(|ui| {
                 ui.label(RichText::new(summary(verified, total)).small().color(MUTED));
-                if view.call.demo {
+                if demo {
                     ui.label(RichText::new("demo").small().color(theme::WARN))
-                        .on_hover_text("These safety numbers are made up for the demo call.");
+                        .on_hover_text("These codes are made up for the demo call.");
                 }
                 let (rect, info) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
                 Icon::Info.paint(ui.painter(), rect.center(), 12.0, MUTED);
                 info.on_hover_text(
-                    "Verifying proves who you are talking to. \
-                     If your safety numbers match, nobody is in between.",
+                    "Verifying is optional. It proves nobody is secretly between you and \
+                     this person.",
                 );
             });
         });
     });
 }
 
-/// One person: avatar, name, and what to do next. Click to open or close their numbers.
+/// One person: avatar, name and status. Click to open or close their section.
 fn row(ui: &mut Ui, person: &Participant, open: bool) -> Response {
     let status = Status::of(person.verified, &person.safety);
     let can_open = status != Status::Connecting;
@@ -169,10 +238,10 @@ fn row(ui: &mut Ui, person: &Participant, open: bool) -> Response {
         widgets::chevron(painter, pos2(right - 5.0, y), open, MUTED);
         right -= 18.0;
     }
-    let colour = match status {
-        Status::Verified => theme::SPEAKING,
-        Status::Unverified => ACCENT,
-        Status::Connecting => MUTED,
+    let colour = if status == Status::Verified {
+        theme::SPEAKING
+    } else {
+        MUTED
     };
     let text = painter.text(
         pos2(right, y),
@@ -188,7 +257,7 @@ fn row(ui: &mut Ui, person: &Participant, open: bool) -> Response {
         name_right -= 16.0;
     }
 
-    let name_left = rect.left() + f32::from(DETAILS_LEFT);
+    let name_left = rect.left() + NAME_LEFT;
     let mut job = egui::text::LayoutJob::single_section(
         person.name.clone(),
         egui::TextFormat::simple(FontId::proportional(14.0), TEXT),
@@ -204,49 +273,110 @@ fn row(ui: &mut Ui, person: &Participant, open: bool) -> Response {
     }
 }
 
-/// The open person's safety number. Returns their new verified state if it was changed.
-fn details(ui: &mut Ui, person: &Participant) -> Option<bool> {
+/// The open person's section.
+fn details(ui: &mut Ui, person: &Participant, demo: bool, state: &mut Verifying) -> Option<Step> {
     let margin = Margin {
-        left: DETAILS_LEFT,
+        left: 6,
         right: 6,
-        top: 4,
-        bottom: 12,
+        top: 10,
+        bottom: 14,
     };
     egui::Frame::new()
         .inner_margin(margin)
         .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 4.0;
-            if !person.verified {
-                ui.label(
-                    RichText::new("Compare by phone or in person.")
-                        .small()
-                        .color(MUTED),
-                )
-                .on_hover_text("Use something other than this call, and read the numbers aloud.");
-                ui.add_space(2.0);
-            }
-            let groups: Vec<&str> = person.safety.split(' ').collect();
-            for line in groups.chunks(4) {
-                ui.label(RichText::new(line.join("  ")).monospace().size(13.0));
-            }
-            ui.add_space(6.0);
-            let width = ui.available_width();
+            ui.spacing_mut().item_spacing.y = 6.0;
             if person.verified {
-                let forget = pill(ui, None, "Forget", Tone::Quiet, width)
+                let forget = pill(ui, None, "Forget", Tone::Quiet, ui.available_width())
                     .on_hover_text("Stop treating this device as verified.");
-                return forget.clicked().then_some(false);
+                return forget.clicked().then_some(Step::Forgot);
             }
-            let matched = pill(ui, None, "They match", Tone::Primary, width)
-                .on_hover_text("Remembers this device for future calls.");
-            ui.label(
-                RichText::new("Different? Leave the call.")
-                    .small()
-                    .color(theme::WARN),
-            )
-            .on_hover_text("Someone may be between you and this person.");
-            matched.clicked().then_some(true)
+            if state.by_hand {
+                by_hand(ui, person, state)
+            } else {
+                by_paste(ui, person, demo, state)
+            }
         })
         .inner
+}
+
+/// The usual way: swap codes through another app, and Veil compares them.
+fn by_paste(
+    ui: &mut Ui,
+    person: &Participant,
+    demo: bool,
+    state: &mut Verifying,
+) -> Option<Step> {
+    let mut step = None;
+    let name = first_name(&person.name);
+    ui.label(RichText::new(format!("Swap codes with {name}")).strong());
+    ui.label(
+        RichText::new("Use an app you already trust, not this call's chat.")
+            .small()
+            .color(MUTED),
+    )
+    .on_hover_text("Someone between you could change a code sent through this call.");
+    ui.add_space(2.0);
+    let width = ui.available_width();
+    if pill(ui, Some(Icon::Copy), "Copy my code", Tone::Quiet, width).clicked() {
+        ui.ctx().copy_text(share_code(&person.safety, person.side));
+        step = Some(Step::Copied);
+    }
+    ui.add(
+        TextEdit::singleline(&mut state.pasted)
+            .hint_text(format!("Paste {name}'s code"))
+            .char_limit(PASTE_LIMIT)
+            .desired_width(width),
+    );
+    if !state.pasted.trim().is_empty() {
+        let check = check_code(&person.safety, person.side, &state.pasted);
+        if check == CodeCheck::Match {
+            step = Some(Step::Confirmed);
+        }
+        if let Some((text, tip, colour)) = paste_message(check) {
+            ui.label(RichText::new(text).small().color(colour))
+                .on_hover_text(tip);
+        }
+    }
+    ui.horizontal(|ui| {
+        if quiet_link(ui, "Compare by hand", MUTED)
+            .on_hover_text("Read the full number together, in person or by phone.")
+            .clicked()
+        {
+            state.by_hand = true;
+        }
+        if demo
+            && quiet_link(ui, "Fill demo code", theme::WARN)
+                .on_hover_text("Pretends the other person sent you their code.")
+                .clicked()
+        {
+            state.pasted = share_code(&person.safety, person.side.other());
+        }
+    });
+    step
+}
+
+/// The fallback: read all 60 digits together.
+fn by_hand(ui: &mut Ui, person: &Participant, state: &mut Verifying) -> Option<Step> {
+    ui.label(
+        RichText::new("Read this together, in person or by phone.")
+            .small()
+            .color(MUTED),
+    );
+    let groups: Vec<&str> = person.safety.split(' ').collect();
+    for line in groups.chunks(4) {
+        ui.label(RichText::new(line.join("  ")).monospace().size(13.0));
+    }
+    ui.add_space(2.0);
+    let matched = pill(ui, None, "They match", Tone::Quiet, ui.available_width())
+        .on_hover_text("Remembers this device for future calls.");
+    if quiet_link(ui, "Swap codes instead", MUTED).clicked() {
+        state.by_hand = false;
+    }
+    matched.clicked().then_some(Step::Confirmed)
+}
+
+fn quiet_link(ui: &mut Ui, text: &str, colour: egui::Color32) -> Response {
+    ui.add(Button::new(RichText::new(text).small().color(colour)).frame(false))
 }
 
 #[cfg(test)]
@@ -275,9 +405,27 @@ mod tests {
 
     #[test]
     fn one_person_is_open_at_a_time() {
-        assert_eq!(toggled(None, 1), Some(1));
-        assert_eq!(toggled(Some(1), 2), Some(2));
-        assert_eq!(toggled(Some(2), 2), None);
+        let open = toggled(None, 1);
+        assert_eq!(open.as_ref().map(|o| o.id), Some(1));
+        let open = toggled(open, 2);
+        assert_eq!(open.as_ref().map(|o| o.id), Some(2));
+        assert!(toggled(open, 2).is_none());
+    }
+
+    #[test]
+    fn switching_person_clears_the_pasted_code() {
+        let mut open = Verifying::new(1);
+        open.pasted = String::from("VEIL-A 1");
+        let next = toggled(Some(open), 2).expect("second person opens");
+        assert!(next.pasted.is_empty());
+    }
+
+    #[test]
+    fn every_failed_paste_says_why() {
+        assert!(paste_message(CodeCheck::Match).is_none());
+        for check in [CodeCheck::OwnCode, CodeCheck::Different, CodeCheck::NotACode] {
+            assert!(paste_message(check).is_some());
+        }
     }
 
     #[test]
@@ -285,5 +433,11 @@ mod tests {
         for path in [LinkPath::Relayed, LinkPath::Forwarder] {
             assert!(connection_hint(path).contains("cannot read"));
         }
+    }
+
+    #[test]
+    fn first_names_fall_back_to_the_whole_name() {
+        assert_eq!(first_name("Amara Okafor"), "Amara");
+        assert_eq!(first_name("   "), "   ");
     }
 }

@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 use veil_security::PublicId;
+use veil_security::safety::Side;
 
 use super::names::labels;
 use super::stats::{Decoded, Stats};
@@ -39,6 +40,7 @@ pub struct Person {
     pub name: String,
     pub is_host: bool,
     pub safety: String,
+    pub side: Side,
     pub path: LinkPath,
 }
 
@@ -291,6 +293,7 @@ pub fn apply(
             speaking: heard.is_some_and(|h| h.level > SPEAKING),
             path: person.path,
             safety: person.safety.clone(),
+            side: person.side,
             verified: verified(&person.device),
         });
     }
@@ -328,6 +331,7 @@ mod tests {
                     name: "Host".into(),
                     is_host: true,
                     safety: "12345".into(),
+                    side: Side::A,
                     path: LinkPath::Direct,
                 },
                 Person {
@@ -336,6 +340,7 @@ mod tests {
                     name: "Guest ab12cd34".into(),
                     is_host: false,
                     safety: "67890".into(),
+                    side: Side::B,
                     path: LinkPath::Pending,
                 },
             ],

@@ -98,6 +98,10 @@ fn loopback_host_admits_a_guest_and_both_see_and_hear_each_other() {
         host_call.participants[1].safety, guest_call.participants[1].safety,
         "both sides show the same safety number"
     );
+    assert_ne!(
+        host_call.participants[1].side, guest_call.participants[1].side,
+        "each side has its own share code"
+    );
     assert!(guest_call.participants[1].is_host);
     assert!(host_call.epoch >= 1 && host_call.epoch == guest_call.epoch);
 

@@ -24,6 +24,7 @@ use crate::icons::Icon;
 use crate::layout;
 use crate::model::{Call, CallStatus, Participant};
 use crate::screens::panels::{self, Panel};
+use crate::screens::security_panel::Verifying;
 use crate::screens::{call_top, controls, invite, stats};
 use crate::theme::{self, GAP, MUTED, PAGE, SURFACE};
 use crate::widgets::{self, ControlState, Tile, Tone, control, pill};
@@ -39,8 +40,8 @@ pub struct CallView {
     pub panel: Option<Panel>,
     pub view: View,
     pub draft: String,
-    /// The person whose safety number is open in the Security panel.
-    pub verifying: Option<u32>,
+    /// The person being checked in the Security panel.
+    pub verifying: Option<Verifying>,
     notice: Option<(String, Instant)>,
     /// Whether the blur-off notice has been shown as a toast, so it shows once.
     blur_notice_shown: bool,

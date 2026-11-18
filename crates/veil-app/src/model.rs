@@ -18,6 +18,8 @@
 
 use std::time::{Duration, Instant};
 
+use veil_security::safety::Side;
+
 /// How a member's media reaches you, as `veil-probe` prints it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkPath {
@@ -54,6 +56,8 @@ pub struct Participant {
     pub path: LinkPath,
     /// Safety number in groups of five digits.
     pub safety: String,
+    /// Your side of that number, which decides your share code.
+    pub side: Side,
     /// You marked this device as verified, in this call or an earlier one.
     pub verified: bool,
 }
@@ -180,6 +184,7 @@ impl Call {
                 speaking: false,
                 path: LinkPath::Direct,
                 safety: String::new(),
+                side: Side::A,
                 verified: false,
             }],
             lobby: Vec::new(),
@@ -226,6 +231,7 @@ impl Call {
         self.participants.push(Participant {
             id: waiting.id,
             safety: crate::demo::safety_number(waiting.id),
+            side: Side::A,
             name: waiting.name,
             is_you: false,
             is_host: false,
