@@ -2,7 +2,23 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
-## Unreleased
+## 0.1.8, 18/11/2026
+
+### Security
+
+- An approved joiner can no longer end a call for everyone with an oversized key package. The
+  host refuses packages over 2,048 bytes and stays in its current epoch if a group message
+  could not be sent. (GHSA-jjjr-ghc3-p32r)
+- An approved joiner can no longer stop the host removing or admitting people by joining with
+  an unusable key. The host now refuses keys it cannot encrypt to. (GHSA-34xp-qw4v-x3hv)
+- Idle links can no longer fill a shared relay. Unused sessions can be taken back after 30
+  seconds, one address can hold at most 128, and a link that joins no room is closed after 60
+  seconds. (GHSA-qc6p-pgpg-wm5g)
+- Someone holding an invite can no longer use up a host's relay places. A relay session that
+  carries no link gives its place back after 10 seconds. (GHSA-84gr-272c-4c7r)
+- A device now dials back only for an introduction it has just agreed to, within fixed limits,
+  so an invite holder or a rendezvous cannot use it to send packets to chosen addresses.
+  (GHSA-6r94-c7q8-rq36)
 
 ### Changed
 
