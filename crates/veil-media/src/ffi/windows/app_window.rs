@@ -4,7 +4,8 @@
 //! Purpose: `xcap` lists every visible titled window, including tool windows such as graphics
 //! overlays and the hidden web views inside apps. Only windows a person would switch to with
 //! Alt+Tab are worth offering. Veil's floating sharing bar is hidden from captures, so people
-//! watching a whole-screen share do not see it.
+//! watching a whole-screen share do not see it. So is Veil's main window while the share picker
+//! is open on it.
 //!
 //! Invariants:
 //! - Other apps' windows are only read: their style and owner. Nothing is sent to them.
@@ -15,28 +16,41 @@ use std::ffi::c_void;
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GW_OWNER, GWL_EXSTYLE, GetWindow, GetWindowLongW, GetWindowThreadProcessId,
-    SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WS_EX_APPWINDOW,
+    FindWindowExW, GW_OWNER, GWL_EXSTYLE, GetWindow, GetWindowLongW, GetWindowThreadProcessId,
+    SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WINDOW_EX_STYLE, WS_EX_APPWINDOW,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 use windows::core::{HSTRING, PCWSTR};
 
-/// Keeps this process's window called `title` out of screen captures. False if there is no
-/// such window yet, or this version of Windows refuses.
-pub fn hide_from_capture(title: &str) -> bool {
+/// This process's top-level window called `title`. Other apps may have a window of the same
+/// name, such as a folder called Veil, so each match is checked.
+fn own_window(title: &str) -> Option<HWND> {
     let title = HSTRING::from(title);
-    // SAFETY: `title` is a valid terminated string that outlives the call.
-    let Ok(window) = (unsafe { FindWindowW(PCWSTR::null(), &title) }) else {
+    let mut after = None;
+    loop {
+        // SAFETY: `title` is a valid terminated string that outlives the call, and `after` is
+        // absent or a handle Windows just returned. Windows reports failure at the end.
+        let window =
+            unsafe { FindWindowExW(None, after, PCWSTR::null(), PCWSTR(title.as_ptr())) }.ok()?;
+        let mut process = 0;
+        // SAFETY: the handle is passed by value and `process` is a valid out pointer.
+        unsafe { GetWindowThreadProcessId(window, Some(&mut process)) };
+        if process == std::process::id() {
+            return Some(window);
+        }
+        after = Some(window);
+    }
+}
+
+/// Keeps this process's window called `title` out of screen captures, or lets it back in.
+/// False if there is no such window yet, or this version of Windows refuses.
+pub fn set_hidden_from_capture(title: &str, hidden: bool) -> bool {
+    let Some(window) = own_window(title) else {
         return false;
     };
-    let mut process = 0;
-    // SAFETY: the handle is passed by value and `process` is a valid out pointer.
-    unsafe { GetWindowThreadProcessId(window, Some(&mut process)) };
-    if process != std::process::id() {
-        return false;
-    }
+    let affinity = if hidden { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE };
     // SAFETY: the window belongs to this process, as the call requires.
-    unsafe { SetWindowDisplayAffinity(window, WDA_EXCLUDEFROMCAPTURE) }.is_ok()
+    unsafe { SetWindowDisplayAffinity(window, affinity) }.is_ok()
 }
 
 /// True if the window with this id (`xcap`'s id, the handle's low 32 bits, which are all of its

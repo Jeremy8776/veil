@@ -37,6 +37,9 @@ mod update;
 mod volume;
 mod widgets;
 
+/// The main window's title. Screen sharing also finds the window by it.
+const WINDOW_TITLE: &str = "Veil";
+
 use eframe::egui;
 
 /// The 256 px frame of `assets/veil.ico`, for the title bar, taskbar button and Alt+Tab.
@@ -49,7 +52,7 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     log::start(log::folder().as_deref());
-    let mut viewport = egui::ViewportBuilder::default().with_title("Veil");
+    let mut viewport = egui::ViewportBuilder::default().with_title(WINDOW_TITLE);
     // A bad icon is cosmetic: the window opens with the default icon instead.
     if let Ok(icon) = eframe::icon_data::from_png_bytes(APP_ICON_PNG) {
         viewport = viewport.with_icon(icon);

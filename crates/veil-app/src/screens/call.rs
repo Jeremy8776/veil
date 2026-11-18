@@ -145,6 +145,7 @@ impl CallView {
                     .inner_margin(egui::Margin::same(12)),
             )
             .show(ui, |ui| self.stage(app, ui, now));
+        app.share.tick();
         if app.share.take_change_asked() && self.picker.is_none() {
             self.picker = Some(SharePicker::open(app));
         }

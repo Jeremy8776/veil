@@ -124,7 +124,21 @@ fn is_out_of_sight(_window: &xcap::Window) -> bool {
 /// Keeps this app's window called `title` out of screen captures. True once done.
 #[cfg(windows)]
 pub fn hide_window_from_capture(title: &str) -> bool {
-    crate::ffi::windows::hide_from_capture(title)
+    crate::ffi::windows::set_hidden_from_capture(title, true)
+}
+
+/// Hides this app's main window, called `title`, from captures or shows it again. False if
+/// that could not be done, so the caller must protect what the window shows some other way.
+#[cfg(windows)]
+pub fn set_main_window_hidden(title: &str, hidden: bool) -> bool {
+    crate::ffi::windows::set_hidden_from_capture(title, hidden)
+}
+
+/// shortcut: no system but Windows can do this here yet, so callers use their fallback. Add
+/// each system's call once sharing has been tested on it.
+#[cfg(not(windows))]
+pub fn set_main_window_hidden(_title: &str, _hidden: bool) -> bool {
+    false
 }
 
 /// shortcut: nothing is hidden here yet, so the bar shows in a whole-screen share. Add each

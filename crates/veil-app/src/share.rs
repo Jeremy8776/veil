@@ -17,8 +17,9 @@
 //! - Stop on the floating bar works on the capture thread directly, so it still stops sharing
 //!   while Veil's main window is minimised.
 //! - The picker never goes out in a share of the screen it is on. From the moment it is asked
-//!   for until shortly after it closes, new pictures are thrown away and the last one sent
-//!   before it opened is repeated. This holds on every system and needs no window hiding.
+//!   for until shortly after it closes, Veil's window is kept out of captures and the share
+//!   stays live. Where that cannot be done, new pictures are thrown away instead and the last
+//!   one sent before the picker opened is repeated.
 //! - The tap never blocks capture: a full encoder queue drops the picture.
 //! - Pictures keep flowing while the screen is still, so receivers can tell that sharing goes
 //!   on: they drop a share that has been silent for a few seconds (`engine/video_in.rs`).
@@ -56,23 +57,47 @@ const MIN_FAILURES: u32 = 3;
 const PICKER_CLEAR: Duration = Duration::from_millis(500);
 const CANNOT_CAPTURE: &str = "Cannot capture this. Check that Veil may record the screen.";
 
-/// Whether outgoing pictures are frozen because the picker may be on screen.
+/// How the picker is being kept out of the share.
 #[derive(Clone, Copy, Debug, Default)]
 enum Hold {
     #[default]
     Off,
-    PickerOpen,
-    Until(Instant),
+    /// Veil's window is hidden from captures, so the share can stay live.
+    Hidden,
+    /// The picker has closed. The window comes back into captures at this time.
+    HiddenUntil(Instant),
+    /// The window could not be hidden, so outgoing pictures are frozen.
+    Frozen,
+    FrozenUntil(Instant),
 }
 
 impl Hold {
-    fn is_active(self, now: Instant) -> bool {
+    fn freezes_pictures(self, now: Instant) -> bool {
         match self {
-            Self::Off => false,
-            Self::PickerOpen => true,
-            Self::Until(end) => now < end,
+            Self::Off | Self::Hidden | Self::HiddenUntil(_) => false,
+            Self::Frozen => true,
+            Self::FrozenUntil(end) => now < end,
         }
     }
+
+    /// What this becomes once the picker has closed at `now`.
+    fn after_closing(self, now: Instant) -> Self {
+        match self {
+            Self::Hidden => Self::HiddenUntil(now + PICKER_CLEAR),
+            Self::Frozen => Self::FrozenUntil(now + PICKER_CLEAR),
+            other => other,
+        }
+    }
+}
+
+/// Keeps the picker that is about to open out of the share.
+fn cover_picker(state: &State) {
+    let mut hold = lock(&state.hold);
+    *hold = if screen::set_main_window_hidden(crate::WINDOW_TITLE, true) {
+        Hold::Hidden
+    } else {
+        Hold::Frozen
+    };
 }
 
 #[derive(Default)]
@@ -112,9 +137,9 @@ impl ShareBar {
         self.0.bar_hidden.store(true, Ordering::Release);
     }
 
-    /// Asks for the picker. Pictures freeze first, before Veil's window comes forward.
+    /// Asks for the picker. It is covered first, before Veil's window comes forward.
     pub fn change(&self) {
-        *lock(&self.0.hold) = Hold::PickerOpen;
+        cover_picker(&self.0);
         self.0.change_asked.store(true, Ordering::Release);
     }
 
@@ -179,7 +204,7 @@ impl ScreenShare {
 
     /// Starts reading what can be shared, with thumbnails, until [`Self::close_picker`].
     pub fn browse(&mut self) {
-        *lock(&self.state.hold) = Hold::PickerOpen;
+        cover_picker(&self.state);
         self.browser = None;
         *lock(&self.state.choices) = None;
         lock(&self.state.thumbnails).clear();
@@ -231,8 +256,32 @@ impl ScreenShare {
         self.browser = None;
         lock(&self.state.thumbnails).clear();
         let mut hold = lock(&self.state.hold);
-        if matches!(*hold, Hold::PickerOpen) {
-            *hold = Hold::Until(Instant::now() + PICKER_CLEAR);
+        *hold = hold.after_closing(Instant::now());
+        drop(hold);
+        self.ctx.request_repaint_after(PICKER_CLEAR);
+    }
+
+    /// Lets Veil's window back into captures once the closed picker has left the screen. Call
+    /// this on every frame of the call screen.
+    pub fn tick(&self) {
+        let mut hold = lock(&self.state.hold);
+        if let Hold::HiddenUntil(end) = *hold {
+            let now = Instant::now();
+            if now >= end {
+                screen::set_main_window_hidden(crate::WINDOW_TITLE, false);
+                *hold = Hold::Off;
+            } else {
+                self.ctx.request_repaint_after(end - now);
+            }
+        }
+    }
+
+    /// Lets Veil's window back into captures now, as nothing is being shared.
+    fn uncover_now(&self) {
+        let mut hold = lock(&self.state.hold);
+        if matches!(*hold, Hold::Hidden | Hold::HiddenUntil(_)) {
+            screen::set_main_window_hidden(crate::WINDOW_TITLE, false);
+            *hold = Hold::Off;
         }
     }
 
@@ -261,6 +310,7 @@ impl ScreenShare {
         }
         *lock(&self.state.sending) = None;
         self.close_picker();
+        self.uncover_now();
     }
 
     /// The newest picture being sent, if one arrived since the last call.
@@ -325,7 +375,7 @@ fn share_loop(
             return;
         }
         let tick = Instant::now();
-        let held = lock(&state.hold).is_active(tick);
+        let held = lock(&state.hold).freezes_pictures(tick);
         let next = if held { discard_picture(&capture) } else { next_picture(&capture, crop, &mut nv12) };
         match next {
             Next::Fresh(width, height) => {
@@ -432,22 +482,31 @@ mod tests {
     }
 
     #[test]
-    fn a_hold_lasts_while_the_picker_is_open_and_briefly_after() {
+    fn pictures_freeze_only_when_the_window_could_not_be_hidden() {
         let now = Instant::now();
-        assert!(!Hold::Off.is_active(now));
-        assert!(Hold::PickerOpen.is_active(now + Duration::from_secs(60)));
-        let closing = Hold::Until(now + PICKER_CLEAR);
-        assert!(closing.is_active(now));
-        assert!(!closing.is_active(now + PICKER_CLEAR));
+        assert!(!Hold::Off.freezes_pictures(now));
+        assert!(!Hold::Hidden.freezes_pictures(now));
+        assert!(!Hold::Hidden.after_closing(now).freezes_pictures(now));
+        assert!(Hold::Frozen.freezes_pictures(now + Duration::from_secs(60)));
+        let closing = Hold::Frozen.after_closing(now);
+        assert!(closing.freezes_pictures(now));
+        assert!(!closing.freezes_pictures(now + PICKER_CLEAR));
     }
 
     #[test]
-    fn change_freezes_pictures_until_after_the_picker_closes() {
+    fn a_hidden_window_stays_hidden_until_the_picker_has_left() {
+        let now = Instant::now();
+        let closing = Hold::Hidden.after_closing(now);
+        assert!(matches!(closing, Hold::HiddenUntil(end) if end == now + PICKER_CLEAR));
+    }
+
+    #[test]
+    fn without_a_window_to_hide_change_freezes_until_the_picker_closes() {
         let mut share = ScreenShare::new(egui::Context::default());
         share.bar().change();
-        assert!(matches!(*lock(&share.state.hold), Hold::PickerOpen));
+        assert!(matches!(*lock(&share.state.hold), Hold::Frozen));
         share.close_picker();
-        assert!(matches!(*lock(&share.state.hold), Hold::Until(_)));
+        assert!(matches!(*lock(&share.state.hold), Hold::FrozenUntil(_)));
     }
 
     #[test]
