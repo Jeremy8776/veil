@@ -130,7 +130,7 @@ mod tests {
         put(&noto, FONT);
         put(&dejavu, FONT);
         put(&dir.join("other").join("Unknown.ttf"), FONT);
-        assert_eq!(candidates(&[dir.clone()]), vec![dejavu, noto]);
+        assert_eq!(candidates(std::slice::from_ref(&dir)), vec![dejavu, noto]);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -142,7 +142,7 @@ mod tests {
             deep = deep.join("d");
         }
         put(&deep.join("DejaVuSans.ttf"), FONT);
-        assert!(candidates(&[dir.clone()]).is_empty());
+        assert!(candidates(std::slice::from_ref(&dir)).is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
 
