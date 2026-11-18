@@ -15,11 +15,16 @@
 //! - A crop is kept as fractions of the source, so it still fits after a window is resized.
 //! - Output sizes are even and at most [`MAX_DIMENSION`], as 4:2:0 and the ladder need.
 //! - Colour is BT.709 limited range, the same as cameras and `veil-app`'s `convert.rs`.
+//! - Nothing is captured in a Wayland session. There `xcap` takes each picture by having the
+//!   desktop write a PNG file, which would put your screen on disk many times a second.
 //!
 //! shortcut: off Windows each live picture is still a full screenshot, which limits the rate.
-//! Use each system's capture stream there once sharing has been tested on it.
+//! Use each system's capture stream there once sharing has been tested on it. On Wayland that
+//! stream (the PipeWire screen cast portal) is also what would lift the block.
 
 use crate::MediaError;
+#[cfg(target_os = "macos")]
+use crate::ffi::macos;
 #[cfg(windows)]
 use crate::ffi::windows::{ScreenStream, is_app_window};
 use crate::ladder::MAX_DIMENSION;
@@ -74,6 +79,48 @@ fn is_app_window(_id: u32) -> bool {
     true
 }
 
+/// Why this session cannot share its screen at all, in words for the person using it.
+pub fn blocked_reason() -> Option<&'static str> {
+    #[cfg(target_os = "linux")]
+    {
+        let var = |name| std::env::var_os(name).unwrap_or_default();
+        let (session, display) = (var("XDG_SESSION_TYPE"), var("WAYLAND_DISPLAY"));
+        if is_wayland(&session.to_string_lossy(), &display.to_string_lossy()) {
+            return Some("Screen sharing needs an X11 session for now.");
+        }
+    }
+    None
+}
+
+/// The same test `xcap` uses to choose its Wayland path.
+#[cfg(any(target_os = "linux", test))]
+fn is_wayland(session_type: &str, display: &str) -> bool {
+    session_type == "wayland" || display.to_lowercase().contains("wayland")
+}
+
+fn check_allowed() -> Result<(), MediaError> {
+    if blocked_reason().is_some() {
+        return Err(UNAVAILABLE);
+    }
+    #[cfg(target_os = "macos")]
+    if !macos::may_capture_screen() {
+        return Err(UNAVAILABLE);
+    }
+    Ok(())
+}
+
+/// True for a window that still exists but has no picture now. On macOS `xcap` loses sight of
+/// a window that is minimised or on another desktop, and reports that as an error.
+#[cfg(target_os = "macos")]
+fn is_out_of_sight(window: &xcap::Window) -> bool {
+    window.is_minimized().is_err() && window.id().is_ok_and(macos::window_exists)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_out_of_sight(_window: &xcap::Window) -> bool {
+    false
+}
+
 /// Keeps this app's window called `title` out of screen captures. True once done.
 #[cfg(windows)]
 pub fn hide_window_from_capture(title: &str) -> bool {
@@ -91,6 +138,7 @@ pub fn hide_window_from_capture(_title: &str) -> bool {
 /// then windows from front to back. Leaves out minimised, empty and untitled windows, overlays
 /// and helper windows, and those of process `own_pid`.
 pub fn open_all(own_pid: u32) -> Result<Vec<(ScreenChoice, ScreenCapture)>, MediaError> {
+    check_allowed()?;
     let mut monitors = xcap::Monitor::all().map_err(|_| UNAVAILABLE)?;
     monitors.sort_by_key(|m| !m.is_primary().unwrap_or(false));
     let mut list = Vec::new();
@@ -142,6 +190,7 @@ pub struct ScreenCapture {
 
 impl ScreenCapture {
     pub fn open(source: ScreenSource) -> Result<Self, MediaError> {
+        check_allowed()?;
         let target = match source {
             ScreenSource::Monitor(id) => xcap::Monitor::all()
                 .map_err(|_| UNAVAILABLE)?
@@ -176,7 +225,11 @@ impl ScreenCapture {
             #[cfg(windows)]
             Target::Stream(stream) => return stream.next(),
             Target::Monitor(monitor) => monitor.capture_image(),
-            Target::Window(window) if window.is_minimized().unwrap_or(false) => return Ok(None),
+            Target::Window(window)
+                if window.is_minimized().unwrap_or(false) || is_out_of_sight(window) =>
+            {
+                return Ok(None);
+            }
             Target::Window(window) => window.capture_image(),
         }
         .map_err(|_| UNAVAILABLE)?;
@@ -232,11 +285,13 @@ pub fn to_nv12(picture: &Grabbed, region: Region, out: &mut Vec<u8>) -> Result<(
     out.reserve(w * h * 3 / 2);
     let row = |line: usize| &picture.rgba[(y + line) * stride + x * 4..][..w * 4];
     for line in 0..h {
-        out.extend(row(line).chunks_exact(4).map(|p| luma(p[0], p[1], p[2])));
+        let (pixels, _) = row(line).as_chunks::<4>();
+        out.extend(pixels.iter().map(|p| luma(p[0], p[1], p[2])));
     }
     for line in (0..h).step_by(2) {
-        let pairs = row(line).chunks_exact(8).zip(row(line + 1).chunks_exact(8));
-        for (a, b) in pairs {
+        let (upper, _) = row(line).as_chunks::<8>();
+        let (lower, _) = row(line + 1).as_chunks::<8>();
+        for (a, b) in upper.iter().zip(lower) {
             // Each chroma sample is the average of its four pixels.
             let mean = |i: usize| {
                 let sum = u32::from(a[i]) + u32::from(a[i + 4]) + u32::from(b[i]) + u32::from(b[i + 4]);
@@ -294,6 +349,14 @@ mod tests {
         to_nv12(&picture, area, &mut out).unwrap();
         let (w, h) = (area.width as usize, area.height as usize);
         assert_eq!(out.len(), w * h * 3 / 2);
+    }
+
+    #[test]
+    fn a_wayland_session_is_recognised() {
+        assert!(is_wayland("wayland", ""));
+        assert!(is_wayland("", "wayland-0"));
+        assert!(!is_wayland("x11", ""));
+        assert!(!is_wayland("", ""));
     }
 
     #[test]

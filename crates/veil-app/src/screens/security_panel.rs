@@ -380,6 +380,7 @@ fn quiet_link(ui: &mut Ui, text: &str, colour: egui::Color32) -> Response {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 

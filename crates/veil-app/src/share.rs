@@ -28,24 +28,27 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use eframe::egui;
-use veil_media::screen::{self, Crop, Grabbed, ScreenCapture, ScreenChoice, ScreenSource};
+use veil_media::screen::{self, Crop, ScreenCapture, ScreenChoice, ScreenSource};
 
 use crate::convert::{Rgba, nv12_to_rgba};
 use crate::engine::Captured;
 use crate::media::{Worker, lock};
 
+mod thumbnails;
+
+use thumbnails::{browse_loop, shrink};
+
 const SHARE_FPS: u32 = 30;
 const PREVIEW_EVERY: Duration = Duration::from_millis(200);
-const THUMBNAILS_EVERY: Duration = Duration::from_secs(2);
 /// Your own view of a picture wider than this is halved.
 const PREVIEW_WIDTH: u32 = 960;
-/// The largest size of the area preview and of a thumbnail, in pixels.
+/// The largest size of the area preview, in pixels.
 const PREVIEW_BOX: (u32, u32) = (1_280, 720);
-const THUMBNAIL_BOX: (u32, u32) = (512, 288);
 /// Attempts to keep the floating bar out of captures: about five seconds' worth.
 const MAX_BAR_TRIES: u32 = 50;
-/// Failed pictures in a row before sharing stops: one second's worth.
-const MAX_FAILURES: u32 = SHARE_FPS;
+/// How long a failing source may show nothing before sharing stops.
+const GIVE_UP_AFTER: Duration = Duration::from_secs(1);
+const MIN_FAILURES: u32 = 3;
 const CANNOT_CAPTURE: &str = "Cannot capture this. Check that Veil may record the screen.";
 
 #[derive(Default)]
@@ -53,6 +56,8 @@ struct State {
     tap: Mutex<Option<SyncSender<Captured>>>,
     choices: Mutex<Option<Vec<ScreenChoice>>>,
     thumbnails: Mutex<HashMap<ScreenSource, Rgba>>,
+    /// The picker is showing windows rather than screens.
+    windows_tab: AtomicBool,
     preview: Mutex<Option<Rgba>>,
     /// The newest picture being sent, for your own view.
     sending: Mutex<Option<Rgba>>,
@@ -160,6 +165,11 @@ impl ScreenShare {
         lock(&self.state.choices).clone()
     }
 
+    /// Says which of the picker's tabs is open, so only its thumbnails are kept fresh.
+    pub fn set_windows_tab(&self, windows: bool) {
+        self.state.windows_tab.store(windows, Ordering::Release);
+    }
+
     /// Thumbnails made since the last call.
     pub fn take_thumbnails(&self) -> HashMap<ScreenSource, Rgba> {
         std::mem::take(&mut *lock(&self.state.thumbnails))
@@ -252,33 +262,10 @@ fn wait(time: Duration, stop: &AtomicBool) {
     }
 }
 
-fn browse_loop(state: &State, ctx: &egui::Context, stop: &AtomicBool) {
-    while !stop.load(Ordering::Relaxed) {
-        match screen::open_all(std::process::id()) {
-            Ok(sources) => {
-                let list = sources.iter().map(|(choice, _)| choice.clone()).collect();
-                *lock(&state.choices) = Some(list);
-                ctx.request_repaint();
-                for (choice, capture) in &sources {
-                    if stop.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    if let Ok(Some(picture)) = capture.grab() {
-                        let small = shrink(&picture, THUMBNAIL_BOX);
-                        lock(&state.thumbnails).insert(choice.source, small);
-                        ctx.request_repaint();
-                    }
-                }
-            }
-            Err(e) => {
-                crate::note!("screen share: cannot list sources: {e}");
-                *lock(&state.error) = Some(CANNOT_CAPTURE.to_string());
-                lock(&state.choices).get_or_insert_with(Vec::new);
-                ctx.request_repaint();
-            }
-        }
-        wait(THUMBNAILS_EVERY, stop);
-    }
+/// True once a source has failed repeatedly and shown nothing for [`GIVE_UP_AFTER`]. Both are
+/// needed: where one screenshot takes a long time, a single failure can outlast that time.
+fn has_gone(failures: u32, since_last_picture: Duration) -> bool {
+    failures >= MIN_FAILURES && since_last_picture >= GIVE_UP_AFTER
 }
 
 fn share_loop(
@@ -297,6 +284,7 @@ fn share_loop(
     let mut nv12 = Vec::new();
     let mut size = None;
     let mut failures = 0;
+    let mut last_good = Instant::now();
     while !stop.load(Ordering::Relaxed) {
         if state.stop_asked.swap(false, Ordering::AcqRel) {
             crate::note!("screen share: stopped from the bar");
@@ -308,14 +296,18 @@ fn share_loop(
         match next_picture(&capture, crop, &mut nv12) {
             Next::Fresh(width, height) => {
                 failures = 0;
+                last_good = Instant::now();
                 size = Some((width, height));
                 show_sending(state, ctx, &nv12, width, height);
             }
             // The last picture goes out again, so those watching know the share goes on.
-            Next::Hold => failures = 0,
+            Next::Hold => {
+                failures = 0;
+                last_good = Instant::now();
+            }
             Next::Failed => {
                 failures += 1;
-                if failures >= MAX_FAILURES {
+                if has_gone(failures, last_good.elapsed()) {
                     return give_up(state, ctx, "the source stopped");
                 }
             }
@@ -385,80 +377,15 @@ fn preview_loop(state: &State, ctx: &egui::Context, stop: &AtomicBool, source: S
     }
 }
 
-/// Shrinks to fit inside `(max_width, max_height)`. Each new pixel is the average of the block
-/// it replaces, so text stays legible. The result is opaque.
-fn shrink(picture: &Grabbed, (max_width, max_height): (u32, u32)) -> Rgba {
-    let across = picture.width.div_ceil(max_width.max(1));
-    let down = picture.height.div_ceil(max_height.max(1));
-    let step = across.max(down).max(1) as usize;
-    let (width, height) = (picture.width as usize, picture.height as usize);
-    let (out_w, out_h) = ((width / step).max(1), (height / step).max(1));
-    let mut pixels = Vec::with_capacity(out_w * out_h * 4);
-    let mut sums = vec![[0u32; 3]; out_w];
-    for out_y in 0..out_h {
-        sums.fill([0; 3]);
-        let rows = out_y * step..((out_y + 1) * step).min(height);
-        let block = (rows.len() * step.min(width)).max(1) as u32;
-        for y in rows {
-            let row = &picture.rgba[y * width * 4..][..width * 4];
-            for (sum, part) in sums.iter_mut().zip(row.chunks(step * 4)) {
-                for pixel in part.chunks_exact(4) {
-                    sum[0] += u32::from(pixel[0]);
-                    sum[1] += u32::from(pixel[1]);
-                    sum[2] += u32::from(pixel[2]);
-                }
-            }
-        }
-        for sum in &sums {
-            pixels.extend(sum.map(|channel| (channel / block) as u8));
-            pixels.push(u8::MAX);
-        }
-    }
-    Rgba {
-        width: out_w,
-        height: out_h,
-        pixels,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn a_large_picture_is_shrunk_and_a_small_one_kept() {
-        let picture = Grabbed {
-            width: 8,
-            height: 4,
-            rgba: vec![7; 8 * 4 * 4],
-        };
-        let small = shrink(&picture, (4, 4));
-        assert_eq!((small.width, small.height), (4, 2));
-        assert_eq!(small.pixels.len(), 4 * 2 * 4);
-        let same = shrink(&picture, (100, 100));
-        assert_eq!((same.width, same.height), (8, 4));
-    }
-
-    #[test]
-    fn a_tall_picture_fits_the_height_too() {
-        let picture = Grabbed {
-            width: 4,
-            height: 16,
-            rgba: vec![7; 4 * 16 * 4],
-        };
-        let small = shrink(&picture, (4, 4));
-        assert_eq!((small.width, small.height), (1, 4));
-    }
-
-    #[test]
-    fn shrinking_averages_and_makes_pixels_opaque() {
-        let picture = Grabbed {
-            width: 2,
-            height: 2,
-            rgba: vec![0, 0, 0, 0, 200, 100, 40, 0, 0, 0, 0, 0, 200, 100, 40, 0],
-        };
-        let small = shrink(&picture, (1, 1));
-        assert_eq!(small.pixels, [100, 50, 20, 255]);
+    fn a_source_has_gone_after_repeated_failures_and_a_second_without_pictures() {
+        assert!(!has_gone(30, Duration::from_millis(900)), "too soon");
+        assert!(!has_gone(1, Duration::from_secs(5)), "one slow failure");
+        assert!(has_gone(MIN_FAILURES, GIVE_UP_AFTER));
     }
 
     #[test]

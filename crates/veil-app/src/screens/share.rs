@@ -122,6 +122,7 @@ impl SharePicker {
     pub fn show(&mut self, app: &mut VeilApp, ui: &Ui) -> bool {
         let ctx = ui.ctx().clone();
         self.upload(app, &ctx);
+        app.share.set_windows_tab(self.tab == Tab::Application);
         let choices = app.share.choices();
         let error = app.share.error();
         let sharing = app.share.is_sharing();
@@ -287,7 +288,6 @@ impl SharePicker {
             max_rows: 1,
             break_anywhere: true,
             overflow_character: Some('…'),
-            ..Default::default()
         };
         let galley = painter.layout_job(job);
         let at = pos2(rect.left() + 2.0, picture.bottom() + 7.0);

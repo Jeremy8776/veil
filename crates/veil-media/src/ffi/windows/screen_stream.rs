@@ -282,7 +282,9 @@ fn capture_item(source: ScreenSource) -> Result<GraphicsCaptureItem, MediaError>
 fn append_as_rgba(bgra: &[u8], out: &mut Vec<u8>) {
     let start = out.len();
     out.resize(start + bgra.len(), 255);
-    for (to, from) in out[start..].chunks_exact_mut(4).zip(bgra.chunks_exact(4)) {
+    let (from, _) = bgra.as_chunks::<4>();
+    let (to, _) = out[start..].as_chunks_mut::<4>();
+    for (to, from) in to.iter_mut().zip(from) {
         to[0] = from[2];
         to[1] = from[1];
         to[2] = from[0];

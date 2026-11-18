@@ -40,8 +40,7 @@ fn wide_plan(space: Vec2, card: Vec2, gap: f32) -> WidePlan {
     let tallest = (space.y - HEADER_H - CONTROLS_H) * 16.0 / 9.0;
     let preview_w = (space.x - card.x - gap)
         .min(tallest)
-        .min(MAX_PREVIEW_W)
-        .max(MIN_PREVIEW_W);
+        .clamp(MIN_PREVIEW_W, MAX_PREVIEW_W);
     let column_h = preview_w * 9.0 / 16.0 + CONTROLS_H;
     let block = vec2(preview_w + gap + card.x, HEADER_H + column_h.max(card.y));
     WidePlan {

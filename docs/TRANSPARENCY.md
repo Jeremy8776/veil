@@ -76,7 +76,8 @@ to end like your camera, and window titles are neither logged nor sent. A forwar
 more video stream from you but not that it is a screen. On Windows the live share uses Windows
 Graphics Capture, which includes the mouse pointer. Thumbnails, the area preview and other
 systems use the `xcap` crate, which holds its own `unsafe` code. If the source goes away,
-sharing stops rather than moving on.
+sharing stops rather than moving on. Sharing is turned off in Linux Wayland sessions, because
+`xcap` would have the desktop write each picture of your screen to a file there.
 
 **Filters and Background blur** run on your device, on each camera picture before your
 self-view and before it is encoded, so other members receive only the changed picture. Finding
@@ -311,6 +312,7 @@ Veil's licence. On Windows, `build.rs` embeds it in the exe with `winresource`.
 | `veil-media/src/ffi/opus.rs` (every platform) | libopus: `opus_encoder_create`, `opus_encode_float`, `opus_encoder_ctl`, `opus_decoder_create`, `opus_decode_float`, the matching `_destroy` calls, `opus_get_version_string` | Opus audio. Every buffer is a Rust slice whose length is the count passed to libopus, and packet lengths are checked before decoding. Each state is freed once, on drop |
 | `veil-media/src/ffi/openh264.rs` (Linux and macOS; also built for its tests on Windows) | OpenH264's encoder and decoder through their vtables: `WelsCreateSVCEncoder`, `GetDefaultParams`, `InitializeExt`, `SetOption`, `ForceIntraFrame`, `EncodeFrame`, `WelsCreateDecoder`, `Initialize`, `DecodeFrameNoDelay`, `Uninitialize` and the matching `WelsDestroy*` calls | H.264 off Windows, one encoder per simulcast rung with temporal layers, and decoding other members' video. The bitstream comes from another member, so OpenH264's decoder is part of the attack surface. Veil refuses any decoded size above 4K, reads each output plane only within the rows and pitch OpenH264 reports, and copies it out before the next call. Each encoder and decoder is destroyed once, on drop |
 | `veil-media/src/ffi/macos` (`camera.rs`) | AVFoundation (`AVCaptureDevice` listing, permission request, formats and frame rates, `AVCaptureSession`, `AVCaptureDeviceInput`, `AVCaptureVideoDataOutput` with a sample buffer delegate on a serial dispatch queue) and CoreVideo (`CVPixelBufferLockBaseAddress`, plane base addresses, pitches and heights) | Camera pictures on macOS, converted to NV12 by AVFoundation. Each picture is copied out of the locked pixel buffer within the plane sizes CoreVideo reports, then unlocked. macOS asks the person for camera permission; a refusal stops the camera. The camera's name stays on the device |
+| `veil-media/src/ffi/macos/screen.rs` | Core Graphics (`CGPreflightScreenCaptureAccess`, `CGRequestScreenCaptureAccess`, `CGWindowListCopyWindowInfo`) and Core Foundation (`CFArrayGetCount`, `CFRelease`) | Checking the Screen Recording permission before capturing, and whether a shared window that is out of sight still exists. Only a yes or no is kept. No window's details are read |
 
 ## 6. Known shortcuts
 

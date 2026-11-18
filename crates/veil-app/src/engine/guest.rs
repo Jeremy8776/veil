@@ -209,6 +209,7 @@ fn join_error(e: &CallError) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use std::future::pending;
     use std::time::Duration;
