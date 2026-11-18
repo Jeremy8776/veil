@@ -477,6 +477,8 @@ async fn run_link(link: Link, opened: Option<Opened>, id: u64, actor: mpsc::Send
     };
     while let Some(message) = queue.recv().await {
         if out.send(&message).await.is_err() {
+            // A device the host can no longer write to must not stay in the roster.
+            let _ = actor.send(Internal::Closed(device, id)).await;
             break;
         }
     }
