@@ -75,7 +75,15 @@ fn loopback_host_admits_a_guest_and_both_see_and_hear_each_other() {
         .as_secs();
     let first_invite = host_call.invite.clone();
     let invite = InviteLink::parse(&first_invite, now).unwrap();
-    assert!(matches!(invite, InviteLink::Short(_)), "this join goes through a short link");
+    // A machine with a public IPv6 address keeps the full link, because this host's own
+    // rendezvous cannot reach as far (`invites::can_shorten`). Either link must work here.
+    // shortcut: short links join here only without public IPv6, veil-call's short_link test
+    // covers them everywhere; upgrade if this test gains a public rendezvous.
+    assert_eq!(
+        matches!(invite, InviteLink::Short(_)),
+        first_invite != host_call.invite_full,
+        "the link shown is the short one exactly when it differs from the full one"
+    );
     println!("invite: {}", host_call.invite);
 
     let guest =
