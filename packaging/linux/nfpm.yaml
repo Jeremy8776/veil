@@ -18,7 +18,8 @@ description: |-
 
 # veil-app links glibc, libgcc_s and ALSA (libasound) directly. Windowing (X11, Wayland,
 # xkbcommon) and the GPU (Vulkan or EGL) are loaded at run time, so the package tools cannot
-# find them: they are listed here, as winit 0.30 and wgpu load them.
+# find them: they are listed here, as winit 0.30 and wgpu load them. Veil bundles no font and
+# cannot open without one, so a font package is listed too.
 overrides:
   deb:
     depends:
@@ -34,10 +35,12 @@ overrides:
       - libxcursor1
       - libxi6
       - libvulkan1 | libegl1
+      - fonts-dejavu-core
     recommends:
       - mesa-vulkan-drivers
   rpm:
     # Sonames rather than package names, so the same list resolves on Fedora and openSUSE.
+    # Fonts have no soname: the last entry names the package on each.
     depends:
       - libasound.so.2()(64bit)
       - libxkbcommon.so.0()(64bit)
@@ -49,6 +52,7 @@ overrides:
       - libXcursor.so.1()(64bit)
       - libXi.so.6()(64bit)
       - (libvulkan.so.1()(64bit) or libEGL.so.1()(64bit))
+      - (dejavu-sans-fonts or dejavu-fonts)
 
 contents:
   - src: ${STAGE}/usr/bin/veil-app

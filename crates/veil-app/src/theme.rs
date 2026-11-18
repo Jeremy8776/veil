@@ -47,7 +47,8 @@ pub const GAP: f32 = 8.0;
 /// The icon font family name, when one was found.
 pub const ICON_FAMILY: &str = "icons";
 
-/// Where each operating system keeps a usable UI font, best first.
+/// Where each operating system usually keeps a UI font, best first. Linux distributions vary,
+/// so [`crate::system_fonts`] searches their font folders when these are missing.
 const UI_FONTS: &[&str] = &[
     r"C:\Windows\Fonts\segoeui.ttf",
     "/System/Library/Fonts/SFNS.ttf",
@@ -72,7 +73,9 @@ pub struct FontsFound {
 /// Loads the system fonts into egui. Fails only when there is no UI font at all.
 pub fn load_fonts(ctx: &egui::Context) -> Result<FontsFound, String> {
     let mut fonts = FontDefinitions::empty();
-    let ui = first_readable(UI_FONTS).ok_or("no system UI font found")?;
+    let ui = first_readable(UI_FONTS)
+        .or_else(crate::system_fonts::find_ui_font)
+        .ok_or("no system UI font found")?;
     fonts
         .font_data
         .insert("ui".into(), Arc::new(FontData::from_owned(ui)));

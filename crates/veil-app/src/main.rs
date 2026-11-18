@@ -28,6 +28,7 @@ mod logo;
 mod media;
 mod model;
 mod screens;
+mod system_fonts;
 mod theme;
 mod update;
 mod volume;
@@ -59,7 +60,7 @@ fn main() -> eframe::Result {
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
-    eframe::run_native(
+    log::record_exit(eframe::run_native(
         "Veil",
         options,
         Box::new(|cc| {
@@ -68,7 +69,7 @@ fn main() -> eframe::Result {
             theme::apply(&cc.egui_ctx);
             Ok(Box::new(app::VeilApp::new(&cc.egui_ctx)))
         }),
-    )
+    ))
 }
 
 #[cfg(test)]

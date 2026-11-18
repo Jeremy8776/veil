@@ -2,6 +2,15 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Fixed
+
+- Veil now opens on Linux systems that keep fonts in other folders, such as Fedora. It searches
+  the standard font folders for a common font, and the deb and rpm packages install DejaVu Sans.
+- `veil.log` now records the error when Veil cannot start, for example with no graphics
+  driver, display or font. Before, the log stopped at the version line.
+
 ## 0.1.8, 18/11/2026
 
 ### Security

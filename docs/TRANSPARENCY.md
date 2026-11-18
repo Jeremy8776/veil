@@ -97,8 +97,9 @@ thread of its own while blur is on, and nothing is sent anywhere to do it.
 - `logs\veil.log` and `logs\veil.previous.log` (from 0.1.3, `veil-app/src/log.rs`): this run's
   log and the last run's, for you to send when something goes wrong. "Logs" on the home
   screen opens the folder. Nothing reads or sends them but you. They hold the version, call
-  states (connecting, lobby, live, ended and why), timings, device and encoder errors, and
-  error text from the network, which can include a server's or peer's IP address. People
+  states (connecting, lobby, live, ended and why), timings, device and encoder errors, the
+  error that stopped Veil if it could not start or run, and error text from the network,
+  which can include a server's or peer's IP address. People
   appear at most as the first 8 hex digits of their device key: no names, chat, invite links
   or keys. Each file stops at 5 MB. They are plain text, not sealed. On macOS they are in
   `~/Library/Logs/Veil`, on Linux in `$XDG_STATE_HOME/veil` (or `~/.local/state/veil`).
@@ -253,7 +254,9 @@ own `unsafe` code, and Veil's code that uses them has none. MJPEG camera picture
 decoded by `zune-jpeg`, which is pure Rust.
 
 **Fonts and icons:** none are bundled. `veil-app` reads the system's own UI, symbol and icon
-fonts at start-up (Segoe UI and Segoe Fluent Icons or Segoe MDL2 Assets on Windows). Where
+fonts at start-up (Segoe UI and Segoe Fluent Icons or Segoe MDL2 Assets on Windows). On Linux
+it looks for DejaVu Sans, Noto Sans, Adwaita Sans or Liberation Sans, searching the standard
+font folders by file name, and the deb and rpm packages depend on DejaVu Sans. Where
 there is no icon font (Linux, macOS), icons are drawn from vector strokes in code. egui's
 bundled fonts are turned off because their licences are outside the allow list. The one
 bundled image is Veil's own app icon (`crates/veil-app/assets`), made for Veil and under
