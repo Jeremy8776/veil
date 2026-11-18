@@ -15,7 +15,7 @@
 //! - Output sizes are even and at most [`MAX_DIMENSION`], as 4:2:0 and the ladder need.
 //! - Colour is BT.709 limited range, the same as cameras and `veil-app`'s `convert.rs`.
 //!
-//! shortcut: each picture is a full screenshot converted on the CPU, which suits about ten
+//! shortcut: each picture is a full screenshot converted on the CPU, which suits about twenty
 //! pictures a second. Use `xcap`'s recorder or each system's capture stream for higher rates.
 
 use crate::MediaError;
@@ -62,6 +62,15 @@ pub struct Grabbed {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+}
+
+impl Grabbed {
+    /// True if every pixel has the same colour, as with a hidden helper window or an overlay.
+    pub fn is_blank(&self) -> bool {
+        let mut pixels = self.rgba.chunks_exact(4);
+        let Some(first) = pixels.next() else { return true };
+        pixels.all(|pixel| pixel[..3] == first[..3])
+    }
 }
 
 /// Everything that can be shared, each already open: screens first, the main one at the top,
@@ -253,6 +262,17 @@ mod tests {
         to_nv12(&picture, area, &mut out).unwrap();
         let (w, h) = (area.width as usize, area.height as usize);
         assert_eq!(out.len(), w * h * 3 / 2);
+    }
+
+    #[test]
+    fn only_a_picture_of_one_colour_is_blank() {
+        let mut picture = solid(4, 4, [0, 0, 0]);
+        assert!(picture.is_blank());
+        picture.rgba[3] = 9;
+        assert!(picture.is_blank(), "transparency is not a colour");
+        picture.rgba[60] = 1;
+        assert!(!picture.is_blank());
+        assert!(solid(0, 0, [0, 0, 0]).is_blank());
     }
 
     #[test]
