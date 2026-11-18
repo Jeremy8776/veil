@@ -7,8 +7,10 @@
 //! every `HostEvent::Keys` the host plans the epoch and publishes it with `publish_plan`.
 //! If the person allowed it, the router is asked to open the call's port (`router.rs`);
 //! once it does, its public address goes first in a fresh invite, and it is removed when
-//! the call ends. With a public node, that address (or the first public address set by hand)
-//! is then checked from outside (`reach.rs`).
+//! the call ends. The host's own rendezvous gets its port opened the same way, and the invite
+//! then names it at both its public and LAN addresses (`veil_call::RelayAddrs`). With a public
+//! node, that address (or the first public address set by hand) is then checked from outside
+//! (`reach.rs`).
 //!
 //! The forwarder for calls above 4 people is `VEIL_FORWARDER` if set. Otherwise, when the
 //! host also runs its own rendezvous, it runs its own forwarder on a third port, reachable
@@ -36,7 +38,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc::UnboundedReceiver;
-use veil_call::{CallNode, HostEvent, HostHandle};
+use veil_call::{CallNode, HostEvent, HostHandle, RelayAddrs};
 use veil_forward::{ForwarderServer, Limits};
 use veil_net::{Node, NodeAddr};
 use veil_rendezvous::{RendezvousServer, room_tag};
@@ -44,11 +46,11 @@ use veil_security::{Identity, PublicId};
 
 use super::plan::{NetConfig, advertised, lan_ip, plan_for, resolve};
 use super::reach::Checker;
-use super::router::{Event, Router};
+use super::router::{Event, PortStatus, Router};
 use super::session::{Pipes, Session};
 use super::view::{Knocker, Shared};
 use super::{Command, Ids, invites, short};
-use crate::model::{Action, CallStatus, Reachable, RouterPort};
+use crate::model::{Action, CallStatus, Reachable};
 
 pub async fn run(
     identity: Identity,
@@ -87,11 +89,20 @@ pub async fn run(
     }
     let mut addrs = advertised(&config, lan, port);
     let mut until_end = false;
-    let mut expires = new_invite(&host, &addrs, &rendezvous, until_end, &shared).await;
+    let mut relay = RelayAddrs::from(rendezvous);
+    let mut expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
     if expires == 0 {
         return Err("Cannot make an invite.".into());
     }
     let mut router = Router::start(config.open_port, lan, port);
+    // Guests reach each other by punching or relaying through the rendezvous, so the host's
+    // own one needs its port open too, or guests on the internet see the host but not each
+    // other. A rendezvous set in Settings is already public.
+    let mut relay_router = match configured {
+        None => Router::start(config.open_port, lan, rendezvous.addr.port()),
+        Some(_) => None,
+    };
+    let mut ports = PortStatus::new(router.as_ref(), relay_router.as_ref());
     let mut router_addr: Option<SocketAddr> = None;
     // Only a public node can dial in from outside; the host's own rendezvous cannot.
     let mut reach = Checker::default();
@@ -101,9 +112,7 @@ pub async fn run(
         .is_some_and(|at| check(&mut reach, &call, configured, *at));
     shared.update(|view| {
         view.status = CallStatus::Live;
-        if router.is_some() {
-            view.router = RouterPort::Opening;
-        }
+        view.router = ports.view();
         if checking {
             view.reach = Reachable::Checking;
         }
@@ -119,7 +128,7 @@ pub async fn run(
                 // A fresh link with the chosen lifetime; one already sent keeps its own.
                 Some(Command::Act(Action::InviteUntilEnd(chosen))) => {
                     until_end = chosen;
-                    expires = new_invite(&host, &addrs, &rendezvous, until_end, &shared).await;
+                    expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
                 }
                 Some(Command::Act(action)) => act(&host, &session.ids, &mut knocks, action).await,
             },
@@ -137,7 +146,7 @@ pub async fn run(
                     };
                     shared.update(|view| view.lobby.push(knocker));
                     // The knock used the invite's token: give out a fresh one.
-                    expires = new_invite(&host, &addrs, &rendezvous, until_end, &shared).await;
+                    expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
                 }
                 // Joins and leaves go to the log, so a call across networks shows when the
                 // host heard of each.
@@ -171,10 +180,11 @@ pub async fn run(
             },
             () = session.pump() => {}
             event = next_router(&mut router) => {
-                let (state, open) = match event {
-                    Event::Open(addr) => (RouterPort::Open(addr.to_string()), Some(addr)),
-                    Event::Failed(guide) => (RouterPort::Failed(guide), None),
+                let open = match &event {
+                    Event::Open(addr) => Some(*addr),
+                    Event::Failed(_) => None,
                 };
+                ports.call_changed(event);
                 // The router's address goes first in every invite from now on.
                 if open != router_addr {
                     addrs.retain(|a| Some(*a) != router_addr);
@@ -187,24 +197,48 @@ pub async fn run(
                 }
                 let checking = open.is_some_and(|at| check(&mut reach, &call, configured, at));
                 shared.update(|view| {
-                    view.router = state;
+                    view.router = ports.view();
                     if checking {
                         view.reach = Reachable::Checking;
                     }
                 });
-                expires = new_invite(&host, &addrs, &rendezvous, until_end, &shared).await;
+                if ports.settled() {
+                    expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
+                }
+            }
+            event = next_router(&mut relay_router) => {
+                // The public address first, for guests on the internet; the LAN address stays
+                // for guests on this network, since many routers do not loop back.
+                let public = match &event {
+                    Event::Open(addr) => Some(*addr),
+                    Event::Failed(_) => None,
+                };
+                ports.rendezvous_changed(event);
+                if let Some(addr) = public {
+                    crate::note!("rendezvous: guests on the internet reach it at {addr}");
+                }
+                relay.addrs = public.into_iter().chain([rendezvous.addr]).collect();
+                shared.update(|view| view.router = ports.view());
+                if ports.settled() {
+                    expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
+                }
             }
             // The link shown always works: one that ran out unused is replaced.
             () = until(expires) => {
-                expires = new_invite(&host, &addrs, &rendezvous, until_end, &shared).await;
+                expires = new_invite(&host, &addrs, &relay, until_end, &shared).await;
             }
             verdict = reach.next() => shared.update(|view| view.reach = verdict),
         }
     };
+    // Together, because leaving waits about a second and each close may take 0.8 s of it.
+    tokio::join!(close_router(router), close_router(relay_router));
+    result
+}
+
+async fn close_router(router: Option<Router>) {
     if let Some(router) = router {
         router.close().await;
     }
-    result
 }
 
 /// Asks the public node `server`, if there is one, to dial `at` from outside. Returns whether
@@ -298,14 +332,14 @@ fn own_server(
 async fn new_invite(
     host: &HostHandle,
     addrs: &[SocketAddr],
-    rendezvous: &NodeAddr,
+    relay: &RelayAddrs,
     until_end: bool,
     shared: &Shared,
 ) -> u64 {
     let now = invites::now_unix();
     let expires = invites::expiry(until_end, now);
     let addrs = addrs.iter().map(ToString::to_string).collect();
-    match host.invite(addrs, Some(rendezvous.to_string()), expires).await {
+    match host.invite(addrs, Some(relay.to_string()), expires).await {
         Ok(link) => {
             shared.update(|view| {
                 view.invite = link;

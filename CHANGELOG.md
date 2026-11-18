@@ -4,6 +4,14 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Fixed
+
+- Guests on the internet can now reach each other, not only the host. With "Open a port on my
+  router" on, a host without a rendezvous of its own choosing now opens a second UDP port for
+  the call, for the rendezvous Veil runs. This is a change from the one port Veil opened
+  before. People warns if the second port does not open. Everyone in the call needs this
+  version for guests to connect to each other.
+
 ## 0.1.7, 18/11/2026
 
 ### Fixed

@@ -548,8 +548,8 @@ forwarder) whenever they want. Every role stays a module behind one interface
 must be as easy as possible without weakening security.
 
 Decisions:
-- **Port opening: automatic, opt-in.** Veil asks once, then maps one UDP port (the fixed call
-  port) on the router with PCP, then NAT-PMP, then UPnP IGD. The mapping is for the call
+- **Port opening: automatic, opt-in.** Veil asks once, then maps the call's UDP port and, when
+  the host runs its own rendezvous, that rendezvous's port on the router with PCP, then NAT-PMP, then UPnP IGD. The mapping is for the call
   only: a short lease, renewed while the call runs, deleted when it ends. If the router
   refuses, Veil shows a written guide and a reachability check. If the router's external
   address differs from the address a rendezvous reflects, the user is behind carrier-grade
