@@ -14,16 +14,16 @@
 //! Invariants:
 //! - [`DataUse::Auto`] is the default and behaves exactly as Veil did before this choice.
 //! - Sound is never turned off by this choice; only video and the sound bitrate change.
-//!
-//! shortcut: Auto does not yet step down by itself when the link is poor. That needs a
-//! bandwidth estimate per link (ARCHITECTURE.md 3.3, item 8); add it there and let Auto
-//! read it.
+//! - On Auto, a slow link makes Veil use the Data saver rungs until it recovers
+//!   (`engine/auto_step.rs` decides; [`DataUseCell::effective`] is what the call follows).
+//!   The person's choice, and what is saved, stays Auto. Data saver and Audio only are
+//!   fixed: nothing changes them but the person.
 //! shortcut: in a mesh call, others still send you every layer they encode, so Data saver and
 //! Audio only lower what you send, not what you receive. Through a forwarder you receive at
 //! most the smallest layer. Stopping incoming video entirely needs a "no video" request in
 //! the forwarder protocol and a per-link request in the mesh.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use serde::{Deserialize, Serialize};
 use veil_forward::Wanted;
@@ -61,8 +61,9 @@ impl DataUse {
     pub fn help(self) -> &'static str {
         match self {
             Self::Auto => {
-                "The best picture your connection allows. Right for most home, office and \
-                 mobile connections."
+                "The best picture your connection allows. On a slow connection it switches \
+                 to Data saver by itself, and back when the connection recovers. Right for \
+                 most home, office and mobile connections."
             }
             Self::Saver => {
                 "A small picture at a low frame rate, and lower-rate sound. For mobile data \
@@ -116,21 +117,48 @@ impl DataUse {
     }
 }
 
-/// The current choice, shared by the interface and the call's threads.
+/// The current choice, shared by the interface and the call's threads, and whether Auto
+/// is saving data because the link is slow.
 #[derive(Debug, Default)]
-pub struct DataUseCell(AtomicU8);
+pub struct DataUseCell {
+    choice: AtomicU8,
+    auto_saving: AtomicBool,
+}
 
 impl DataUseCell {
     pub fn new(data_use: DataUse) -> Self {
-        Self(AtomicU8::new(data_use.to_u8()))
+        Self {
+            choice: AtomicU8::new(data_use.to_u8()),
+            auto_saving: AtomicBool::new(false),
+        }
     }
 
+    /// The person's choice, as the menus show it.
     pub fn get(&self) -> DataUse {
-        DataUse::from_u8(self.0.load(Ordering::Relaxed))
+        DataUse::from_u8(self.choice.load(Ordering::Relaxed))
     }
 
     pub fn set(&self, data_use: DataUse) {
-        self.0.store(data_use.to_u8(), Ordering::Relaxed);
+        self.choice.store(data_use.to_u8(), Ordering::Relaxed);
+    }
+
+    /// What the call does now: the choice, except that Auto on a slow link acts as Data
+    /// saver.
+    pub fn effective(&self) -> DataUse {
+        match self.get() {
+            DataUse::Auto if self.auto_saving() => DataUse::Saver,
+            choice => choice,
+        }
+    }
+
+    /// Whether the choice is Auto and Auto is saving data now.
+    pub fn auto_saving(&self) -> bool {
+        self.get() == DataUse::Auto && self.auto_saving.load(Ordering::Relaxed)
+    }
+
+    /// Set once a second by the call from `engine/auto_step.rs`; cleared when a call ends.
+    pub fn set_auto_saving(&self, saving: bool) {
+        self.auto_saving.store(saving, Ordering::Relaxed);
     }
 }
 
@@ -156,6 +184,21 @@ mod tests {
             cell.set(data_use);
             assert_eq!(cell.get(), data_use);
         }
+    }
+
+    #[test]
+    fn auto_saving_acts_as_data_saver_only_on_auto() {
+        let cell = DataUseCell::default();
+        cell.set_auto_saving(true);
+        assert_eq!(cell.get(), DataUse::Auto, "the choice shown stays Auto");
+        assert_eq!(cell.effective(), DataUse::Saver);
+        assert!(cell.auto_saving());
+        cell.set(DataUse::AudioOnly);
+        assert_eq!(cell.effective(), DataUse::AudioOnly, "fixed choices stay fixed");
+        assert!(!cell.auto_saving());
+        cell.set(DataUse::Auto);
+        cell.set_auto_saving(false);
+        assert_eq!(cell.effective(), DataUse::Auto);
     }
 
     #[test]

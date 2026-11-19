@@ -141,6 +141,7 @@ impl VeilApp {
             let keys = self.keys.clone();
             let config = self.connection.config();
             let data = self.data_use.clone();
+            data.set_auto_saving(false);
             match Engine::start(role, config, name.clone(), playback, keys, data, self.ctx.clone()) {
                 Ok(engine) => {
                     self.media.set_taps(Some(engine.taps()));

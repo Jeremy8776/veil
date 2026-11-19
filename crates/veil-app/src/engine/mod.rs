@@ -23,6 +23,7 @@
 //! - Dropping the engine leaves the call: the session task ends, links close, threads stop.
 
 mod audio_out;
+mod auto_step;
 mod guest;
 mod host;
 mod invites;

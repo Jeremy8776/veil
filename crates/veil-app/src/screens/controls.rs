@@ -34,6 +34,11 @@ pub const MENUS: usize = 2;
 const MENU_INNER: f32 = 280.0;
 /// Shown wherever mirroring can be turned on or off.
 pub const MIRROR_HINT: &str = "Flips your video left to right, for you and everyone in the call.";
+/// The Auto row while Auto is saving data because the connection is slow.
+const AUTO_SAVING: &str = "Auto: saving data";
+const AUTO_SAVING_HINT: &str = "Your connection is slow, so Veil sends and asks for a smaller \
+     picture, as Data saver does. It goes back to the best picture by itself when the \
+     connection has been steady for a while.";
 
 pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
     let mic_on = app.media.mic_on();
@@ -177,9 +182,14 @@ fn video_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     call_menus::divider(ui);
     call_menus::section(ui, Icon::Signal, "Data use");
     let current = app.data_use.get();
+    let saving = app.data_use.auto_saving();
     for choice in crate::data_use::DataUse::ALL {
-        let row = call_menus::choice(ui, choice.label(), choice == current);
-        if row.on_hover_text(choice.help()).clicked() && choice != current {
+        let (label, help) = match choice {
+            crate::data_use::DataUse::Auto if saving => (AUTO_SAVING, AUTO_SAVING_HINT),
+            _ => (choice.label(), choice.help()),
+        };
+        let row = call_menus::choice(ui, label, choice == current);
+        if row.on_hover_text(help).clicked() && choice != current {
             app.set_data_use(choice);
         }
     }
