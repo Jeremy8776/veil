@@ -18,6 +18,7 @@
 //!   (`engine/auto_step.rs` decides; [`DataUseCell::effective`] is what the call follows).
 //!   The person's choice, and what is saved, stays Auto. Data saver and Audio only are
 //!   fixed: nothing changes them but the person.
+//!
 //! shortcut: in a mesh call, others still send you every layer they encode, so Data saver and
 //! Audio only lower what you send, not what you receive. Through a forwarder you receive at
 //! most the smallest layer. Stopping incoming video entirely needs a "no video" request in

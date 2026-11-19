@@ -144,11 +144,6 @@ impl Default for AutoStep {
 }
 
 impl AutoStep {
-    /// Whether Auto is saving data now.
-    pub fn saving(&self) -> bool {
-        self.saving
-    }
-
     /// Takes this second's link rows and returns whether Auto should save data.
     pub fn update(&mut self, rows: &[LinkRow]) -> bool {
         self.links.retain(|id, _| rows.iter().any(|r| r.id == *id));
