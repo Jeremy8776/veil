@@ -29,16 +29,23 @@
 //! host key); only listed devices join, epochs only move forward, and a newer ticket (on a
 //! join or a later `Ticket` message from any member) drops members it no longer lists.
 //!
+//! Room slots: a new room counts against the address block of the link that opened it, up to
+//! [`Limits::max_rooms_per_block`], until it closes. A member alone in its room for
+//! [`Limits::alone_grace`] has its link ended, since a room of one forwards nothing. So one
+//! party cannot hold every room slot with idle links (GHSA-rgc8-82r3-49vh).
+//!
 //! Serving one host: a participant's own forwarder runs for its own call only
 //! ([`ForwarderServer::only_host`]). It refuses tickets signed by any other key, so strangers
 //! who find its port cannot use the participant's upload for their own rooms.
 //!
 //! shortcut: no forwarder-to-forwarder cascade yet; one forwarder serves a whole room.
 
+mod budget;
+
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::atomic::AtomicUsize;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -52,6 +59,8 @@ use veil_security::frame::frame_layer;
 use crate::protocol::{ClientMsg, Refusal, ServerMsg};
 use crate::subscribe::{Subscriptions, Wanted};
 use crate::ticket::RosterTicket;
+use budget::{Budgets, Reservation, reserve_all};
+pub use budget::QueueMonitor;
 
 /// Frames waiting for one receiver, counted in frames. The byte budget usually binds first.
 const VIDEO_QUEUE: usize = 256;
@@ -64,6 +73,12 @@ const JOIN_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     pub max_rooms: usize,
+    /// Rooms that links from one remote address block (one IPv4 address or IPv6 /64) may have
+    /// opened and still hold, so one party cannot take every room slot.
+    pub max_rooms_per_block: usize,
+    /// How long a room may have a single member before that member's link is ended. A room of
+    /// one forwards nothing; without this, one link per room would hold slots for free.
+    pub alone_grace: Duration,
     pub max_members_per_room: usize,
     /// Video bytes allowed to wait for one receiver before frames are dropped.
     pub queue_bytes: usize,
@@ -80,7 +95,12 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            max_rooms: 1_000,
+            // A room that lasts needs two links (`alone_grace`), so the link cap binds before
+            // the room cap does: room slots cannot run out while links are left.
+            max_rooms: veil_net::accept::MAX_LINKS / 2,
+            // Several calls from one home or office router; one party needs many blocks.
+            max_rooms_per_block: 16,
+            alone_grace: Duration::from_secs(60),
             max_members_per_room: 16,
             queue_bytes: 32 * 1024 * 1024,
             node_queue_bytes: 1024 * 1024 * 1024,
@@ -88,94 +108,6 @@ impl Default for Limits {
             send_deadline: veil_net::frames::FRAME_DEADLINE,
         }
     }
-}
-
-/// Queued video bytes that are counted across receivers.
-#[derive(Default)]
-struct Budgets {
-    node: AtomicUsize,
-    /// Per remote address block. An entry is removed when it drops to zero.
-    sources: Mutex<HashMap<IpAddr, usize>>,
-}
-
-impl Budgets {
-    fn reserve_source(&self, source: IpAddr, len: usize, budget: usize) -> bool {
-        let Ok(mut sources) = self.sources.lock() else {
-            return false;
-        };
-        let used = sources.get(&source).copied().unwrap_or(0);
-        match used.checked_add(len).filter(|total| *total <= budget) {
-            Some(total) => {
-                if total > 0 {
-                    sources.insert(source, total);
-                }
-                true
-            }
-            None => false,
-        }
-    }
-
-    fn release_source(&self, source: IpAddr, len: usize) {
-        let mut sources = self.sources.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(used) = sources.get_mut(&source) {
-            *used = used.saturating_sub(len);
-            if *used == 0 {
-                sources.remove(&source);
-            }
-        }
-    }
-}
-
-/// Reads a running forwarder's queued video total. For monitoring and tests.
-#[derive(Clone)]
-pub struct QueueMonitor(Arc<Budgets>);
-
-impl QueueMonitor {
-    /// Video bytes now queued for all receivers.
-    pub fn queued_bytes(&self) -> usize {
-        self.0.node.load(Ordering::Acquire)
-    }
-}
-
-/// `len` bytes held against a receiver's, the node's and a source block's budgets. Dropping it
-/// gives all three back.
-struct Reservation {
-    len: usize,
-    budgets: Arc<Budgets>,
-    queued: Arc<AtomicUsize>,
-    source: IpAddr,
-}
-
-impl Drop for Reservation {
-    fn drop(&mut self) {
-        release(&self.queued, self.len);
-        release(&self.budgets.node, self.len);
-        self.budgets.release_source(self.source, self.len);
-    }
-}
-
-/// Reserves `len` bytes from the receiver's, the node's and the source block's budgets, all or
-/// nothing.
-fn reserve_all(
-    budgets: &Arc<Budgets>,
-    queued: &Arc<AtomicUsize>,
-    source: IpAddr,
-    len: usize,
-    limits: &Limits,
-) -> Option<Reservation> {
-    if !reserve(queued, len, limits.queue_bytes) {
-        return None;
-    }
-    if !reserve(&budgets.node, len, limits.node_queue_bytes) {
-        release(queued, len);
-        return None;
-    }
-    if !budgets.reserve_source(source, len, limits.source_queue_bytes) {
-        release(&budgets.node, len);
-        release(queued, len);
-        return None;
-    }
-    Some(Reservation { len, budgets: budgets.clone(), queued: queued.clone(), source })
 }
 
 /// A frame waiting for one receiver. Its reservation is released when it is dropped.
@@ -204,6 +136,10 @@ type RoomKey = ([u8; 32], PublicId);
 struct Room {
     epoch: u64,
     members: HashMap<PublicId, Member>,
+    /// The address block of the link that opened the room; the room counts against it.
+    owner: IpAddr,
+    /// Since when the room has had at most one member, if it has.
+    alone_since: Option<Instant>,
 }
 
 impl Room {
@@ -218,13 +154,37 @@ impl Room {
             }
             keep
         });
+        self.recount();
+    }
+
+    /// Starts or clears the alone clock after the member count changed.
+    fn recount(&mut self) {
+        if self.members.len() > 1 {
+            self.alone_since = None;
+        } else if self.alone_since.is_none() {
+            self.alone_since = Some(Instant::now());
+        }
     }
 }
 
 #[derive(Default)]
 struct State {
     rooms: HashMap<RoomKey, Room>,
+    /// Open rooms per owner address block. An entry is removed when it drops to zero.
+    blocks: HashMap<IpAddr, usize>,
     next_id: u64,
+}
+
+impl State {
+    fn remove_room(&mut self, key: &RoomKey) {
+        let Some(room) = self.rooms.remove(key) else { return };
+        if let Some(count) = self.blocks.get_mut(&room.owner) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.blocks.remove(&room.owner);
+            }
+        }
+    }
 }
 
 type Shared = Arc<Mutex<State>>;
@@ -310,15 +270,26 @@ fn join(
     }
     let mut s = lock(state).ok_or(Refusal::Full)?;
     let key = (ticket.room_tag, ticket.host);
-    if !s.rooms.contains_key(&key) && s.rooms.len() >= limits.max_rooms {
-        return Err(Refusal::Full);
+    if !s.rooms.contains_key(&key) {
+        // A new room counts against the block of the link that opens it (GHSA-rgc8-82r3-49vh).
+        let owned = s.blocks.get(&joining.source).copied().unwrap_or(0);
+        if s.rooms.len() >= limits.max_rooms || owned >= limits.max_rooms_per_block {
+            return Err(Refusal::Full);
+        }
+        *s.blocks.entry(joining.source).or_default() += 1;
+        let room = Room {
+            epoch: ticket.epoch,
+            members: HashMap::new(),
+            owner: joining.source,
+            alone_since: Some(Instant::now()),
+        };
+        s.rooms.insert(key, room);
     }
     s.next_id = s.next_id.wrapping_add(1);
     let id = s.next_id;
-    let room = s.rooms.entry(key).or_insert_with(|| Room {
-        epoch: ticket.epoch,
-        members: HashMap::new(),
-    });
+    let Some(room) = s.rooms.get_mut(&key) else {
+        return Err(Refusal::Full);
+    };
     if ticket.epoch < room.epoch {
         return Err(Refusal::StaleTicket);
     }
@@ -334,6 +305,7 @@ fn join(
     let Joining { video, queued, source, conn, control } = joining;
     let subs = Subscriptions::default();
     room.members.insert(me, Member { id, video, queued, source, conn, control, subs });
+    room.recount();
     Ok((u16::try_from(room.members.len()).unwrap_or(u16::MAX), id))
 }
 
@@ -404,9 +376,35 @@ fn leave(state: &Shared, key: &RoomKey, me: PublicId, id: u64) {
     {
         if room.members.get(&me).is_some_and(|m| m.id == id) {
             room.members.remove(&me);
+            room.recount();
         }
         if room.members.is_empty() {
-            s.rooms.remove(key);
+            s.remove_room(key);
+        }
+    }
+}
+
+/// Whether member `me` (this link `id`) has been alone in its room for `grace`. `None` once the
+/// member has left, so the watcher can stop.
+fn alone_too_long(state: &Shared, key: &RoomKey, me: PublicId, id: u64, grace: Duration) -> Option<bool> {
+    let s = lock(state)?;
+    let room = s.rooms.get(key)?;
+    room.members.get(&me).filter(|m| m.id == id)?;
+    Some(room.alone_since.is_some_and(|since| since.elapsed() >= grace))
+}
+
+/// Ends this member's link once it has been alone in its room for `limits.alone_grace`.
+async fn watch_alone(link: Arc<Link>, state: Shared, key: RoomKey, me: PublicId, id: u64, grace: Duration) {
+    let step = (grace / 4).max(Duration::from_millis(50));
+    loop {
+        tokio::time::sleep(step).await;
+        match alone_too_long(&state, &key, me, id, grace) {
+            Some(true) => {
+                link.close("alone in the room");
+                return;
+            }
+            Some(false) => {}
+            None => return,
         }
     }
 }
@@ -522,6 +520,7 @@ async fn serve(link: Link, state: Shared, budgets: Arc<Budgets>, limits: Limits,
             }
         })
     };
+    let alone = tokio::spawn(watch_alone(link.clone(), state.clone(), key, me, id, limits.alone_grace));
 
     // Reading control messages also detects the link closing.
     while let Ok(message) = input.recv::<ClientMsg>().await {
@@ -539,6 +538,7 @@ async fn serve(link: Link, state: Shared, budgets: Arc<Budgets>, limits: Limits,
     writer.abort();
     video.abort();
     audio.abort();
+    alone.abort();
 }
 
 fn fan_out_video(
@@ -579,67 +579,10 @@ fn fan_out_video(
     }
 }
 
-/// Reserves `len` bytes of one atomic budget. Atomic, so concurrent senders in one room
-/// cannot overshoot the budget together.
-fn reserve(queued: &AtomicUsize, len: usize, budget: usize) -> bool {
-    queued
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |now| {
-            now.checked_add(len).filter(|total| *total <= budget)
-        })
-        .is_ok()
-}
-
-fn release(queued: &AtomicUsize, len: usize) {
-    let _ = queued.fetch_update(Ordering::AcqRel, Ordering::Acquire, |now| Some(now.saturating_sub(len)));
-}
 
 fn fan_out_audio(state: &Shared, key: &RoomKey, me: PublicId, packet: &Bytes) {
     for conn in others(state, key, me, |m| m.conn.clone()) {
         // Audio is loss tolerant: a full or too-small path drops the packet.
         let _ = conn.send_datagram(packet.clone());
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn byte_budget_refuses_frames_past_the_limit_and_frees_on_send() {
-        let queued = AtomicUsize::new(0);
-        assert!(reserve(&queued, 40, 100));
-        assert!(reserve(&queued, 60, 100));
-        assert!(!reserve(&queued, 1, 100), "budget is full");
-        assert_eq!(queued.load(Ordering::Acquire), 100);
-        release(&queued, 60);
-        assert!(reserve(&queued, 50, 100));
-        assert!(!reserve(&queued, usize::MAX, 100), "no overflow");
-        assert_eq!(queued.load(Ordering::Acquire), 90);
-    }
-
-    #[test]
-    fn reserve_all_is_all_or_nothing_and_releases_on_drop() {
-        let budgets = Arc::new(Budgets::default());
-        let a = Arc::new(AtomicUsize::new(0));
-        let b = Arc::new(AtomicUsize::new(0));
-        let ip: IpAddr = [10, 0, 0, 1].into();
-        let other: IpAddr = [10, 0, 0, 2].into();
-        let limits = Limits { queue_bytes: 100, node_queue_bytes: 150, source_queue_bytes: 120, ..Limits::default() };
-
-        let r1 = reserve_all(&budgets, &a, ip, 100, &limits).unwrap();
-        // The node budget (150) refuses; the receiver and source counts roll back.
-        assert!(reserve_all(&budgets, &b, other, 60, &limits).is_none());
-        assert_eq!(b.load(Ordering::Acquire), 0);
-        assert_eq!(budgets.node.load(Ordering::Acquire), 100);
-        assert!(!budgets.sources.lock().unwrap().contains_key(&other));
-        // The source budget (120) refuses for the same block.
-        assert!(reserve_all(&budgets, &b, ip, 30, &limits).is_none());
-        assert_eq!(b.load(Ordering::Acquire), 0);
-        assert_eq!(budgets.node.load(Ordering::Acquire), 100);
-        drop(r1);
-        assert_eq!(a.load(Ordering::Acquire), 0);
-        assert_eq!(budgets.node.load(Ordering::Acquire), 0);
-        assert!(budgets.sources.lock().unwrap().is_empty(), "entries vanish at zero");
     }
 }

@@ -16,6 +16,10 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   that Veil never reads. Each link now holds at most about 5 MB of unread data
   (GHSA-g7j3-q88p-63cf).
 
+- One party can no longer take every room on a shared forwarder by holding many empty rooms
+  open. Each address can hold 16 rooms at most, a room whose only member stays alone for 60
+  seconds is closed, and the default room limit is now 4,096 (GHSA-rgc8-82r3-49vh).
+
 ## 0.1.9, 18/11/2026
 
 ### Fixed

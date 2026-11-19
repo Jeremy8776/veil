@@ -12,7 +12,8 @@
 //!
 //! [forwarder]
 //! listen = "0.0.0.0:4434"
-//! max_rooms = 1000        # optional
+//! max_rooms = 4096        # optional
+//! max_rooms_per_block = 16 # optional: rooms one remote address may hold open
 //! max_members_per_room = 16
 //! node_queue_mib = 1024   # optional: video all receivers together may have queued
 //! source_queue_mib = 128  # optional: share of that one remote address may hold
@@ -56,6 +57,8 @@ pub struct RendezvousRole {
 pub struct ForwarderRole {
     pub listen: SocketAddr,
     pub max_rooms: Option<usize>,
+    /// Rooms that links from one remote address (IPv4 address or IPv6 /64) may hold open.
+    pub max_rooms_per_block: Option<usize>,
     pub max_members_per_room: Option<usize>,
     /// MiB of video the forwarder may hold queued for all receivers together.
     pub node_queue_mib: Option<usize>,
@@ -78,6 +81,9 @@ impl ForwarderRole {
         let defaults = Limits::default();
         Limits {
             max_rooms: self.max_rooms.unwrap_or(defaults.max_rooms),
+            max_rooms_per_block: self
+                .max_rooms_per_block
+                .unwrap_or(defaults.max_rooms_per_block),
             max_members_per_room: self
                 .max_members_per_room
                 .unwrap_or(defaults.max_members_per_room),
@@ -134,6 +140,9 @@ impl Config {
             if limits.max_rooms == 0 {
                 return bad("forwarder.max_rooms must be at least 1");
             }
+            if limits.max_rooms_per_block == 0 {
+                return bad("forwarder.max_rooms_per_block must be at least 1");
+            }
             if !(2..=MAX_ROOM_MEMBERS).contains(&limits.max_members_per_room) {
                 return bad("forwarder.max_members_per_room must be between 2 and 64");
             }
@@ -178,6 +187,9 @@ max_members_per_room = 8
         let limits = config.forwarder.unwrap().limits();
         assert_eq!(limits.max_members_per_room, 8);
         assert_eq!(limits.max_rooms, Limits::default().max_rooms);
+        assert_eq!(limits.max_rooms_per_block, Limits::default().max_rooms_per_block);
+        let set = forwarder("max_rooms_per_block = 3\n");
+        assert_eq!(Config::parse(&set).unwrap().forwarder.unwrap().limits().max_rooms_per_block, 3);
     }
 
     fn forwarder(extra: &str) -> String {
@@ -267,6 +279,7 @@ source_queue_mib = 1
             // Bad limits.
             "identity_file = \"k\"\n[forwarder]\nlisten = \"0.0.0.0:5\"\nmax_members_per_room = 1\n",
             "identity_file = \"k\"\n[forwarder]\nlisten = \"0.0.0.0:5\"\nmax_rooms = 0\n",
+            "identity_file = \"k\"\n[forwarder]\nlisten = \"0.0.0.0:5\"\nmax_rooms_per_block = 0\n",
             // Not an address.
             "identity_file = \"k\"\n[forwarder]\nlisten = \"localhost\"\n",
         ] {
