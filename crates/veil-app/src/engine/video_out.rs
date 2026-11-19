@@ -16,7 +16,8 @@
 //! - A shared screen is one layer, marked as spatial 0 and temporal 0, so a forwarder passes it
 //!   to everyone whatever size they ask for. Only the sealed header says it is a screen.
 //! - The ladder follows the data use choice (`data_use.rs`): a new choice reopens the encoder
-//!   with a keyframe, and Audio only encodes no camera at all.
+//!   with a keyframe, and Audio only encodes no camera at all. Auto on a slow link counts as
+//!   Data saver (`DataUseCell::effective`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -196,7 +197,7 @@ fn run(
             Err(RecvTimeoutError::Timeout) => continue,
             Err(RecvTimeoutError::Disconnected) => break,
         };
-        let data_use = data.get();
+        let data_use = data.effective();
         let paused = stream == Stream::Camera && !data_use.sends_camera();
         if paused || !control.watching.load(Ordering::Relaxed) {
             // Closed while paused, so the encoder is not held for nothing.

@@ -37,6 +37,7 @@ use veil_security::safety::{safety_number, side};
 use super::audio_out::AudioIn;
 use super::names::{Announcer, Names};
 use super::screen_proof;
+use super::auto_step::AutoStep;
 use super::stats::Sampler;
 use super::video_in::VideoIn;
 use super::video_out::{Encoded, VideoControl};
@@ -93,6 +94,8 @@ pub struct Session {
     subscribed: Option<Vec<(PublicId, Wanted)>>,
     /// Turns link counters into the debug overlay's rates, once a second.
     sampler: Sampler,
+    /// Whether Auto data use should save data, judged from the same link rows.
+    auto: AutoStep,
     opus: Option<OpusEncoder>,
     /// The bitrate `opus` runs at, so a new data use choice changes it once.
     opus_bitrate: u32,
@@ -129,6 +132,7 @@ impl Session {
             announcer: Announcer::new(your_name),
             subscribed: None,
             sampler: Sampler::default(),
+            auto: AutoStep::default(),
             opus: None,
             opus_bitrate: 0,
             audio_seq: 0,
@@ -222,7 +226,7 @@ impl Session {
     /// nothing in a mesh. At most once a second (the tick), so a quick change of speaker
     /// does not ask senders for a keyframe each time.
     async fn subscribe(&mut self) {
-        let cap = self.pipes.data.get().wanted_cap();
+        let cap = self.pipes.data.effective().wanted_cap();
         let request = wanted::request(&self.others, &self.shared.tiles(), cap);
         if request.is_empty() || self.subscribed.as_ref() == Some(&request) {
             return;
@@ -296,13 +300,15 @@ impl Session {
         }
     }
 
-    /// Measures each link and each person's video for the debug overlay. Reads counters only.
+    /// Measures each link and each person's video for the debug overlay, and lets Auto data
+    /// use judge the links. Reads counters only.
     fn sample_stats(&mut self) {
         let links = self.media.link_stats();
         let decoded = self.shared.decoded();
         let others = &self.others;
         let person = |device: &PublicId| others.iter().find(|(_, d)| d == device).map(|(id, _)| *id);
         let stats = self.sampler.sample(links, &decoded, person, Instant::now());
+        self.pipes.data.set_auto_saving(self.auto.update(&stats.links));
         self.shared.set_stats(stats);
     }
 
@@ -340,7 +346,7 @@ impl Session {
         let Some(sender) = &mut self.sender else {
             return;
         };
-        let bitrate = self.pipes.data.get().opus_bitrate();
+        let bitrate = self.pipes.data.effective().opus_bitrate();
         if self.opus.is_none() {
             let settings = AudioSettings {
                 bitrate,
