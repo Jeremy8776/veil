@@ -2,12 +2,14 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
-## Unreleased
+## 0.1.11, 19/11/2026
 
 ### Added
 
 - **Data use**, on the pre-join screen and in the camera menu during a call. Auto
-  (recommended) works as before. Data saver sends one small picture at about 150 kbit/s and
+  (recommended) gives the best picture the connection allows. On a slow link it uses Data
+  saver's smaller picture and returns to full once the link has been steady for a while; the
+  camera menu shows "Auto: saving data" meanwhile. Data saver sends one small picture at about 150 kbit/s and
   sound at 16 kbit/s. Audio only turns your camera off and sends sound at 16 kbit/s. Through a
   forwarder, both also ask for others' smallest picture. The choice is kept between calls.
 - **Hide my address**, in Settings > Connection. When you join a call, Veil reaches everyone
