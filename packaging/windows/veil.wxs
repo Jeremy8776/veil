@@ -62,8 +62,13 @@
                   Name="Veil"
                   Description="Encrypted video calls"
                   Target="[#VeilApp]"
-                  WorkingDirectory="INSTALLFOLDER"
-                  Icon="veil.ico" />
+                  WorkingDirectory="INSTALLFOLDER" />
+        <!-- No Icon attribute on purpose: the shortcut then shows veil-app.exe's own icon
+             (embedded by crates/veil-app/build.rs). With Icon="veil.ico" Windows points the
+             shortcut at C:\Windows\Installer\{ProductCode}\veil.ico, and every update has a
+             new ProductCode and deletes the old folder, so the taskbar and pinned copies of
+             the shortcut lost their icon after each update. -->
+
         <RegistryValue Root="HKLM" Key="Software\Veil" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>
