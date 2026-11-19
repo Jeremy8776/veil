@@ -4,6 +4,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Security
+
+- A device can no longer make a node or app hold hundreds of megabytes per link by sending data
+  that Veil never reads. Each link now holds at most about 5 MB of unread data
+  (GHSA-g7j3-q88p-63cf).
+
 ## 0.1.9, 18/11/2026
 
 ### Fixed

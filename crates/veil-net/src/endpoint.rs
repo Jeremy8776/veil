@@ -15,6 +15,9 @@
 //! Media paths: each video frame travels on its own unidirectional stream (a 4K keyframe sent
 //! as a burst of datagrams lost about 15% of its fragments even on localhost). Audio frames
 //! are small and loss-tolerant, so they travel as single datagrams.
+//!
+//! Invariant: what a peer can make this node hold on one link without the application reading
+//! it is a small constant (`LINK_WINDOW` plus `DATAGRAM_BUFFER`), whatever streams it opens.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -38,7 +41,23 @@ pub const MAX_SEALED_FRAME: usize = veil_security::frame::MAX_FRAME_LEN
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const KEEP_ALIVE: Duration = Duration::from_secs(4);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(20);
-const DATAGRAM_BUFFER: usize = 16 * 1024 * 1024;
+/// Peer-opened bidirectional streams: every Veil protocol uses one, the control stream.
+/// One spare lets a replacement open while the old one is closing.
+const MAX_BIDI_STREAMS: u32 = 2;
+/// Peer-opened unidirectional streams: video frames (`MAX_FRAMES_IN_FLIGHT` at a time) and
+/// the relay's stream path, one stream per packet. More only queue at the sender.
+const MAX_UNI_STREAMS: u32 = 64;
+/// Bytes one stream may have in flight before the reader takes them. A frame larger than this
+/// still crosses: the window moves forward as `FrameReader` reads.
+const STREAM_WINDOW: u32 = 1024 * 1024;
+/// Bytes a whole link may have in flight before the application reads them, across every
+/// stream. This is the most a peer can make this node hold on a link it does not read
+/// (GHSA-g7j3-q88p-63cf); quinn's default has no limit. 4 MiB per round trip is about
+/// 160 Mbit/s at 200 ms, above a forwarder link carrying a full call's video.
+const LINK_WINDOW: u32 = 4 * 1024 * 1024;
+/// Datagrams queued each way. Audio and relayed packets are read as they come, and quinn
+/// drops the oldest when the queue is full, as real-time media wants.
+const DATAGRAM_BUFFER: usize = 1024 * 1024;
 /// Mobile networks often carry less than 1,400 bytes per packet, and QUIC finds any larger size
 /// by itself, so calls start small rather than losing their first packets.
 const INITIAL_MTU: u16 = 1_280;
@@ -56,6 +75,11 @@ fn transport(initial_mtu: u16) -> Result<Arc<TransportConfig>, NetError> {
     ));
     t.datagram_receive_buffer_size(Some(DATAGRAM_BUFFER));
     t.datagram_send_buffer_size(DATAGRAM_BUFFER);
+    // Bounds what a peer can park in streams this node never reads (GHSA-g7j3-q88p-63cf).
+    t.max_concurrent_bidi_streams(MAX_BIDI_STREAMS.into());
+    t.max_concurrent_uni_streams(MAX_UNI_STREAMS.into());
+    t.stream_receive_window(STREAM_WINDOW.into());
+    t.receive_window(LINK_WINDOW.into());
     // Start above QUIC's 1,200-byte floor so a relayed inner packet (1,200 bytes plus a
     // 4-byte session header and the outer link's own overhead) fits one outer datagram. If the path is smaller, quinn's
     // black-hole detection falls back and the relay uses its stream path instead.
