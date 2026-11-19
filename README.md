@@ -32,17 +32,33 @@ call, and none of them can see inside it.
   Bigger calls can use a forwarder that sends each person only the video size they need.
 - **You decide who joins.** Invites are signed and single use. The host admits or declines each
   person from the lobby.
-- **Check who you are talking to.** Each pair of people has a safety number. Compare it out
-  loud once, mark them verified, and it still holds next call.
+- **Check who you are talking to.** Each pair of people has a safety number. Swap codes once
+  through an app you already trust, or compare them by hand, and it still holds next call.
+- **Share your screen.** Share a screen, an app or part of one, sealed end to end like your
+  camera. Filters and background blur work before and during a call.
 - **No accounts, no telemetry.** Veil sends nothing to its authors. Every server address comes
   from you.
 - **Try it alone.** "Demo call" on the home screen shows a simulated call with no network.
 
 | Home | Lobby and people | Safety numbers |
 |---|---|---|
-| <img src="docs/images/home.png" alt="Home screen" width="270"> | <img src="docs/images/people.png" alt="People panel with someone waiting in the lobby" width="270"> | <img src="docs/images/security.png" alt="Security panel with safety numbers" width="270"> |
+| <img src="docs/images/home.png" alt="Home screen" width="270"> | <img src="docs/images/people.png" alt="People panel with someone waiting in the lobby" width="270"> | <img src="docs/images/security.png" alt="Security panel checking a code with one person" width="270"> |
 
 Screenshots are from the demo call. The people in them are simulated.
+
+### On mobile data or a slow network
+
+- **Data use.** Pick it before you join, or from the arrow beside the camera button during a
+  call. Auto (recommended) sends the best picture the link allows. Data saver sends one small
+  picture at about 150 kbit/s and sound at 16 kbit/s. Audio only turns your camera off and
+  sends sound at 16 kbit/s. Veil keeps your choice for the next call.
+- **Hide my address.** In Connection on the home screen. When you join a call, Veil reaches
+  everyone through the call's relay only, so the others never learn your IP address. Off by
+  default. [docs/TRANSPARENCY.md](docs/TRANSPARENCY.md) says what it does not hide.
+
+| Data use | Hide my address |
+|---|---|
+| <img src="docs/images/data-use.png" alt="Data use in the camera menu: Auto (recommended), Data saver, Audio only" width="310"> | <img src="docs/images/connection.png" alt="Connection settings with Hide my address ticked" width="400"> |
 
 ## Download
 
