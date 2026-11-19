@@ -4,6 +4,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Fixed
+
+- Veil's taskbar icon no longer goes blank after an update on Windows. The Start menu shortcut
+  now takes its icon from `veil-app.exe`, not from a copy that each update deleted. A pinned
+  Veil that already lost its icon needs unpinning and pinning again once.
+
 ## 0.1.9, 18/11/2026
 
 ### Fixed
