@@ -72,11 +72,15 @@ pub struct VeilApp {
     pub updates: crate::update::Updates,
     /// Your own servers and port, kept between runs (`connection.rs`).
     pub connection: crate::connection::Store,
+    /// How much data calls use, shared with the running call (`data_use.rs`).
+    pub data_use: Arc<crate::data_use::DataUseCell>,
     ctx: egui::Context,
 }
 
 impl VeilApp {
     pub fn new(ctx: &egui::Context) -> Self {
+        let connection = crate::connection::Store::open(keystore::default_dir());
+        let data_use = Arc::new(crate::data_use::DataUseCell::new(connection.saved.data_use));
         Self {
             screen: Screen::Home,
             name: std::env::var("USERNAME")
@@ -100,7 +104,8 @@ impl VeilApp {
             keys: Arc::new(Mutex::new(KeyStore::open(keystore::default_dir()))),
             confirm_new_key: false,
             updates: crate::update::Updates::start(keystore::default_dir(), ctx),
-            connection: crate::connection::Store::open(keystore::default_dir()),
+            connection,
+            data_use,
             ctx: ctx.clone(),
         }
     }
@@ -135,7 +140,8 @@ impl VeilApp {
             let playback = self.media.playback();
             let keys = self.keys.clone();
             let config = self.connection.config();
-            match Engine::start(role, config, name.clone(), playback, keys, self.ctx.clone()) {
+            let data = self.data_use.clone();
+            match Engine::start(role, config, name.clone(), playback, keys, data, self.ctx.clone()) {
                 Ok(engine) => {
                     self.media.set_taps(Some(engine.taps()));
                     self.share.set_tap(Some(engine.taps().screen));
@@ -159,6 +165,17 @@ impl VeilApp {
         }
         self.remote.clear();
         self.screen = Screen::Call(Box::new(CallView::new(call, engine)));
+    }
+
+    /// Uses `choice` from now on, in the running call too, and saves it. Audio only also
+    /// turns your camera off, as Stop video does, so your tile shows that.
+    pub fn set_data_use(&mut self, choice: crate::data_use::DataUse) {
+        self.data_use.set(choice);
+        self.connection.set_data_use(choice);
+        if !choice.sends_camera() && self.media.camera_on() {
+            self.want_camera = false;
+            self.media.set_camera(false);
+        }
     }
 
     pub fn leave(&mut self, call: &Call) {

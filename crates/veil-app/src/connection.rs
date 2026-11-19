@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::data_use::DataUse;
 use crate::engine::plan::{self, NetConfig};
 
 const FILE: &str = "connection.json";
@@ -71,6 +72,11 @@ pub struct Settings {
     pub open_port: bool,
     /// The question before the first hosted call has been answered, either way.
     pub asked_open_port: bool,
+    /// When joining, reach others only through the relay, so they never learn your address.
+    pub hide_address: bool,
+    /// How much data calls use (`data_use.rs`). Changed from the pre-join screen and the
+    /// call, not from Settings > Connection.
+    pub data_use: DataUse,
 }
 
 impl Settings {
@@ -97,6 +103,7 @@ impl Settings {
         let mut problems = Vec::new();
         let mut config = NetConfig {
             open_port: self.open_port,
+            relay_only: self.hide_address,
             ..NetConfig::default()
         };
         for field in Field::ALL {
@@ -184,6 +191,16 @@ impl Store {
             NetConfig::default()
         });
         saved.with_env(|name| std::env::var(name).ok())
+    }
+
+    /// Saves a new data use choice and keeps every other setting as saved. If the saved
+    /// settings do not pass their checks (edited by hand), the choice lasts this run only.
+    pub fn set_data_use(&mut self, data_use: DataUse) {
+        let mut settings = self.saved.clone();
+        settings.data_use = data_use;
+        if self.save(settings.clone()).is_err() {
+            self.saved = settings;
+        }
     }
 
     /// Checks and saves `settings`. Nothing is saved unless every field is good.
@@ -285,6 +302,8 @@ mod tests {
             port: String::from("7710"),
             open_port: true,
             asked_open_port: true,
+            hide_address: true,
+            data_use: DataUse::Saver,
         }
     }
 
@@ -301,6 +320,25 @@ mod tests {
         store.save(good()).unwrap();
         let again = Store::open(Some(dir.clone()));
         assert!(again.saved.open_port && again.saved.asked_open_port);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn data_use_and_hiding_are_kept_and_default_to_auto_and_off() {
+        assert_eq!(Settings::default().data_use, DataUse::Auto);
+        assert!(!Settings::default().check().unwrap().relay_only);
+        assert!(good().check().unwrap().relay_only);
+        let dir = temp_dir("data-use");
+        fs::create_dir_all(&dir).unwrap();
+        // A file saved before these choices existed.
+        fs::write(dir.join(FILE), br#"{"port":"7710","open_port":true}"#).unwrap();
+        let mut store = Store::open(Some(dir.clone()));
+        assert_eq!(store.saved.data_use, DataUse::Auto);
+        assert!(!store.saved.hide_address);
+        store.set_data_use(DataUse::AudioOnly);
+        let again = Store::open(Some(dir.clone()));
+        assert_eq!(again.saved.data_use, DataUse::AudioOnly);
+        assert!(again.saved.open_port, "other settings are kept");
         let _ = fs::remove_dir_all(&dir);
     }
 

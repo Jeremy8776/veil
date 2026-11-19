@@ -226,6 +226,9 @@ fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
         ) {
             app.media.choose_speaker(id);
         }
+        if let Some(choice) = widgets::data_use_picker(ui, app.data_use.get()) {
+            app.set_data_use(choice);
+        }
         if host && !app.demo {
             firewall(app, ui);
             router_question(app, ui);

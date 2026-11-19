@@ -38,7 +38,7 @@ pub mod stats;
 mod video_in;
 mod video_out;
 mod view;
-mod wanted;
+pub(crate) mod wanted;
 
 use std::collections::HashMap;
 use std::sync::mpsc::{SyncSender, sync_channel};
@@ -51,6 +51,7 @@ use tokio::sync::mpsc;
 use veil_security::short_invite::InviteLink;
 
 use crate::convert::Rgba;
+use crate::data_use::DataUseCell;
 use crate::keystore::KeyStore;
 use crate::media::{Worker, lock};
 use crate::model::{Action, Call, CallStatus};
@@ -105,13 +106,15 @@ impl Engine {
     /// Starts the call with your device key from `keys` and the network settings `config`
     /// (`connection::Store::config`). `your_name` is sent to the other
     /// members, sealed. `playback` is the speaker and its volume, which the device pickers
-    /// can change during the call. Fails only if the async runtime cannot start.
+    /// can change during the call. `data` is the data use choice, which the interface may
+    /// change during the call (`data_use.rs`). Fails only if the async runtime cannot start.
     pub fn start(
         role: Role,
         config: plan::NetConfig,
         your_name: String,
         playback: Arc<crate::volume::Playback>,
         keys: Arc<Mutex<KeyStore>>,
+        data: Arc<DataUseCell>,
         ctx: egui::Context,
     ) -> Result<Self, String> {
         let identity = lock(&keys).identity();
@@ -135,8 +138,8 @@ impl Engine {
         let camera = video_out::Stream::Camera;
         let screen = video_out::Stream::Screen;
         let workers = vec![
-            video_out::spawn(video_rx, encoded_tx.clone(), control.clone(), camera),
-            video_out::spawn(screen_rx, encoded_tx, screen_control.clone(), screen),
+            video_out::spawn(video_rx, encoded_tx.clone(), control.clone(), camera, data.clone()),
+            video_out::spawn(screen_rx, encoded_tx, screen_control.clone(), screen, data.clone()),
             video_in::spawn(video_in_rx, keyframe_tx, shared.clone()),
             audio_out::spawn(audio_in_rx, shared.clone(), playback),
         ];
@@ -148,6 +151,7 @@ impl Engine {
             audio_in: audio_in_tx,
             control,
             screen_control,
+            data,
         };
         let (commands, commands_rx) = mpsc::unbounded_channel();
         let task_shared = shared.clone();

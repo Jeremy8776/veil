@@ -69,6 +69,11 @@ pub async fn run(
         call = start => call,
         () = wait_for_leave(&mut commands) => return Ok(()),
     };
+    // Before joining, so the join and the media session made after it both follow it.
+    if config.relay_only {
+        crate::note!("call: hiding your address, relay only");
+        call.set_relay_only(true);
+    }
     // The status stays Connecting ("Reaching the host") until the host has the knock.
     let knocked = || shared.update(|view| view.status = CallStatus::Lobby);
     let mut member = tokio::select! {

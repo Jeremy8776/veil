@@ -174,6 +174,15 @@ fn video_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
         app.media.choose_camera(id);
     }
     device_error(ui, app.media.camera_error());
+    call_menus::divider(ui);
+    call_menus::section(ui, Icon::Signal, "Data use");
+    let current = app.data_use.get();
+    for choice in crate::data_use::DataUse::ALL {
+        let row = call_menus::choice(ui, choice.label(), choice == current);
+        if row.on_hover_text(choice.help()).clicked() && choice != current {
+            app.set_data_use(choice);
+        }
+    }
 }
 
 fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {

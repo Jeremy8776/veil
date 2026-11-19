@@ -41,12 +41,20 @@ pub fn for_width(px: f32) -> Wanted {
 }
 
 /// One entry per other member: `others` as (participant id, device), `tiles` as
-/// (participant id, tile width in physical pixels).
-pub fn request(others: &[(u32, PublicId)], tiles: &[(u32, f32)]) -> Vec<(PublicId, Wanted)> {
+/// (participant id, tile width in physical pixels). `cap`, from the data use choice, is the
+/// most asked of anyone.
+pub fn request(
+    others: &[(u32, PublicId)],
+    tiles: &[(u32, f32)],
+    cap: Option<Wanted>,
+) -> Vec<(PublicId, Wanted)> {
     let widths: HashMap<u32, f32> = tiles.iter().copied().collect();
     let mut request: Vec<(PublicId, Wanted)> = others
         .iter()
-        .map(|(id, device)| (*device, widths.get(id).map_or(SMALL, |w| for_width(*w))))
+        .map(|(id, device)| {
+            let wanted = widths.get(id).map_or(SMALL, |w| for_width(*w));
+            (*device, cap.map_or(wanted, |cap| wanted.min(cap)))
+        })
         .collect();
     request.sort_by_key(|(device, _)| device.0);
     request
@@ -74,12 +82,27 @@ mod tests {
         );
         let others = [(1, a), (2, b), (3, c)];
         let tiles = [(1, 1600.0), (2, 200.0)];
-        let first = request(&others, &tiles);
+        let first = request(&others, &tiles, None);
         let reversed = [(3, c), (2, b), (1, a)];
-        assert_eq!(first, request(&reversed, &tiles));
+        assert_eq!(first, request(&reversed, &tiles, None));
         let wanted: HashMap<PublicId, Wanted> = first.into_iter().collect();
         assert_eq!(wanted[&a], Wanted::ALL);
         assert_eq!(wanted[&b], SMALL);
         assert_eq!(wanted[&c], SMALL);
+    }
+
+    #[test]
+    fn a_cap_lowers_every_request() {
+        let (a, b) = (Identity::generate().public(), Identity::generate().public());
+        let others = [(1, a), (2, b)];
+        let tiles = [(1, 1600.0), (2, 200.0)];
+        let saver: HashMap<PublicId, Wanted> =
+            request(&others, &tiles, Some(SMALL)).into_iter().collect();
+        assert_eq!(saver[&a], SMALL);
+        assert_eq!(saver[&b], SMALL);
+        let thumb: HashMap<PublicId, Wanted> =
+            request(&others, &tiles, Some(Wanted::THUMB)).into_iter().collect();
+        assert_eq!(thumb[&a], Wanted::THUMB);
+        assert_eq!(thumb[&b], Wanted::THUMB);
     }
 }
