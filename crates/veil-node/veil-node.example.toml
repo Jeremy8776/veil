@@ -15,7 +15,10 @@ relay = true
 # Remove this section to run rendezvous only.
 [forwarder]
 listen = "0.0.0.0:4434"
-max_rooms = 1000
+max_rooms = 4096
+# Rooms that links from one IPv4 address or IPv6 /64 may hold open, so one party
+# cannot take every room. A room whose only member stays alone for 60 s is closed.
+max_rooms_per_block = 16
 max_members_per_room = 16
 
 # Bounds on video queued for receivers, in MiB. A slow receiver's frames wait in memory,
