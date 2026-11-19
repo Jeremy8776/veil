@@ -45,6 +45,10 @@ pub struct NetConfig {
     pub port: u16,
     /// Ask the router to open `port` while hosting (`router.rs`). Off unless chosen.
     pub open_port: bool,
+    /// When joining, reach others only through the relay, so they never learn your address
+    /// (`CallNode::set_relay_only`). Not used when hosting: an invite carries the host's
+    /// addresses.
+    pub relay_only: bool,
 }
 
 /// The environment variable for each setting, in the order the settings screen shows them.

@@ -66,7 +66,7 @@ fn feed(taps: &[Taps], n: u64) {
 #[ignore = "opens ports, the H.264 encoder and the speaker"]
 fn loopback_host_admits_a_guest_and_both_see_and_hear_each_other() {
     let ctx = egui::Context::default();
-    let host = Engine::start(Role::Host, NetConfig::default(), "Hana Host".into(), Default::default(), fresh_keys(), ctx.clone()).unwrap();
+    let host = Engine::start(Role::Host, NetConfig::default(), "Hana Host".into(), Default::default(), fresh_keys(), Default::default(), ctx.clone()).unwrap();
     let mut host_call = Call::live("Call".into(), "Hana Host", true, Instant::now());
     wait_for("an invite", &host, &mut host_call, |c| !c.invite.is_empty());
     let now = SystemTime::now()
@@ -87,7 +87,7 @@ fn loopback_host_admits_a_guest_and_both_see_and_hear_each_other() {
     println!("invite: {}", host_call.invite);
 
     let guest =
-        Engine::start(Role::Guest(Box::new(invite)), NetConfig::default(), "Gil Guest".into(), Default::default(), fresh_keys(), ctx).unwrap();
+        Engine::start(Role::Guest(Box::new(invite)), NetConfig::default(), "Gil Guest".into(), Default::default(), fresh_keys(), Default::default(), ctx).unwrap();
     let mut guest_call = Call::live("Call".into(), "Gil Guest", false, Instant::now());
     wait_for("the lobby", &guest, &mut guest_call, |c| {
         c.status == CallStatus::Lobby
@@ -201,7 +201,7 @@ fn loopback_leaving_a_call_with_devices_on_is_quick() {
     let mut media = crate::media::LocalMedia::new(ctx.clone());
     media.set_camera(true);
     media.set_mic(true);
-    let engine = Engine::start(Role::Host, NetConfig::default(), "Host".into(), Default::default(), fresh_keys(), ctx).unwrap();
+    let engine = Engine::start(Role::Host, NetConfig::default(), "Host".into(), Default::default(), fresh_keys(), Default::default(), ctx).unwrap();
     media.set_taps(Some(engine.taps()));
     std::thread::sleep(Duration::from_secs(3));
     let start = Instant::now();
@@ -218,7 +218,7 @@ fn loopback_leaving_a_call_with_devices_on_is_quick() {
 #[ignore = "opens ports and the speaker"]
 fn loopback_joining_an_unreachable_host_never_holds_the_interface() {
     let ctx = egui::Context::default();
-    let host = Engine::start(Role::Host, NetConfig::default(), "Host".into(), Default::default(), fresh_keys(), ctx.clone()).unwrap();
+    let host = Engine::start(Role::Host, NetConfig::default(), "Host".into(), Default::default(), fresh_keys(), Default::default(), ctx.clone()).unwrap();
     let mut host_call = Call::live("Call".into(), "Host", true, Instant::now());
     wait_for("an invite", &host, &mut host_call, |c| !c.invite.is_empty());
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -226,7 +226,7 @@ fn loopback_joining_an_unreachable_host_never_holds_the_interface() {
     drop(host);
 
     // Leaving while still reaching the host (the hang Windows logged on 16/11/2026).
-    let early = Engine::start(Role::Guest(Box::new(invite.clone())), NetConfig::default(), "Guest".into(), Default::default(), fresh_keys(), ctx.clone()).unwrap();
+    let early = Engine::start(Role::Guest(Box::new(invite.clone())), NetConfig::default(), "Guest".into(), Default::default(), fresh_keys(), Default::default(), ctx.clone()).unwrap();
     std::thread::sleep(Duration::from_secs(2));
     let t = Instant::now();
     drop(early);
@@ -234,7 +234,7 @@ fn loopback_joining_an_unreachable_host_never_holds_the_interface() {
     assert!(t.elapsed() < Duration::from_secs(2), "leaving while connecting held the interface");
 
     let started = Instant::now();
-    let guest = Engine::start(Role::Guest(Box::new(invite)), NetConfig::default(), "Guest".into(), Default::default(), fresh_keys(), ctx).unwrap();
+    let guest = Engine::start(Role::Guest(Box::new(invite)), NetConfig::default(), "Guest".into(), Default::default(), fresh_keys(), Default::default(), ctx).unwrap();
     println!("guest engine started in {:?}", started.elapsed());
     let mut call = Call::live("Call".into(), "Guest", false, Instant::now());
     let mut slowest = Duration::ZERO;
@@ -261,12 +261,12 @@ fn loopback_joining_an_unreachable_host_never_holds_the_interface() {
 #[ignore = "opens ports and the speaker"]
 fn loopback_guest_sees_the_host_end_the_call() {
     let ctx = egui::Context::default();
-    let host = Engine::start(Role::Host, NetConfig::default(), "Host".into(), Default::default(), fresh_keys(), ctx.clone()).unwrap();
+    let host = Engine::start(Role::Host, NetConfig::default(), "Host".into(), Default::default(), fresh_keys(), Default::default(), ctx.clone()).unwrap();
     let mut host_call = Call::live("Call".into(), "Host", true, Instant::now());
     wait_for("an invite", &host, &mut host_call, |c| !c.invite.is_empty());
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
     let invite = InviteLink::parse(&host_call.invite_full, now).unwrap();
-    let guest = Engine::start(Role::Guest(Box::new(invite)), NetConfig::default(), "Guest".into(), Default::default(), fresh_keys(), ctx).unwrap();
+    let guest = Engine::start(Role::Guest(Box::new(invite)), NetConfig::default(), "Guest".into(), Default::default(), fresh_keys(), Default::default(), ctx).unwrap();
     let mut guest_call = Call::live("Call".into(), "Guest", false, Instant::now());
     wait_for("a knock", &host, &mut host_call, |c| c.lobby.len() == 1);
     host.act(Action::Admit(host_call.lobby[0].id));
@@ -289,12 +289,12 @@ fn loopback_guest_sees_the_host_end_the_call() {
 #[ignore = "opens ports, the H.264 encoder and the speaker"]
 fn loopback_a_shared_screen_arrives_beside_the_camera() {
     let ctx = egui::Context::default();
-    let host = Engine::start(Role::Host, NetConfig::default(), "Host".into(), Default::default(), fresh_keys(), ctx.clone()).unwrap();
+    let host = Engine::start(Role::Host, NetConfig::default(), "Host".into(), Default::default(), fresh_keys(), Default::default(), ctx.clone()).unwrap();
     let mut host_call = Call::live("Call".into(), "Host", true, Instant::now());
     wait_for("an invite", &host, &mut host_call, |c| !c.invite.is_empty());
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
     let invite = InviteLink::parse(&host_call.invite_full, now).unwrap();
-    let guest = Engine::start(Role::Guest(Box::new(invite)), NetConfig::default(), "Guest".into(), Default::default(), fresh_keys(), ctx).unwrap();
+    let guest = Engine::start(Role::Guest(Box::new(invite)), NetConfig::default(), "Guest".into(), Default::default(), fresh_keys(), Default::default(), ctx).unwrap();
     let mut guest_call = Call::live("Call".into(), "Guest", false, Instant::now());
     wait_for("a knock", &host, &mut host_call, |c| c.lobby.len() == 1);
     host.act(Action::Admit(host_call.lobby[0].id));

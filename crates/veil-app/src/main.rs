@@ -16,6 +16,7 @@
 mod app;
 mod connection;
 mod convert;
+mod data_use;
 mod demo;
 #[cfg(feature = "dev-ui")]
 mod dev_start;

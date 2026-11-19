@@ -43,6 +43,7 @@ use super::video_out::{Encoded, VideoControl};
 use super::view::{Person, Shared};
 use super::wanted;
 use super::{Ids, micros_since, short};
+use crate::data_use::DataUseCell;
 use crate::model::LinkPath;
 
 /// The channels between the session task and the media threads.
@@ -55,6 +56,8 @@ pub struct Pipes {
     pub audio_in: SyncSender<AudioIn>,
     pub control: Arc<VideoControl>,
     pub screen_control: Arc<VideoControl>,
+    /// The data use choice, read for each sound frame and each layer request.
+    pub data: Arc<DataUseCell>,
 }
 
 impl Pipes {
@@ -91,6 +94,8 @@ pub struct Session {
     /// Turns link counters into the debug overlay's rates, once a second.
     sampler: Sampler,
     opus: Option<OpusEncoder>,
+    /// The bitrate `opus` runs at, so a new data use choice changes it once.
+    opus_bitrate: u32,
     audio_seq: u32,
     frame_id: u32,
     clock: Instant,
@@ -125,6 +130,7 @@ impl Session {
             subscribed: None,
             sampler: Sampler::default(),
             opus: None,
+            opus_bitrate: 0,
             audio_seq: 0,
             frame_id: 0,
             clock: Instant::now(),
@@ -216,7 +222,8 @@ impl Session {
     /// nothing in a mesh. At most once a second (the tick), so a quick change of speaker
     /// does not ask senders for a keyframe each time.
     async fn subscribe(&mut self) {
-        let request = wanted::request(&self.others, &self.shared.tiles());
+        let cap = self.pipes.data.get().wanted_cap();
+        let request = wanted::request(&self.others, &self.shared.tiles(), cap);
         if request.is_empty() || self.subscribed.as_ref() == Some(&request) {
             return;
         }
@@ -333,9 +340,17 @@ impl Session {
         let Some(sender) = &mut self.sender else {
             return;
         };
+        let bitrate = self.pipes.data.get().opus_bitrate();
         if self.opus.is_none() {
-            match OpusEncoder::new(&AudioSettings::voice()) {
-                Ok(encoder) => self.opus = Some(encoder),
+            let settings = AudioSettings {
+                bitrate,
+                ..AudioSettings::voice()
+            };
+            match OpusEncoder::new(&settings) {
+                Ok(encoder) => {
+                    self.opus = Some(encoder);
+                    self.opus_bitrate = bitrate;
+                }
                 Err(e) => {
                     crate::note!("no audio encoder: {e}");
                     return;
@@ -343,6 +358,13 @@ impl Session {
             }
         }
         let Some(opus) = &mut self.opus else { return };
+        if self.opus_bitrate != bitrate {
+            match opus.set_bitrate(bitrate) {
+                Ok(()) => self.opus_bitrate = bitrate,
+                // Tried again on the next frame; the old rate still works meanwhile.
+                Err(e) => crate::note!("cannot change the sound bitrate: {e}"),
+            }
+        }
         if pcm.len() != opus.frame_len() {
             return;
         }

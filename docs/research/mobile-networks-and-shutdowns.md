@@ -200,7 +200,18 @@ watchful network could notice.
 When Veil sees no internet at all at call start, it offers Local only in the call screen
 ("No internet. Call people on this Wi-Fi?") rather than making the person find the setting.
 
-### 7.3 What this means for the build order
+### 7.3 Built so far (19/11/2026)
+
+- Data use: Auto, Data saver and Audio only, in the pre-join screen and the camera menu,
+  saved in `connection.json` (`crates/veil-app/src/data_use.rs`). Not yet built: Auto stepping
+  down by itself, which needs a bandwidth estimate per link, and cutting what you receive in a
+  mesh call. Through a forwarder, Data saver and Audio only already ask for the smallest
+  layer.
+- Hide my address, in Settings > Connection. It applies when joining only, because an invite
+  carries the host's addresses. Hiding a host needs its own design (an invite with no direct
+  addresses).
+
+### 7.4 What this means for the build order
 
 - 5.2 delivers 7.1 in full.
 - "Hide my address" is the cheapest option to ship, since the mode is built. It can go out

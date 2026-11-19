@@ -81,6 +81,12 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
                 form.draft.asked_open_port = true;
                 form.saved = false;
             }
+            let hide = ui
+                .checkbox(&mut form.draft.hide_address, "Hide my address")
+                .on_hover_text(HIDE_HELP);
+            if hide.changed() {
+                form.saved = false;
+            }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let half = (WIDTH - theme::GAP) / 2.0;
@@ -121,6 +127,11 @@ pub const ROUTER_HELP: &str = "While you host a call, Veil asks your router (UPn
      people on the internet can join. Two ports, for that call only: renewed while it runs, \
      removed when it ends. With your own rendezvous set, only the call's port is opened. \
      Your router must allow this; if it does not, Veil shows what to do instead.";
+
+const HIDE_HELP: &str = "When you join a call, reach everyone through the call's relay \
+     only, so the others never learn your IP address. The relay still sees it, as it sees \
+     everyone's. Slightly slower, and the call fails if the relay cannot be reached. Has no \
+     effect when you host: your invite carries your addresses. Off by default.";
 
 /// Label, hint and tooltip for each field.
 fn text(field: Field) -> (&'static str, &'static str, &'static str) {

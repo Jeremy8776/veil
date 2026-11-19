@@ -375,6 +375,29 @@ pub fn device_picker(
     (picked.as_deref() != chosen).then_some(picked)
 }
 
+/// The data use drop-down for the pre-join screen: Auto (recommended) first, each choice
+/// explained in its tooltip. Returns the new choice when it changed.
+pub fn data_use_picker(
+    ui: &mut Ui,
+    chosen: crate::data_use::DataUse,
+) -> Option<crate::data_use::DataUse> {
+    use crate::data_use::DataUse;
+    let mut picked = chosen;
+    picker_label(ui, Icon::Signal, "Data use");
+    egui::ComboBox::from_id_salt("data use")
+        .width(280.0)
+        .selected_text(chosen.label())
+        .show_ui(ui, |ui| {
+            for choice in DataUse::ALL {
+                ui.selectable_value(&mut picked, choice, choice.label())
+                    .on_hover_text(choice.help());
+            }
+        })
+        .response
+        .on_hover_text(chosen.help());
+    (picked != chosen).then_some(picked)
+}
+
 /// A device error, in short, under its picker.
 pub fn device_error(ui: &mut Ui, error: Option<String>) {
     if let Some(error) = error {
