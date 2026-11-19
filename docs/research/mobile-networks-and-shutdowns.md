@@ -157,6 +157,57 @@ iOS is harder again and should wait.
 
 TRANSPARENCY.md should carry a short version of this section if 5.3 or 5.4 ships.
 
+## 7. Options for the person, with a default
+
+People know their own situation better than Veil can guess it. So each new behaviour above is
+also a choice they can make, with one default marked "Recommended". The default must work for
+most people without them reading anything.
+
+There are two separate choices: how much data a call uses, and which way it connects. They
+are independent, so they are two controls, not one long list.
+
+### 7.1 Data use
+
+Where: the pre-join screen, and the call's "..." menu so it can change mid-call. Saved on the
+device as the last choice.
+
+| Option | What it does | Tooltip |
+|---|---|---|
+| **Auto** (Recommended) | Today's behaviour plus the planner dropping to Data saver, then Audio only, when the link cannot carry more | Best picture your connection allows. Drops video quality before it drops the call. |
+| Data saver | Video capped at the new small layer (about 150 kbit/s), Opus at 16 kbit/s | For mobile data, slow or costly connections. |
+| Audio only | No video sent or received, Opus at 12 to 16 kbit/s with error correction | For very slow networks such as 2G. Uses about 1 MB every 10 minutes. |
+
+When Auto steps down, the call says so ("Poor connection: audio only") and offers the way
+back. It never steps down silently.
+
+### 7.2 Connection route
+
+Where: Settings > Connection, above the server fields. Saved in `connection.json` as a new
+field that defaults to Auto, so older files still load.
+
+| Option | What it does | Tooltip |
+|---|---|---|
+| **Auto** (Recommended) | Direct, then punched, then relay (ADR 0004), with relay over TCP 443 as a last stage when every UDP path fails | Finds the fastest way through. Works on most home, office and mobile networks. |
+| Hide my address | Relay only, so other people never learn your IP address. Already built in `veil-call`, not yet in the app | Others see the relay, not you. Slightly slower. |
+| Restricted network | Goes straight to relay over TCP 443, with no UDP tries first | For networks that block video calls or allow only web browsing. Slower. |
+| Local only | No internet at all. Finds calls on the same Wi-Fi; invites are QR codes or text with local addresses | For when the internet is down. Works only with people on the same Wi-Fi or hotspot. |
+
+Why Auto is the default: it already includes the TCP 443 stage, so most people on a
+restricted network get through without changing anything. "Restricted network" exists for
+people who know UDP is blocked: it connects faster, and it does not send UDP tries that a
+watchful network could notice.
+
+When Veil sees no internet at all at call start, it offers Local only in the call screen
+("No internet. Call people on this Wi-Fi?") rather than making the person find the setting.
+
+### 7.3 What this means for the build order
+
+- 5.2 delivers 7.1 in full.
+- "Hide my address" is the cheapest option to ship, since the mode is built. It can go out
+  with 5.2.
+- 5.3 adds the TCP 443 stage to Auto and the "Restricted network" option.
+- 5.4 adds "Local only".
+
 ## Sources
 
 - Access Now, [2025 report on internet shutdowns](https://www.accessnow.org/wp-content/uploads/2026/03/KeepItOn-Internet-Shutdowns-2025-Annual-Report.pdf) and [Asia Pacific press release](https://www.accessnow.org/press-release/one-region-half-the-worlds-shutdowns-internet-shutdowns-in-the-asia-pacific-in-2025/)
