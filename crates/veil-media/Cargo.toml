@@ -10,6 +10,9 @@ license.workspace = true
 veil-security = { path = "../veil-security" }
 # Screen and window capture on Windows, macOS and Linux (src/screen.rs).
 xcap = "0.9.8"
+# Noise suppression (src/denoise.rs): RNNoise ported to Rust, its model built in. The default
+# features only add a command-line tool.
+nnnoiseless = { version = "0.5.2", default-features = false }
 zeroize = "1.8.1"
 
 [build-dependencies]

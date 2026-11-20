@@ -32,6 +32,9 @@ pub const CONTROLS: usize = 5;
 /// The arrows drawn here.
 pub const MENUS: usize = 2;
 const MENU_INNER: f32 = 280.0;
+/// Tooltips for the two noise switches in the audio menu.
+const NOISE_HINT: &str = "Removes fans, typing, traffic and other background sound from your      microphone. It runs on this computer, so your sound goes nowhere else.";
+const CLEAN_OTHERS_HINT: &str = "Removes background sound from everyone else, on this computer.      Uses a little more processor for each person in the call.";
 /// Shown wherever mirroring can be turned on or off.
 pub const MIRROR_HINT: &str = "Flips your video left to right, for you and everyone in the call.";
 /// The Auto row while Auto is saving data because the connection is slow.
@@ -150,6 +153,12 @@ fn audio_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
         ui.add_space(2.0);
         level_meter(ui, app.level, ui.available_width());
     }
+    ui.add_space(4.0);
+    let suppress = app.media.noise_suppression();
+    let button = call_menus::toggle_button(ui, Icon::Mic, "Noise suppression", suppress);
+    if button.on_hover_text(NOISE_HINT).clicked() {
+        app.media.set_noise_suppression(!suppress);
+    }
     call_menus::divider(ui);
     call_menus::section(ui, Icon::Volume, "Speaker");
     let speakers = &app.devices.speakers;
@@ -166,6 +175,15 @@ fn audio_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     let hint = "How loud the call plays. Your system volume still applies.";
     if call_menus::volume(ui, "Speaker volume", &mut speaker, SPEAKER_MAX, hint) {
         app.media.set_speaker_volume(speaker);
+    }
+    ui.add_space(4.0);
+    let playback = app.media.playback();
+    let clean = playback.clean_others.load(std::sync::atomic::Ordering::Relaxed);
+    let button = call_menus::toggle_button(ui, Icon::Volume, "Remove noise from others", clean);
+    if button.on_hover_text(CLEAN_OTHERS_HINT).clicked() {
+        playback
+            .clean_others
+            .store(!clean, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

@@ -2,6 +2,17 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Added
+
+- **Noise suppression.** Veil now removes background sound (fans, typing, traffic, hum) from
+  your microphone, using a small speech model (RNNoise) that runs on your computer. It is on
+  by default; turn it off under Audio settings > Noise suppression, for example to play music.
+  **Remove noise from others**, under Speaker in the same menu, cleans everyone else's sound
+  too. It is off by default and uses a little more processor for each person. The model adds
+  10 ms of delay.
+
 ## 0.1.11, 19/11/2026
 
 ### Added
