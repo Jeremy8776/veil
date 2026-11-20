@@ -4841,6 +4841,8 @@ dependencies = [
  "sha2",
  "v4l",
  "veil-security",
+ "wayland-client",
+ "wayland-protocols-plasma",
  "windows",
  "xcap",
  "zbus 5.13.2",

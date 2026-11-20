@@ -87,9 +87,16 @@ more video stream from you but not that it is a screen. On Windows the live shar
 picker's thumbnails use Windows Graphics Capture, which includes the mouse pointer. The first
 thumbnails, the area preview and other systems use the `xcap` crate, which holds its own
 `unsafe` code. If the source goes away,
-sharing stops rather than moving on. In Linux Wayland sessions Veil does not list or capture
-anything itself: your desktop's own chooser asks what to share, and Veil receives only that one
-picture stream, through the desktop portal and PipeWire (the `ashpd` and `pipewire` crates,
+sharing stops rather than moving on. On KDE Plasma's Wayland session Veil uses KWin's own
+interfaces, which KWin offers to any app that is not sandboxed: a list of open windows with
+their titles, screenshots of a screen or window handed over through a pipe in memory, and a
+stream of the source you share. So there, as on Windows and X11, Veil can see and capture
+windows without the desktop asking; it lists and captures only while the Share picker is open
+or you are sharing, and leaves its own windows out. Veil's `.desktop` file names these
+interfaces so that older Plasma versions, which ask for that, allow them too. On other Wayland
+desktops, and where KWin's interfaces are missing (in a sandbox, say), Veil does not list or
+capture anything itself: your desktop's own chooser asks what to share, and Veil receives only
+that one picture stream, through the desktop portal and PipeWire (the `ashpd` and `pipewire` crates,
 which call the system's PipeWire library). Pictures stay in memory; `xcap` is not used there,
 because it would have the desktop write each picture of your screen to a file. The pointer is
 drawn in where the desktop offers it. Your desktop's chooser also lists Veil's own window, and

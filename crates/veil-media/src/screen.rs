@@ -4,8 +4,9 @@
 //! turns them into the packed NV12 the video encoders take. The `xcap` crate does the
 //! operating system's part: GDI on Windows, Core Graphics on macOS, and X11 or the desktop
 //! portal on Linux. A live share on Windows uses a picture stream instead
-//! ([`ScreenCapture::open_live`]). On Wayland the desktop's own chooser picks the source
-//! ([`choose_on_desktop`]) and PipeWire streams it (`screen/wayland.rs`).
+//! ([`ScreenCapture::open_live`]). On KDE Plasma's Wayland session KWin lists, screenshots and
+//! streams sources (`screen/kde.rs`); on other Wayland desktops the desktop's own chooser picks
+//! the source ([`choose_on_desktop`]) and PipeWire streams it (`screen/wayland.rs`).
 //!
 //! Invariants:
 //! - A source is only ever captured by the id the person chose. If it goes away the capture
@@ -13,14 +14,15 @@
 //! - A window is captured whether or not it is focused or covered. A minimised one has no
 //!   picture, which [`ScreenCapture::grab`] reports as `None`, not as a failure.
 //! - This process's own windows are not offered, so sharing Veil's window cannot show itself.
-//!   The one exception is Wayland, where the desktop's chooser lists every window and Veil
-//!   cannot leave its own out.
+//!   The one exception is the desktop's chooser on Wayland, which lists every window and
+//!   cannot be told to leave Veil's out.
 //! - A crop is kept as fractions of the source, so it still fits after a window is resized.
 //! - Output sizes are even and at most [`MAX_DIMENSION`], as 4:2:0 and the ladder need.
 //! - Colour is BT.709 limited range, the same as cameras and `veil-app`'s `convert.rs`.
 //! - In a Wayland session nothing is captured through `xcap`: it takes each picture by having
 //!   the desktop write a PNG file, which would put your screen on disk many times a second.
-//!   Only a source picked in the desktop's chooser is captured there, as a stream in memory.
+//!   There KWin's screenshots and streams are used, or a source picked in the desktop's
+//!   chooser, all in memory.
 //!
 //! shortcut: on X11 and macOS each live picture is still a full screenshot, which limits the
 //! rate. Use each system's capture stream there once sharing has been tested on it.
@@ -28,6 +30,8 @@
 //! lean: on Wayland the person picks again on every share. The portal can remember a pick
 //! (restore token); add it if picking each time proves tiresome.
 
+#[cfg(target_os = "linux")]
+mod kde;
 #[cfg(target_os = "linux")]
 mod wayland;
 
@@ -94,18 +98,36 @@ fn is_app_window(_id: u32) -> bool {
 /// Veil may not list screens and windows itself: a Linux Wayland session.
 pub fn uses_system_chooser() -> bool {
     #[cfg(target_os = "linux")]
-    {
-        let var = |name| std::env::var_os(name).unwrap_or_default();
-        let (session, display) = (var("XDG_SESSION_TYPE"), var("WAYLAND_DISPLAY"));
-        is_wayland(&session.to_string_lossy(), &display.to_string_lossy())
-    }
+    return wayland_session() && kde::get().is_none();
     #[cfg(not(target_os = "linux"))]
     false
 }
 
+#[cfg(target_os = "linux")]
+fn wayland_session() -> bool {
+    let var = |name| std::env::var_os(name).unwrap_or_default();
+    let (session, display) = (var("XDG_SESSION_TYPE"), var("WAYLAND_DISPLAY"));
+    is_wayland(&session.to_string_lossy(), &display.to_string_lossy())
+}
+
+/// KWin's interfaces where this is a KDE Plasma Wayland session that offers them.
+#[cfg(target_os = "linux")]
+fn kwin() -> Option<&'static kde::Kde> {
+    wayland_session().then(kde::get).flatten()
+}
+
+#[cfg(target_os = "linux")]
+fn kwin_source(source: ScreenSource) -> Option<kde::Source> {
+    match source {
+        ScreenSource::Monitor(number) => Some(kde::Source::Screen(number)),
+        ScreenSource::Window(id) => Some(kde::Source::Window(id)),
+        ScreenSource::Picked(_) => None,
+    }
+}
+
 /// The last pick number, and the streams picked and not yet released by number.
 #[cfg(target_os = "linux")]
-type Picks = (u32, Vec<(u32, std::sync::Arc<wayland::PortalStream>)>);
+type Picks = (u32, Vec<(u32, std::sync::Arc<wayland::PipeStream>)>);
 
 #[cfg(target_os = "linux")]
 static PICKED: std::sync::Mutex<Picks> = std::sync::Mutex::new((0, Vec::new()));
@@ -152,8 +174,9 @@ fn is_wayland(session_type: &str, display: &str) -> bool {
 }
 
 fn check_allowed() -> Result<(), MediaError> {
-    // On Wayland `xcap` would write each picture to disk; only picked streams are allowed.
-    if uses_system_chooser() {
+    // On Wayland `xcap` would write each picture to disk; only KWin or picked streams are used.
+    #[cfg(target_os = "linux")]
+    if wayland_session() {
         return Err(UNAVAILABLE);
     }
     #[cfg(target_os = "macos")]
@@ -206,6 +229,28 @@ pub fn hide_window_from_capture(_title: &str) -> bool {
 /// then windows from front to back. Leaves out minimised, empty and untitled windows, overlays
 /// and helper windows, and those of process `own_pid`.
 pub fn open_all(own_pid: u32) -> Result<Vec<(ScreenChoice, ScreenCapture)>, MediaError> {
+    #[cfg(target_os = "linux")]
+    if let Some(kde) = kwin() {
+        let (screens, windows) = kde.list(own_pid);
+        let screens = screens.into_iter().enumerate().map(|(index, number)| {
+            let label = format!("Screen {}", index + 1);
+            (
+                ScreenSource::Monitor(number),
+                label,
+                kde::Source::Screen(number),
+            )
+        });
+        let windows = windows
+            .into_iter()
+            .map(|(id, title)| (ScreenSource::Window(id), title, kde::Source::Window(id)));
+        let list = screens.chain(windows).map(|(source, label, kwin)| {
+            let capture = ScreenCapture {
+                target: Target::Kwin(kwin),
+            };
+            (ScreenChoice { source, label }, capture)
+        });
+        return Ok(list.collect());
+    }
     check_allowed()?;
     let mut monitors = xcap::Monitor::all().map_err(|_| UNAVAILABLE)?;
     monitors.sort_by_key(|m| !m.is_primary().unwrap_or(false));
@@ -247,9 +292,12 @@ pub fn open_all(own_pid: u32) -> Result<Vec<(ScreenChoice, ScreenCapture)>, Medi
 enum Target {
     Monitor(xcap::Monitor),
     Window(xcap::Window),
-    /// The number is the newest picture already read.
+    /// Screenshots from KWin.
     #[cfg(target_os = "linux")]
-    Picked(std::sync::Arc<wayland::PortalStream>, std::cell::Cell<u64>),
+    Kwin(kde::Source),
+    /// A PipeWire stream; the number is the newest picture already read.
+    #[cfg(target_os = "linux")]
+    Pipe(std::sync::Arc<wayland::PipeStream>, std::cell::Cell<u64>),
     #[cfg(windows)]
     Stream(ScreenStream),
 }
@@ -263,6 +311,21 @@ impl ScreenCapture {
     pub fn open(source: ScreenSource) -> Result<Self, MediaError> {
         if let ScreenSource::Picked(number) = source {
             return Self::open_picked(number);
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(kde) = kwin() {
+            let kwin = kwin_source(source).ok_or(UNAVAILABLE)?;
+            // The list may be older than the window: check it is still there.
+            let (screens, windows) = kde.list(0);
+            let there = match kwin {
+                kde::Source::Screen(number) => screens.contains(&number),
+                kde::Source::Window(id) => windows.iter().any(|(found, _)| *found == id),
+            };
+            return there
+                .then_some(Self {
+                    target: Target::Kwin(kwin),
+                })
+                .ok_or(UNAVAILABLE);
         }
         check_allowed()?;
         let target = match source {
@@ -290,7 +353,7 @@ impl ScreenCapture {
             .find(|(n, _)| *n == number)
             .ok_or(UNAVAILABLE)?;
         Ok(Self {
-            target: Target::Picked(stream.clone(), std::cell::Cell::new(0)),
+            target: Target::Pipe(stream.clone(), std::cell::Cell::new(0)),
         })
     }
 
@@ -303,7 +366,7 @@ impl ScreenCapture {
     /// way; they fail to [`Self::grab`] instead.
     pub fn has_ended(&self) -> bool {
         #[cfg(target_os = "linux")]
-        if let Target::Picked(stream, _) = &self.target {
+        if let Target::Pipe(stream, _) = &self.target {
             return stream.has_ended();
         }
         false
@@ -318,7 +381,24 @@ impl ScreenCapture {
                 target: Target::Stream(stream),
             });
         }
+        #[cfg(target_os = "linux")]
+        if let (Some(kde), Some(kwin)) = (kwin(), kwin_source(source)) {
+            let stream = kde.stream(kwin).map_err(|()| UNAVAILABLE)?;
+            return Ok(Self {
+                target: Target::Pipe(std::sync::Arc::new(stream), std::cell::Cell::new(0)),
+            });
+        }
         Self::open(source)
+    }
+
+    /// Opens `source` for a picker thumbnail: Windows' picture stream, elsewhere the same as
+    /// [`Self::open`], so KWin is never asked for a stream per thumbnail.
+    pub fn open_thumbnail(source: ScreenSource) -> Result<Self, MediaError> {
+        if cfg!(windows) {
+            Self::open_live(source)
+        } else {
+            Self::open(source)
+        }
     }
 
     /// The source's picture now. `None` means there is no new one: a minimised window, or on
@@ -328,7 +408,12 @@ impl ScreenCapture {
             #[cfg(windows)]
             Target::Stream(stream) => return stream.next(),
             #[cfg(target_os = "linux")]
-            Target::Picked(stream, seen) => {
+            Target::Kwin(kwin) => {
+                let kde = kde::get().ok_or(UNAVAILABLE)?;
+                return kde.screenshot(*kwin).map_err(|()| UNAVAILABLE);
+            }
+            #[cfg(target_os = "linux")]
+            Target::Pipe(stream, seen) => {
                 if stream.has_ended() {
                     return Err(UNAVAILABLE);
                 }

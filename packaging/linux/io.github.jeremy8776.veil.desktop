@@ -10,3 +10,9 @@ Terminal=false
 Categories=Network;VideoConference;
 Keywords=video;call;meeting;encrypted;
 StartupWMClass=io.github.jeremy8776.veil
+# Screen sharing on KDE Plasma: KWin's window list, streams and screenshots, so Veil can show
+# its own picker (veil-media/src/screen/kde.rs, docs/TRANSPARENCY.md). Plasma 6.8 grants these
+# to any unsandboxed app; older Plasma (6.4 at least) reads these lines. Nothing is captured
+# until the Share picker opens.
+X-KDE-Wayland-Interfaces=org_kde_plasma_window_management,zkde_screencast_unstable_v1
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
