@@ -12,6 +12,8 @@
 
 use std::sync::Arc;
 
+use crate::system_fonts;
+
 use eframe::egui::{
     self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Stroke,
     TextStyle, Visuals,
@@ -61,13 +63,12 @@ const UI_FONTS: &[&str] = &[
 const BOLD_FONTS: &[&str] = &[r"C:\Windows\Fonts\seguisb.ttf"];
 /// Symbols the UI font lacks (the raised hand).
 const SYMBOL_FONTS: &[&str] = &[r"C:\Windows\Fonts\seguisym.ttf"];
-/// Emoji for chat. egui draws outlines only, so these are read for their one-colour glyphs:
-/// Segoe UI Emoji has them under its colour layers. macOS has only a bitmap colour emoji
-/// font, which egui cannot draw, so emoji there show as boxes.
+/// Colour emoji for chat, drawn by epaint's `color_fonts`: Segoe UI Emoji (COLR) on Windows,
+/// Apple Color Emoji (sbix, a collection read at face 0) on macOS. Linux distributions vary,
+/// so [`system_fonts::EMOJI_FONT_FILES`] are searched there (Noto Color Emoji is CBDT).
 const EMOJI_FONTS: &[&str] = &[
     r"C:\Windows\Fonts\seguiemj.ttf",
-    "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
-    "/usr/share/fonts/noto/NotoEmoji-Regular.ttf",
+    "/System/Library/Fonts/Apple Color Emoji.ttc",
 ];
 /// Icon fonts: Windows 11, then Windows 10.
 const ICON_FONTS: &[&str] = &[
@@ -84,7 +85,7 @@ pub struct FontsFound {
 pub fn load_fonts(ctx: &egui::Context) -> Result<FontsFound, String> {
     let mut fonts = FontDefinitions::empty();
     let ui = first_readable(UI_FONTS)
-        .or_else(crate::system_fonts::find_ui_font)
+        .or_else(|| system_fonts::find_font(system_fonts::UI_FONT_FILES))
         .ok_or("no system UI font found")?;
     fonts
         .font_data
@@ -96,7 +97,9 @@ pub fn load_fonts(ctx: &egui::Context) -> Result<FontsFound, String> {
             .insert("symbols".into(), Arc::new(FontData::from_owned(symbols)));
         proportional.push("symbols".into());
     }
-    if let Some(emoji) = first_readable(EMOJI_FONTS) {
+    let emoji = first_readable(EMOJI_FONTS)
+        .or_else(|| system_fonts::find_font(system_fonts::EMOJI_FONT_FILES));
+    if let Some(emoji) = emoji {
         fonts
             .font_data
             .insert("emoji".into(), Arc::new(FontData::from_owned(emoji)));

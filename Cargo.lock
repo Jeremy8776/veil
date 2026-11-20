@@ -1720,6 +1720,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "log",
  "peniko",
+ "png",
  "skrifa",
  "smallvec",
  "vello_common",
@@ -4623,6 +4624,7 @@ version = "0.1.11"
 dependencies = [
  "ed25519-dalek",
  "eframe",
+ "epaint",
  "serde",
  "serde_json",
  "sha2",
@@ -4815,6 +4817,7 @@ dependencies = [
  "guillotiere",
  "log",
  "peniko",
+ "png",
  "smallvec",
  "thiserror 2.0.21",
 ]
@@ -4828,6 +4831,7 @@ dependencies = [
  "bytemuck",
  "glifo",
  "hashbrown 0.17.1",
+ "png",
  "vello_common",
 ]
 
