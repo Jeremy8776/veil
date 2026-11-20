@@ -120,9 +120,13 @@ section 3.3 is the goal. What runs now is simpler:
   frame. A picture that the named member's device did not sign is dropped.
 - A receiver treats a share that has been silent for 3 seconds as ended.
 
-Windows captures through Windows Graphics Capture. Linux and macOS take repeated screenshots
-through `xcap`. Linux Wayland sessions cannot share yet, because `xcap` would write each picture
-to a file there.
+Windows captures through Windows Graphics Capture. X11 and macOS take repeated screenshots
+through `xcap`. On KDE Plasma's Wayland session KWin lists windows, takes the thumbnail and
+preview screenshots and streams the share (`veil-media/src/screen/kde.rs`), so Veil's own
+picker works there. Other Wayland sessions use the desktop's screen cast portal: the desktop's
+own chooser picks the source, and its PipeWire stream feeds both the area preview and the share
+(`veil-media/src/screen/wayland.rs`). ADR 0005 has the reasons. `xcap` is not used there, because it would write each
+picture to a file.
 
 ## 4. Enterprise integration
 

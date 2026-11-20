@@ -4,8 +4,8 @@
 //! not `Send`. The camera thread hands the newest picture to the interface; the microphone
 //! thread hands over a level from 0 to 1. During a call, [`Taps`] also pass each picture and
 //! each 20 ms of sound to the call engine, which encodes and encrypts them. Mirroring, a chosen
-//! [`Blur`] and then a [`Filter`] are applied to each picture before either of those, and the
-//! microphone volume (`volume.rs`) to each 20 ms of sound. The speaker choice and volume live
+//! [`Blur`] and then a [`Filter`] are applied to each picture before either of those, and noise
+//! suppression then the microphone volume (`volume.rs`) to each 20 ms of sound (`media/mic.rs`). The speaker choice and volume live
 //! here too ([`LocalMedia::playback`]) and the call's playback thread follows them.
 //!
 //! Invariants:
@@ -33,6 +33,8 @@ use crate::engine::{Captured, Taps};
 use crate::volume::{Gain, MIC_MAX, Playback, SPEAKER_MAX};
 use veil_media::{Blur, BlurEngine, BlurStatus, Filter};
 
+mod mic;
+
 /// What the interface reads from the workers.
 #[derive(Default)]
 struct Shared {
@@ -55,6 +57,9 @@ struct Shared {
     camera_stopped: AtomicBool,
     /// Microphone volume, applied before the meter and the call.
     mic_gain: Gain,
+    /// Remove background noise from the microphone, before the volume, meter and call.
+    /// shortcut: forgotten when Veil closes, like `mirror`.
+    suppress_noise: AtomicBool,
 }
 
 /// Shown when the camera turns itself off because blur cannot keep up.
@@ -124,7 +129,10 @@ impl LocalMedia {
     pub fn new(ctx: egui::Context) -> Self {
         Self {
             ctx,
-            shared: Arc::default(),
+            shared: Arc::new(Shared {
+                suppress_noise: AtomicBool::new(true),
+                ..Shared::default()
+            }),
             camera: None,
             mic: None,
             seen_seq: 0,
@@ -145,6 +153,15 @@ impl LocalMedia {
     /// Takes effect on the next 20 ms of sound, for the meter and the call alike.
     pub fn set_mic_volume(&self, volume: f32) {
         self.shared.mic_gain.set(volume, MIC_MAX);
+    }
+
+    pub fn noise_suppression(&self) -> bool {
+        self.shared.suppress_noise.load(Ordering::Relaxed)
+    }
+
+    /// Takes effect on the next 20 ms of sound, for the meter and the call alike.
+    pub fn set_noise_suppression(&self, on: bool) {
+        self.shared.suppress_noise.store(on, Ordering::Relaxed);
     }
 
     pub fn speaker_volume(&self) -> f32 {
@@ -194,7 +211,7 @@ impl LocalMedia {
         let (shared, ctx) = (self.shared.clone(), self.ctx.clone());
         let id = self.choice.mic.clone();
         self.mic = Some(Worker::spawn(move |stop| {
-            mic_loop(&shared, &ctx, &stop, id.as_deref());
+            mic::mic_loop(&shared, &ctx, &stop, id.as_deref());
         }));
     }
 
@@ -407,51 +424,6 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
         }
     }
     ctx.request_repaint();
-}
-
-fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Option<&str>) {
-    use veil_media::AudioSettings;
-    use veil_media::platform::Microphone;
-    let mut mic = match Microphone::open(&AudioSettings::voice(), id) {
-        Ok(mic) => {
-            crate::note!("microphone: opened {}", which(id));
-            mic
-        }
-        Err(e) => {
-            crate::note!("microphone: cannot open {}: {e}", which(id));
-            *lock(&shared.mic_error) = Some(e.to_string());
-            ctx.request_repaint();
-            return;
-        }
-    };
-    let mut frames = 0u32;
-    // The frame after the volume; reused so a volume costs no allocation per frame.
-    let mut scaled = Vec::new();
-    while !stop.load(Ordering::Relaxed) {
-        match mic.read() {
-            Ok(frame) => {
-                scaled.clear();
-                scaled.extend_from_slice(frame);
-                crate::volume::scale(&mut scaled, shared.mic_gain.get());
-                if let Some(taps) = lock(&shared.taps).as_ref() {
-                    let _ = taps.audio.try_send(scaled.clone());
-                }
-                shared
-                    .level
-                    .store(meter(&scaled).to_bits(), Ordering::Relaxed);
-                // Every other 20 ms frame is smooth enough for a meter.
-                frames = frames.wrapping_add(1);
-                if frames.is_multiple_of(2) {
-                    ctx.request_repaint();
-                }
-            }
-            Err(e) => {
-                *lock(&shared.mic_error) = Some(e.to_string());
-                break;
-            }
-        }
-    }
-    shared.level.store(0, Ordering::Relaxed);
 }
 
 #[cfg(test)]

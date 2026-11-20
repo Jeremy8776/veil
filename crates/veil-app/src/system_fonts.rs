@@ -1,7 +1,9 @@
-//! Finding a UI font on Linux, where each distribution keeps fonts in its own folders.
+//! Finding a UI font and an emoji font on Linux, where each distribution keeps fonts in its
+//! own folders.
 //!
 //! Purpose: Fedora, for one, has neither of the fixed paths in `theme.rs`, and a missing UI font
-//! stops Veil from opening. This searches the standard font folders for a common sans font.
+//! stops Veil from opening. This searches the standard font folders for a common sans font,
+//! and for an emoji font for chat.
 //!
 //! Invariants:
 //! - Runs only on Linux and similar systems, and only when the fixed paths found nothing.
@@ -17,24 +19,33 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Regular sans fonts egui can draw, best first. Collections (`.ttc`) are left out.
-const UI_FONT_FILES: &[&str] = &[
+pub const UI_FONT_FILES: &[&str] = &[
     "DejaVuSans.ttf",
     "NotoSans-Regular.ttf",
     "NotoSans[wght].ttf",
     "AdwaitaSans-Regular.ttf",
     "LiberationSans-Regular.ttf",
 ];
+/// Emoji fonts, best first: colour (CBDT, COLR), then one-colour.
+pub const EMOJI_FONT_FILES: &[&str] = &[
+    "NotoColorEmoji.ttf",
+    "Twemoji.Mozilla.ttf",
+    "TwemojiMozilla.ttf",
+    "NotoEmoji-Regular.ttf",
+    "NotoEmoji[wght].ttf",
+];
 const MAX_DEPTH: usize = 6;
 const MAX_ENTRIES: usize = 50_000;
 
-/// The contents of the best UI font in the system's font folders, if there is one.
-pub fn find_ui_font() -> Option<Vec<u8>> {
+/// The contents of the best of `files` (file names, best first) in the system's font
+/// folders, if there is one.
+pub fn find_font(files: &[&str]) -> Option<Vec<u8>> {
     if !cfg!(all(unix, not(target_os = "macos"))) {
         return None;
     }
     let var = |name| std::env::var_os(name).filter(|value| !value.is_empty());
     let roots = font_roots(var("XDG_DATA_DIRS"), var("XDG_DATA_HOME"), var("HOME"));
-    candidates(&roots).iter().find_map(|path| read_font(path))
+    candidates(&roots, files).iter().find_map(|path| read_font(path))
 }
 
 /// System font folders first, then this user's.
@@ -62,18 +73,24 @@ fn font_roots(
     roots
 }
 
-/// Every known font under `roots`, best first.
-fn candidates(roots: &[PathBuf]) -> Vec<PathBuf> {
+/// Every one of `files` under `roots`, best first.
+fn candidates(roots: &[PathBuf], files: &[&str]) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let mut entries_left = MAX_ENTRIES;
     for root in roots {
-        walk(root, 0, &mut entries_left, &mut found);
+        walk(root, files, 0, &mut entries_left, &mut found);
     }
     found.sort();
     found.into_iter().map(|(_, path)| path).collect()
 }
 
-fn walk(dir: &Path, depth: usize, left: &mut usize, found: &mut Vec<(usize, PathBuf)>) {
+fn walk(
+    dir: &Path,
+    files: &[&str],
+    depth: usize,
+    left: &mut usize,
+    found: &mut Vec<(usize, PathBuf)>,
+) {
     let Ok(entries) = fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         if *left == 0 {
@@ -82,11 +99,11 @@ fn walk(dir: &Path, depth: usize, left: &mut usize, found: &mut Vec<(usize, Path
         *left -= 1;
         let path = entry.path();
         let name = entry.file_name();
-        let rank = UI_FONT_FILES.iter().position(|known| name.to_str() == Some(known));
+        let rank = files.iter().position(|known| name.to_str() == Some(known));
         if let Some(rank) = rank {
             found.push((rank, path));
         } else if depth < MAX_DEPTH && path.is_dir() {
-            walk(&path, depth + 1, left, found);
+            walk(&path, files, depth + 1, left, found);
         }
     }
 }
@@ -130,7 +147,7 @@ mod tests {
         put(&noto, FONT);
         put(&dejavu, FONT);
         put(&dir.join("other").join("Unknown.ttf"), FONT);
-        assert_eq!(candidates(std::slice::from_ref(&dir)), vec![dejavu, noto]);
+        assert_eq!(candidates(std::slice::from_ref(&dir), UI_FONT_FILES), vec![dejavu, noto]);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -142,7 +159,7 @@ mod tests {
             deep = deep.join("d");
         }
         put(&deep.join("DejaVuSans.ttf"), FONT);
-        assert!(candidates(std::slice::from_ref(&dir)).is_empty());
+        assert!(candidates(std::slice::from_ref(&dir), UI_FONT_FILES).is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
 

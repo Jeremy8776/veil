@@ -4,6 +4,40 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Added
+
+- **Emoji in chat.** Emoji now show in colour in messages, from the system's own emoji font:
+  Segoe UI Emoji on Windows, Apple Color Emoji on macOS, and Noto Color Emoji (or Twemoji)
+  on Linux. The smiley button beside the message box opens a picker.
+- **Reactions.** Click a message to react with 👍 ❤ 😂 😮 😢 or 🎉. Reactions show under the
+  message with a count; hover to see who reacted, and click one to add or take back yours.
+  Reactions are sealed and signed like chat. Messages from Veil 0.1.11 and earlier show as
+  before but take no reactions, and 0.1.11 cannot read chat from this version.
+
+- **Lobby alerts** for the host. When someone starts waiting in your lobby while Veil is in
+  the background, you get a notification ("Ana wants to join") and Veil asks for attention:
+  the taskbar button flashes on Windows, the Dock icon bounces on macOS, and the window is
+  marked urgent on Linux. Clicking the notification brings Veil to the front. Both clear
+  when you look at Veil or nobody is waiting.
+
+- **Check everyone at once.** With two or more others in a call, the Security panel offers a
+  group code. Each person posts theirs in a group chat you all trust, then pastes what everyone
+  posted. Each matching code verifies the person who posted it. Codes from before someone
+  joined or left are reported as old, not as a mismatch.
+
+- **Noise suppression.** Veil now removes background sound (fans, typing, traffic, hum) from
+  your microphone, using a small speech model (RNNoise) that runs on your computer. It is on
+  by default; turn it off under Audio settings > Noise suppression, for example to play music.
+  **Remove noise from others**, under Speaker in the same menu, cleans everyone else's sound
+  too. It is off by default and uses a little more processor for each person. The model adds
+  10 ms of delay.
+
+- **Screen sharing on Linux Wayland.** Share opens your desktop's own chooser; pick a screen or
+  window, then select an area as on other systems. "Choose again" picks another. Tested on KDE
+  Plasma; other Wayland desktops are untested. Veil asks again on each share.
+- **Veil's own share picker on KDE Plasma (Wayland).** Live thumbnails of your screens and
+  windows, as on Windows, with no desktop dialog. Tested on Plasma 6.8.
+
 ### Changed
 
 - The pre-join card is grouped into Video, Audio and Connection, and scrolls in a short
@@ -15,11 +49,33 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   update where Veil cannot install itself). An invite link that does not open says it may
   need a newer Veil while an update is waiting.
 
+- `veil.log` now notes when a link to someone drops and when it comes back, and the host's
+  log notes each joiner it turns away, with the reason.
+
+- "Copy my code" now copies a short message that says who it is from and for, then the code.
+  Paste the whole message: Veil finds the code inside it, and it still compares all 60 digits.
+
 ### Fixed
+
+- A returning media link refreshes video layers, keyframes, names and raised hands. A redial
+  that finishes after the routes change or the call ends is discarded.
+- Group verification no longer picks the first person when two people have the same short
+  tag. It asks you to check their pair codes instead.
+- The dependency licence check reads Cargo's output as UTF-8 on Windows.
 
 - A raised hand now shows for everyone in the call, not only on your own screen. Lowering it
   clears it for the others, and someone who joins later sees hands that are already up. The
   hand is sealed and signed like names and chat. Older versions of Veil do not show it.
+- Sharing a selected area of your screen now shows live to everyone watching, and changing
+  the area during a share keeps it live. Before, a new shared size restarted the picture
+  numbering, so those watching kept seeing the last picture from before the change. The same
+  fix covers a camera that changes size and a change of Data use mid-call.
+
+- A member whose connection dropped for a moment (for example Wi-Fi off and on) no longer
+  stays on "Connecting" until someone joins or leaves. Veil now links up again by itself,
+  trying again after 1, 2, 4, 8 and then every 16 seconds.
+- Re-opening an invite link that was already used now says so, and asks you to get a new one
+  from the host. It used to say "The host did not let you in."
 
 ## 0.1.11, 19/11/2026
 

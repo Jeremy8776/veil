@@ -14,6 +14,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod chat;
 mod connection;
 mod convert;
 mod data_use;
@@ -27,6 +28,7 @@ mod icons;
 mod json_file;
 mod keystore;
 mod layout;
+mod lobby_alert;
 mod log;
 mod logo;
 mod media;

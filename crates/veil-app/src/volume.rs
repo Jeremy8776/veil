@@ -12,7 +12,7 @@
 //!   reopens the device when it moved. The lock is held only to copy the id.
 
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use crate::media::lock;
 
@@ -63,6 +63,9 @@ pub struct Playback {
     device: Mutex<Option<String>>,
     changes: AtomicU64,
     pub volume: Gain,
+    /// Remove background noise from everyone else's sound, one model per person.
+    /// shortcut: forgotten when Veil closes; save it once the app has saved preferences.
+    pub clean_others: AtomicBool,
 }
 
 impl Playback {

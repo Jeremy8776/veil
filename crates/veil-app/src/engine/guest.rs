@@ -22,6 +22,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 use veil_call::{CallError, CallNode, MemberEvent, join_with};
 use veil_net::Node;
+use veil_net::control::RefuseReason;
 use veil_rendezvous::fetch_invite;
 use veil_security::Identity;
 use veil_security::short_invite::InviteLink;
@@ -88,8 +89,8 @@ pub async fn run(
         // What arrived during a link-up comes first, so nothing overtakes it.
         let flow = if let Some(event) = held.events.pop_front() {
             on_event(event, &mut session, &mut member.events, &mut commands, &mut held).await?
-        } else if let Some(text) = held.chat.pop_front() {
-            session.send_chat(&text).await;
+        } else if let Some(said) = held.chat.pop_front() {
+            session.say(&said).await;
             Flow::Stay
         } else if let Some(raised) = held.hand.take() {
             session.set_hand(raised).await;
@@ -98,8 +99,8 @@ pub async fn run(
             tokio::select! {
                 command = commands.recv() => match command {
                     None | Some(Command::Leave) => Flow::Leave,
-                    Some(Command::Act(Action::Chat(text))) => {
-                        session.send_chat(&text).await;
+                    Some(Command::Act(said @ (Action::Chat(..) | Action::React(..)))) => {
+                        session.say(&said).await;
                         Flow::Stay
                     }
                     Some(Command::Act(Action::Hand(raised))) => {
@@ -135,7 +136,8 @@ enum Flow {
 #[derive(Default)]
 struct Held {
     events: VecDeque<MemberEvent>,
-    chat: VecDeque<String>,
+    /// Chat and reactions, as [`Action::Chat`] and [`Action::React`].
+    chat: VecDeque<Action>,
     /// Only the newest hand state matters.
     hand: Option<bool>,
 }
@@ -193,7 +195,9 @@ async fn link_up(
             }
             command = commands.recv() => match command {
                 None | Some(Command::Leave) => return Ok(Flow::Leave),
-                Some(Command::Act(Action::Chat(text))) => held.chat.push_back(text),
+                Some(Command::Act(said @ (Action::Chat(..) | Action::React(..)))) => {
+                    held.chat.push_back(said);
+                }
                 Some(Command::Act(Action::Hand(raised))) => held.hand = Some(raised),
                 Some(Command::Act(_)) => {}
             },
@@ -211,7 +215,17 @@ async fn wait_for_leave(commands: &mut UnboundedReceiver<Command>) {
 
 fn join_error(e: &CallError) -> String {
     match e {
-        CallError::Refused(_) => String::from("The host did not let you in."),
+        CallError::Refused(RefuseReason::DeclinedByHost) => {
+            String::from("The host did not let you in.")
+        }
+        // The host gives out a fresh link after each knock, so an old one stops working.
+        CallError::Refused(RefuseReason::TokenUsed) => String::from(
+            "This invite link was already used or has expired. Ask the host for a new one.",
+        ),
+        CallError::Refused(RefuseReason::UnknownRoom) => {
+            String::from("This invite is for a call that has ended.")
+        }
+        CallError::Refused(RefuseReason::RoomFull) => String::from("The call is full."),
         CallError::Timeout => String::from("The host did not answer."),
         // Windows blocks inbound UDP for an app with no firewall rule, which looks exactly
         // like this from the guest's side; the host's own invite lists only its addresses.
@@ -276,7 +290,7 @@ mod tests {
         event_tx.send(MemberEvent::PlanRefused(CallError::Closed)).unwrap();
         event_tx.send(MemberEvent::PlanRefused(CallError::Timeout)).unwrap();
         for text in ["first", "second"] {
-            let chat = Command::Act(Action::Chat(text.into()));
+            let chat = Command::Act(Action::Chat(1, text.into()));
             command_tx.send(chat).map_err(|_| "closed").unwrap();
         }
         let mut held = Held::default();
@@ -290,7 +304,10 @@ mod tests {
                 MemberEvent::PlanRefused(CallError::Timeout)
             ]
         ));
-        assert_eq!(held.chat, ["first", "second"]);
+        assert_eq!(
+            held.chat,
+            [Action::Chat(1, "first".into()), Action::Chat(1, "second".into())]
+        );
     }
 
     #[test]
@@ -300,5 +317,13 @@ mod tests {
         let unreachable = CallError::Net(veil_net::NetError::Timeout);
         let text = join_error(&unreachable);
         assert!(text.contains("press Allow guests"), "one space at the line join: {text}");
+    }
+
+    #[test]
+    fn a_used_invite_is_not_blamed_on_the_host() {
+        let used = join_error(&CallError::Refused(RefuseReason::TokenUsed));
+        assert!(used.contains("Ask the host for a new one"), "{used}");
+        let declined = join_error(&CallError::Refused(RefuseReason::DeclinedByHost));
+        assert_eq!(declined, "The host did not let you in.");
     }
 }

@@ -11,8 +11,7 @@
 //! - In a real call those three only queue an [`Action`] for the engine. The people list
 //!   changes when the engine reports the new key epoch, never before. A demo call changes at
 //!   once, as MLS would.
-//! - In a real call a chat message shows at once and is queued as [`Action::Chat`]; the
-//!   engine seals it and sends it to everyone in the call.
+//! - Chat and reactions live in `chat.rs`.
 //! - Verified is your own label for a device key you compared safety numbers with. It is
 //!   kept between calls and never lets anyone in by itself.
 
@@ -115,13 +114,16 @@ pub enum Reachable {
     No(String),
 }
 
-/// A host's decision, a chat message or your hand, queued for the engine.
+/// A host's decision, chat, a reaction or your hand, queued for the engine.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     Admit(u32),
     Decline(u32),
     Remove(u32),
-    Chat(String),
+    /// A chat message and the id it shows under.
+    Chat(u64, String),
+    /// Adds (`true`) or takes back your reaction to the message with this id.
+    React(u64, String, bool),
     /// Your hand is raised (`true`) or lowered (`false`).
     Hand(bool),
     /// Mark a person's device as verified (`true`) or forget it (`false`).
@@ -130,22 +132,13 @@ pub enum Action {
     InviteUntilEnd(bool),
 }
 
-#[derive(Clone, Debug)]
-pub struct Message {
-    pub from: String,
-    pub mine: bool,
-    /// Time into the call.
-    pub at: Duration,
-    pub text: String,
-}
-
 pub struct Call {
     pub title: String,
     pub is_host: bool,
     pub started: Instant,
     pub participants: Vec<Participant>,
     pub lobby: Vec<Waiting>,
-    pub chat: Vec<Message>,
+    pub chat: Vec<crate::chat::Message>,
     /// The link to share: short when possible.
     pub invite: String,
     /// The same invite in full, which needs no fetch. Equal to `invite` when no short link
@@ -156,6 +149,9 @@ pub struct Call {
     /// The host chose to keep each invite link working until the call ends.
     pub invite_until_end: bool,
     pub epoch: u64,
+    /// Everyone's group number, yours included (`veil_security::group_code`). Empty until
+    /// the first epoch, and in a demo, which makes one up from the epoch.
+    pub group: String,
     /// Other participants are simulated.
     pub demo: bool,
     pub status: CallStatus,
@@ -196,6 +192,7 @@ impl Call {
             invite_expires: 0,
             invite_until_end: false,
             epoch: 0,
+            group: String::new(),
             demo: false,
             status: CallStatus::Connecting,
             router: RouterPort::Off,
@@ -304,34 +301,6 @@ impl Call {
         }
     }
 
-    pub fn send(&mut self, text: &str, now: Instant) {
-        let text = text.trim();
-        if text.is_empty() {
-            return;
-        }
-        let from = self.you().map(|p| p.name.clone()).unwrap_or_default();
-        self.chat.push(Message {
-            from,
-            mine: true,
-            at: self.elapsed(now),
-            text: text.to_string(),
-        });
-        if !self.demo {
-            self.outbox.push(Action::Chat(text.to_string()));
-        }
-    }
-
-    /// A chat message from someone else, unread until the chat panel shows it.
-    pub fn receive(&mut self, from: String, text: String, now: Instant) {
-        self.chat.push(Message {
-            from,
-            mine: false,
-            at: self.elapsed(now),
-            text,
-        });
-        self.unread += 1;
-    }
-
     /// Whoever should fill the stage in speaker view: the speaker, else the first other
     /// person, else you.
     pub fn focus(&self) -> Option<&Participant> {
@@ -408,17 +377,12 @@ mod tests {
     }
 
     #[test]
-    fn you_cannot_be_removed_and_empty_chat_is_ignored() {
+    fn you_cannot_be_removed() {
         let now = Instant::now();
         let mut call = demo::call("Jo", true, now);
         let you = call.you().unwrap().id;
         call.remove(you);
         assert!(call.you().is_some());
-        let before = call.chat.len();
-        call.send("   ", now);
-        assert_eq!(call.chat.len(), before);
-        call.send(" hello ", now);
-        assert_eq!(call.chat.last().unwrap().text, "hello");
     }
 
     #[test]
@@ -450,23 +414,6 @@ mod tests {
         call.remove(9);
         assert_eq!(call.outbox, [Action::Admit(7), Action::Remove(9)]);
         assert_eq!(call.epoch, 0);
-    }
-
-    #[test]
-    fn live_chat_is_queued_for_the_engine_and_received_chat_is_unread() {
-        let now = Instant::now();
-        let mut call = Call::live("Call".into(), "Jo", false, now);
-        call.send(" hi all ", now);
-        assert_eq!(call.outbox, [Action::Chat("hi all".into())]);
-        assert!(call.chat[0].mine);
-        call.receive("Priya".into(), "hello".into(), now);
-        assert_eq!(call.unread, 1);
-        assert_eq!(call.chat[1].from, "Priya");
-        assert!(!call.chat[1].mine);
-
-        let mut demo = demo::call("Jo", true, now);
-        demo.send("hi", now);
-        assert!(demo.outbox.is_empty(), "a demo sends nothing");
     }
 
     #[test]

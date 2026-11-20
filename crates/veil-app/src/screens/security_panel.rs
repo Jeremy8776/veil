@@ -1,8 +1,10 @@
 //! The Security panel: is this call encrypted, and who have you checked?
 //!
-//! Purpose: checking someone should not mean reading 60 digits. Each person copies their code,
-//! sends it through another app and pastes the one they get back. Veil compares all 60 digits
-//! (`veil_security::safety`) and marks the person verified when they match.
+//! Purpose: checking someone should not mean reading 60 digits. Each person copies a short
+//! message with their code, sends it through another app and pastes the message they get back.
+//! Veil finds the code in it, compares all 60 digits (`veil_security::safety`) and marks the
+//! person verified when they match. With two or more others, `group_check.rs` checks everyone
+//! through one group chat.
 //!
 //! Invariants:
 //! - One person is open at a time (`CallView::verifying`).
@@ -17,18 +19,17 @@ use eframe::egui::{
     self, Align2, Button, CornerRadius, FontId, Margin, Response, RichText, Role, ScrollArea,
     Sense, Stroke, StrokeKind, TextEdit, Ui, WidgetInfo, pos2, vec2,
 };
-use veil_security::safety::{CodeCheck, check_code, share_code};
+use veil_security::safety::{CodeCheck, PASTE_LIMIT, check_code, share_code};
 
 use crate::icons::Icon;
 use crate::model::{LinkPath, Participant};
 use crate::screens::call::CallView;
+use crate::screens::group_check::{self, Group};
 use crate::theme::{self, ACCENT, MUTED, RAISED, RAISED_HOVER, TEXT};
 use crate::widgets::{self, Tone, pill};
 
 const ROW_H: f32 = 48.0;
 const NAME_LEFT: f32 = 46.0;
-/// Far longer than a share code, so a stray paste cannot grow without limit.
-const PASTE_LIMIT: usize = 200;
 
 /// The person open in the panel, and what has been entered for them.
 pub struct Verifying {
@@ -117,7 +118,7 @@ fn paste_message(check: CodeCheck) -> Option<(&'static str, &'static str, egui::
         )),
         CodeCheck::NotACode => Some((
             "That is not a Veil code.",
-            "A code starts with VEIL-A or VEIL-B.",
+            "Paste the whole message they sent you. It has a line starting VEIL-A or VEIL-B.",
             MUTED,
         )),
     }
@@ -144,6 +145,19 @@ pub fn show(view: &mut CallView, ui: &mut Ui) {
     let verified = others().filter(|p| p.verified).count();
     header(ui, view.call.epoch, demo, verified, total);
     ui.add_space(10.0);
+    let number = if demo {
+        crate::demo::group_number(view.call.epoch)
+    } else {
+        view.call.group.clone()
+    };
+    let your_name = view.call.you().map(|p| p.name.clone()).unwrap_or_default();
+    let group = Group {
+        number: &number,
+        epoch: view.call.epoch,
+        demo,
+        your_name: &your_name,
+    };
+    let checked = group_check::show(ui, &group, others());
 
     let mut open = view.verifying.take();
     let mut done = None;
@@ -156,13 +170,21 @@ pub fn show(view: &mut CallView, ui: &mut Ui) {
                 if row(ui, person, is_open).clicked() {
                     open = toggled(open.take(), person.id);
                 } else if let Some(state) = open.as_mut().filter(|o| o.id == person.id)
-                    && let Some(step) = details(ui, person, demo, state)
+                    && let Some(step) = details(ui, person, &your_name, demo, state)
                 {
                     done = Some((person.id, person.name.clone(), step));
                 }
             }
         });
     view.verifying = open;
+    for id in &checked {
+        view.call.set_verified(*id, true);
+    }
+    match checked.as_slice() {
+        [] => {}
+        [_] => view.notify("1 person verified"),
+        many => view.notify(&format!("{} people verified", many.len())),
+    }
     match done {
         Some((_, _, Step::Copied)) => view.notify("Your code is copied"),
         Some((id, name, Step::Confirmed)) => {
@@ -274,7 +296,13 @@ fn row(ui: &mut Ui, person: &Participant, open: bool) -> Response {
 }
 
 /// The open person's section.
-fn details(ui: &mut Ui, person: &Participant, demo: bool, state: &mut Verifying) -> Option<Step> {
+fn details(
+    ui: &mut Ui,
+    person: &Participant,
+    me: &str,
+    demo: bool,
+    state: &mut Verifying,
+) -> Option<Step> {
     let margin = Margin {
         left: 6,
         right: 6,
@@ -293,16 +321,24 @@ fn details(ui: &mut Ui, person: &Participant, demo: bool, state: &mut Verifying)
             if state.by_hand {
                 by_hand(ui, person, state)
             } else {
-                by_paste(ui, person, demo, state)
+                by_paste(ui, person, me, demo, state)
             }
         })
         .inner
 }
 
-/// The usual way: swap codes through another app, and Veil compares them.
+/// The message "Copy my code" copies: who it is from and for, then the code. The names only
+/// help people keep track; Veil checks the code alone.
+fn share_message(me: &str, them: &str, code: &str) -> String {
+    format!("Veil code from {me} for {them}. Paste it into Veil to check.
+{code}")
+}
+
+/// The usual way: swap messages through another app, and Veil compares the codes in them.
 fn by_paste(
     ui: &mut Ui,
     person: &Participant,
+    me: &str,
     demo: bool,
     state: &mut Verifying,
 ) -> Option<Step> {
@@ -318,12 +354,13 @@ fn by_paste(
     ui.add_space(2.0);
     let width = ui.available_width();
     if pill(ui, Some(Icon::Copy), "Copy my code", Tone::Quiet, width).clicked() {
-        ui.ctx().copy_text(share_code(&person.safety, person.side));
+        let code = share_code(&person.safety, person.side);
+        ui.ctx().copy_text(share_message(first_name(me), name, &code));
         step = Some(Step::Copied);
     }
     ui.add(
         TextEdit::singleline(&mut state.pasted)
-            .hint_text(format!("Paste {name}'s code"))
+            .hint_text(format!("Paste {name}'s message"))
             .char_limit(PASTE_LIMIT)
             .desired_width(width),
     );
@@ -383,6 +420,7 @@ fn quiet_link(ui: &mut Ui, text: &str, colour: egui::Color32) -> Response {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use veil_security::safety::Side;
 
     #[test]
     fn nobody_can_be_verified_without_a_number() {
@@ -427,6 +465,14 @@ mod tests {
         for check in [CodeCheck::OwnCode, CodeCheck::Different, CodeCheck::NotACode] {
             assert!(paste_message(check).is_some());
         }
+    }
+
+    #[test]
+    fn the_copied_message_names_both_people_and_still_checks() {
+        let number = crate::demo::safety_number(1);
+        let theirs = share_message("Sam", "Jo", &share_code(&number, Side::B));
+        assert!(theirs.starts_with("Veil code from Sam for Jo."));
+        assert_eq!(check_code(&number, Side::A, &theirs), CodeCheck::Match);
     }
 
     #[test]

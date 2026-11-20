@@ -8,10 +8,10 @@ date, that is a bug.
 
 Veil is early and unaudited. Do not trust it with anything that matters yet.
 
-| Built and tested on localhost | Planned, not built |
+| Implemented (test coverage varies; see section 7) | Planned, not built |
 |---|---|
-| Device keys, safety numbers, signed invites | Capture, encoding and decoding on macOS and Linux |
-| Windows camera capture, H.264 encoding and decoding, Opus audio | Veil's own echo cancellation (Windows' is used where the device offers it) |
+| Device keys, pair and group safety codes, signed invites | Persistent device keys and verified contacts on Linux and macOS |
+| Windows, Linux and macOS camera, H.264 and Opus audio; local noise suppression | Veil's own echo cancellation (Windows' is used where the device offers it) |
 | MLS group keys, the host's lobby, raised hands sent between members | |
 | Per-frame encryption with a layer marker | Signed organisation policy, OIDC or SAML identity |
 | QUIC links pinned to device keys | Metrics export (OpenTelemetry) |
@@ -19,6 +19,7 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 | Forwarder with layer subscriptions | Padding against size analysis |
 | `veil-node`, `veil-probe` | An independent security audit |
 | The desktop app in a real call: host, lobby, guest, video and sound both ways, names and chat | |
+| Screen sharing, including Wayland through KWin or the desktop chooser; chat reactions and lobby alerts | |
 
 [ARCHITECTURE.md](ARCHITECTURE.md) describes the whole design, including the planned parts.
 [HANDOFF.md](HANDOFF.md) says what is done and what is next. To report a hole, see
@@ -36,7 +37,7 @@ see this:
 | Rendezvous node | Members' IP addresses, a hash of the room id, when people join. Each member with IPv6 also tells it its public IPv6 address, so other members can be introduced to it and dial it over IPv6. When a host with a configured `veil-node` has a public port (opened on the router, or set by hand), the node also learns that port: it dials the host back once, from a separate port with a throwaway key, to check guests can reach it. It dials only the asker's own IP. If that node has an IPv6 address too, it does the same for the host's public IPv6 address. While a host's room is open, the node also stores its sealed invites for short links, and sees when each is stored and which IP addresses fetch one. It cannot read them |
 | Relay | Members' IP addresses, encrypted traffic volume and timing |
 | Forwarder | Members' device keys and the room hash (from the host's roster ticket), traffic volume and timing, and each video frame's layer marker: which resolution tier and frame-rate step it is, and whether it is a keyframe. Names and chat pass through it sealed: it sees when one is sent and how large it is, not who sent it or what it says |
-| Other members | Your device key, the display name you chose, your chat messages, and your IP addresses (IPv4 and, if you have one, your public IPv6 address) unless you use relay-only mode ("Hide my address" in Settings > Connection, off by default). It applies only when you join: a host's invite always carries the host's addresses, and the relay still sees yours. Chat is not stored: it is gone when the call ends |
+| Other members | Your device key, the display name you chose, your chat messages and reactions, and your IP addresses (IPv4 and, if you have one, your public IPv6 address) unless you use relay-only mode ("Hide my address" in Settings > Connection, off by default). It applies only when you join: a host's invite always carries the host's addresses, and the relay still sees yours. Chat and reactions are not stored: they are gone when the call ends |
 | Your router | With "Open a port on my router" on, while you host: this computer's LAN address, the ports opened for the call, and that a program called "Veil" asked for them (section 3). With IPv6, also this computer's public IPv6 address, in a PCP request to let the call's port through the router's firewall |
 | Anyone holding an invite link | The host's device key and the addresses in it: the host's LAN address and port, the router's public address and port when the router opened one, the host's public IPv6 address and port when it has one, and any public address set in `VEIL_ADVERTISE`. If the host runs its own rendezvous, also that rendezvous's LAN address and port, and its public port when the router opened one. The desktop app puts these in every invite so a guest can dial directly. Through the rendezvous they can also learn the host's public address, since joiners punch through to the host. They cannot learn any other member's address: a member accepts an introduction only from peers its current routes link to |
 
@@ -87,8 +88,21 @@ more video stream from you but not that it is a screen. On Windows the live shar
 picker's thumbnails use Windows Graphics Capture, which includes the mouse pointer. The first
 thumbnails, the area preview and other systems use the `xcap` crate, which holds its own
 `unsafe` code. If the source goes away,
-sharing stops rather than moving on. Sharing is turned off in Linux Wayland sessions, because
-`xcap` would have the desktop write each picture of your screen to a file there.
+sharing stops rather than moving on. On KDE Plasma's Wayland session Veil uses KWin's own
+interfaces, which KWin offers to any app that is not sandboxed: a list of open windows with
+their titles, screenshots of a screen or window handed over through a pipe in memory, and a
+stream of the source you share. So there, as on Windows and X11, Veil can see and capture
+windows without the desktop asking; it lists and captures only while the Share picker is open
+or you are sharing, and leaves its own windows out. Veil's `.desktop` file names these
+interfaces so that older Plasma versions, which ask for that, allow them too. On other Wayland
+desktops, and where KWin's interfaces are missing (in a sandbox, say), Veil does not list or
+capture anything itself: your desktop's own chooser asks what to share, and Veil receives only
+that one picture stream, through the desktop portal and PipeWire (the `ashpd` and `pipewire` crates,
+which call the system's PipeWire library). Pictures stay in memory; `xcap` is not used there,
+because it would have the desktop write each picture of your screen to a file. The pointer is
+drawn in where the desktop offers it. Your desktop's chooser also lists Veil's own window, and
+Veil cannot leave it out. Ending the share in Veil, or backing out of the picker, closes the
+stream and the desktop's session; stopping it from the desktop ends the share in Veil.
 
 **Filters and Background blur** run on your device, on each camera picture before your
 self-view and before it is encoded, so other members receive only the changed picture. Finding
@@ -101,6 +115,22 @@ thread of its own while blur is on, and nothing is sent anywhere to do it.
   your background is never sent sharp unless you turn blur off yourself. Until the first
   result is ready after you turn blur on, the whole picture is blurred.
 
+**Lobby alerts** (host, `veil-app/src/lobby_alert.rs`): when someone starts waiting in your
+lobby and Veil's window is not in front, the system shows a notification with the name they
+chose ("Ana wants to join"), and Veil asks for attention through its window: the taskbar
+button flashes on Windows, the Dock icon bounces on macOS, and the window is marked urgent on
+Linux. Both stop when you look at Veil or nobody is waiting. The notification stays in the
+system's notification list until then, so anyone who can see your screen can see the name.
+- Windows: to show notifications at all, Veil writes its display name under
+  `HKEY_CURRENT_USER\Software\Classes\AppUserModelId\Veil.VideoCalls`. Nothing else is
+  written, and uninstalling leaves that key. Settings > System > Notifications > Veil turns
+  them off.
+- macOS: the first notification makes macOS ask whether Veil may show notifications. Only
+  Veil.app can show them, not a copy started outside the app bundle.
+- Linux: sent to the desktop's notification service on the session D-Bus
+  (`org.freedesktop.Notifications`, through the `zbus` crate). The text is escaped, so a
+  name cannot add markup.
+
 **Kept on your device** (desktop app, Windows, in `%LOCALAPPDATA%\Veil`):
 - `device.key`: your device key. The same key is used for every call, so a safety number
   you checked once still holds next time. Sealed with Windows DPAPI, so the file opens only
@@ -108,6 +138,10 @@ thread of its own while blur is on, and nothing is sent anywhere to do it.
   signed-in account can still use it. "New device key" on the home screen replaces it.
 - `verified.keys`: the device keys you marked as verified, sealed the same way. Verified is
   a label for the host; it never lets anyone in.
+- On Linux and macOS these two files are not saved yet: the key and verified contacts last
+  only until Veil closes. Safety codes change on the next run. A node owner who allows your
+  device key must also update that allowance after you restart. Platform keychain support
+  is still needed (`crates/veil-app/src/keystore.rs`).
 - Veil never writes over a saved file it could not open. One that does not open for your
   user is kept as `*.unreadable` (then `.unreadable.2` and on); one that cannot be read at
   all, for example while it is locked, is left as it is, and that run's key or list is not
@@ -252,6 +286,10 @@ macOS. The code is `crates/veil-portmap` and `crates/veil-app/src/engine/router.
   licences (GPL, LGPL, MPL) are kept out so anyone can reuse any part of Veil. For this reason
   Veil writes its own MLS crypto backend instead of using `openmls_rust_crypto` (which pulls in
   MPL-2.0 code), and does not use FFmpeg (LGPL).
+- Noise suppression uses RNNoise (Xiph.Org, BSD-3-Clause) through `nnnoiseless`, a safe Rust
+  port with its trained weights built in (`crates/veil-media/src/denoise.rs`). It runs only on
+  this device, on your microphone and, if you turn it on, on sound you receive. Nothing is
+  downloaded at run time.
 - Background blur uses Google's MediaPipe selfie segmenter (landscape), licensed Apache-2.0,
   from the MediaPipe model card, and credited in DEPENDENCIES.md under "Other components". Its weights are converted once by `tools/selfie_weights.py`,
   which checks the downloaded file's SHA-256, and are built into Veil as a 213 KB file. Veil
@@ -278,7 +316,8 @@ in C and assembly. It is licensed Apache-2.0 and ISC. The desktop app (`veil-app
 (DirectX 12 or Vulkan on Windows) through their own `unsafe` code; Veil's own app code has none.
 On Linux and macOS, `veil-media` reaches the microphone and speakers through `cpal` (ALSA,
 Core Audio) and the Linux camera through `v4l` (Video4Linux2 ioctls); both crates hold their
-own `unsafe` code, and Veil's code that uses them has none. MJPEG camera pictures on Linux are
+own `unsafe` code, and Veil's code that uses them has none. On macOS, lobby notifications go
+through `objc2-user-notifications`, which also holds its own `unsafe` code. MJPEG camera pictures on Linux are
 decoded by `zune-jpeg`, which is pure Rust.
 
 **Fonts and icons:** none are bundled. `veil-app` reads the system's own UI, symbol and icon
@@ -322,6 +361,7 @@ Veil's licence. On Windows, `build.rs` embeds it in the exe with `winresource`.
 | `veil-media/src/ffi/windows/camera.rs` | Media Foundation capture (`MFEnumDeviceSources`, the camera's `IMFMediaSource`, `MFCreateSourceReaderFromMediaSource`, `IMFSourceReader::ReadSample`, `IMF2DBuffer2::Lock2DSize`) | Camera pictures on Windows, converted to NV12 by Windows' own video processing. Each picture is copied out of the locked buffer, within the bounds Windows reports, before it is used. The camera's name stays on the device; nothing about it is sent |
 | `veil-media/src/ffi/windows/app_window.rs` | `GetWindowLongW` (extended style), `GetWindow` (owner), `FindWindowExW`, `GetWindowThreadProcessId`, `SetWindowDisplayAffinity` | Leaving overlays and helper windows out of the screen share picker, by reading those two properties of each window. Veil's sharing bar, and its main window while the picker is open, are found by their fixed titles, checked to belong to Veil, and kept out of screen captures |
 | `veil-media/src/ffi/windows/screen_stream.rs` | Windows Graphics Capture (`GraphicsCaptureItem` through `IGraphicsCaptureItemInterop`, `Direct3D11CaptureFramePool`, `GraphicsCaptureSession`) and Direct3D 11 (`D3D11CreateDevice`, `CreateTexture2D`, `CopySubresourceRegion`, `Map`, `Unmap`) | The live picture of a shared screen or window, and of the thumbnails while the picker is open. Each picture is copied out within the row pitch Windows reports. Thumbnails stay on your device. Only after you press Share are pictures sealed and sent like camera video |
+| `veil-media/src/ffi/windows/attention.rs` | When a notification is clicked, `IsIconic`, `ShowWindow` and `SetForegroundWindow` on Veil's own window (found as in `app_window.rs`); `RegSetKeyValueW` for the app id's display name; Windows notifications (`ToastNotificationManager`, `ToastNotification`, `XmlDocument` text nodes) | Telling a host whose window is in the background that someone is waiting in the lobby. The guest's name goes in as an XML text node, so it cannot add markup or actions to the notification. It sits in `veil-media` only because all of Veil's `unsafe` code does |
 | `veil-media/src/ffi/windows/protect.rs` | DPAPI (`CryptProtectData`, `CryptUnprotectData` with `CRYPTPROTECT_UI_FORBIDDEN` and a per-purpose label as extra entropy, `LocalFree`) | Sealing `veil-app`'s saved device key and verified list to the signed-in Windows user. It sits in `veil-media` only because all of Veil's `unsafe` code does |
 | `veil-media/src/ffi/opus.rs` (every platform) | libopus: `opus_encoder_create`, `opus_encode_float`, `opus_encoder_ctl`, `opus_decoder_create`, `opus_decode_float`, the matching `_destroy` calls, `opus_get_version_string` | Opus audio. Every buffer is a Rust slice whose length is the count passed to libopus, and packet lengths are checked before decoding. Each state is freed once, on drop |
 | `veil-media/src/ffi/openh264.rs` (Linux and macOS; also built for its tests on Windows) | OpenH264's encoder and decoder through their vtables: `WelsCreateSVCEncoder`, `GetDefaultParams`, `InitializeExt`, `SetOption`, `ForceIntraFrame`, `EncodeFrame`, `WelsCreateDecoder`, `Initialize`, `DecodeFrameNoDelay`, `Uninitialize` and the matching `WelsDestroy*` calls | H.264 off Windows, one encoder per simulcast rung with temporal layers, and decoding other members' video. The bitstream comes from another member, so OpenH264's decoder is part of the attack surface. Veil refuses any decoded size above 4K, reads each output plane only within the rows and pitch OpenH264 reports, and copies it out before the next call. Each encoder and decoder is destroyed once, on drop |
@@ -341,21 +381,21 @@ grep -rn "shortcut:" crates
 
 ## 7. Not yet tested
 
-- Linux and macOS media on real devices. The camera, microphone and speaker code there is
-  compiled and linted in CI, and OpenH264 encoding and decoding is round-trip tested, but no
-  call has yet run on a Linux or macOS machine.
-- Hole punching across real home routers, and the automatic step from a failed punch to the
-  relay. Every test so far runs on one machine.
+- Broad end-to-end coverage on Linux and macOS. Their camera, microphone and speaker code
+  is compiled and linted in CI. OpenH264 has round-trip tests. Wayland screen capture and
+  stream cleanup have been tried on KDE Plasma 6.8; GNOME, older Plasma and delivery to a
+  remote receiver still need testing.
+- Repeatable internet tests across home routers and mobile carriers: direct, punched and
+  relayed paths, Wi-Fi interruptions, and Auto data use under sustained loss or throttling.
 - A forged MLS commit from a member who is not the host. The check exists; there is no test,
   because the MLS library gives no easy way to build such a commit.
-- Any test on macOS or Linux. Development so far is on Windows.
 - Live camera capture runs only on request (`cargo test -p veil-media --test camera --
   --ignored`), because it turns the camera on. Listing cameras runs in every test pass.
   The microphone test is the same (`--test wasapi -- --ignored`); playback of silence runs in
   every test pass. The desktop app's two-engine call (`cargo test -p veil-app loopback --
   --ignored`) opens ports, the H.264 encoder and the speaker, so it also runs only on request.
-- A call between two copies of the desktop app with real cameras and microphones has not yet
-  been run by a person.
+- The new lobby alerts, group verification, reactions and noise suppression together in a
+  real call, including the operating systems' notification and permission behaviour.
 - The DMG and the AppImage on real machines, and the "Install" button against a real signed
   release. The MSI was installed, upgraded and uninstalled on Windows 11 on 17/11/2026.
 
@@ -366,4 +406,5 @@ is signed). Such a program can already do anything you can.
 
 ## 8. Reporting a security problem
 
-There is no private reporting channel yet. One will be set up before the first public release.
+Use the repository's Security tab and choose **Report a vulnerability**. See
+[SECURITY.md](../SECURITY.md) for the reporting process and supported versions.

@@ -367,7 +367,7 @@ mod tests {
         for _ in 0..1_000 {
             forger.encrypt(b"burn").unwrap();
         }
-        let forged = AppMessage::chat("not from the victim")
+        let forged = AppMessage::chat(1, "not from the victim")
             .unwrap()
             .seal(&mut forger, &Identity::generate())
             .unwrap();
@@ -379,7 +379,7 @@ mod tests {
         assert!(ring.open_from(&media, &forwarder, now).is_ok());
 
         let mut sender = FrameSender::new(&secret, 1, 3).unwrap();
-        let message = AppMessage::chat("still heard").unwrap();
+        let message = AppMessage::chat(1, "still heard").unwrap();
         let sealed = message.seal(&mut sender, &victim).unwrap();
         assert_eq!(
             ring.open_app(&sealed, &forwarder, now).unwrap(),

@@ -57,6 +57,8 @@ pub enum HostEvent {
     Joined { device: PublicId, leaf: u32 },
     /// A member left or was removed.
     Left(PublicId),
+    /// A joiner was turned away before or while joining, for example with a used invite.
+    Refused(PublicId, RefuseReason),
     /// A new epoch started. Replace the media pipeline's frame keys.
     Keys(EpochKeys),
     /// The group refused an operation. The session carries on in its previous epoch.
@@ -256,6 +258,7 @@ impl Actor {
 
     /// Refuses a joiner and drops its link.
     fn refuse(&mut self, device: &PublicId, reason: RefuseReason) {
+        self.emit(HostEvent::Refused(*device, reason));
         self.send_to(device, Control::Refused(reason));
         self.links.remove(device);
         self.lobby.forget(device);

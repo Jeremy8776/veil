@@ -10,6 +10,9 @@ license.workspace = true
 veil-security = { path = "../veil-security" }
 # Screen and window capture on Windows, macOS and Linux (src/screen.rs).
 xcap = "0.9.8"
+# Noise suppression (src/denoise.rs): RNNoise ported to Rust, its model built in. The default
+# features only add a command-line tool.
+nnnoiseless = { version = "0.5.2", default-features = false }
 zeroize = "1.8.1"
 
 [build-dependencies]
@@ -18,11 +21,13 @@ cc = "1.2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
+    "Data_Xml_Dom",
     "Foundation",
     "Graphics",
     "Graphics_Capture",
     "Graphics_DirectX",
     "Graphics_DirectX_Direct3D11",
+    "UI_Notifications",
     "Win32_Devices_FunctionDiscovery",
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
@@ -37,6 +42,7 @@ windows = { version = "0.62", features = [
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Ole",
+    "Win32_System_Registry",
     "Win32_System_Threading",
     "Win32_System_WinRT",
     "Win32_System_WinRT_Direct3D11",
@@ -65,8 +71,20 @@ zune-jpeg = "0.5.15"
 sha2 = "0.11.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# Lobby notifications over D-Bus (src/freedesktop.rs). Already in the tree through egui's
+# accessibility (accesskit_unix), with the same features plus the blocking calls.
+zbus = { version = "5.13.2", default-features = false, features = ["async-io", "blocking-api"] }
 v4l = "0.14.0"
 zune-jpeg = "0.5.15"
+# Screen sharing on Wayland through the desktop's portal and PipeWire (src/screen/wayland.rs).
+# xcap already builds these three; listing them adds no crate.
+ashpd = { version = "0.14.0", default-features = false, features = ["async-io", "screencast"] }
+pipewire = "0.10"
+pollster = "1.0"
+# Veil's own share picker on KDE Plasma through KWin's interfaces (src/screen/kde.rs). winit
+# already builds both; listing them adds no crate.
+wayland-client = "0.31"
+wayland-protocols-plasma = { version = "0.3", features = ["client"] }
 
 # macOS camera: AVFoundation through the objc2 bindings (src/ffi/macos).
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -77,6 +95,16 @@ objc2-av-foundation = { version = "0.3.2", features = ["objc2-core-media"] }
 objc2-core-media = { version = "0.3.2", features = ["objc2-core-video"] }
 objc2-core-video = "0.3.2"
 objc2-foundation = "0.3.2"
+# Lobby notifications (src/ffi/macos/notify.rs). Same objc2 family and version as above.
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "bitflags",
+    "block2",
+    "UNNotificationContent",
+    "UNNotificationRequest",
+    "UNNotificationTrigger",
+    "UNUserNotificationCenter",
+] }
 
 # The workspace forbids `unsafe`; this crate only denies it, so the one `ffi` module per OS can
 # allow it (docs/TRANSPARENCY.md section 5). Keep the rest in step with the workspace table.

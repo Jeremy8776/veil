@@ -1,23 +1,21 @@
-//! The call's side panels: People (with the lobby), Chat, and Security (drawn by
-//! `security_panel.rs`). One is open at a time, on the right.
+//! The call's side panels: People (with the lobby), Chat (drawn by `chat_panel.rs`), and
+//! Security (drawn by `security_panel.rs`). One is open at a time, on the right.
 //!
 //! Invariants:
 //! - Only the host sees Admit, Decline and Remove.
-//! - In a demo call, chat says it is not real.
-//! - In a real call, chat is sealed on this device and sent to everyone in the call.
 //! - A person in the lobby shows their safety number on hover, so the host can compare it
 //!   before letting them in.
 //! - "Verified" is only a label for a device you compared before. The host still admits.
 
 use std::time::Instant;
 
-use eframe::egui::{self, Align, Key, Layout, RichText, ScrollArea, Sense, TextEdit, vec2};
+use eframe::egui::{self, Align, Layout, RichText, ScrollArea, Sense, vec2};
 
 use crate::icons::Icon;
 use crate::model::{Participant, Reachable, RouterPort, clock};
 use crate::screens::call::CallView;
-use crate::screens::security_panel;
-use crate::theme::{self, MUTED, RAISED, SURFACE};
+use crate::screens::{chat_panel, security_panel};
+use crate::theme::{self, MUTED, SURFACE};
 use crate::widgets::{self, Tone, pill};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,7 +50,7 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, panel: Panel, now: Instant) 
             ui.add_space(4.0);
             match panel {
                 Panel::People => people(view, ui, now),
-                Panel::Chat => chat(view, ui, now),
+                Panel::Chat => chat_panel::show(view, ui, now),
                 Panel::Security => security_panel::show(view, ui),
             }
         });
@@ -247,76 +245,6 @@ fn status_icons(ui: &mut egui::Ui, person: &Participant) {
         let (rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
         Icon::Hand.paint(ui.painter(), rect.center(), 14.0, theme::WARN);
     }
-}
-
-fn chat(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
-    if view.call.demo {
-        ui.label(
-            RichText::new("Demo: messages stay here.")
-                .small()
-                .color(theme::WARN),
-        );
-    } else {
-        ui.label(RichText::new("Encrypted").small().color(MUTED))
-            .on_hover_text(
-                "Sent to everyone in the call, encrypted on your device. \
-             Relays and forwarders cannot read it. Not kept after the call.",
-            );
-    }
-    let input_h = 44.0;
-    let list_h = (ui.available_height() - input_h - 8.0).max(80.0);
-    ScrollArea::vertical()
-        .max_height(list_h)
-        .auto_shrink([false, false])
-        .stick_to_bottom(true)
-        .show(ui, |ui| {
-            if view.call.chat.is_empty() {
-                ui.label(RichText::new("No messages yet.").color(MUTED));
-            }
-            for message in &view.call.chat {
-                let layout = if message.mine {
-                    Layout::top_down(Align::Max)
-                } else {
-                    Layout::top_down(Align::Min)
-                };
-                ui.with_layout(layout, |ui| {
-                    let who = if message.mine { "You" } else { &message.from };
-                    ui.label(
-                        RichText::new(format!("{who} · {}", clock(message.at)))
-                            .small()
-                            .color(MUTED),
-                    );
-                    let fill = if message.mine {
-                        theme::ACCENT.gamma_multiply(0.35)
-                    } else {
-                        RAISED
-                    };
-                    egui::Frame::new()
-                        .fill(fill)
-                        .corner_radius(egui::CornerRadius::same(8))
-                        .inner_margin(egui::Margin::symmetric(10, 6))
-                        .show(ui, |ui| {
-                            ui.set_max_width(250.0);
-                            ui.label(&message.text);
-                        });
-                });
-            }
-        });
-    ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        let field = ui.add(
-            TextEdit::singleline(&mut view.draft)
-                .hint_text("Type a message")
-                .char_limit(veil_call::app_msg::MAX_CHAT_CHARS)
-                .desired_width(ui.available_width() - 40.0),
-        );
-        let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-        if widgets::icon_button(ui, Icon::Send, "Send message").clicked() || entered {
-            view.call.send(&view.draft, now);
-            view.draft.clear();
-            field.request_focus();
-        }
-    });
 }
 
 /// A small green "Verified" label with a shield.

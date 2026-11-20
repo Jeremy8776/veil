@@ -13,7 +13,8 @@ use std::time::{Duration, Instant};
 
 use veil_security::safety::Side;
 
-use crate::model::{Call, LinkPath, Message, Participant, Waiting};
+use crate::chat::Message;
+use crate::model::{Call, LinkPath, Participant, Waiting};
 
 /// (name, muted, camera on, link path)
 const PEOPLE: [(&str, bool, bool, LinkPath); 4] = [
@@ -73,6 +74,7 @@ pub fn call(your_name: &str, is_host: bool, now: Instant) -> Call {
         invite_expires: 0,
         invite_until_end: false,
         epoch: 1,
+        group: String::new(),
         demo: true,
         status: crate::model::CallStatus::Live,
         router: crate::model::RouterPort::Off,
@@ -110,13 +112,20 @@ pub fn tick(call: &mut Call, now: Instant) {
     }
     if elapsed >= MESSAGE_AT && !call.chat.iter().any(|m| !m.mine) {
         call.chat.push(Message {
+            id: Some(veil_call::app_msg::new_message_id()),
             from: PEOPLE[1].0.to_string(),
             mine: false,
             at: MESSAGE_AT,
-            text: String::from("Has everyone checked their security codes?"),
+            text: String::from("Has everyone checked their security codes? 🔐"),
+            reactions: Vec::new(),
         });
         call.unread += 1;
     }
+}
+
+/// A made-up group number for the demo call's key epoch, so it changes when people do.
+pub fn group_number(epoch: u64) -> String {
+    safety_number(1_000 + u32::try_from(epoch % 1_000).unwrap_or(0))
 }
 
 /// A made-up safety number in Veil's format: twelve groups of five digits.

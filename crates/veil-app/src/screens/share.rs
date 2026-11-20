@@ -2,7 +2,9 @@
 //!
 //! Purpose: the Share button opens [`SharePicker`], laid out like a browser's share dialog: a
 //! Screen tab and an Application tab, each a grid of live thumbnails. "Select area" shows the
-//! chosen source large, to drag out the part to share. A shared picture is drawn whole
+//! chosen source large, to drag out the part to share. Where the desktop's own chooser picks
+//! the source (Wayland), the picker waits for it and then goes straight to "Select area", and
+//! "Choose again" opens the chooser again. A shared picture is drawn whole
 //! ([`stage`]), never cropped to fit, because its text has to stay readable. The floating bar
 //! is `share_bar.rs`.
 //!
@@ -18,7 +20,7 @@ use eframe::egui::{
     ScrollArea, Sense, Stroke, TextureFilter, TextureHandle, TextureId, TextureOptions, Ui, pos2,
     text::LayoutJob, text::TextWrapping, vec2,
 };
-use veil_media::screen::{Crop, ScreenChoice, ScreenSource};
+use veil_media::screen::{self, Crop, ScreenChoice, ScreenSource};
 
 use crate::app::VeilApp;
 use crate::convert::Rgba;
@@ -54,6 +56,8 @@ impl Tab {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Step {
     Choose,
+    /// Waiting for the desktop's own chooser.
+    Desktop,
     SelectArea,
 }
 
@@ -83,10 +87,16 @@ fn image_of(picture: &Rgba) -> egui::ColorImage {
 
 impl SharePicker {
     pub fn open(app: &mut VeilApp) -> Self {
-        app.share.browse();
+        let step = if screen::uses_system_chooser() {
+            app.share.choose_on_desktop();
+            Step::Desktop
+        } else {
+            app.share.browse();
+            Step::Choose
+        };
         Self {
             tab: Tab::Screen,
-            step: Step::Choose,
+            step,
             selected: None,
             crop: None,
             drag_from: None,
@@ -121,6 +131,23 @@ impl SharePicker {
     /// Draws the picker. Returns false once it is closed.
     pub fn show(&mut self, app: &mut VeilApp, ui: &Ui) -> bool {
         let ctx = ui.ctx().clone();
+        if self.step == Step::Desktop {
+            match app.share.take_chosen() {
+                Some(Ok(Some(source))) => {
+                    self.selected = Some(source);
+                    self.crop = None;
+                    self.step = Step::SelectArea;
+                    self.preview = None;
+                    app.share.start_preview(source);
+                }
+                // Cancelled in the desktop's chooser: back to the call, nothing changed.
+                Some(Ok(None)) => {
+                    app.share.close_picker();
+                    return false;
+                }
+                Some(Err(())) | None => {}
+            }
+        }
         self.upload(app, &ctx);
         app.share.set_windows_tab(self.tab == Tab::Application);
         let choices = app.share.choices();
@@ -137,6 +164,7 @@ impl SharePicker {
                 let title = match (self.step, sharing) {
                     (Step::Choose, false) => "Choose what to share",
                     (Step::Choose, true) => "Change what you share",
+                    (Step::Desktop, _) => "Choose in your desktop's window",
                     (Step::SelectArea, _) => "Select an area",
                 };
                 ui.label(RichText::new(title).font(theme::bold(18.0)));
@@ -146,6 +174,10 @@ impl SharePicker {
                         self.tabs(ui);
                         ui.add_space(10.0);
                         self.grid(ui, choices.as_deref(), vec2(width, height), &mut clicked);
+                    }
+                    Step::Desktop => {
+                        let text = "Pick a screen or window in the window your desktop opened.";
+                        ui.label(RichText::new(text).color(MUTED));
                     }
                     Step::SelectArea => self.picture(ui, vec2(width, height)),
                 }
@@ -176,6 +208,12 @@ impl SharePicker {
                 self.step = Step::SelectArea;
                 self.preview = None;
                 app.share.start_preview(source);
+            }
+            (Some(Step::Desktop), _) => {
+                self.step = Step::Desktop;
+                self.drag_from = None;
+                app.share.stop_preview();
+                app.share.choose_on_desktop();
             }
             (Some(Step::Choose), _) => {
                 self.step = Step::Choose;
@@ -315,16 +353,18 @@ impl SharePicker {
                         }
                     });
                 }
+                Step::Desktop => {}
+                Step::SelectArea if screen::uses_system_chooser() => {
+                    if pill(ui, None, "Choose again", Tone::Quiet, 120.0).clicked() {
+                        clicked.step = Some(Step::Desktop);
+                    }
+                    ui.label(RichText::new(self.area_hint()).small().color(MUTED));
+                }
                 Step::SelectArea => {
                     if pill(ui, None, "Back", Tone::Quiet, 90.0).clicked() {
                         clicked.step = Some(Step::Choose);
                     }
-                    let hint = if self.crop.is_some() {
-                        "Click the picture to use all of it"
-                    } else {
-                        "Drag on the picture"
-                    };
-                    ui.label(RichText::new(hint).small().color(MUTED));
+                    ui.label(RichText::new(self.area_hint()).small().color(MUTED));
                 }
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -336,6 +376,14 @@ impl SharePicker {
                 clicked.close = pill(ui, None, "Cancel", Tone::Quiet, 100.0).clicked();
             });
         });
+    }
+
+    fn area_hint(&self) -> &'static str {
+        if self.crop.is_some() {
+            "Click the picture to use all of it"
+        } else {
+            "Drag on the picture"
+        }
     }
 
     /// The chosen source, with its crop drawn over it and dragged out on it.

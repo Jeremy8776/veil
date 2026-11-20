@@ -53,7 +53,7 @@ pub use app_msg::{AppError, AppMessage};
 pub use call_plan::{CallPlan, Layout};
 pub use host::{Allowed, HostEvent, HostHandle};
 pub use keyring::KeyRing;
-pub use media::{Incoming, LinkStats, Media, MediaSession, SEND_DEADLINE};
+pub use media::{Incoming, LinkEvent, LinkStats, Media, MediaSession, SEND_DEADLINE};
 pub use member::{MemberEvent, MemberHandle, join, join_with};
 pub use node::{CallNode, Path};
 pub use relay_field::RelayAddrs;

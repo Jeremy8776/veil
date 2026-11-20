@@ -4,7 +4,7 @@
 //! receiving. It seals each encoded picture (`FrameSender::encrypt_layer`, with the layer the
 //! schedule chose) and each Opus frame, sends them through the `MediaSession`, and opens what
 //! arrives: video goes to the decoder thread, sound to the playback thread. Keyframe requests
-//! go both ways. Names and chat go both ways as sealed app messages (`names.rs` decides when
+//! go both ways. Names, chat and reactions go both ways as sealed app messages (`names.rs` decides when
 //! your name is sent); received chat waits in [`Shared`] for the interface. Through a
 //! forwarder it asks for the layers each tile needs (`wanted.rs`). [`Session::pump`]
 //! does one of these jobs per call, so the host and guest loops can wait on it next to their
@@ -26,12 +26,14 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time::{Interval, MissedTickBehavior, interval};
 use veil_call::{
-    AppError, AppMessage, EpochKeys, Incoming, KeyRing, Media, MediaSession, Path, Routes,
+    AppError, AppMessage, EpochKeys, Incoming, KeyRing, LinkEvent, Media, MediaSession, Path,
+    Routes,
 };
 use veil_forward::Wanted;
 use veil_media::{AudioHeader, AudioSettings, OpusEncoder};
 use veil_security::{Identity, PublicId};
 use veil_security::frame::{FrameSender, frame_layer};
+use veil_security::group_code::group_number;
 use veil_security::safety::{safety_number, side};
 
 use super::audio_out::AudioIn;
@@ -41,11 +43,11 @@ use super::auto_step::AutoStep;
 use super::stats::{Sampler, link_path};
 use super::video_in::VideoIn;
 use super::video_out::{Encoded, VideoControl};
-use super::view::{Person, Shared};
+use super::view::{Person, Said, Shared};
 use super::wanted;
 use super::{Ids, micros_since, short};
 use crate::data_use::DataUseCell;
-use crate::model::LinkPath;
+use crate::model::{Action, LinkPath};
 
 /// The channels between the session task and the media threads.
 pub struct Pipes {
@@ -191,6 +193,8 @@ impl Session {
             })
             .collect();
         let epoch = keys.epoch;
+        let devices: Vec<PublicId> = keys.roster.iter().map(|(_, d)| *d).collect();
+        let group = group_number(&devices);
         self.shared.update(|view| {
             // Links that already exist stay up across epochs; `refresh_paths` corrects the rest.
             for person in &mut people {
@@ -200,6 +204,7 @@ impl Session {
             }
             view.people = people;
             view.epoch = epoch;
+            view.group = group;
         });
     }
 
@@ -246,6 +251,8 @@ impl Session {
             Some(pcm) = self.pipes.sound.recv() => self.send_audio(&pcm),
             Some(id) = self.pipes.keyframes.recv() => self.ask_keyframe(id).await,
             _ = self.tick.tick() => {
+                self.media.redial();
+                self.note_link_events();
                 self.refresh_paths();
                 self.sample_stats();
                 self.announce().await;
@@ -254,9 +261,35 @@ impl Session {
         }
     }
 
-    /// Sends a chat message to everyone. Nothing goes out while you are alone.
-    pub async fn send_chat(&mut self, text: &str) {
-        match AppMessage::chat(text) {
+    /// Logs media links that dropped, came back, or could not be dialled again.
+    fn note_link_events(&mut self) {
+        for event in self.media.take_events() {
+            match event {
+                LinkEvent::Dropped(peer) => crate::note!("call: lost the link to {}", short(&peer)),
+                LinkEvent::Back { peer, after } => {
+                    crate::note!("call: linked to {} again after {after:.1?}", short(&peer));
+                    // A fresh forwarder link has no subscriptions, and the peer may have
+                    // missed our last keyframe, name or hand state during the outage.
+                    self.subscribed = None;
+                    self.pipes.ask_keyframes();
+                    self.announcer.restart(Instant::now());
+                }
+                LinkEvent::StillDown(peer, e) => {
+                    crate::note!("call: cannot reach {} yet, retrying: {e}", short(&peer));
+                }
+            }
+        }
+    }
+
+    /// Sends a chat message or a reaction to everyone; other actions are not chat and are
+    /// ignored. Nothing goes out while you are alone.
+    pub async fn say(&mut self, action: &Action) {
+        let message = match action {
+            Action::Chat(id, text) => AppMessage::chat(*id, text),
+            Action::React(id, emoji, on) => AppMessage::react(*id, emoji, *on),
+            _ => return,
+        };
+        match message {
             Ok(message) => self.send_app(&message).await,
             Err(e) => crate::note!("chat not sent: {e}"),
         }
@@ -489,8 +522,12 @@ impl Session {
                     });
                 }
             }
-            AppMessage::Chat(text) => {
-                self.shared.push_chat(device, text);
+            AppMessage::Chat(text) => self.shared.push_said(device, Said::Chat { id: None, text }),
+            AppMessage::Post { id, text } => {
+                self.shared.push_said(device, Said::Chat { id: Some(id), text });
+            }
+            AppMessage::React { id, emoji, on } => {
+                self.shared.push_said(device, Said::React { id, emoji, on });
             }
         }
     }

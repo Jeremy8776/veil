@@ -33,7 +33,8 @@ call, and none of them can see inside it.
 - **You decide who joins.** Invites are signed and single use. The host admits or declines each
   person from the lobby.
 - **Check who you are talking to.** Each pair of people has a safety number. Swap codes once
-  through an app you already trust, or compare them by hand, and it still holds next call.
+  through an app you already trust, or compare them by hand, and it still holds next call. In a
+  group, everyone posts one group code in a group chat and pastes the others' codes.
 - **Share your screen.** Share a screen, an app or part of one, sealed end to end like your
   camera. Filters and background blur work before and during a call.
 - **No accounts, no telemetry.** Veil sends nothing to its authors. Every server address comes
@@ -111,13 +112,15 @@ reviews and approves each signed release, and Veil's privacy statement:
 | [`veil-forward`](crates/veil-forward) | The forwarder: receive each stream once, send each person what they need |
 | [`veil-topology`](crates/veil-topology) | Picks a mesh or forwarded layout that fits everyone's bandwidth |
 | [`veil-call`](crates/veil-call) | Call sessions: links, lobby, keys and routes together |
-| [`veil-media`](crates/veil-media) | Camera, H.264 and Opus on Windows |
+| [`veil-media`](crates/veil-media) | Camera, screen capture, H.264, Opus and local effects on Windows, Linux and macOS |
 | [`veil-node`](crates/veil-node) | One server binary for any role: rendezvous, relay, forwarder |
 | [`veil-probe`](crates/veil-probe) | A camera-free test call between real networks |
 
 ## Build from source
 
-You need Windows 10 or 11 and Rust 1.98.1.
+You need Rust 1.98.1. Windows, Linux and macOS builds are supported; Linux needs the
+development packages listed in [CI](.github/workflows/ci.yml). Real-device coverage varies
+by platform: see [TRANSPARENCY.md](docs/TRANSPARENCY.md#7-not-yet-tested).
 
 ```bash
 cargo build -p veil-app --release
