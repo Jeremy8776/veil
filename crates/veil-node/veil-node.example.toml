@@ -4,6 +4,12 @@
 # Created on first start, next to this file. Keep it private: it is this node's identity.
 identity_file = "node.key"
 
+# Who may host calls through this node. Without this line anyone who knows the node's
+# address can run their calls through it and use your upload. With it, only these device
+# keys may host (or run a reachability check); the guests they invite still join, under
+# each host's own admission. In Veil, "Copy device key" on Home copies one.
+# hosts = ["BASE64URL_DEVICE_KEY", "ANOTHER_DEVICE_KEY"]
+
 # Address reflection and hole-punch introductions. Relays when direct links fail.
 # "[::]:4433" listens on IPv4 and IPv6 at once, so the node can also reflect and check
 # members' IPv6 addresses. "0.0.0.0:4433" is IPv4 only.

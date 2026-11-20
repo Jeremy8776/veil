@@ -48,7 +48,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use veil_call::{CallNode, HostEvent, HostHandle, RelayAddrs};
 use veil_forward::{ForwarderServer, Limits};
 use veil_net::{Node, NodeAddr};
-use veil_rendezvous::{RendezvousServer, room_tag};
+use veil_rendezvous::{Refusal, RendezvousServer, room_tag};
 use veil_security::{Identity, PublicId};
 
 use super::plan::{NetConfig, advertised, lan_ip, plan_for, resolve};
@@ -99,6 +99,14 @@ pub async fn run(
     };
     let (host, mut events) = HostHandle::start(&identity, room_id).map_err(|e| e.to_string())?;
     let mut call = CallNode::start(&identity, node, room_id, Some(rendezvous), host.clone()).await;
+    if configured.is_some() && call.rendezvous_refusal() == Some(Refusal::NotAllowed) {
+        // A node that lets only chosen device keys host. Without it nobody could find the
+        // call, so stop here and say what to do rather than run a call nobody can join.
+        return Err(String::from(
+            "The rendezvous server in Settings > Connection does not let this device host. \
+             Send its owner your device key (Copy device key on Home).",
+        ));
+    }
     if !call.has_rendezvous() {
         crate::note!("rendezvous {rendezvous} did not answer; direct links only");
     }

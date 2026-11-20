@@ -63,6 +63,8 @@ pub struct Running {
     pub rendezvous: Option<NodeAddr>,
     /// Where the forwarder role listens, if it is on.
     pub forwarder: Option<NodeAddr>,
+    /// How many device keys may host here, or `None` when anyone may.
+    pub hosts: Option<usize>,
     tasks: Vec<JoinHandle<()>>,
 }
 
@@ -86,20 +88,29 @@ pub fn start(config: &Config, identity: &Identity) -> Result<Running, NodeError>
         id: identity.public(),
         rendezvous: None,
         forwarder: None,
+        hosts: None,
         tasks: Vec::new(),
     };
+    let hosts = config.host_keys()?;
+    running.hosts = hosts.as_ref().map(Vec::len);
     if let Some(role) = &config.rendezvous {
         let (node, addr) = bind(identity, "rendezvous", role.listen)?;
         let mut server = RendezvousServer::new(node);
         if !role.relay {
             server = server.without_relay();
         }
+        if let Some(hosts) = &hosts {
+            server = server.only_hosts(hosts.iter().copied());
+        }
         running.tasks.push(tokio::spawn(server.run()));
         running.rendezvous = Some(addr);
     }
     if let Some(role) = &config.forwarder {
         let (node, addr) = bind(identity, "forwarder", role.listen)?;
-        let server = ForwarderServer::new(node, role.limits());
+        let mut server = ForwarderServer::new(node, role.limits());
+        if let Some(hosts) = &hosts {
+            server = server.only_hosts(hosts.iter().copied());
+        }
         running.tasks.push(tokio::spawn(server.run()));
         running.forwarder = Some(addr);
     }

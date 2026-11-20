@@ -21,7 +21,7 @@ use getrandom::rand_core::UnwrapErr;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use veil_net::{Node, NodeAddr};
-use veil_rendezvous::{room_tag, store_invite};
+use veil_rendezvous::{Refusal, RendezvousError, room_tag, store_invite};
 use veil_security::invite::{Invite, lobby_pass};
 use veil_security::short_invite::ShortInvite;
 use veil_security::{Identity, PublicId};
@@ -57,6 +57,8 @@ pub struct CallNode {
     identity: Identity,
     room_id: [u8; 16],
     presence: Option<Presence>,
+    /// Why the rendezvous turned this node away, when it answered with a refusal.
+    refusal: Option<Refusal>,
     relay_only: bool,
     consent: Arc<Consent>,
     media: Option<mpsc::Receiver<Inbound>>,
@@ -116,25 +118,25 @@ impl CallNode {
         let mut tasks = Tasks::default();
         tasks.0.push(tokio::spawn(router.clone().accept_loop(node.clone())));
         let mut presence = None;
-        if let Some(server) = rendezvous
-            && let Ok((handle, task)) = Presence::start(
-                identity,
-                node.clone(),
-                &server,
-                router,
-                consent.clone(),
-                seat,
-            )
-            .await
-        {
-            presence = Some(handle);
-            tasks.0.push(task);
+        let mut refusal = None;
+        if let Some(server) = rendezvous {
+            match Presence::start(identity, node.clone(), &server, router, consent.clone(), seat)
+                .await
+            {
+                Ok((handle, task)) => {
+                    presence = Some(handle);
+                    tasks.0.push(task);
+                }
+                Err(CallError::Rendezvous(RendezvousError::Refused(why))) => refusal = Some(why),
+                Err(_) => {}
+            }
         }
         Self {
             node,
             identity: Identity::from_secret(&identity.secret_bytes()),
             room_id,
             presence,
+            refusal,
             relay_only: false,
             consent,
             media: Some(media_rx),
@@ -189,6 +191,13 @@ impl CallNode {
     /// True while registered with a rendezvous node.
     pub fn has_rendezvous(&self) -> bool {
         self.presence.is_some()
+    }
+
+    /// Why the rendezvous refused this node at the start, if it answered with a refusal
+    /// rather than not answering. A host gets [`Refusal::NotAllowed`] from a node that lets
+    /// only chosen device keys host.
+    pub fn rendezvous_refusal(&self) -> Option<Refusal> {
+        self.refusal
     }
 
     /// When set, this node dials other participants only through the relay, never directly

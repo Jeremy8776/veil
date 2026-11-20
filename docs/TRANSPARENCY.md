@@ -44,6 +44,14 @@ When the desktop app hosts without a configured `veil-node`, it runs a rendezvou
 forwarder of its own on extra ports for the length of the call. They see what any rendezvous,
 relay or forwarder sees (the table above), and they are the host's own machine.
 
+**A `veil-node` someone runs for friends** can list the device keys allowed to host
+(`hosts` in its configuration). Only those keys can open a call or ask for a reachability
+check there; anyone else is refused. The guests a listed host invites still join, under that
+host's own admission. So the node's owner learns your device key when you send it to them,
+and their node sees what any rendezvous, relay or forwarder sees. Your device key is public:
+it identifies this device in calls and cannot be used to act as you. Without `hosts`, anyone
+who knows the node's address can run calls through it.
+
 **Short invite links** hold the rendezvous's addresses in readable form and a random secret.
 Anyone holding one can fetch the invite, so it shows them everything a full link does. The
 guest fetches from those addresses with a throwaway key and does not check the server's key,

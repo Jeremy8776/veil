@@ -21,10 +21,15 @@
 //!
 //! Serving one call: a participant's own server serves its own room only
 //! ([`RendezvousServer::only_room`]), so strangers cannot use its upload as a relay.
+//!
+//! Serving chosen hosts: a node may list the device keys allowed to host
+//! ([`RendezvousServer::only_hosts`]). Anyone else is refused a room of their own and a
+//! reachability check, so strangers cannot run their calls through it. Guests of a listed
+//! host still join, under that host's own allow list and lobby passes.
 //! Bandwidth: each session has its own cap and the server has one for all of them together
 //! (`limit.rs`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -68,6 +73,8 @@ struct State {
     relay_disabled: bool,
     /// When set, the only room this server serves.
     only_room: Option<RoomKey>,
+    /// When set, the only keys that may host a room here.
+    hosts: Option<HashSet<PublicId>>,
     /// Every relayed byte, all sessions together, shared fairly when short.
     total: FairShare,
     /// Sealed invites for short links (`invites.rs`).
@@ -82,6 +89,7 @@ impl Default for State {
             requests: HashMap::new(),
             relay_disabled: false,
             only_room: None,
+            hosts: None,
             total: FairShare::new(TOTAL_RATE, Instant::now()),
             invites: Shelf::default(),
         }
@@ -89,6 +97,11 @@ impl Default for State {
 }
 
 impl State {
+    /// Whether `key` may host a room here.
+    fn may_host(&self, key: &PublicId) -> bool {
+        self.hosts.as_ref().is_none_or(|hosts| hosts.contains(key))
+    }
+
     /// Drops `key`'s relay sessions and requests.
     fn forget(&mut self, key: PublicId) {
         self.sessions.forget(key);
@@ -142,6 +155,16 @@ impl RendezvousServer {
     pub fn only_room(self, room_tag: [u8; 32], host: PublicId) -> Self {
         if let Some(mut s) = lock(&self.state) {
             s.only_room = Some((room_tag, host));
+        }
+        self
+    }
+
+    /// Lets only `hosts` open rooms and ask for reachability checks; anyone else is refused
+    /// with [`Refusal::NotAllowed`]. Their guests still join. For a node that one person runs
+    /// for themselves and the people they choose.
+    pub fn only_hosts(self, hosts: impl IntoIterator<Item = PublicId>) -> Self {
+        if let Some(mut s) = lock(&self.state) {
+            s.hosts = Some(hosts.into_iter().collect());
         }
         self
     }
@@ -214,7 +237,11 @@ async fn serve(link: Link, state: Shared, checks: Arc<Semaphore>, unregistered_w
         };
         // Needs no room and no shared state, so it runs apart from `handle`.
         if let ClientMsg::CheckReach { port } = message {
-            mine.start(&checks, &link, port, &outbox);
+            if lock(&state).is_some_and(|s| s.may_host(&me)) {
+                mine.start(&checks, &link, port, &outbox);
+            } else {
+                let _ = outbox.try_send(ServerMsg::Refused(Refusal::NotAllowed));
+            }
             continue;
         }
         if matches!(message, ClientMsg::GetInvite { .. }) {
@@ -285,6 +312,9 @@ fn handle(
                 return refuse(Refusal::UnknownRoom);
             }
             let is_host = me == host;
+            if is_host && !s.may_host(&me) {
+                return refuse(Refusal::NotAllowed);
+            }
             if !s.rooms.contains_key(&key) {
                 // Only the host opens its room.
                 if !is_host {

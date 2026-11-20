@@ -224,10 +224,24 @@ fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
 
 /// Your device key's short form and a way to replace it. Returns any trouble saving it.
 fn device_key(app: &mut VeilApp, ui: &mut egui::Ui) -> Option<String> {
-    let (short, problem) = {
+    let (short, full, problem) = {
         let keys = crate::media::lock(&app.keys);
-        (crate::engine::short(&keys.public()), keys.problem.clone())
+        let public = keys.public();
+        (
+            crate::engine::short(&public),
+            veil_net::node_addr::key_text(&public),
+            keys.problem.clone(),
+        )
     };
+    let copy = link(ui, "Copy device key", MUTED).on_hover_text(
+        "Puts this device's key on the clipboard. Send it to someone who runs a veil-node, \
+         so they can let you host calls through it. It is public: it identifies this device, \
+         and cannot be used to sign in as you.",
+    );
+    if copy.clicked() {
+        ui.ctx().copy_text(full);
+    }
+    dot(ui);
     let label = if app.confirm_new_key {
         "Confirm new device key"
     } else {

@@ -50,6 +50,10 @@ async fn main() -> ExitCode {
     if let Some(addr) = &running.forwarder {
         println!("forwarder   {addr}");
     }
+    match running.hosts {
+        Some(n) => println!("hosts       {n} device key(s) may host; their guests may join"),
+        None => println!("hosts       anyone may host (set hosts = [...] to choose who)"),
+    }
     println!("Running. Press Ctrl+C to stop.");
 
     let code = match tokio::signal::ctrl_c().await {
