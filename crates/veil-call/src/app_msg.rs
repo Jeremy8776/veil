@@ -1,6 +1,6 @@
-//! App messages between members: each member's display name, and chat.
+//! App messages between members: each member's display name, raised hand, and chat.
 //!
-//! Purpose: names and chat ride the media links next to video and sound, sealed with the
+//! Purpose: names, hands and chat ride the media links next to video and sound, sealed with the
 //! sender's frame key for the current epoch ([`AppMessage::seal`]), so relays and forwarders
 //! see only ciphertext and its size. The frame key is shared by every member, so it cannot say
 //! which member sent a message: any member can seal under any sender index. Each message is
@@ -15,7 +15,9 @@
 //! - a 64-byte Ed25519 signature by the sender's device key over a domain tag, the epoch's
 //!   binding (`veil_security::frame::FrameSender::binding`), the frame id (key id and counter,
 //!   see `veil_security::frame::frame_id`) and the body.
-//! - the body: a postcard-encoded [`AppMessage`], with nothing after it.
+//! - the body: a postcard-encoded [`AppMessage`], with nothing after it. New kinds are added
+//!   only at the end of the enum, so older kinds keep their encoding. An older Veil refuses a
+//!   kind it does not know as `Malformed` and carries on.
 //!
 //! Invariants:
 //! - The signature covers the frame id, which names the epoch, the sender index and a counter
@@ -58,6 +60,9 @@ pub enum AppMessage {
     Name(String),
     /// One chat message to everyone in the call.
     Chat(String),
+    /// Whether the sender's hand is raised. Sent when it changes, on joining and after each
+    /// epoch change, so someone who joins later sees a hand that is already up.
+    Hand(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,6 +117,7 @@ impl AppMessage {
         let (text, max, allow_breaks) = match self {
             Self::Name(text) => (text, MAX_NAME_CHARS, false),
             Self::Chat(text) => (text, MAX_CHAT_CHARS, true),
+            Self::Hand(_) => return Ok(()),
         };
         if text.trim().is_empty() {
             return Err(AppError::Empty);
@@ -231,13 +237,15 @@ mod tests {
     }
 
     #[test]
-    fn names_and_chat_round_trip_and_name_the_sender() {
+    fn names_hands_and_chat_round_trip_and_name_the_sender() {
         let jo = Identity::generate();
         let mut sender = FrameSender::new(&SECRET, EPOCH, 1).unwrap();
         let mut receiver = FrameReceiver::new(&SECRET, EPOCH).unwrap();
         for message in [
             AppMessage::name("  Jo Bloggs ").unwrap(),
             AppMessage::chat("Hello\nsecond line\twith a tab, and émoji 🎉").unwrap(),
+            AppMessage::Hand(true),
+            AppMessage::Hand(false),
         ] {
             let sealed = message.seal(&mut sender, &jo).unwrap();
             let (leaf, plain) = receiver.decrypt(&sealed).unwrap();
@@ -246,6 +254,14 @@ mod tests {
             assert_eq!(AppMessage::open(&sealed, &plain, &jo.public(), receiver.binding()).unwrap(), message);
         }
         assert_eq!(AppMessage::name(" Jo ").unwrap(), AppMessage::Name("Jo".into()));
+    }
+
+    /// Names and chat keep the encoding older versions read: the hand only adds a kind.
+    #[test]
+    fn older_kinds_keep_their_encoding() {
+        assert_eq!(postcard::to_allocvec(&AppMessage::Name("Jo".into())).unwrap(), [0, 2, b'J', b'o']);
+        assert_eq!(postcard::to_allocvec(&AppMessage::Chat("hi".into())).unwrap(), [1, 2, b'h', b'i']);
+        assert_eq!(postcard::to_allocvec(&AppMessage::Hand(true)).unwrap(), [2, 1]);
     }
 
     #[test]

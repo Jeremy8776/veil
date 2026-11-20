@@ -91,12 +91,19 @@ pub async fn run(
         } else if let Some(text) = held.chat.pop_front() {
             session.send_chat(&text).await;
             Flow::Stay
+        } else if let Some(raised) = held.hand.take() {
+            session.set_hand(raised).await;
+            Flow::Stay
         } else {
             tokio::select! {
                 command = commands.recv() => match command {
                     None | Some(Command::Leave) => Flow::Leave,
                     Some(Command::Act(Action::Chat(text))) => {
                         session.send_chat(&text).await;
+                        Flow::Stay
+                    }
+                    Some(Command::Act(Action::Hand(raised))) => {
+                        session.set_hand(raised).await;
                         Flow::Stay
                     }
                     // Only the host decides; the interface offers a guest nothing else to act on.
@@ -129,6 +136,8 @@ enum Flow {
 struct Held {
     events: VecDeque<MemberEvent>,
     chat: VecDeque<String>,
+    /// Only the newest hand state matters.
+    hand: Option<bool>,
 }
 
 /// The reason to show if `event` ends the call for this guest.
@@ -185,6 +194,7 @@ async fn link_up(
             command = commands.recv() => match command {
                 None | Some(Command::Leave) => return Ok(Flow::Leave),
                 Some(Command::Act(Action::Chat(text))) => held.chat.push_back(text),
+                Some(Command::Act(Action::Hand(raised))) => held.hand = Some(raised),
                 Some(Command::Act(_)) => {}
             },
         }

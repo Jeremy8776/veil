@@ -38,7 +38,7 @@ use super::audio_out::AudioIn;
 use super::names::{Announcer, Names};
 use super::screen_proof;
 use super::auto_step::AutoStep;
-use super::stats::Sampler;
+use super::stats::{Sampler, link_path};
 use super::video_in::VideoIn;
 use super::video_out::{Encoded, VideoControl};
 use super::view::{Person, Shared};
@@ -76,7 +76,7 @@ impl Pipes {
 
 pub struct Session {
     pub media: MediaSession,
-    /// This device's key, which signs every name and chat message it sends.
+    /// This device's key, which signs every name, hand and chat message it sends.
     identity: Identity,
     me: PublicId,
     host: PublicId,
@@ -187,6 +187,7 @@ impl Session {
                 safety: self.safety_with(device),
                 side: side(&self.me, device),
                 path: LinkPath::Pending,
+                hand_raised: self.names.hand(device),
             })
             .collect();
         let epoch = keys.epoch;
@@ -261,9 +262,15 @@ impl Session {
         }
     }
 
-    /// Sends your name if the announcer says it is time.
+    /// Raises or lowers your hand for the others. Sent now and again for a few seconds.
+    pub async fn set_hand(&mut self, raised: bool) {
+        self.announcer.set_hand(raised, Instant::now());
+        self.announce().await;
+    }
+
+    /// Sends your name and hand if the announcer says it is time.
     async fn announce(&mut self) {
-        if let Some(message) = self.announcer.due(Instant::now()).cloned() {
+        for message in self.announcer.due(Instant::now()) {
             self.send_app(&message).await;
         }
     }
@@ -447,7 +454,7 @@ impl Session {
         });
     }
 
-    /// Opens a name or chat message and shows it. Anything that does not open, comes from a
+    /// Opens a name, hand or chat message and shows it. Anything that does not open, comes from a
     /// leaf outside its epoch, is not signed by that leaf's device or fails the checks is
     /// dropped.
     fn on_app(&mut self, sealed: &[u8], via: &PublicId) {
@@ -473,6 +480,15 @@ impl Session {
                     });
                 }
             }
+            AppMessage::Hand(raised) => {
+                if self.names.set_hand(device, raised) {
+                    self.shared.update(|view| {
+                        for person in view.people.iter_mut().filter(|p| p.id == id) {
+                            person.hand_raised = raised;
+                        }
+                    });
+                }
+            }
             AppMessage::Chat(text) => {
                 self.shared.push_chat(device, text);
             }
@@ -483,14 +499,5 @@ impl Session {
         if let Some(device) = self.ids.device(id) {
             let _ = self.media.request_keyframe(device).await;
         }
-    }
-}
-
-pub(super) fn link_path(path: &Path) -> LinkPath {
-    match path {
-        Path::Direct => LinkPath::Direct,
-        Path::Punched => LinkPath::Punched,
-        Path::Relayed => LinkPath::Relayed,
-        Path::Forwarder => LinkPath::Forwarder,
     }
 }

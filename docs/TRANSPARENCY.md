@@ -12,7 +12,7 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 |---|---|
 | Device keys, safety numbers, signed invites | Capture, encoding and decoding on macOS and Linux |
 | Windows camera capture, H.264 encoding and decoding, Opus audio | Veil's own echo cancellation (Windows' is used where the device offers it) |
-| MLS group keys, the host's lobby | Raised hands sent between members (yours shows only on your screen) |
+| MLS group keys, the host's lobby, raised hands sent between members | |
 | Per-frame encryption with a layer marker | Signed organisation policy, OIDC or SAML identity |
 | QUIC links pinned to device keys | Metrics export (OpenTelemetry) |
 | Rendezvous, hole punching, relay | Compliance recording, federation, gateways |

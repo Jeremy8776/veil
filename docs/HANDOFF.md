@@ -230,7 +230,9 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
     moment later still gets it. `Call::send` shows your message and queues `Action::Chat`;
     the session seals it and sends it; received chat goes through `Shared::take_chat` into
     `Call::receive` (counted unread). The name field takes 64 characters, chat 2,000.
-    Raised hands are still local only.
+    Raised hands (20/11/2026): `Call::raise_hand` queues `Action::Hand`; the session sends
+    `AppMessage::Hand` at once and with each name announcement, so a lowered hand and a late
+    joiner both end up right. Older versions drop it as malformed.
   - Forwarder (16/11/2026): up to 4 people the call is a mesh; from 5 the host plans every
     member through a forwarder (`plan.rs`, `Policy::mesh_max`). The forwarder is
     `VEIL_FORWARDER=KEY@IP:PORT` (a `veil-node`) if set; otherwise, when the host runs its own

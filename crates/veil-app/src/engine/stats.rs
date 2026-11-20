@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use veil_call::LinkStats;
+use veil_call::{LinkStats, Path};
 use veil_security::PublicId;
 
 use crate::model::LinkPath;
@@ -102,7 +102,7 @@ impl Sampler {
         for (peer, link) in links {
             let mut row = LinkRow {
                 id: person(&peer),
-                path: super::session::link_path(&link.path),
+                path: link_path(&link.path),
                 ipv6: link.ipv6,
                 rtt: link.rtt,
                 loss: None,
@@ -150,6 +150,16 @@ impl Sampler {
         self.frames = frames;
         rows.sort_by_key(|r| r.id.unwrap_or(u32::MAX));
         Stats { links: rows, video }
+    }
+}
+
+/// The interface's name for how a link reaches someone.
+pub(super) fn link_path(path: &Path) -> LinkPath {
+    match path {
+        Path::Direct => LinkPath::Direct,
+        Path::Punched => LinkPath::Punched,
+        Path::Relayed => LinkPath::Relayed,
+        Path::Forwarder => LinkPath::Forwarder,
     }
 }
 

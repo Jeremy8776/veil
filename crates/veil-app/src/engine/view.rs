@@ -42,6 +42,8 @@ pub struct Person {
     pub safety: String,
     pub side: Side,
     pub path: LinkPath,
+    /// The hand state this person last sent.
+    pub hand_raised: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -314,8 +316,7 @@ pub fn apply(
             is_host: person.is_host,
             muted: heard.is_none(),
             camera,
-            // Not sent yet: only your own hand shows.
-            hand_raised: false,
+            hand_raised: person.hand_raised,
             speaking: heard.is_some_and(|h| h.level > SPEAKING),
             path: person.path,
             safety: person.safety.clone(),
@@ -359,6 +360,7 @@ mod tests {
                     safety: "12345".into(),
                     side: Side::A,
                     path: LinkPath::Direct,
+                    hand_raised: true,
                 },
                 Person {
                     id: 2,
@@ -368,6 +370,7 @@ mod tests {
                     safety: "67890".into(),
                     side: Side::B,
                     path: LinkPath::Pending,
+                    hand_raised: false,
                 },
             ],
             lobby: vec![Knocker {
@@ -417,6 +420,7 @@ mod tests {
         assert!(host.camera && !host.muted && host.speaking && host.is_host);
         let guest = &call.participants[2];
         assert!(!guest.camera && guest.muted && !guest.speaking);
+        assert!(host.hand_raised && !guest.hand_raised, "each hand as that person sent it");
         assert_eq!(call.lobby.len(), 1);
         assert_eq!(call.lobby[0].safety, "11111");
         assert!(call.lobby[0].verified && !call.participants[1].verified);
