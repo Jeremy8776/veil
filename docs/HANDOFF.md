@@ -4,8 +4,9 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
 ## Current work, 20/11/2026
 
-- Latest published release: **v0.1.11**, published 19/11 at 22:27 UTC. Its release workflow
-  passed on retry. There is no pending draft-publication step for that version.
+- Release line: **v0.1.12**, dated 20/11/2026, includes the integration below. Check GitHub
+  Releases for publication status before creating another tag. The previous release,
+  v0.1.11, was published 19/11 at 22:27 UTC; its workflow passed on retry.
 - Since that release: pre-join sections, remembered choices and the Home update card (#62),
   chosen-host node access (#72), and raised-hand sync (#64).
 - The integration of #63 and #65–71 adds continuous picture numbering after encoder
