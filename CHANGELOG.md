@@ -4,6 +4,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Changed
+
+- **Home screen tools are buttons.** Demo call, Connection, the device key, Logs and the
+  update check are now framed buttons with icons under the main card, in place of a row of
+  small text links. The update check is a switch.
+
 ### Fixed
 
 - **Emoji in colour everywhere in chat.** The picker, reactions and message box drew most

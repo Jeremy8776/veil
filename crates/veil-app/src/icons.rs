@@ -58,6 +58,14 @@ pub enum Icon {
     Emoji,
     /// A shape and its reflection either side of a dashed line, for mirroring your video.
     Mirror,
+    /// A key, for the device key.
+    Key,
+    /// A folder, for opening the log folder.
+    Folder,
+    /// A play triangle, for the demo call.
+    Play,
+    /// A circular arrow, for checking for updates.
+    Refresh,
 }
 
 impl Icon {
@@ -83,6 +91,10 @@ impl Icon {
             Self::Effects => '\u{E790}',
             Self::Hand => '\u{270B}',
             Self::Emoji => '\u{E76E}',
+            Self::Key => '\u{E8D7}',
+            Self::Folder => '\u{E8B7}',
+            Self::Play => '\u{E768}',
+            Self::Refresh => '\u{E72C}',
             Self::Mirror | Self::SpeakerView => return None,
         };
         Some(glyph)
@@ -90,7 +102,10 @@ impl Icon {
 
     /// The glyph, when the icon font loaded.
     pub fn glyph(self) -> Option<char> {
-        HAVE_FONT.load(Ordering::Relaxed).then(|| self.codepoint()).flatten()
+        HAVE_FONT
+            .load(Ordering::Relaxed)
+            .then(|| self.codepoint())
+            .flatten()
     }
 
     /// Paints the icon centred at `center`: the font glyph, or vector strokes without it.
@@ -270,6 +285,24 @@ impl Icon {
                 Shape::circle_filled(p(0.14, -0.1), w * 0.8, colour),
                 arc(0.0, 0.0, 0.24, 0.2 * PI, 0.8 * PI),
             ],
+            Self::Key => vec![
+                Shape::circle_stroke(p(-0.22, 0.0), 0.18 * size, stroke),
+                poly(&[(-0.04, 0.0), (0.44, 0.0), (0.44, 0.16)]),
+                poly(&[(0.26, 0.0), (0.26, 0.14)]),
+            ],
+            Self::Folder => vec![closed(&[
+                (-0.44, -0.32),
+                (-0.12, -0.32),
+                (-0.02, -0.2),
+                (0.44, -0.2),
+                (0.44, 0.36),
+                (-0.44, 0.36),
+            ])],
+            Self::Play => vec![closed(&[(-0.26, -0.4), (0.38, 0.0), (-0.26, 0.4)])],
+            Self::Refresh => vec![
+                arc(0.0, 0.0, 0.36, -0.35 * PI, 1.4 * PI),
+                poly(&[(0.12, -0.46), (0.22, -0.3), (0.04, -0.2)]),
+            ],
             Self::Mirror => vec![
                 poly(&[(0.0, -0.45), (0.0, -0.27)]),
                 poly(&[(0.0, -0.09), (0.0, 0.09)]),
@@ -307,7 +340,7 @@ impl Icon {
 mod tests {
     use super::*;
 
-    const ALL: [Icon; 21] = [
+    const ALL: [Icon; 25] = [
         Icon::Mic,
         Icon::MicOff,
         Icon::Video,
@@ -329,6 +362,10 @@ mod tests {
         Icon::Hand,
         Icon::Emoji,
         Icon::Mirror,
+        Icon::Key,
+        Icon::Folder,
+        Icon::Play,
+        Icon::Refresh,
     ];
 
     #[test]

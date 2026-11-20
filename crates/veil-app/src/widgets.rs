@@ -472,24 +472,3 @@ fn blur_label(blur: Blur) -> &'static str {
         Blur::Strong => "Strong",
     }
 }
-
-/// A row of widgets centred in the available width. egui lays a row out from the left, so the
-/// row's width from the last frame sets the left margin; a row that changes width is off
-/// centre for one frame, and asks for that frame.
-pub fn centred_row<R>(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
-    let id = ui.make_persistent_id(id);
-    let last: f32 = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(0.0);
-    let available = ui.available_width();
-    let (inner, width) = ui
-        .horizontal(|ui| {
-            ui.add_space(((available - last) / 2.0).max(0.0));
-            let row = ui.horizontal(add);
-            (row.inner, row.response.rect.width())
-        })
-        .inner;
-    if (width - last).abs() > 0.5 {
-        ui.ctx().data_mut(|d| d.insert_temp(id, width));
-        ui.ctx().request_repaint();
-    }
-    inner
-}

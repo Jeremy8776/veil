@@ -15,7 +15,7 @@ use crate::app::VeilApp;
 use crate::icons::Icon;
 use crate::model::clock;
 use crate::theme::{self, MUTED};
-use crate::widgets::{Tone, card, centred_row, pill};
+use crate::widgets::{Tone, card, pill};
 
 const COLUMN: f32 = 440.0;
 
@@ -78,54 +78,14 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
                 ui.label(RichText::new(error).color(theme::DANGER_HOVER));
             }
         });
-        ui.add_space(20.0);
-        links(app, ui);
-        ui.add_space(2.0);
-        updates(app, ui);
+        ui.add_space(16.0);
+        crate::screens::home_tools::show(app, ui, COLUMN);
     });
-}
-
-/// One quiet row of the less-used things: the demo, servers, device key and logs.
-fn links(app: &mut VeilApp, ui: &mut egui::Ui) {
-    let problem = centred_row(ui, "links", |ui| {
-        let demo = link(ui, "Demo call", MUTED)
-            .on_hover_text("Try the interface with simulated people. Nothing is sent.");
-        if demo.clicked() {
-            app.demo = true;
-            start(app, true);
-        }
-        dot(ui);
-        let connection = link(ui, "Connection", MUTED)
-            .on_hover_text("Your own servers and a fixed port, for calls across the internet.");
-        if connection.clicked() {
-            let form = crate::screens::connection::Form::new(&app.connection);
-            app.screen = crate::app::Screen::Connection(Box::new(form));
-        }
-        dot(ui);
-        let problem = device_key(app, ui);
-        dot(ui);
-        let logs = link(ui, "Logs", MUTED).on_hover_text(
-            "Opens the folder with Veil's log files. If something goes wrong, send veil.log, or \
-             veil.previous.log if Veil froze or closed. They hold states, timings and errors: \
-             no names, chat or invite links.",
-        );
-        if logs.clicked() {
-            crate::log::open_folder();
-        }
-        problem
-    });
-    if let Some(problem) = problem {
-        ui.label(RichText::new(problem).small().color(theme::WARN));
-    }
 }
 
 /// A small text button with no frame.
 fn link(ui: &mut egui::Ui, text: &str, colour: egui::Color32) -> egui::Response {
     ui.add(egui::Button::new(RichText::new(text).small().color(colour)).frame(false))
-}
-
-fn dot(ui: &mut egui::Ui) {
-    ui.label(RichText::new("·").small().color(MUTED));
 }
 
 /// A card above everything else while a newer Veil is out, so it is not missed: older
@@ -195,78 +155,6 @@ fn update_banner(app: &mut VeilApp, ui: &mut egui::Ui) {
     ui.add_space(12.0);
 }
 
-/// This build's version and the update check's off switch.
-fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
-    use crate::update::{self, Status};
-    let status = app.updates.status();
-    let mut on = app.updates.enabled();
-    let mut text = format!("Veil {}", update::VERSION);
-    if status == Status::UpToDate {
-        text.push_str(" · up to date");
-    }
-    centred_row(ui, "version", |ui| {
-        ui.label(RichText::new(text).small().color(MUTED));
-        dot(ui);
-        let toggle = ui
-            .checkbox(
-                &mut on,
-                RichText::new("Check for updates").small().color(MUTED),
-            )
-            .on_hover_text(
-                "Asks GitHub once per start whether a newer Veil is out. GitHub sees your IP \
-                 address. Nothing is downloaded unless you choose Install.",
-            );
-        if toggle.changed() {
-            app.updates.set_enabled(on, ui.ctx());
-        }
-    });
-}
-
-/// Your device key's short form and a way to replace it. Returns any trouble saving it.
-fn device_key(app: &mut VeilApp, ui: &mut egui::Ui) -> Option<String> {
-    let (short, full, problem) = {
-        let keys = crate::media::lock(&app.keys);
-        let public = keys.public();
-        (
-            crate::engine::short(&public),
-            veil_net::node_addr::key_text(&public),
-            keys.problem.clone(),
-        )
-    };
-    let copy = link(ui, "Copy device key", MUTED).on_hover_text(
-        "Puts this device's key on the clipboard. Send it to someone who runs a veil-node, \
-         so they can let you host calls through it. It is public: it identifies this device, \
-         and cannot be used to sign in as you.",
-    );
-    if copy.clicked() {
-        ui.ctx().copy_text(full);
-    }
-    dot(ui);
-    let label = if app.confirm_new_key {
-        "Confirm new device key"
-    } else {
-        "New device key"
-    };
-    let colour = if app.confirm_new_key {
-        theme::WARN
-    } else {
-        MUTED
-    };
-    let button = link(ui, label, colour).on_hover_text(format!(
-        "This device is {short}. A new key means people who verified you see a new \
-             device. Use it if you think your key was copied."
-    ));
-    if button.clicked() {
-        if app.confirm_new_key {
-            crate::media::lock(&app.keys).renew();
-            app.confirm_new_key = false;
-        } else {
-            app.confirm_new_key = true;
-        }
-    }
-    problem
-}
-
 /// Reads an invite link, or says plainly what is wrong with it.
 fn check_invite(text: &str) -> Result<InviteLink, String> {
     let text = text.trim();
@@ -279,7 +167,7 @@ fn check_invite(text: &str) -> Result<InviteLink, String> {
     InviteLink::parse(text, now).map_err(|e| format!("This invite link does not work: {e}"))
 }
 
-fn start(app: &mut VeilApp, host: bool) {
+pub(crate) fn start(app: &mut VeilApp, host: bool) {
     if app.name.trim().is_empty() {
         app.home_error = Some(String::from("Enter your name first."));
         return;
@@ -310,8 +198,8 @@ pub fn ended(app: &mut VeilApp, ui: &mut egui::Ui) {
 }
 
 /// A column on the page background, centred both ways. `id` names the screen: the column's
-/// height is remembered from the last frame (as `widgets::centred_row` does for width), so a
-/// screen settles one frame after it first shows or changes height.
+/// height is remembered from the last frame, so a screen settles one frame after it first
+/// shows or changes height.
 pub fn page(ui: &mut egui::Ui, id: &str, add: impl FnOnce(&mut egui::Ui)) {
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::PAGE))
