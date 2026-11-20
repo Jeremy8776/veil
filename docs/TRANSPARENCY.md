@@ -268,6 +268,10 @@ macOS. The code is `crates/veil-portmap` and `crates/veil-app/src/engine/router.
   licences (GPL, LGPL, MPL) are kept out so anyone can reuse any part of Veil. For this reason
   Veil writes its own MLS crypto backend instead of using `openmls_rust_crypto` (which pulls in
   MPL-2.0 code), and does not use FFmpeg (LGPL).
+- Noise suppression uses RNNoise (Xiph.Org, BSD-3-Clause) through `nnnoiseless`, a safe Rust
+  port with its trained weights built in (`crates/veil-media/src/denoise.rs`). It runs only on
+  this device, on your microphone and, if you turn it on, on sound you receive. Nothing is
+  downloaded at run time.
 - Background blur uses Google's MediaPipe selfie segmenter (landscape), licensed Apache-2.0,
   from the MediaPipe model card, and credited in DEPENDENCIES.md under "Other components". Its weights are converted once by `tools/selfie_weights.py`,
   which checks the downloaded file's SHA-256, and are built into Veil as a 213 KB file. Veil

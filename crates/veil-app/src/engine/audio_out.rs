@@ -13,6 +13,9 @@
 //!   the speaker volume applies to the mix each frame.
 //! - The mix is clamped to -1..1, so several loud people clip rather than wrap.
 //! - Someone silent for 10 s is forgotten, decoder and all.
+//! - With "Remove noise from others" on ([`Playback::clean_others`]), each person's decoded
+//!   sound goes through their own [`Denoiser`] before the mix and their level. Turning it off
+//!   drops the denoisers, so turning it on again starts each one fresh.
 //!
 //! shortcut: no echo cancellation of Veil's own (Windows applies the device's where it has
 //! one, see `WasapiPlayback`). Two copies on one computer need headphones.
@@ -24,7 +27,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
-use veil_media::{AudioHeader, AudioSettings, JitterBuffer, MediaError, OpusDecoder, Playout};
+use veil_media::{
+    AudioHeader, AudioSettings, Denoiser, JitterBuffer, MediaError, OpusDecoder, Playout,
+};
 
 use super::view::Shared;
 use crate::media::{Worker, meter};
@@ -48,6 +53,8 @@ pub fn spawn(packets: Receiver<AudioIn>, shared: Arc<Shared>, playback: Arc<Play
 struct Source {
     jitter: JitterBuffer,
     decoder: OpusDecoder,
+    /// Made when noise removal for others is first on, dropped when it is turned off.
+    denoiser: Option<Denoiser>,
     last: Instant,
 }
 
@@ -67,6 +74,8 @@ fn run(packets: &Receiver<AudioIn>, shared: &Shared, playback: Arc<Playback>, st
     let mut mix = vec![0.0f32; per_channel * settings.channels.count()];
     let mut sources: HashMap<u32, Source> = HashMap::new();
     let mut speaker_out = Speaker::new(settings, playback);
+    // One person's frame after noise removal; reused so it costs no allocation.
+    let mut cleaned = Vec::with_capacity(mix.len());
     while !stop.load(Ordering::Relaxed) {
         loop {
             match packets.try_recv() {
@@ -76,6 +85,7 @@ fn run(packets: &Receiver<AudioIn>, shared: &Shared, playback: Arc<Playback>, st
             }
         }
         mix.fill(0.0);
+        let clean = speaker_out.playback.clean_others.load(Ordering::Relaxed);
         for (id, source) in &mut sources {
             let frame = match source.jitter.pop() {
                 Playout::Packet(packet) => source.decoder.decode(&packet),
@@ -85,8 +95,18 @@ fn run(packets: &Receiver<AudioIn>, shared: &Shared, playback: Arc<Playback>, st
             };
             let level = match frame {
                 Ok(frame) if !frame.is_empty() => {
-                    mix_into(&mut mix, frame);
-                    meter(frame)
+                    let heard = if clean {
+                        let denoiser = source.denoiser.get_or_insert_with(Denoiser::new);
+                        cleaned.clear();
+                        cleaned.extend_from_slice(frame);
+                        denoiser.process(&mut cleaned);
+                        &cleaned[..]
+                    } else {
+                        source.denoiser = None;
+                        frame
+                    };
+                    mix_into(&mut mix, heard);
+                    meter(heard)
                 }
                 _ => 0.0,
             };
@@ -118,6 +138,7 @@ fn receive(
             Ok(decoder) => slot.insert(Source {
                 jitter: JitterBuffer::new(settings.frame_ms),
                 decoder,
+                denoiser: None,
                 last: now,
             }),
             Err(e) => {

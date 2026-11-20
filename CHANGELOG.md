@@ -25,6 +25,13 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   posted. Each matching code verifies the person who posted it. Codes from before someone
   joined or left are reported as old, not as a mismatch.
 
+- **Noise suppression.** Veil now removes background sound (fans, typing, traffic, hum) from
+  your microphone, using a small speech model (RNNoise) that runs on your computer. It is on
+  by default; turn it off under Audio settings > Noise suppression, for example to play music.
+  **Remove noise from others**, under Speaker in the same menu, cleans everyone else's sound
+  too. It is off by default and uses a little more processor for each person. The model adds
+  10 ms of delay.
+
 ### Changed
 
 - The pre-join card is grouped into Video, Audio and Connection, and scrolls in a short

@@ -8,7 +8,7 @@
 //! to ask the sender for a keyframe. Per-OS encoders implement [`VideoEncoder`] and decoders
 //! [`VideoDecoder`]. Audio is
 //! Opus ([`OpusEncoder`], [`OpusDecoder`]) with an [`AudioHeader`] in front of each packet,
-//! put back in order by a [`JitterBuffer`].
+//! put back in order by a [`JitterBuffer`]. A [`Denoiser`] removes background noise from speech.
 //!
 //! Invariants:
 //! - `unsafe` only in [`ffi`], one module per OS, under the rules in `docs/TRANSPARENCY.md`
@@ -26,6 +26,7 @@ pub mod capture;
 #[cfg(any(not(windows), test))]
 pub mod cpal_audio;
 pub mod decoder;
+pub mod denoise;
 pub mod effects;
 pub mod encoder;
 pub mod error;
@@ -56,6 +57,7 @@ pub use audio::{AudioHeader, AudioSettings, Channels};
 pub use blur::{Blur, BlurEngine, BlurStatus};
 pub use capture::{CameraMode, NativeMode, PixelFormat};
 pub use decoder::VideoDecoder;
+pub use denoise::Denoiser;
 pub use effects::Filter;
 pub use encoder::{EncodedLayer, RawPicture, VideoEncoder};
 pub use error::MediaError;
