@@ -9,7 +9,7 @@
 [![CI](https://github.com/Jeremy8776/veil/actions/workflows/ci.yml/badge.svg)](https://github.com/Jeremy8776/veil/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Jeremy8776/veil?include_prereleases&sort=semver)](https://github.com/Jeremy8776/veil/releases)
 [![Licence](https://img.shields.io/badge/licence-MIT%20or%20Apache--2.0-blue)](#licence)
-![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 <img src="docs/images/call.png" alt="A Veil call with five people" width="820">
 
@@ -17,8 +17,8 @@
 
 Veil is a video call app with no company in the middle. Your device makes the keys, the people
 in the call hold them, and nothing else can read the call: not a relay, not a forwarder, not
-us. Servers are optional. Any participant, a box you run, or an enterprise cluster can carry a
-call, and none of them can see inside it.
+us. Servers are optional: a participant's computer or a `veil-node` you choose can carry a
+call. The desktop app and node are built for Windows, macOS and Linux.
 
 > [!WARNING]
 > Veil is early and has had no independent security audit. Do not trust it with anything that
@@ -29,14 +29,19 @@ call, and none of them can see inside it.
 - **End-to-end encrypted.** Video, sound, names and chat are sealed on your device. Group keys
   use MLS (RFC 9420) and change every time someone joins or leaves.
 - **Peer to peer.** Calls connect directly, punch through home routers, or fall back to a relay.
-  Bigger calls can use a forwarder that sends each person only the video size they need.
+  Bigger calls can use a forwarder that limits video layers to the size each person requests.
 - **You decide who joins.** Invites are signed and single use. The host admits or declines each
   person from the lobby.
 - **Check who you are talking to.** Each pair of people has a safety number. Swap codes once
-  through an app you already trust, or compare them by hand, and it still holds next call. In a
-  group, everyone posts one group code in a group chat and pastes the others' codes.
+  through an app you already trust, or compare them by hand. In a group, everyone posts one
+  group code in a trusted external chat and pastes the others' codes. Windows remembers
+  verified keys; Linux and macOS currently keep them only until Veil closes.
 - **Share your screen.** Share a screen, an app or part of one, sealed end to end like your
   camera. Filters and background blur work before and during a call.
+- **Clearer sound.** Local noise suppression cleans your microphone by default, with an
+  option to clean sound from others too. No sound is sent away for processing.
+- **Chat and lobby alerts.** Colour emoji and reactions in chat; notifications when someone
+  waits in your lobby while you are in another app. Raised hands reach everyone in the call.
 - **No accounts, no telemetry.** Veil sends nothing to its authors. Every server address comes
   from you.
 - **Try it alone.** "Demo call" on the home screen shows a simulated call with no network.
@@ -52,7 +57,10 @@ Screenshots are from the demo call. The people in them are simulated.
 - **Data use.** Pick it before you join, or from the arrow beside the camera button during a
   call. Auto (recommended) sends the best picture the link allows. Data saver sends one small
   picture at about 150 kbit/s and sound at 16 kbit/s. Audio only turns your camera off and
-  sends sound at 16 kbit/s. Veil keeps your choice for the next call.
+  sends sound at 16 kbit/s. Windows keeps your choice between runs; standard Linux/macOS
+  runs currently keep settings only while the app stays open.
+  Audio only still receives others' video, and screen sharing remains available. Through a
+  forwarder it requests the smallest video layer; mesh calls still receive every sent layer.
 - **Hide my address.** In Connection on the home screen. When you join a call, Veil reaches
   everyone through the call's relay only, so the others never learn your IP address. Off by
   default. [docs/TRANSPARENCY.md](docs/TRANSPARENCY.md) says what it does not hide.
@@ -64,6 +72,7 @@ Screenshots are from the demo call. The people in them are simulated.
 ## Download
 
 Builds are on the [latest release](https://github.com/Jeremy8776/veil/releases/latest).
+For 0.1.12, update every device in a call: older versions cannot read the new chat messages.
 
 | System | File | Notes |
 |---|---|---|
@@ -99,6 +108,11 @@ reviews and approves each signed release, and Veil's privacy statement:
    sealed packets.
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the full design.
+For a first call, device choices and connection problems, see
+[Getting started](docs/GETTING_STARTED.md).
+
+The current desktop camera path is capped at 1080p; screen sharing at 1920 pixels on its
+longest side. 4K60, forwarder cascades and enterprise identity/policy are future work.
 
 ## The pieces
 
@@ -114,6 +128,7 @@ reviews and approves each signed release, and Veil's privacy statement:
 | [`veil-call`](crates/veil-call) | Call sessions: links, lobby, keys and routes together |
 | [`veil-media`](crates/veil-media) | Camera, screen capture, H.264, Opus and local effects on Windows, Linux and macOS |
 | [`veil-node`](crates/veil-node) | One server binary for any role: rendezvous, relay, forwarder |
+| [`veil-portmap`](crates/veil-portmap) | Optional, temporary router port mappings and IPv6 pinholes |
 | [`veil-probe`](crates/veil-probe) | A camera-free test call between real networks |
 
 ## Build from source
@@ -126,7 +141,8 @@ by platform: see [TRANSPARENCY.md](docs/TRANSPARENCY.md#7-not-yet-tested).
 cargo build -p veil-app --release
 ```
 
-The app is then `target/release/veil-app.exe`. To run tests and check dependency licences:
+The app is then `target/release/veil-app.exe` on Windows, or `target/release/veil-app` on
+Linux and macOS. To run tests and check dependency licences:
 
 ```bash
 cargo test -p veil-security -p veil-topology
@@ -144,11 +160,16 @@ powershell -ExecutionPolicy Bypass -File tools/dev-ui.ps1
 
 `veil-node` can be your rendezvous, relay and forwarder, so calls never touch anyone else's
 machine. Copy [`veil-node.example.toml`](crates/veil-node/veil-node.example.toml), edit it,
-and run `veil-node veil-node.toml`. It prints a `key@address` for each role to put in invites.
+and run `veil-node veil-node.toml`. Put its public `key@host:port` addresses in the desktop
+app's Connection settings. See [Self-hosting](docs/SELF_HOSTING.md) for host allow-lists,
+UDP ports, IPv6 and the difference between listening and public addresses.
 
 ## Documents
 
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md): the design, including the planned parts.
+- [GETTING_STARTED.md](docs/GETTING_STARTED.md): make a first call and resolve common problems.
+- [SELF_HOSTING.md](docs/SELF_HOSTING.md): run a node for chosen hosts.
+- [RELEASING.md](docs/RELEASING.md): versioning, packages and release verification.
 - [TRANSPARENCY.md](docs/TRANSPARENCY.md): dependencies, what other parties can see, known leaks.
 - [DEPENDENCIES.md](docs/DEPENDENCIES.md): every third-party crate and its licence.
 - [HANDOFF.md](docs/HANDOFF.md): what is done and what is next.

@@ -4,6 +4,9 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
 ## Current work, 20/11/2026
 
+- User guides: [Getting started](GETTING_STARTED.md), [Self-hosting](SELF_HOSTING.md) and
+  [Releasing](RELEASING.md). [Architecture](ARCHITECTURE.md) now distinguishes current app
+  behaviour from planned 4K, cascade and enterprise features.
 - Release line: **v0.1.12**, dated 20/11/2026, includes the integration below. Check GitHub
   Releases for publication status before creating another tag. The previous release,
   v0.1.11, was published 19/11 at 22:27 UTC; its workflow passed on retry.
@@ -13,11 +16,17 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   reopens, media redial, chat reactions, lobby alerts, labelled pair and group codes, local
   noise suppression, and Wayland sharing (KWin picker on KDE, desktop chooser elsewhere).
   Hand messages keep their wire number; new chat variants follow them.
+- Integration #73 is merged. Windows tests, Linux/macOS lint/build and supply-chain CI
+  passed; local validation passed 715 workspace tests and seven explicit synthetic engine
+  loopback tests, including cropped-share size changes and hands/chat/reactions. Those
+  loopbacks use generated video and silence, not real camera/microphone capture.
 - Redials discard old targets or roster tickets, cannot adopt a link after the session is
   dropped, and refresh subscriptions, announcements and keyframes when a link returns.
   Ambiguous short tags in group verification verify nobody; use pair codes instead.
 - Device keys and verified contacts persist on Windows only. Linux/macOS platform keychains
   remain to be built. A node host allow-list on those systems needs a new key after restart.
+  Standard Linux/macOS runs also lack persisted settings because the config path currently
+  comes only from `LOCALAPPDATA`; add native config directories as well as keychain support.
 - Next: test the combined changes in a real call, repeat Wi-Fi off/on and cropped-share size
   changes, and measure Auto on a slow mobile link. KDE capture has been tested on Plasma 6.8;
   remote delivery, GNOME and older Plasma need coverage. TCP/TLS relay fallback and fully

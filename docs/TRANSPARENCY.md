@@ -142,6 +142,11 @@ system's notification list until then, so anyone who can see your screen can see
   only until Veil closes. Safety codes change on the next run. A node owner who allows your
   device key must also update that allowance after you restart. Platform keychain support
   is still needed (`crates/veil-app/src/keystore.rs`).
+- The current app also derives its settings directory only from `LOCALAPPDATA`. Without
+  that variable, as on standard Linux/macOS runs, Connection fields, Data use, device/effect
+  preferences and the update-check opt-out are not saved between runs. Native configuration
+  directories remain to be implemented. Supplying `LOCALAPPDATA` can persist non-secret
+  settings there, but does not add device-key persistence off Windows.
 - Veil never writes over a saved file it could not open. One that does not open for your
   user is kept as `*.unreadable` (then `.unreadable.2` and on); one that cannot be read at
   all, for example while it is locked, is left as it is, and that run's key or list is not

@@ -11,6 +11,11 @@ everyone time.
 
 Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design and
 [docs/HANDOFF.md](docs/HANDOFF.md) for what is done and what is next.
+The handoff also contains historical notes; its current snapshot and the code take
+precedence over old next-step lists. User setup is in
+[Getting started](docs/GETTING_STARTED.md), node setup in
+[Self-hosting](docs/SELF_HOSTING.md), and release maintenance in
+[Releasing](docs/RELEASING.md).
 
 ## Build and test
 
@@ -28,6 +33,21 @@ python tools/licences.py --check
 
 The full test suite is large. Run the tests for the crates you changed. CI runs everything.
 Tests marked `#[ignore]` need a camera, microphone or open ports.
+
+The synthetic call suite uses generated video and silent speaker playback, with no camera
+or microphone capture. On Windows, run it explicitly with:
+
+```bash
+cargo test -p veil-app engine::loopback -- --ignored --test-threads=1
+```
+
+This exercises admission, raised hands, chat/reactions, screen changes and call shutdown on
+localhost. It does not replace a call between separate devices or networks. Do not run all
+ignored tests casually: other tests can capture the camera or microphone or map router ports.
+
+CI runs the full workspace tests on Windows, Clippy on all three operating systems, and
+debug builds on Linux/macOS. The release workflow builds and packages optimised binaries.
+Normal CI does not run the ignored hardware or real-network tests.
 
 ## What a good pull request has
 
