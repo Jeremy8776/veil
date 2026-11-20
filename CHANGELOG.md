@@ -20,6 +20,10 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 - A raised hand now shows for everyone in the call, not only on your own screen. Lowering it
   clears it for the others, and someone who joins later sees hands that are already up. The
   hand is sealed and signed like names and chat. Older versions of Veil do not show it.
+- Sharing a selected area of your screen now shows live to everyone watching, and changing
+  the area during a share keeps it live. Before, a new shared size restarted the picture
+  numbering, so those watching kept seeing the last picture from before the change. The same
+  fix covers a camera that changes size and a change of Data use mid-call.
 
 ## 0.1.11, 19/11/2026
 
