@@ -22,6 +22,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 use veil_call::{CallError, CallNode, MemberEvent, join_with};
 use veil_net::Node;
+use veil_net::control::RefuseReason;
 use veil_rendezvous::fetch_invite;
 use veil_security::Identity;
 use veil_security::short_invite::InviteLink;
@@ -211,7 +212,17 @@ async fn wait_for_leave(commands: &mut UnboundedReceiver<Command>) {
 
 fn join_error(e: &CallError) -> String {
     match e {
-        CallError::Refused(_) => String::from("The host did not let you in."),
+        CallError::Refused(RefuseReason::DeclinedByHost) => {
+            String::from("The host did not let you in.")
+        }
+        // The host gives out a fresh link after each knock, so an old one stops working.
+        CallError::Refused(RefuseReason::TokenUsed) => String::from(
+            "This invite link was already used or has expired. Ask the host for a new one.",
+        ),
+        CallError::Refused(RefuseReason::UnknownRoom) => {
+            String::from("This invite is for a call that has ended.")
+        }
+        CallError::Refused(RefuseReason::RoomFull) => String::from("The call is full."),
         CallError::Timeout => String::from("The host did not answer."),
         // Windows blocks inbound UDP for an app with no firewall rule, which looks exactly
         // like this from the guest's side; the host's own invite lists only its addresses.
@@ -300,5 +311,13 @@ mod tests {
         let unreachable = CallError::Net(veil_net::NetError::Timeout);
         let text = join_error(&unreachable);
         assert!(text.contains("press Allow guests"), "one space at the line join: {text}");
+    }
+
+    #[test]
+    fn a_used_invite_is_not_blamed_on_the_host() {
+        let used = join_error(&CallError::Refused(RefuseReason::TokenUsed));
+        assert!(used.contains("Ask the host for a new one"), "{used}");
+        let declined = join_error(&CallError::Refused(RefuseReason::DeclinedByHost));
+        assert_eq!(declined, "The host did not let you in.");
     }
 }

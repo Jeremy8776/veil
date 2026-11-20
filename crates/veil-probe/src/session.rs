@@ -195,7 +195,10 @@ mod tests {
         loop {
             match within(events.recv()).await.unwrap() {
                 HostEvent::Keys(keys) => return keys,
-                HostEvent::Knock(_) | HostEvent::Joined { .. } | HostEvent::Left(_) => {}
+                HostEvent::Knock(_)
+                | HostEvent::Joined { .. }
+                | HostEvent::Left(_)
+                | HostEvent::Refused(..) => {}
                 HostEvent::Error(e) => panic!("host error: {e}"),
             }
         }

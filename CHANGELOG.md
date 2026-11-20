@@ -15,6 +15,9 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   update where Veil cannot install itself). An invite link that does not open says it may
   need a newer Veil while an update is waiting.
 
+- `veil.log` now notes when a link to someone drops and when it comes back, and the host's
+  log notes each joiner it turns away, with the reason.
+
 ### Fixed
 
 - A raised hand now shows for everyone in the call, not only on your own screen. Lowering it
@@ -24,6 +27,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   the area during a share keeps it live. Before, a new shared size restarted the picture
   numbering, so those watching kept seeing the last picture from before the change. The same
   fix covers a camera that changes size and a change of Data use mid-call.
+
+- A member whose connection dropped for a moment (for example Wi-Fi off and on) no longer
+  stays on "Connecting" until someone joins or leaves. Veil now links up again by itself,
+  trying again after 1, 2, 4, 8 and then every 16 seconds.
+- Re-opening an invite link that was already used now says so, and asks you to get a new one
+  from the host. It used to say "The host did not let you in."
 
 ## 0.1.11, 19/11/2026
 

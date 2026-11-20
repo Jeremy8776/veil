@@ -18,6 +18,8 @@
 //!   [`EARLY_WAIT`]; past that it is closed. Places to wait are kept for the epoch's members
 //!   ([`MediaSession::members`]); other keys share [`MAX_EARLY_UNKNOWN`] (`media/links.rs`).
 //! - Frames are never opened or changed: the media pipeline seals and opens them.
+//! - A wanted link that drops mid-call is dialled again by [`MediaSession::redial`], by the
+//!   side that dialled it first, with a growing wait between failures (`media/redial.rs`).
 //! - No send waits on one peer without a deadline, and video does not wait at all: each link
 //!   has its own writer task (`media/write.rs`, GHSA-37f5-22p2-q6hr).
 //!
@@ -45,10 +47,12 @@ use crate::CallError;
 
 mod links;
 mod read;
+mod redial;
 mod stats;
 mod write;
 
 use links::{adopt_early, open_media, run_inbox};
+pub use redial::LinkEvent;
 pub use stats::LinkStats;
 pub use write::SEND_DEADLINE;
 
@@ -135,6 +139,13 @@ struct State {
     /// The newest epoch's members, from [`MediaSession::members`].
     members: HashSet<PublicId>,
     next_id: u64,
+    /// How to reach the peers this side dials, kept for redials (`media/redial.rs`).
+    plan: redial::Plan,
+    retry: HashMap<PublicId, redial::Retry>,
+    /// Wanted peers whose link dropped, and when.
+    lost: HashMap<PublicId, Instant>,
+    /// Untold link changes, taken by [`MediaSession::take_events`].
+    events: Vec<LinkEvent>,
 }
 
 /// What reader tasks and the inbox task share.
@@ -183,6 +194,7 @@ impl Ctx {
             readers,
         };
         state.links.insert(peer, entry);
+        redial::linked(state, peer);
     }
 }
 
@@ -278,12 +290,20 @@ impl MediaSession {
                 .filter(|p| !dials(&self.me, reachable, p))
                 .map(|p| p.device)
                 .collect();
-            let State { links, wanted, .. } = &mut *state;
+            let mine = peers.iter().filter(|p| dials(&self.me, reachable, p));
+            state.plan = redial::Plan::Mesh(mine.map(|p| (p.device, p.clone())).collect());
+            let State { links, wanted, retry, lost, .. } = &mut *state;
             links.retain(|peer, _| wanted.contains(peer));
+            retry.retain(|peer, _| wanted.contains(peer));
+            lost.retain(|peer, _| wanted.contains(peer));
             adopt_early(&self.ctx, &mut state);
             to_dial = peers
                 .into_iter()
-                .filter(|p| dials(&self.me, reachable, p) && !state.links.contains_key(&p.device))
+                .filter(|p| {
+                    dials(&self.me, reachable, p)
+                        && !state.links.contains_key(&p.device)
+                        && !redial::busy(&state, &p.device)
+                })
                 .collect();
         }
         self.ctx.changed();
@@ -329,6 +349,9 @@ impl MediaSession {
             state.expected.clear();
             state.early.clear();
             state.links.retain(|peer, _| *peer == addr.key);
+            state.retry.retain(|peer, _| *peer == addr.key);
+            state.lost.retain(|peer, _| *peer == addr.key);
+            state.plan = redial::Plan::Forwarder { addr, ticket: ticket.to_vec() };
             state.links.get(&addr.key).map(|e| e.carrier.clone())
         });
         self.ctx.changed();
@@ -341,6 +364,9 @@ impl MediaSession {
                 Ok(()) => Vec::new(),
                 Err(e) => vec![(addr.key, CallError::Forward(e))],
             };
+        }
+        if self.ctx.lock().is_some_and(|s| redial::busy(&s, &addr.key)) {
+            return Vec::new(); // A redial is joining it already, with this ticket.
         }
         let joined = ForwarderClient::join(&self.node, &[addr.addr], addr.key, ticket).await;
         match joined {
@@ -374,6 +400,32 @@ impl MediaSession {
                 .map_err(|_| CallError::Timeout)?
                 .map_err(|_| CallError::Closed)?;
         }
+    }
+
+    /// Dials again every wanted peer whose link dropped and is due a try (`media/redial.rs`).
+    /// Returns at once; a redial that works is adopted like any other link. Call it on the
+    /// app's once-a-second tick.
+    pub fn redial(&self) {
+        let dialer = redial::Dialer {
+            node: self.node.clone(),
+            presence: self.presence.clone(),
+            relay_only: self.relay_only,
+            room_id: self.room_id,
+        };
+        redial::start(&self.ctx, &dialer);
+    }
+
+    /// Closes every link as if the network had dropped. For tests of [`Self::redial`].
+    #[doc(hidden)]
+    pub fn cut_links_for_test(&self) {
+        for carrier in self.carriers() {
+            carrier.link().close("cut for a test");
+        }
+    }
+
+    /// Link drops, returns and failed redials since the last call, oldest first.
+    pub fn take_events(&self) -> Vec<LinkEvent> {
+        self.ctx.lock().map(|mut s| std::mem::take(&mut s.events)).unwrap_or_default()
     }
 
     /// Each linked peer and the path its link took.
