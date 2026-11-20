@@ -72,6 +72,10 @@ zune-jpeg = "0.5.15"
 ashpd = { version = "0.14.0", default-features = false, features = ["async-io", "screencast"] }
 pipewire = "0.10"
 pollster = "1.0"
+# Veil's own share picker on KDE Plasma through KWin's interfaces (src/screen/kde.rs). winit
+# already builds both; listing them adds no crate.
+wayland-client = "0.31"
+wayland-protocols-plasma = { version = "0.3", features = ["client"] }
 
 # macOS camera: AVFoundation through the objc2 bindings (src/ffi/macos).
 [target.'cfg(target_os = "macos")'.dependencies]

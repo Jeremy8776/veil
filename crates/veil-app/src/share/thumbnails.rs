@@ -1,8 +1,8 @@
 //! The share picker's live thumbnails: the capture thread behind them, and shrinking pictures.
 //!
 //! Purpose: keeps the list of sources current and shows the open tab live. Each source on that
-//! tab gets the same capture a share uses (`ScreenCapture::open_live`): a picture stream on
-//! Windows, screenshots elsewhere.
+//! tab gets `ScreenCapture::open_thumbnail`: a picture stream on Windows, screenshots elsewhere
+//! (on KDE from KWin, never a stream per thumbnail).
 //!
 //! Invariants:
 //! - Thumbnails stay on this device.
@@ -124,7 +124,7 @@ fn refresh_open_tab(
         let source = choice.source;
         let capture = match live.entry(source) {
             Entry::Occupied(open) => open.into_mut(),
-            Entry::Vacant(slot) => match ScreenCapture::open_live(source) {
+            Entry::Vacant(slot) => match ScreenCapture::open_thumbnail(source) {
                 Ok(capture) => slot.insert(capture),
                 Err(_) => continue,
             },

@@ -1,14 +1,15 @@
-//! Screen capture on Wayland: the desktop's screen cast portal picks the source and PipeWire
-//! streams its pictures.
+//! Screen capture on Wayland: PipeWire streams, from a source picked in the desktop's screen
+//! cast portal or from KWin directly (`kde.rs`).
 //!
 //! Purpose: on Wayland an app may not list or capture other windows itself. [`choose`] asks the
-//! desktop to show its own chooser, and on a pick opens that one stream. Pictures arrive on a
-//! thread of its own and wait in a single slot, newest wins, until they are read.
+//! desktop to show its own chooser, and on a pick opens that one stream; [`open_node`] opens a
+//! stream KWin made. Pictures arrive on a thread of their own and wait in a single slot, newest
+//! wins, until they are read.
 //!
 //! Invariants:
 //! - Pictures stay in memory; nothing is written to disk.
-//! - Dropping the last handle to a [`PortalStream`] stops its PipeWire loop, joins its thread
-//!   and closes the portal session, so the desktop's sharing indicator goes away.
+//! - Dropping the last handle to a [`PipeStream`] stops its PipeWire loop, joins its thread and
+//!   closes the portal session or KWin stream, so the desktop's sharing indicator goes away.
 //! - A stream the desktop ends (its own stop control, the window closed) reads as ended; it is
 //!   never reopened or replaced by another source.
 //! - The pointer is drawn into the pictures where the desktop offers that.
@@ -35,14 +36,17 @@ use super::Grabbed;
 struct Shared {
     /// The newest picture and its number. The number only grows.
     latest: Mutex<(u64, Option<Arc<Grabbed>>)>,
-    ended: AtomicBool,
+    /// Shared with whoever else can tell that the stream ended (KWin's `closed`).
+    ended: Arc<AtomicBool>,
 }
 
-/// One source the person picked in the desktop's chooser, streaming until dropped.
-pub(super) struct PortalStream {
+/// One source streaming until dropped.
+pub(super) struct PipeStream {
     shared: Arc<Shared>,
     quit: pipewire::channel::Sender<()>,
     thread: Option<JoinHandle<()>>,
+    /// Runs after the stream thread has stopped: closes the KWin stream.
+    on_drop: Option<Box<dyn FnOnce() + Send + Sync>>,
 }
 
 /// Why no stream was opened.
@@ -56,21 +60,51 @@ pub(super) enum NoStream {
 
 /// Shows the desktop's chooser and opens the picked source. Blocks until the person picks or
 /// cancels, so it must not run on the UI thread.
-pub(super) fn choose() -> Result<PortalStream, NoStream> {
-    let shared = Arc::new(Shared::default());
+pub(super) fn choose() -> Result<PipeStream, NoStream> {
+    start(Shared::default(), run)
+}
+
+/// Opens PipeWire `node` on the session's own PipeWire. `ended` is set when the stream ends,
+/// and may also be set by its maker; `on_drop` runs once the stream has stopped.
+pub(super) fn open_node(
+    node: u32,
+    ended: Arc<AtomicBool>,
+    on_drop: Box<dyn FnOnce() + Send + Sync>,
+) -> Result<PipeStream, NoStream> {
+    let shared = Shared {
+        ended,
+        ..Shared::default()
+    };
+    let mut stream = start(shared, move |shared, reply| {
+        if let Err(step) = pump(None, node, &shared, reply) {
+            let _ = reply.send(Err(NoStream::Failed(step)));
+        }
+        shared.ended.store(true, Ordering::Release);
+    })?;
+    stream.on_drop = Some(on_drop);
+    Ok(stream)
+}
+
+/// Runs `body` on a stream thread and waits until it is streaming or has failed.
+fn start(
+    shared: Shared,
+    body: impl FnOnce(Arc<Shared>, &Reply) + Send + 'static,
+) -> Result<PipeStream, NoStream> {
+    let shared = Arc::new(shared);
     let (reply, answer) = mpsc::channel();
     let thread = thread::Builder::new()
         .name("veil-screencast".into())
         .spawn({
             let shared = shared.clone();
-            move || run(shared, &reply)
+            move || body(shared, &reply)
         })
         .map_err(|_| NoStream::Failed("thread"))?;
     match answer.recv() {
-        Ok(Ok(quit)) => Ok(PortalStream {
+        Ok(Ok(quit)) => Ok(PipeStream {
             shared,
             quit,
             thread: Some(thread),
+            on_drop: None,
         }),
         Ok(Err(why)) => {
             let _ = thread.join();
@@ -83,7 +117,7 @@ pub(super) fn choose() -> Result<PortalStream, NoStream> {
     }
 }
 
-impl PortalStream {
+impl PipeStream {
     /// The newest picture if its number is above `seen`, with its number.
     pub(super) fn newer_than(&self, seen: u64) -> Option<(u64, Arc<Grabbed>)> {
         let latest = self.shared.latest.lock().unwrap_or_else(|e| e.into_inner());
@@ -98,11 +132,14 @@ impl PortalStream {
     }
 }
 
-impl Drop for PortalStream {
+impl Drop for PipeStream {
     fn drop(&mut self) {
         let _ = self.quit.send(());
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
+        }
+        if let Some(on_drop) = self.on_drop.take() {
+            on_drop();
         }
     }
 }
@@ -120,7 +157,7 @@ fn run(shared: Arc<Shared>, reply: &Reply) {
     };
     match pollster::block_on(pick(&portal, &session)) {
         Ok((fd, node)) => {
-            if let Err(step) = stream(fd, node, &shared, reply) {
+            if let Err(step) = pump(Some(fd), node, &shared, reply) {
                 let _ = reply.send(Err(NoStream::Failed(step)));
             }
         }
@@ -182,15 +219,23 @@ async fn pick(
     Ok((fd, node))
 }
 
-/// Runs PipeWire for `node` until the quit message. Sends the quit sender once streaming is
-/// set up; an error before then names the step.
-fn stream(fd: OwnedFd, node: u32, shared: &Arc<Shared>, reply: &Reply) -> Result<(), &'static str> {
+/// Runs PipeWire for `node` until the quit message, through the portal's connection `fd` or,
+/// without one, the session's own PipeWire. Sends the quit sender once streaming is set up; an
+/// error before then names the step.
+fn pump(
+    fd: Option<OwnedFd>,
+    node: u32,
+    shared: &Arc<Shared>,
+    reply: &Reply,
+) -> Result<(), &'static str> {
     pipewire::init();
     let main_loop = MainLoopRc::new(None).map_err(|_| "pipewire loop")?;
     let context = ContextRc::new(&main_loop, None).map_err(|_| "pipewire context")?;
-    let core = context
-        .connect_fd_rc(fd, None)
-        .map_err(|_| "pipewire connect")?;
+    let core = match fd {
+        Some(fd) => context.connect_fd_rc(fd, None),
+        None => context.connect_rc(None),
+    }
+    .map_err(|_| "pipewire connect")?;
     let stream = StreamRc::new(
         core,
         "Veil screen share",
@@ -300,11 +345,23 @@ fn to_rgba(
     height: u32,
     stride: i32,
 ) -> Option<Grabbed> {
-    let swap = match format {
+    let bgr = match format {
         VideoFormat::BGRx | VideoFormat::BGRA => true,
         VideoFormat::RGBx | VideoFormat::RGBA => false,
         _ => return None,
     };
+    pack(bytes, width, height, i64::from(stride), bgr)
+}
+
+/// Copies 4-byte pixels, blue first if `bgr`, rows `stride` bytes apart, to packed opaque RGBA.
+/// `None` if the data is too short or the stride does not fit.
+pub(super) fn pack(
+    bytes: &[u8],
+    width: u32,
+    height: u32,
+    stride: i64,
+    bgr: bool,
+) -> Option<Grabbed> {
     let (w, h) = (width as usize, height as usize);
     let stride = usize::try_from(stride).ok().filter(|&s| s >= w * 4)?;
     if w == 0 || h == 0 || bytes.len() < stride * (h - 1) + w * 4 {
@@ -314,7 +371,7 @@ fn to_rgba(
     for row in bytes.chunks(stride).take(h) {
         let (pixels, _) = row[..w * 4].as_chunks::<4>();
         rgba.extend(pixels.iter().flat_map(|p| {
-            let [r, g, b] = if swap {
+            let [r, g, b] = if bgr {
                 [p[2], p[1], p[0]]
             } else {
                 [p[0], p[1], p[2]]

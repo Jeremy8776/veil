@@ -9,6 +9,8 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 - **Screen sharing on Linux Wayland.** Share opens your desktop's own chooser; pick a screen or
   window, then select an area as on other systems. "Choose again" picks another. Tested on KDE
   Plasma; other Wayland desktops are untested. Veil asks again on each share.
+- **Veil's own share picker on KDE Plasma (Wayland).** Live thumbnails of your screens and
+  windows, as on Windows, with no desktop dialog. Tested on Plasma 6.8.
 
 ## 0.1.11, 19/11/2026
 
