@@ -115,13 +115,15 @@ pub enum Reachable {
     No(String),
 }
 
-/// A host's decision, or a chat message, queued for the engine.
+/// A host's decision, a chat message or your hand, queued for the engine.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     Admit(u32),
     Decline(u32),
     Remove(u32),
     Chat(String),
+    /// Your hand is raised (`true`) or lowered (`false`).
+    Hand(bool),
     /// Mark a person's device as verified (`true`) or forget it (`false`).
     Verify(u32, bool),
     /// Keep invite links working until the call ends (`true`), or for an hour (`false`).
@@ -210,6 +212,15 @@ impl Call {
 
     pub fn you_mut(&mut self) -> Option<&mut Participant> {
         self.participants.iter_mut().find(|p| p.is_you)
+    }
+
+    /// Raises or lowers your hand, and queues it for the others unless this is a demo.
+    pub fn raise_hand(&mut self, raised: bool) {
+        let Some(you) = self.you_mut() else { return };
+        you.hand_raised = raised;
+        if !self.demo {
+            self.outbox.push(Action::Hand(raised));
+        }
     }
 
     pub fn elapsed(&self, now: Instant) -> Duration {
@@ -455,6 +466,21 @@ mod tests {
 
         let mut demo = demo::call("Jo", true, now);
         demo.send("hi", now);
+        assert!(demo.outbox.is_empty(), "a demo sends nothing");
+    }
+
+    #[test]
+    fn your_hand_is_queued_for_the_engine() {
+        let now = Instant::now();
+        let mut call = Call::live("Call".into(), "Jo", false, now);
+        call.raise_hand(true);
+        call.raise_hand(false);
+        assert_eq!(call.outbox, [Action::Hand(true), Action::Hand(false)]);
+        assert!(!call.you().unwrap().hand_raised);
+
+        let mut demo = demo::call("Jo", true, now);
+        demo.raise_hand(true);
+        assert!(demo.you().unwrap().hand_raised);
         assert!(demo.outbox.is_empty(), "a demo sends nothing");
     }
 

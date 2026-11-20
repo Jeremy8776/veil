@@ -284,6 +284,45 @@ fn loopback_guest_sees_the_host_end_the_call() {
     assert_eq!(guest_call.status, CallStatus::Ended("The host ended the call.".into()));
 }
 
+/// A raised hand reaches the others, lowering it clears it for them, and someone who joins
+/// later sees a hand that is already up.
+#[test]
+#[ignore = "opens ports and the speaker"]
+fn loopback_a_raised_hand_reaches_the_others() {
+    let hand = |engine: &Engine, call: &mut Call, raised: bool| {
+        call.raise_hand(raised);
+        for action in call.outbox.drain(..) {
+            engine.act(action);
+        }
+    };
+    let theirs = |raised: bool| move |c: &Call| c.participants.get(1).is_some_and(|p| p.hand_raised == raised);
+    let ctx = egui::Context::default();
+    let host = Engine::start(Role::Host, NetConfig::default(), "Host".into(), Default::default(), fresh_keys(), Default::default(), ctx.clone()).unwrap();
+    let mut host_call = Call::live("Call".into(), "Host", true, Instant::now());
+    wait_for("an invite", &host, &mut host_call, |c| !c.invite.is_empty());
+    // Raised while alone: the guest joins late and must still see it.
+    hand(&host, &mut host_call, true);
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let invite = InviteLink::parse(&host_call.invite_full, now).unwrap();
+    let guest = Engine::start(Role::Guest(Box::new(invite)), NetConfig::default(), "Guest".into(), Default::default(), fresh_keys(), Default::default(), ctx).unwrap();
+    let mut guest_call = Call::live("Call".into(), "Guest", false, Instant::now());
+    wait_for("a knock", &host, &mut host_call, |c| c.lobby.len() == 1);
+    host.act(Action::Admit(host_call.lobby[0].id));
+    wait_for("admission", &guest, &mut guest_call, |c| {
+        c.status == CallStatus::Live && c.participants.len() == 2
+    });
+    wait_for("the host's hand, already up", &guest, &mut guest_call, theirs(true));
+
+    wait_for("the guest in the roster", &host, &mut host_call, |c| c.participants.len() == 2);
+    assert!(!host_call.participants[1].hand_raised, "the guest's hand starts down");
+    hand(&guest, &mut guest_call, true);
+    wait_for("the guest's hand", &host, &mut host_call, theirs(true));
+    hand(&guest, &mut guest_call, false);
+    wait_for("the guest's hand lowered", &host, &mut host_call, theirs(false));
+    hand(&host, &mut host_call, false);
+    wait_for("the host's hand lowered", &guest, &mut guest_call, theirs(false));
+}
+
 /// A shared screen arrives as its own stream, beside the sender's camera.
 #[test]
 #[ignore = "opens ports, the H.264 encoder and the speaker"]

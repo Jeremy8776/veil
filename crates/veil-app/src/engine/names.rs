@@ -1,17 +1,19 @@
-//! Display names in a real call: who is called what, and when to send your own name.
+//! Display names and raised hands in a real call: who is called what, whose hand is up, and
+//! when to send your own name and hand.
 //!
-//! Purpose: each member sends its name as a sealed `AppMessage::Name` (see
-//! `veil_call::app_msg`). [`Names`] keeps what arrived, by device, and names people who have
-//! not sent one yet ("Host", or "Guest" and a key prefix). [`Announcer`] decides when to
-//! send yours: for a few seconds after each key epoch, new routes or a new link, once a
-//! second. A member that moves to the new epoch a moment later than you cannot open a name
-//! sealed for it before then, and a link that comes up late missed the first send, so one
-//! send is not enough.
+//! Purpose: each member sends its name and hand as sealed `AppMessage::Name` and
+//! `AppMessage::Hand` (see `veil_call::app_msg`). [`Names`] keeps what arrived, by device,
+//! and names people who have not sent one yet ("Host", or "Guest" and a key prefix).
+//! [`Announcer`] decides when to send yours: for a few seconds after each key epoch, new
+//! routes, a new link or a change of hand, once a second. A member that moves to the new
+//! epoch a moment later than you cannot open a message sealed for it before then, and a link
+//! that comes up late missed the first send, so one send is not enough. Each send carries the
+//! current hand, so a lowered hand and someone who joins later both end up right.
 //!
 //! Invariants:
 //! - A name is self-chosen and unverified. Who someone is rests on the safety number; the
 //!   host badge comes from the invite's host key, never from a name.
-//! - Names are kept by device key, so they survive epoch changes.
+//! - Names and hands are kept by device key, so they survive epoch changes.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -28,6 +30,7 @@ pub const ANNOUNCE_FOR: Duration = Duration::from_secs(5);
 #[derive(Default)]
 pub struct Names {
     known: HashMap<PublicId, String>,
+    hands: HashSet<PublicId>,
 }
 
 impl Names {
@@ -46,6 +49,20 @@ impl Names {
     /// Stores a name. Returns `true` if it changed.
     pub fn set(&mut self, device: PublicId, name: String) -> bool {
         self.known.insert(device, name.clone()) != Some(name)
+    }
+
+    /// Whether `device` last said its hand is raised.
+    pub fn hand(&self, device: &PublicId) -> bool {
+        self.hands.contains(device)
+    }
+
+    /// Stores a hand state. Returns `true` if it changed.
+    pub fn set_hand(&mut self, device: PublicId, raised: bool) -> bool {
+        if raised {
+            self.hands.insert(device)
+        } else {
+            self.hands.remove(&device)
+        }
     }
 }
 
@@ -95,9 +112,10 @@ fn base(name: &str) -> String {
     joined
 }
 
-/// When to send your own name.
+/// When to send your own name and hand.
 pub struct Announcer {
     mine: Option<AppMessage>,
+    hand: bool,
     until: Option<Instant>,
     linked: HashSet<PublicId>,
 }
@@ -107,6 +125,7 @@ impl Announcer {
     pub fn new(your_name: &str) -> Self {
         Self {
             mine: AppMessage::name(your_name).ok(),
+            hand: false,
             until: None,
             linked: HashSet::new(),
         }
@@ -125,11 +144,22 @@ impl Announcer {
         self.linked = linked;
     }
 
-    /// Your name message, if it should go out now.
-    pub fn due(&self, now: Instant) -> Option<&AppMessage> {
+    /// Your hand went up or down: send it, and send it again for a while.
+    pub fn set_hand(&mut self, raised: bool, now: Instant) {
+        self.hand = raised;
+        self.restart(now);
+    }
+
+    /// Your name (if it is a valid one) and hand, if they should go out now.
+    pub fn due(&self, now: Instant) -> Vec<AppMessage> {
+        if !self.until.is_some_and(|until| now < until) {
+            return Vec::new();
+        }
         self.mine
-            .as_ref()
-            .filter(|_| self.until.is_some_and(|until| now < until))
+            .iter()
+            .cloned()
+            .chain([AppMessage::Hand(self.hand)])
+            .collect()
     }
 }
 
@@ -145,6 +175,12 @@ mod tests {
         let mut names = Names::default();
         assert_eq!(names.of(&host, &host), "Host");
         assert_eq!(names.of(&guest, &host), format!("Guest {}", short(&guest)));
+        assert!(!names.hand(&guest), "a hand starts down");
+        assert!(names.set_hand(guest, true));
+        assert!(!names.set_hand(guest, true), "the same hand again is no change");
+        assert!(names.hand(&guest));
+        assert!(names.set_hand(guest, false), "lowering clears it");
+        assert!(!names.hand(&guest));
         assert!(names.set(guest, "Priya".into()));
         assert!(
             !names.set(guest, "Priya".into()),
@@ -182,22 +218,40 @@ mod tests {
         let now = Instant::now();
         let mut announcer = Announcer::new(" Jo ");
         assert!(
-            announcer.due(now).is_none(),
+            announcer.due(now).is_empty(),
             "nothing before the first keys"
         );
         announcer.restart(now);
-        assert_eq!(announcer.due(now), Some(&AppMessage::Name("Jo".into())));
-        assert!(announcer.due(now + ANNOUNCE_FOR).is_none());
+        let down = vec![AppMessage::Name("Jo".into()), AppMessage::Hand(false)];
+        assert_eq!(announcer.due(now), down);
+        assert!(announcer.due(now + ANNOUNCE_FOR).is_empty());
 
         let later = now + ANNOUNCE_FOR * 2;
         let peer = Identity::generate().public();
         announcer.links(HashSet::from([peer]), later);
-        assert!(announcer.due(later).is_some(), "a new link restarts");
+        assert!(!announcer.due(later).is_empty(), "a new link restarts");
         let quiet = later + ANNOUNCE_FOR;
         announcer.links(HashSet::from([peer]), quiet);
-        assert!(announcer.due(quiet).is_none(), "the same links do not");
+        assert!(announcer.due(quiet).is_empty(), "the same links do not");
         announcer.links(HashSet::new(), quiet);
-        assert!(announcer.due(quiet).is_none(), "nor does a link going away");
+        assert!(announcer.due(quiet).is_empty(), "nor does a link going away");
+    }
+
+    #[test]
+    fn your_hand_goes_out_when_it_changes_and_with_each_announcement() {
+        let now = Instant::now();
+        let mut announcer = Announcer::new("Jo");
+        announcer.set_hand(true, now);
+        assert!(announcer.due(now).contains(&AppMessage::Hand(true)), "raising sends at once");
+        let later = now + ANNOUNCE_FOR * 2;
+        assert!(announcer.due(later).is_empty());
+        announcer.restart(later);
+        assert!(
+            announcer.due(later).contains(&AppMessage::Hand(true)),
+            "a new epoch (someone joining) sends the raised hand again"
+        );
+        announcer.set_hand(false, later);
+        assert!(announcer.due(later).contains(&AppMessage::Hand(false)), "lowering is sent too");
     }
 
     #[test]
@@ -205,6 +259,6 @@ mod tests {
         let now = Instant::now();
         let mut announcer = Announcer::new("   ");
         announcer.restart(now);
-        assert!(announcer.due(now).is_none());
+        assert_eq!(announcer.due(now), [AppMessage::Hand(false)], "only the hand goes out");
     }
 }

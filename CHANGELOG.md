@@ -2,6 +2,14 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Fixed
+
+- A raised hand now shows for everyone in the call, not only on your own screen. Lowering it
+  clears it for the others, and someone who joins later sees hands that are already up. The
+  hand is sealed and signed like names and chat. Older versions of Veil do not show it.
+
 ## 0.1.11, 19/11/2026
 
 ### Added

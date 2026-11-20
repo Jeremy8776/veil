@@ -100,10 +100,8 @@ pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
         ..Default::default()
     };
     let label = if raised { "Lower" } else { "Raise" };
-    if control(ui, Icon::Hand, label, "Raise or lower your hand", state).clicked()
-        && let Some(you) = view.call.you_mut()
-    {
-        you.hand_raised = !raised;
+    if control(ui, Icon::Hand, label, "Raise or lower your hand", state).clicked() {
+        view.call.raise_hand(!raised);
     }
 }
 
