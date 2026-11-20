@@ -4,7 +4,8 @@
 //! turns them into the packed NV12 the video encoders take. The `xcap` crate does the
 //! operating system's part: GDI on Windows, Core Graphics on macOS, and X11 or the desktop
 //! portal on Linux. A live share on Windows uses a picture stream instead
-//! ([`ScreenCapture::open_live`]).
+//! ([`ScreenCapture::open_live`]). On Wayland the desktop's own chooser picks the source
+//! ([`choose_on_desktop`]) and PipeWire streams it (`screen/wayland.rs`).
 //!
 //! Invariants:
 //! - A source is only ever captured by the id the person chose. If it goes away the capture
@@ -12,15 +13,23 @@
 //! - A window is captured whether or not it is focused or covered. A minimised one has no
 //!   picture, which [`ScreenCapture::grab`] reports as `None`, not as a failure.
 //! - This process's own windows are not offered, so sharing Veil's window cannot show itself.
+//!   The one exception is Wayland, where the desktop's chooser lists every window and Veil
+//!   cannot leave its own out.
 //! - A crop is kept as fractions of the source, so it still fits after a window is resized.
 //! - Output sizes are even and at most [`MAX_DIMENSION`], as 4:2:0 and the ladder need.
 //! - Colour is BT.709 limited range, the same as cameras and `veil-app`'s `convert.rs`.
-//! - Nothing is captured in a Wayland session. There `xcap` takes each picture by having the
-//!   desktop write a PNG file, which would put your screen on disk many times a second.
+//! - In a Wayland session nothing is captured through `xcap`: it takes each picture by having
+//!   the desktop write a PNG file, which would put your screen on disk many times a second.
+//!   Only a source picked in the desktop's chooser is captured there, as a stream in memory.
 //!
-//! shortcut: off Windows each live picture is still a full screenshot, which limits the rate.
-//! Use each system's capture stream there once sharing has been tested on it. On Wayland that
-//! stream (the PipeWire screen cast portal) is also what would lift the block.
+//! shortcut: on X11 and macOS each live picture is still a full screenshot, which limits the
+//! rate. Use each system's capture stream there once sharing has been tested on it.
+//!
+//! lean: on Wayland the person picks again on every share. The portal can remember a pick
+//! (restore token); add it if picking each time proves tiresome.
+
+#[cfg(target_os = "linux")]
+mod wayland;
 
 use crate::MediaError;
 #[cfg(target_os = "macos")]
@@ -37,6 +46,8 @@ const UNAVAILABLE: MediaError = MediaError::Unavailable("screen capture");
 pub enum ScreenSource {
     Monitor(u32),
     Window(u32),
+    /// A source picked in the desktop's chooser ([`choose_on_desktop`]), by pick number.
+    Picked(u32),
 }
 
 /// Something that can be shared. `label` is a window's title: it stays on this device and
@@ -79,17 +90,59 @@ fn is_app_window(_id: u32) -> bool {
     true
 }
 
-/// Why this session cannot share its screen at all, in words for the person using it.
-pub fn blocked_reason() -> Option<&'static str> {
+/// True where the desktop's own chooser picks what to share ([`choose_on_desktop`]), because
+/// Veil may not list screens and windows itself: a Linux Wayland session.
+pub fn uses_system_chooser() -> bool {
     #[cfg(target_os = "linux")]
     {
         let var = |name| std::env::var_os(name).unwrap_or_default();
         let (session, display) = (var("XDG_SESSION_TYPE"), var("WAYLAND_DISPLAY"));
-        if is_wayland(&session.to_string_lossy(), &display.to_string_lossy()) {
-            return Some("Screen sharing needs an X11 session for now.");
-        }
+        is_wayland(&session.to_string_lossy(), &display.to_string_lossy())
     }
-    None
+    #[cfg(not(target_os = "linux"))]
+    false
+}
+
+/// The last pick number, and the streams picked and not yet released by number.
+#[cfg(target_os = "linux")]
+type Picks = (u32, Vec<(u32, std::sync::Arc<wayland::PortalStream>)>);
+
+#[cfg(target_os = "linux")]
+static PICKED: std::sync::Mutex<Picks> = std::sync::Mutex::new((0, Vec::new()));
+
+/// Shows the desktop's chooser. `Ok(None)` if the person cancelled it. The picked source stays
+/// open, for [`ScreenCapture::open`] and [`ScreenCapture::open_live`], until [`release`]; a
+/// capture already open keeps it open after that. Blocks until the person picks or cancels.
+pub fn choose_on_desktop() -> Result<Option<ScreenSource>, MediaError> {
+    #[cfg(target_os = "linux")]
+    {
+        let stream = match wayland::choose() {
+            Ok(stream) => stream,
+            Err(wayland::NoStream::Cancelled) => return Ok(None),
+            Err(wayland::NoStream::Failed(step)) => return Err(MediaError::Capture(step)),
+        };
+        let mut picked = PICKED.lock().unwrap_or_else(|e| e.into_inner());
+        picked.0 = picked.0.wrapping_add(1);
+        let number = picked.0;
+        picked.1.push((number, std::sync::Arc::new(stream)));
+        Ok(Some(ScreenSource::Picked(number)))
+    }
+    #[cfg(not(target_os = "linux"))]
+    Err(UNAVAILABLE)
+}
+
+/// Lets go of a source from [`choose_on_desktop`]. Its stream closes once no capture uses it.
+pub fn release(source: ScreenSource) {
+    #[cfg(target_os = "linux")]
+    if let ScreenSource::Picked(number) = source {
+        let mut picked = PICKED.lock().unwrap_or_else(|e| e.into_inner());
+        let gone: Vec<_> = picked.1.extract_if(.., |(n, _)| *n == number).collect();
+        drop(picked);
+        // Closing a stream joins its thread, so it happens outside the lock.
+        drop(gone);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = source;
 }
 
 /// The same test `xcap` uses to choose its Wayland path.
@@ -99,7 +152,8 @@ fn is_wayland(session_type: &str, display: &str) -> bool {
 }
 
 fn check_allowed() -> Result<(), MediaError> {
-    if blocked_reason().is_some() {
+    // On Wayland `xcap` would write each picture to disk; only picked streams are allowed.
+    if uses_system_chooser() {
         return Err(UNAVAILABLE);
     }
     #[cfg(target_os = "macos")]
@@ -193,6 +247,9 @@ pub fn open_all(own_pid: u32) -> Result<Vec<(ScreenChoice, ScreenCapture)>, Medi
 enum Target {
     Monitor(xcap::Monitor),
     Window(xcap::Window),
+    /// The number is the newest picture already read.
+    #[cfg(target_os = "linux")]
+    Picked(std::sync::Arc<wayland::PortalStream>, std::cell::Cell<u64>),
     #[cfg(windows)]
     Stream(ScreenStream),
 }
@@ -204,6 +261,9 @@ pub struct ScreenCapture {
 
 impl ScreenCapture {
     pub fn open(source: ScreenSource) -> Result<Self, MediaError> {
+        if let ScreenSource::Picked(number) = source {
+            return Self::open_picked(number);
+        }
         check_allowed()?;
         let target = match source {
             ScreenSource::Monitor(id) => xcap::Monitor::all()
@@ -216,8 +276,37 @@ impl ScreenCapture {
                 .into_iter()
                 .find(|w| w.id().is_ok_and(|found| found == id))
                 .map(Target::Window),
+            ScreenSource::Picked(_) => None,
         };
         target.map(|target| Self { target }).ok_or(UNAVAILABLE)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn open_picked(number: u32) -> Result<Self, MediaError> {
+        let picked = PICKED.lock().unwrap_or_else(|e| e.into_inner());
+        let (_, stream) = picked
+            .1
+            .iter()
+            .find(|(n, _)| *n == number)
+            .ok_or(UNAVAILABLE)?;
+        Ok(Self {
+            target: Target::Picked(stream.clone(), std::cell::Cell::new(0)),
+        })
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn open_picked(_number: u32) -> Result<Self, MediaError> {
+        Err(UNAVAILABLE)
+    }
+
+    /// True once the desktop has ended a picked source's stream. Other sources never end this
+    /// way; they fail to [`Self::grab`] instead.
+    pub fn has_ended(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        if let Target::Picked(stream, _) = &self.target {
+            return stream.has_ended();
+        }
+        false
     }
 
     /// Opens `source` for a live share: a picture stream where there is one, otherwise the
@@ -238,6 +327,21 @@ impl ScreenCapture {
         let image = match &self.target {
             #[cfg(windows)]
             Target::Stream(stream) => return stream.next(),
+            #[cfg(target_os = "linux")]
+            Target::Picked(stream, seen) => {
+                if stream.has_ended() {
+                    return Err(UNAVAILABLE);
+                }
+                let Some((number, picture)) = stream.newer_than(seen.get()) else {
+                    return Ok(None);
+                };
+                seen.set(number);
+                return Ok(Some(Grabbed {
+                    width: picture.width,
+                    height: picture.height,
+                    rgba: picture.rgba.clone(),
+                }));
+            }
             Target::Monitor(monitor) => monitor.capture_image(),
             Target::Window(window)
                 if window.is_minimized().unwrap_or(false) || is_out_of_sight(window) =>

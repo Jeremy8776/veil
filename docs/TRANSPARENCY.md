@@ -79,8 +79,14 @@ more video stream from you but not that it is a screen. On Windows the live shar
 picker's thumbnails use Windows Graphics Capture, which includes the mouse pointer. The first
 thumbnails, the area preview and other systems use the `xcap` crate, which holds its own
 `unsafe` code. If the source goes away,
-sharing stops rather than moving on. Sharing is turned off in Linux Wayland sessions, because
-`xcap` would have the desktop write each picture of your screen to a file there.
+sharing stops rather than moving on. In Linux Wayland sessions Veil does not list or capture
+anything itself: your desktop's own chooser asks what to share, and Veil receives only that one
+picture stream, through the desktop portal and PipeWire (the `ashpd` and `pipewire` crates,
+which call the system's PipeWire library). Pictures stay in memory; `xcap` is not used there,
+because it would have the desktop write each picture of your screen to a file. The pointer is
+drawn in where the desktop offers it. Your desktop's chooser also lists Veil's own window, and
+Veil cannot leave it out. Ending the share in Veil, or backing out of the picker, closes the
+stream and the desktop's session; stopping it from the desktop ends the share in Veil.
 
 **Filters and Background blur** run on your device, on each camera picture before your
 self-view and before it is encoded, so other members receive only the changed picture. Finding

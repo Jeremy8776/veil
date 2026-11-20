@@ -4697,6 +4697,7 @@ dependencies = [
 name = "veil-media"
 version = "0.1.11"
 dependencies = [
+ "ashpd",
  "block2 0.6.2",
  "cc",
  "cpal",
@@ -4707,6 +4708,8 @@ dependencies = [
  "objc2-core-video",
  "objc2-foundation 0.3.2",
  "openh264-sys2",
+ "pipewire",
+ "pollster",
  "sha2",
  "v4l",
  "veil-security",
