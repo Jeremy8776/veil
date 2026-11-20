@@ -2,6 +2,16 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Changed
+
+- The pre-join card is grouped into Video, Audio and Connection, and scrolls in a short
+  window. Start and Back always stay in view.
+- Veil remembers your camera, microphone, speaker, filter, background blur, mirror and both
+  volumes between runs, whether you chose them before or during a call. A saved device that
+  is unplugged is kept for next time, and the default is used meanwhile.
+
 ## 0.1.11, 19/11/2026
 
 ### Added

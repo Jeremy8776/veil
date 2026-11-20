@@ -46,8 +46,8 @@ struct Shared {
     taps: Mutex<Option<Taps>>,
     filter: Mutex<Filter>,
     blur: Mutex<Blur>,
-    /// Flip each picture left to right, for the preview and the call.
-    /// shortcut: forgotten when Veil closes; save it once the app has saved preferences.
+    /// Flip each picture left to right, for the preview and the call. Kept between runs by
+    /// `preferences.rs`.
     mirror: AtomicBool,
     /// Why the camera turned itself off for blur, until the camera or blur is chosen again.
     blur_notice: Mutex<Option<String>>,

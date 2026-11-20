@@ -74,6 +74,8 @@ pub struct VeilApp {
     pub connection: crate::connection::Store,
     /// How much data calls use, shared with the running call (`data_use.rs`).
     pub data_use: Arc<crate::data_use::DataUseCell>,
+    /// Your devices, filter, blur, mirror and volumes, kept between runs (`preferences.rs`).
+    prefs: crate::preferences::Store,
     ctx: egui::Context,
 }
 
@@ -81,6 +83,9 @@ impl VeilApp {
     pub fn new(ctx: &egui::Context) -> Self {
         let connection = crate::connection::Store::open(keystore::default_dir());
         let data_use = Arc::new(crate::data_use::DataUseCell::new(connection.saved.data_use));
+        let prefs = crate::preferences::Store::open(keystore::default_dir());
+        let media = LocalMedia::new(ctx.clone());
+        prefs.saved.apply(&media);
         Self {
             screen: Screen::Home,
             name: std::env::var("USERNAME")
@@ -89,7 +94,7 @@ impl VeilApp {
                 .unwrap_or_default(),
             invite: String::new(),
             home_error: None,
-            media: LocalMedia::new(ctx.clone()),
+            media,
             share: crate::share::ScreenShare::new(ctx.clone()),
             share_view: None,
             preview: None,
@@ -106,6 +111,7 @@ impl VeilApp {
             updates: crate::update::Updates::start(keystore::default_dir(), ctx),
             connection,
             data_use,
+            prefs,
             ctx: ctx.clone(),
         }
     }
@@ -113,6 +119,11 @@ impl VeilApp {
     /// Opens the pre-join screen with your devices on, as you last chose.
     pub fn go_pre_join(&mut self, host: bool) {
         self.devices = crate::devices::DeviceLists::load();
+        // Before the devices open, so the saved ones open first time.
+        let saved = self.prefs.saved.devices(&self.devices);
+        self.media.choose_camera(saved.camera);
+        self.media.choose_mic(saved.mic);
+        self.media.choose_speaker(saved.speaker);
         self.media.set_camera(self.want_camera);
         self.media.set_mic(self.want_mic);
         if host && !self.demo {
@@ -282,6 +293,15 @@ impl VeilApp {
         // Fast attack, slow release, like a hardware meter.
         let rate = if target > self.level { 0.6 } else { 0.15 };
         self.level += (target - self.level) * rate;
+        self.remember_prefs(ctx);
+    }
+
+    /// Saves device, filter, blur, mirror and volume changes from any screen, once settled.
+    fn remember_prefs(&mut self, ctx: &egui::Context) {
+        let now = crate::preferences::Prefs::current(&self.media, &self.prefs.saved, &self.devices);
+        if self.prefs.observe(now, Instant::now()) {
+            ctx.request_repaint_after(crate::preferences::SETTLE);
+        }
     }
 
     /// What you are sending while you share.
