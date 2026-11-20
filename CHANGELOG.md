@@ -2,6 +2,20 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Added
+
+- **Check everyone at once.** With two or more others in a call, the Security panel offers a
+  group code. Each person posts theirs in a group chat you all trust, then pastes what everyone
+  posted. Each matching code verifies the person who posted it. Codes from before someone
+  joined or left are reported as old, not as a mismatch.
+
+### Changed
+
+- "Copy my code" now copies a short message that says who it is from and for, then the code.
+  Paste the whole message: Veil finds the code inside it, and it still compares all 60 digits.
+
 ## 0.1.11, 19/11/2026
 
 ### Added

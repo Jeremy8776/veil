@@ -154,6 +154,9 @@ pub struct Call {
     /// The host chose to keep each invite link working until the call ends.
     pub invite_until_end: bool,
     pub epoch: u64,
+    /// Everyone's group number, yours included (`veil_security::group_code`). Empty until
+    /// the first epoch, and in a demo, which makes one up from the epoch.
+    pub group: String,
     /// Other participants are simulated.
     pub demo: bool,
     pub status: CallStatus,
@@ -194,6 +197,7 @@ impl Call {
             invite_expires: 0,
             invite_until_end: false,
             epoch: 0,
+            group: String::new(),
             demo: false,
             status: CallStatus::Connecting,
             router: RouterPort::Off,

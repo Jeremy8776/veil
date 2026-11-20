@@ -32,6 +32,7 @@ use veil_forward::Wanted;
 use veil_media::{AudioHeader, AudioSettings, OpusEncoder};
 use veil_security::{Identity, PublicId};
 use veil_security::frame::{FrameSender, frame_layer};
+use veil_security::group_code::group_number;
 use veil_security::safety::{safety_number, side};
 
 use super::audio_out::AudioIn;
@@ -190,6 +191,8 @@ impl Session {
             })
             .collect();
         let epoch = keys.epoch;
+        let devices: Vec<PublicId> = keys.roster.iter().map(|(_, d)| *d).collect();
+        let group = group_number(&devices);
         self.shared.update(|view| {
             // Links that already exist stay up across epochs; `refresh_paths` corrects the rest.
             for person in &mut people {
@@ -199,6 +202,7 @@ impl Session {
             }
             view.people = people;
             view.epoch = epoch;
+            view.group = group;
         });
     }
 

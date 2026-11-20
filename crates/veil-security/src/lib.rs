@@ -22,6 +22,7 @@
 
 pub mod error;
 pub mod frame;
+pub mod group_code;
 pub mod identity;
 pub mod invite;
 pub mod layer;
