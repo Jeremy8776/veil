@@ -89,8 +89,8 @@ pub async fn run(
         // What arrived during a link-up comes first, so nothing overtakes it.
         let flow = if let Some(event) = held.events.pop_front() {
             on_event(event, &mut session, &mut member.events, &mut commands, &mut held).await?
-        } else if let Some(text) = held.chat.pop_front() {
-            session.send_chat(&text).await;
+        } else if let Some(said) = held.chat.pop_front() {
+            session.say(&said).await;
             Flow::Stay
         } else if let Some(raised) = held.hand.take() {
             session.set_hand(raised).await;
@@ -99,8 +99,8 @@ pub async fn run(
             tokio::select! {
                 command = commands.recv() => match command {
                     None | Some(Command::Leave) => Flow::Leave,
-                    Some(Command::Act(Action::Chat(text))) => {
-                        session.send_chat(&text).await;
+                    Some(Command::Act(said @ (Action::Chat(..) | Action::React(..)))) => {
+                        session.say(&said).await;
                         Flow::Stay
                     }
                     Some(Command::Act(Action::Hand(raised))) => {
@@ -136,7 +136,8 @@ enum Flow {
 #[derive(Default)]
 struct Held {
     events: VecDeque<MemberEvent>,
-    chat: VecDeque<String>,
+    /// Chat and reactions, as [`Action::Chat`] and [`Action::React`].
+    chat: VecDeque<Action>,
     /// Only the newest hand state matters.
     hand: Option<bool>,
 }
@@ -194,7 +195,9 @@ async fn link_up(
             }
             command = commands.recv() => match command {
                 None | Some(Command::Leave) => return Ok(Flow::Leave),
-                Some(Command::Act(Action::Chat(text))) => held.chat.push_back(text),
+                Some(Command::Act(said @ (Action::Chat(..) | Action::React(..)))) => {
+                    held.chat.push_back(said);
+                }
                 Some(Command::Act(Action::Hand(raised))) => held.hand = Some(raised),
                 Some(Command::Act(_)) => {}
             },
@@ -287,7 +290,7 @@ mod tests {
         event_tx.send(MemberEvent::PlanRefused(CallError::Closed)).unwrap();
         event_tx.send(MemberEvent::PlanRefused(CallError::Timeout)).unwrap();
         for text in ["first", "second"] {
-            let chat = Command::Act(Action::Chat(text.into()));
+            let chat = Command::Act(Action::Chat(1, text.into()));
             command_tx.send(chat).map_err(|_| "closed").unwrap();
         }
         let mut held = Held::default();
@@ -301,7 +304,10 @@ mod tests {
                 MemberEvent::PlanRefused(CallError::Timeout)
             ]
         ));
-        assert_eq!(held.chat, ["first", "second"]);
+        assert_eq!(
+            held.chat,
+            [Action::Chat(1, "first".into()), Action::Chat(1, "second".into())]
+        );
     }
 
     #[test]

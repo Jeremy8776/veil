@@ -568,7 +568,7 @@ async fn app_messages_reach_every_member_in_a_mesh_and_through_a_forwarder() {
         let mut sessions = call.media(forwarded, forwarder).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        let message = AppMessage::chat("hello from party 1").unwrap();
+        let message = AppMessage::chat(1, "hello from party 1").unwrap();
         let party = &mut call.parties[1];
         let sealed = message.seal(&mut party.keys.sender, party.node.identity()).unwrap();
         assert!(within(sessions[1].send_app(&sealed)).await >= 1);

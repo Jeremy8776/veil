@@ -186,7 +186,24 @@ from the guest",
     );
     wait_for("the guest's chat", &host, &mut host_call, back);
     assert_eq!((host_call.unread, guest_call.unread), (1, 1));
-    println!("names and chat crossed both ways");
+
+    // The host reacts to the guest's message; the guest sees it on its own message.
+    let id = host_call
+        .chat
+        .iter()
+        .find(|m| !m.mine)
+        .and_then(|m| m.id)
+        .expect("the guest's message has an id");
+    host_call.react(id, "👍");
+    for action in host_call.outbox.drain(..) {
+        host.act(action);
+    }
+    wait_for("the host's reaction", &guest, &mut guest_call, move |c| {
+        c.chat
+            .iter()
+            .any(|m| m.id == Some(id) && m.reactions.iter().any(|r| r.emoji == "👍"))
+    });
+    println!("names, chat and a reaction crossed both ways");
 
     drop(guest);
     wait_for("the guest to leave", &host, &mut host_call, |c| {

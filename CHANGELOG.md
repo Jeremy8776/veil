@@ -4,6 +4,16 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Added
+
+- **Emoji in chat.** Emoji now show in colour in messages, from the system's own emoji font:
+  Segoe UI Emoji on Windows, Apple Color Emoji on macOS, and Noto Color Emoji (or Twemoji)
+  on Linux. The smiley button beside the message box opens a picker.
+- **Reactions.** Click a message to react with 👍 ❤ 😂 😮 😢 or 🎉. Reactions show under the
+  message with a count; hover to see who reacted, and click one to add or take back yours.
+  Reactions are sealed and signed like chat. Messages from Veil 0.1.11 and earlier show as
+  before but take no reactions, and 0.1.11 cannot read chat from this version.
+
 ### Changed
 
 - The pre-join card is grouped into Video, Audio and Connection, and scrolls in a short

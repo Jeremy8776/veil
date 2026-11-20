@@ -7,8 +7,12 @@
 //!   (`tools/licences.py`), so the app reads the system's UI font and icon font at start-up.
 //!   Without a UI font the app cannot draw text, so that is a start-up error.
 //! - The icon font is optional: without it, [`crate::icons`] draws icons from strokes.
+//! - The emoji font is optional too, and comes after the UI and symbol fonts, so it only
+//!   draws what they lack.
 
 use std::sync::Arc;
+
+use crate::system_fonts;
 
 use eframe::egui::{
     self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Stroke,
@@ -59,6 +63,13 @@ const UI_FONTS: &[&str] = &[
 const BOLD_FONTS: &[&str] = &[r"C:\Windows\Fonts\seguisb.ttf"];
 /// Symbols the UI font lacks (the raised hand).
 const SYMBOL_FONTS: &[&str] = &[r"C:\Windows\Fonts\seguisym.ttf"];
+/// Colour emoji for chat, drawn by epaint's `color_fonts`: Segoe UI Emoji (COLR) on Windows,
+/// Apple Color Emoji (sbix, a collection read at face 0) on macOS. Linux distributions vary,
+/// so [`system_fonts::EMOJI_FONT_FILES`] are searched there (Noto Color Emoji is CBDT).
+const EMOJI_FONTS: &[&str] = &[
+    r"C:\Windows\Fonts\seguiemj.ttf",
+    "/System/Library/Fonts/Apple Color Emoji.ttc",
+];
 /// Icon fonts: Windows 11, then Windows 10.
 const ICON_FONTS: &[&str] = &[
     r"C:\Windows\Fonts\SegoeIcons.ttf",
@@ -74,7 +85,7 @@ pub struct FontsFound {
 pub fn load_fonts(ctx: &egui::Context) -> Result<FontsFound, String> {
     let mut fonts = FontDefinitions::empty();
     let ui = first_readable(UI_FONTS)
-        .or_else(crate::system_fonts::find_ui_font)
+        .or_else(|| system_fonts::find_font(system_fonts::UI_FONT_FILES))
         .ok_or("no system UI font found")?;
     fonts
         .font_data
@@ -85,6 +96,14 @@ pub fn load_fonts(ctx: &egui::Context) -> Result<FontsFound, String> {
             .font_data
             .insert("symbols".into(), Arc::new(FontData::from_owned(symbols)));
         proportional.push("symbols".into());
+    }
+    let emoji = first_readable(EMOJI_FONTS)
+        .or_else(|| system_fonts::find_font(system_fonts::EMOJI_FONT_FILES));
+    if let Some(emoji) = emoji {
+        fonts
+            .font_data
+            .insert("emoji".into(), Arc::new(FontData::from_owned(emoji)));
+        proportional.push("emoji".into());
     }
     let bold = first_readable(BOLD_FONTS);
     let mut bold_family = proportional.clone();

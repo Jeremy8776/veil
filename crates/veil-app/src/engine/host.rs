@@ -153,7 +153,9 @@ pub async fn run(
         tokio::select! {
             command = commands.recv() => match command {
                 None | Some(Command::Leave) => break Ok(()),
-                Some(Command::Act(Action::Chat(text))) => session.send_chat(&text).await,
+                Some(Command::Act(said @ (Action::Chat(..) | Action::React(..)))) => {
+                    session.say(&said).await;
+                }
                 Some(Command::Act(Action::Hand(raised))) => session.set_hand(raised).await,
                 // A fresh link with the chosen lifetime; one already sent keeps its own.
                 Some(Command::Act(Action::InviteUntilEnd(chosen))) => {
@@ -331,7 +333,9 @@ async fn act(host: &HostHandle, ids: &Ids, knocks: &mut Vec<(u32, PublicId)>, ac
             None => return,
         },
         // The session sends chat (see `run`); the engine saves verified keys.
-        Action::Chat(_) | Action::Hand(_) | Action::Verify(..) | Action::InviteUntilEnd(_) => return,
+        Action::Chat(..) | Action::React(..) | Action::Hand(_) | Action::Verify(..) | Action::InviteUntilEnd(_) => {
+            return;
+        }
     };
     if let Err(e) = result {
         crate::note!("{action:?} failed: {e}");
