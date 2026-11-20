@@ -7,8 +7,9 @@
 //!   (`tools/licences.py`), so the app reads the system's UI font and icon font at start-up.
 //!   Without a UI font the app cannot draw text, so that is a start-up error.
 //! - The icon font is optional: without it, [`crate::icons`] draws icons from strokes.
-//! - The emoji font is optional too, and comes after the UI and symbol fonts, so it only
-//!   draws what they lack.
+//! - The emoji font is optional too. In the UI it comes after the UI and symbol fonts, so it
+//!   only draws what they lack. Chat uses [`chat_family`], where it comes before the symbol
+//!   font: Segoe UI Symbol has one-colour copies of most emoji, which would otherwise win.
 
 use std::sync::Arc;
 
@@ -99,12 +100,23 @@ pub fn load_fonts(ctx: &egui::Context) -> Result<FontsFound, String> {
     }
     let emoji = first_readable(EMOJI_FONTS)
         .or_else(|| system_fonts::find_font(system_fonts::EMOJI_FONT_FILES));
+    // Chat: the UI font for letters, then colour emoji ahead of the symbol font.
+    let mut chat = vec![String::from("ui")];
     if let Some(emoji) = emoji {
         fonts
             .font_data
             .insert("emoji".into(), Arc::new(FontData::from_owned(emoji)));
         proportional.push("emoji".into());
+        chat.push("emoji".into());
     }
+    chat.extend(
+        proportional
+            .iter()
+            .skip(1)
+            .filter(|f| *f != "emoji")
+            .cloned(),
+    );
+    fonts.families.insert(chat_family(), chat);
     let bold = first_readable(BOLD_FONTS);
     let mut bold_family = proportional.clone();
     if let Some(bold) = bold {
@@ -143,6 +155,16 @@ pub fn load_fonts(ctx: &egui::Context) -> Result<FontsFound, String> {
 
 fn first_readable(paths: &[&str]) -> Option<Vec<u8>> {
     paths.iter().find_map(|path| std::fs::read(path).ok())
+}
+
+/// The font family for chat text and emoji: colour emoji win over one-colour symbols.
+pub fn chat_family() -> FontFamily {
+    FontFamily::Name("chat".into())
+}
+
+/// The chat font at the body text size of `ui`.
+pub fn chat_font(ui: &egui::Ui) -> FontId {
+    FontId::new(TextStyle::Body.resolve(ui.style()).size, chat_family())
 }
 
 /// A semibold font of `size`, or regular where no semibold was found.

@@ -231,14 +231,12 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
     painter.rect_filled(rect, radius, theme::TILE);
     match tile.video {
         Some((texture, size)) => {
+            // A textured rounded rect, so the picture itself has round corners on any
+            // background.
             let uv = cover_uv(size, rect.size());
-            painter.image(texture, rect, uv, Color32::WHITE);
-            // Rounds the picture's corners by covering them in the page colour.
-            painter.rect_stroke(
-                rect.expand(1.0),
-                RADIUS + 1,
-                Stroke::new(3.0, theme::PAGE),
-                StrokeKind::Inside,
+            painter.add(
+                egui::epaint::RectShape::filled(rect, radius, Color32::WHITE)
+                    .with_texture(texture, uv),
             );
         }
         None => {
