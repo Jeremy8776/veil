@@ -18,6 +18,7 @@
 //! - Time is passed in, so keyframe timing is tested without sleeping.
 
 pub mod annexb;
+pub mod attention;
 pub mod audio;
 pub mod blur;
 pub mod capture;

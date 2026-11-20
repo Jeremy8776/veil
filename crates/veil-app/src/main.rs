@@ -26,6 +26,7 @@ mod firewall;
 mod icons;
 mod keystore;
 mod layout;
+mod lobby_alert;
 mod log;
 mod logo;
 mod media;

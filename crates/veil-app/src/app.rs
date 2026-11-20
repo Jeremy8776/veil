@@ -74,6 +74,8 @@ pub struct VeilApp {
     pub connection: crate::connection::Store,
     /// How much data calls use, shared with the running call (`data_use.rs`).
     pub data_use: Arc<crate::data_use::DataUseCell>,
+    /// Notifies and flashes the taskbar when someone knocks while you look elsewhere.
+    lobby_alert: crate::lobby_alert::LobbyAlert,
     ctx: egui::Context,
 }
 
@@ -106,6 +108,7 @@ impl VeilApp {
             updates: crate::update::Updates::start(keystore::default_dir(), ctx),
             connection,
             data_use,
+            lobby_alert: crate::lobby_alert::LobbyAlert::default(),
             ctx: ctx.clone(),
         }
     }
@@ -284,6 +287,19 @@ impl VeilApp {
         self.level += (target - self.level) * rate;
     }
 
+    /// Tells you when someone starts waiting in your lobby while Veil is not focused, and
+    /// clears that once you look or the lobby empties (`lobby_alert.rs`).
+    fn alert_lobby(&mut self, ctx: &egui::Context) {
+        let lobby: Vec<(u32, &str)> = match &self.screen {
+            Screen::Call(view) if view.call.is_host => {
+                view.call.lobby.iter().map(|w| (w.id, w.name.as_str())).collect()
+            }
+            _ => Vec::new(),
+        };
+        let focused = ctx.input(|i| i.viewport().focused).unwrap_or(false);
+        self.lobby_alert.apply(&lobby, focused, crate::WINDOW_TITLE);
+    }
+
     /// What you are sending while you share.
     pub fn share_video(&self) -> Option<(egui::TextureId, [usize; 2])> {
         self.share_view.as_ref().map(|t| (t.id(), t.size()))
@@ -333,5 +349,6 @@ impl eframe::App for VeilApp {
                 crate::screens::home::ended(self, ui);
             }
         }
+        self.alert_lobby(&ctx);
     }
 }
