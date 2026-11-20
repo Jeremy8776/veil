@@ -14,8 +14,10 @@ Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design and
 
 ## Build and test
 
-Veil builds on Windows 10 or 11 with Rust 1.98.1 (the version CI uses). `veil-media` and
-`veil-app` use Media Foundation and WASAPI, so they build only on Windows.
+Veil builds on Windows, Linux and macOS with Rust 1.98.1 (the version CI uses). Media uses
+Media Foundation and WASAPI on Windows, Video4Linux2 and ALSA on Linux, and AVFoundation and
+Core Audio on macOS. Linux also needs the development packages listed in
+`.github/workflows/ci.yml`; released Linux binaries need glibc 2.39 or later.
 
 ```bash
 cargo build -p veil-app --release
@@ -35,7 +37,7 @@ Tests marked `#[ignore]` need a camera, microphone or open ports.
 - **Clippy clean.** CI builds with `-D warnings`.
 - **Docs kept true.** If your change alters what Veil protects, what it depends on, or what other
   parties can see, update [docs/TRANSPARENCY.md](docs/TRANSPARENCY.md) in the same pull request.
-- **No new `unsafe`** outside `veil-media`'s Windows bindings, and no new dependency for a few
+- **No new `unsafe`** outside `veil-media`'s documented FFI modules, and no new dependency for a few
   lines of code. A new dependency must pass `tools/licences.py`.
 - **Small files.** Aim for under 500 lines per file. Split by responsibility.
 

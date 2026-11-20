@@ -8,10 +8,10 @@ date, that is a bug.
 
 Veil is early and unaudited. Do not trust it with anything that matters yet.
 
-| Built and tested on localhost | Planned, not built |
+| Implemented (test coverage varies; see section 7) | Planned, not built |
 |---|---|
-| Device keys, safety numbers, signed invites | Capture, encoding and decoding on macOS and Linux |
-| Windows camera capture, H.264 encoding and decoding, Opus audio | Veil's own echo cancellation (Windows' is used where the device offers it) |
+| Device keys, pair and group safety codes, signed invites | Persistent device keys and verified contacts on Linux and macOS |
+| Windows, Linux and macOS camera, H.264 and Opus audio; local noise suppression | Veil's own echo cancellation (Windows' is used where the device offers it) |
 | MLS group keys, the host's lobby, raised hands sent between members | |
 | Per-frame encryption with a layer marker | Signed organisation policy, OIDC or SAML identity |
 | QUIC links pinned to device keys | Metrics export (OpenTelemetry) |
@@ -19,6 +19,7 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 | Forwarder with layer subscriptions | Padding against size analysis |
 | `veil-node`, `veil-probe` | An independent security audit |
 | The desktop app in a real call: host, lobby, guest, video and sound both ways, names and chat | |
+| Screen sharing, including Wayland through KWin or the desktop chooser; chat reactions and lobby alerts | |
 
 [ARCHITECTURE.md](ARCHITECTURE.md) describes the whole design, including the planned parts.
 [HANDOFF.md](HANDOFF.md) says what is done and what is next. To report a hole, see
@@ -137,6 +138,10 @@ system's notification list until then, so anyone who can see your screen can see
   signed-in account can still use it. "New device key" on the home screen replaces it.
 - `verified.keys`: the device keys you marked as verified, sealed the same way. Verified is
   a label for the host; it never lets anyone in.
+- On Linux and macOS these two files are not saved yet: the key and verified contacts last
+  only until Veil closes. Safety codes change on the next run. A node owner who allows your
+  device key must also update that allowance after you restart. Platform keychain support
+  is still needed (`crates/veil-app/src/keystore.rs`).
 - Veil never writes over a saved file it could not open. One that does not open for your
   user is kept as `*.unreadable` (then `.unreadable.2` and on); one that cannot be read at
   all, for example while it is locked, is left as it is, and that run's key or list is not
@@ -376,21 +381,21 @@ grep -rn "shortcut:" crates
 
 ## 7. Not yet tested
 
-- Linux and macOS media on real devices. The camera, microphone and speaker code there is
-  compiled and linted in CI, and OpenH264 encoding and decoding is round-trip tested, but no
-  call has yet run on a Linux or macOS machine.
-- Hole punching across real home routers, and the automatic step from a failed punch to the
-  relay. Every test so far runs on one machine.
+- Broad end-to-end coverage on Linux and macOS. Their camera, microphone and speaker code
+  is compiled and linted in CI. OpenH264 has round-trip tests. Wayland screen capture and
+  stream cleanup have been tried on KDE Plasma 6.8; GNOME, older Plasma and delivery to a
+  remote receiver still need testing.
+- Repeatable internet tests across home routers and mobile carriers: direct, punched and
+  relayed paths, Wi-Fi interruptions, and Auto data use under sustained loss or throttling.
 - A forged MLS commit from a member who is not the host. The check exists; there is no test,
   because the MLS library gives no easy way to build such a commit.
-- Any test on macOS or Linux. Development so far is on Windows.
 - Live camera capture runs only on request (`cargo test -p veil-media --test camera --
   --ignored`), because it turns the camera on. Listing cameras runs in every test pass.
   The microphone test is the same (`--test wasapi -- --ignored`); playback of silence runs in
   every test pass. The desktop app's two-engine call (`cargo test -p veil-app loopback --
   --ignored`) opens ports, the H.264 encoder and the speaker, so it also runs only on request.
-- A call between two copies of the desktop app with real cameras and microphones has not yet
-  been run by a person.
+- The new lobby alerts, group verification, reactions and noise suppression together in a
+  real call, including the operating systems' notification and permission behaviour.
 - The DMG and the AppImage on real machines, and the "Install" button against a real signed
   release. The MSI was installed, upgraded and uninstalled on Windows 11 on 17/11/2026.
 
@@ -401,4 +406,5 @@ is signed). Such a program can already do anything you can.
 
 ## 8. Reporting a security problem
 
-There is no private reporting channel yet. One will be set up before the first public release.
+Use the repository's Security tab and choose **Report a vulnerability**. See
+[SECURITY.md](../SECURITY.md) for the reporting process and supported versions.

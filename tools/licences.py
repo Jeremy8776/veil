@@ -75,7 +75,7 @@ EMBEDDED = [
 
 def main():
     meta = json.loads(subprocess.check_output(
-        ["cargo", "metadata", "--format-version", "1", "--locked"], text=True))
+        ["cargo", "metadata", "--format-version", "1", "--locked"], text=True, encoding="utf-8"))
     members = set(meta["workspace_members"])
     rows, refused = [], []
     for pkg in sorted(meta["packages"], key=lambda p: (p["name"], p["version"])):

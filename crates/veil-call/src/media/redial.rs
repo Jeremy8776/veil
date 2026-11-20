@@ -11,7 +11,8 @@
 //!   with the newest ticket this member was given.
 //! - At most one redial per peer at a time. After a failure the next try waits [`FIRST_GAP`],
 //!   doubling up to [`MAX_GAP`], so a peer that is gone for good costs little.
-//! - A redial is adopted only if the peer is still wanted and has no link by then.
+//! - A redial is adopted only if its target and ticket still match the newest plan and the
+//!   peer is still wanted with no link. Dropping a session clears that plan.
 //! - [`LinkEvent`]s say when a link dropped, when it came back, and the first failed redial of
 //!   each outage, so the app can log them without logging every retry.
 
@@ -77,6 +78,19 @@ enum Target {
     Forwarder { addr: NodeAddr, ticket: Vec<u8> },
 }
 
+impl Target {
+    /// A new epoch may replace the ticket while a connection is still being opened.
+    fn is_current(&self, plan: &Plan) -> bool {
+        match (self, plan) {
+            (Self::Member(peer), Plan::Mesh(peers)) => peers.get(&peer.device) == Some(peer),
+            (Self::Forwarder { addr, ticket }, Plan::Forwarder { addr: now, ticket: newest }) => {
+                addr == now && ticket == newest
+            }
+            _ => false,
+        }
+    }
+}
+
 /// Starts a redial for each wanted peer that has no link and is due.
 pub(super) fn start(ctx: &Ctx, dialer: &Dialer) {
     let now = Instant::now();
@@ -107,10 +121,10 @@ pub(super) fn start(ctx: &Ctx, dialer: &Dialer) {
         let (node, presence) = (dialer.node.clone(), dialer.presence.clone());
         let (relay_only, room_id) = (dialer.relay_only, dialer.room_id);
         tokio::spawn(async move {
-            let result = match target {
-                Target::Member(p) => open_media(&node, presence.as_ref(), &p, relay_only, room_id).await,
+            let result = match &target {
+                Target::Member(p) => open_media(&node, presence.as_ref(), p, relay_only, room_id).await,
                 Target::Forwarder { addr, ticket } => {
-                    ForwarderClient::join(&node, &[addr.addr], addr.key, &ticket)
+                    ForwarderClient::join(&node, &[addr.addr], addr.key, ticket)
                         .await
                         .map(|client| {
                             let extra = Extra { input: None, via: None };
@@ -119,14 +133,23 @@ pub(super) fn start(ctx: &Ctx, dialer: &Dialer) {
                         .map_err(CallError::Forward)
                 }
             };
-            finish(&ctx, peer, result);
+            finish(&ctx, peer, &target, result);
         });
     }
 }
 
 /// Adopts a redial's link, or schedules the next try.
-fn finish(ctx: &Ctx, peer: PublicId, result: Result<(Carrier, Path, Extra), CallError>) {
+fn finish(ctx: &Ctx, peer: PublicId, target: &Target, result: Result<(Carrier, Path, Extra), CallError>) {
     let Some(mut state) = ctx.lock() else { return };
+    if !state.wanted.contains(&peer) || !target.is_current(&state.plan) {
+        state.retry.remove(&peer);
+        if let Ok((carrier, _, _)) = result {
+            carrier.link().close("media routes changed during redial");
+        }
+        drop(state);
+        ctx.changed();
+        return;
+    }
     match result {
         Ok((carrier, path, extra)) => {
             state.retry.remove(&peer);
@@ -174,6 +197,7 @@ pub(super) fn linked(state: &mut State, peer: PublicId) {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -198,5 +222,26 @@ mod tests {
         linked(&mut state, peer);
         assert!(matches!(state.events[..], [LinkEvent::Dropped(_), LinkEvent::Back { .. }]));
         assert!(state.lost.is_empty());
+    }
+
+    #[test]
+    fn a_redial_needs_the_current_forwarder_ticket_and_address() {
+        let addr = NodeAddr { key: PublicId([1; 32]), addr: "127.0.0.1:4433".parse().unwrap() };
+        let target = Target::Forwarder { addr, ticket: vec![1] };
+        assert!(target.is_current(&Plan::Forwarder { addr, ticket: vec![1] }));
+        assert!(!target.is_current(&Plan::Forwarder { addr, ticket: vec![2] }));
+        let moved = NodeAddr { addr: "127.0.0.1:4434".parse().unwrap(), ..addr };
+        assert!(!target.is_current(&Plan::Forwarder { addr: moved, ticket: vec![1] }));
+        assert!(!target.is_current(&Plan::None), "a dropped session accepts no late redial");
+    }
+
+    #[test]
+    fn a_mesh_redial_is_discarded_when_the_peer_moves_or_dial_direction_changes() {
+        let peer = Peer { device: PublicId([1; 32]), addrs: vec!["127.0.0.1:4433".parse().unwrap()] };
+        let target = Target::Member(peer.clone());
+        assert!(target.is_current(&Plan::Mesh(HashMap::from([(peer.device, peer.clone())]))));
+        let moved = Peer { addrs: vec!["127.0.0.1:4434".parse().unwrap()], ..peer };
+        assert!(!target.is_current(&Plan::Mesh(HashMap::from([(moved.device, moved)]))));
+        assert!(!target.is_current(&Plan::Mesh(HashMap::new())));
     }
 }

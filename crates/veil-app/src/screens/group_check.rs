@@ -79,7 +79,11 @@ fn names(list: &[&str]) -> String {
 
 /// Turns the checks into who to verify and the lines to show.
 fn outcome(checks: &[GroupCheck], members: &[Member]) -> Outcome {
-    let by_tag = |tag: &str| members.iter().find(|m| m.tag == tag);
+    let by_tag = |tag: &str| {
+        let mut matches = members.iter().filter(|m| m.tag == tag);
+        let first = matches.next()?;
+        matches.next().is_none().then_some(first)
+    };
     let mut out = Outcome::default();
     let mut matched = Vec::new();
     let mut different = Vec::new();
@@ -92,6 +96,11 @@ fn outcome(checks: &[GroupCheck], members: &[Member]) -> Outcome {
                         out.verify.push(m.id);
                     }
                     matched.push(first_name(&m.name));
+                } else {
+                    out.lines.push((
+                        String::from("This code does not name one person in this call. Check their pair codes instead."),
+                        theme::WARN,
+                    ));
                 }
             }
             GroupCheck::Different(tag) => {
@@ -269,6 +278,19 @@ mod tests {
     fn an_unknown_tag_verifies_nobody() {
         let out = outcome(&[GroupCheck::Match("99999".into())], &group());
         assert!(out.verify.is_empty());
+    }
+
+    #[test]
+    fn a_shared_short_tag_never_verifies_the_first_person_with_that_tag() {
+        let members = [
+            member(1, "Jo", "11111", false),
+            member(2, "Sam", "11111", false),
+            member(3, "Ana", "33333", false),
+        ];
+        let checks = [GroupCheck::Match("11111".into()), GroupCheck::Match("33333".into())];
+        let out = outcome(&checks, &members);
+        assert_eq!(out.verify, [3]);
+        assert!(out.lines.iter().any(|(line, _)| line.contains("pair codes instead")));
     }
 
     #[test]

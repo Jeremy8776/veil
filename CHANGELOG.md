@@ -57,6 +57,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ### Fixed
 
+- A returning media link refreshes video layers, keyframes, names and raised hands. A redial
+  that finishes after the routes change or the call ends is discarded.
+- Group verification no longer picks the first person when two people have the same short
+  tag. It asks you to check their pair codes instead.
+- The dependency licence check reads Cargo's output as UTF-8 on Windows.
+
 - A raised hand now shows for everyone in the call, not only on your own screen. Lowering it
   clears it for the others, and someone who joins later sees hands that are already up. The
   hand is sealed and signed like names and chat. Older versions of Veil do not show it.

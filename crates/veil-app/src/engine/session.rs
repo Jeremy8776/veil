@@ -262,12 +262,17 @@ impl Session {
     }
 
     /// Logs media links that dropped, came back, or could not be dialled again.
-    fn note_link_events(&self) {
+    fn note_link_events(&mut self) {
         for event in self.media.take_events() {
             match event {
                 LinkEvent::Dropped(peer) => crate::note!("call: lost the link to {}", short(&peer)),
                 LinkEvent::Back { peer, after } => {
                     crate::note!("call: linked to {} again after {after:.1?}", short(&peer));
+                    // A fresh forwarder link has no subscriptions, and the peer may have
+                    // missed our last keyframe, name or hand state during the outage.
+                    self.subscribed = None;
+                    self.pipes.ask_keyframes();
+                    self.announcer.restart(Instant::now());
                 }
                 LinkEvent::StillDown(peer, e) => {
                     crate::note!("call: cannot reach {} yet, retrying: {e}", short(&peer));

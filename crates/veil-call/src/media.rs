@@ -219,6 +219,12 @@ impl Drop for MediaSession {
     fn drop(&mut self) {
         self.inbox_task.abort();
         if let Some(mut state) = self.ctx.lock() {
+            // An in-flight redial holds a Ctx too. It must not adopt a link after this
+            // session has gone away, even if it connects successfully a moment later.
+            state.wanted.clear();
+            state.expected.clear();
+            state.plan = redial::Plan::None;
+            state.retry.clear();
             state.links.clear();
             state.early.clear();
         }

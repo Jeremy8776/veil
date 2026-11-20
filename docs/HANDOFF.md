@@ -2,6 +2,29 @@
 
 Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
+## Current work, 20/11/2026
+
+- Latest published release: **v0.1.11**, published 19/11 at 22:27 UTC. Its release workflow
+  passed on retry. There is no pending draft-publication step for that version.
+- Since that release: pre-join sections, remembered choices and the Home update card (#62),
+  chosen-host node access (#72), and raised-hand sync (#64).
+- The integration of #63 and #65–71 adds continuous picture numbering after encoder
+  reopens, media redial, chat reactions, lobby alerts, labelled pair and group codes, local
+  noise suppression, and Wayland sharing (KWin picker on KDE, desktop chooser elsewhere).
+  Hand messages keep their wire number; new chat variants follow them.
+- Redials discard old targets or roster tickets, cannot adopt a link after the session is
+  dropped, and refresh subscriptions, announcements and keyframes when a link returns.
+  Ambiguous short tags in group verification verify nobody; use pair codes instead.
+- Device keys and verified contacts persist on Windows only. Linux/macOS platform keychains
+  remain to be built. A node host allow-list on those systems needs a new key after restart.
+- Next: test the combined changes in a real call, repeat Wi-Fi off/on and cropped-share size
+  changes, and measure Auto on a slow mobile link. KDE capture has been tested on Plasma 6.8;
+  remote delivery, GNOME and older Plasma need coverage. TCP/TLS relay fallback and fully
+  stopping incoming video remain future work.
+
+The sections below also contain historical test notes. Use this snapshot, current code and
+the PR state before acting on an older next-step list.
+
 ## Done (all on `main`, Jeremy8776/veil)
 
 - `veil-security`: device keys, safety numbers, signed invites, per-frame encryption.
@@ -428,8 +451,7 @@ private keys never leave the device. OS randomness is `getrandom::SysRng`.
   than the ladder's capture rate (say 4K at 30 only) is used at 1080p60 if it offers that;
   the app must still fit the ladder to the mode it gets (`Ladder::up_to`).
 - libopus is built without SSE, AVX or NEON (`veil-media/build.rs`).
-- `veil-app` converts camera and decoded pictures to RGBA on the CPU (`convert.rs`). Screen
-  sharing says it is not built yet.
+- `veil-app` converts camera and decoded pictures to RGBA on the CPU (`convert.rs`).
 - `veil-app` plans on assumed capacities, by people count alone (`engine/plan.rs`).
 - `veil-app`'s own forwarder is reachable on the host's network only, and the host's uplink
   carries every stream to every member. Set `VEIL_FORWARDER` for large internet calls
@@ -635,7 +657,8 @@ From 17/11/2026, first:
 - A call with Martin on 0.1.6 to find why leaves go unnoticed (logs from both sides), and
   to test #34 and #38 across the internet. See "0.1.5 and 0.1.6" above.
 - The hand tests listed there.
-- Later: the optional default node. Calls of three or more where no guest has an open port still need a rendezvous.
+- Calls behind carrier-grade NAT use a node chosen by the person, whose owner allows their
+  device key. A built-in default node was rejected on 20/11/2026.
 
 Earlier list:
 
@@ -644,7 +667,7 @@ Earlier list:
 2. `veil-media`, continued: the core, keyframe requests, the Windows H.264 encoder and
    Windows camera capture, Opus, the H.264 decoder, the jitter buffer and WASAPI are done
    (see above). Windows media is complete for a first call. Not yet run: the microphone test
-   (`--ignored`). macOS and Linux back ends come later. Decided
+   (`--ignored`). macOS and Linux back ends are implemented; real-device coverage remains limited. Decided
    15/11/2026: `unsafe` FFI and libopus are allowed in `veil-media` only, under the rules in
    `docs/TRANSPARENCY.md` section 5 (one `ffi` module per OS, `// SAFETY:` on every block,
    `clippy::undocumented_unsafe_blocks` denied, each module listed in that table).
