@@ -19,3 +19,13 @@ _Avoid_: Portrait mode, bokeh, blur (alone)
 **Blur add-on**:
 An optional download, made only when the person asks for it, that lets Background blur trace the person's outline more precisely. Veil works fully without it.
 _Avoid_: Plugin, pack, premium, model (alone), HD blur
+
+## Screen sharing
+
+**Share picker**:
+Veil's own window for choosing what to share and which part of it.
+_Avoid_: Source list, share dialog
+
+**System chooser**:
+The desktop's own dialog for choosing a screen or window to share, used where Veil is not allowed to list them itself. Veil only learns what the person picked there.
+_Avoid_: Portal, permission prompt

@@ -273,6 +273,7 @@ fn capture_item(source: ScreenSource) -> Result<GraphicsCaptureItem, MediaError>
                 interop.CreateForMonitor(HMONITOR(id as usize as *mut c_void))
             }
             ScreenSource::Window(id) => interop.CreateForWindow(HWND(id as usize as *mut c_void)),
+            ScreenSource::Picked(_) => return Err(MediaError::Unavailable("screen capture")),
         }
     }
     .map_err(failed)

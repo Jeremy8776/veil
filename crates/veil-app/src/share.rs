@@ -24,6 +24,8 @@
 //! - Pictures keep flowing while the screen is still, so receivers can tell that sharing goes
 //!   on: they drop a share that has been silent for a few seconds (`engine/video_in.rs`).
 //! - Window titles are never logged or sent.
+//! - Where the desktop's own chooser picks the source (Wayland), it opens in place of the list
+//!   and thumbnails. A picked source stays open only while the picker or a share uses it.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -56,6 +58,7 @@ const MIN_FAILURES: u32 = 3;
 /// How long the picker gets to leave the screen after it closes.
 const PICKER_CLEAR: Duration = Duration::from_millis(500);
 const CANNOT_CAPTURE: &str = "Cannot capture this. Check that Veil may record the screen.";
+const CHOOSER_FAILED: &str = "Your desktop couldn't start screen sharing.";
 
 /// How the picker is being kept out of the share.
 #[derive(Clone, Copy, Debug, Default)]
@@ -108,6 +111,10 @@ struct State {
     thumbnails: Mutex<HashMap<ScreenSource, Rgba>>,
     /// The picker is showing windows rather than screens.
     windows_tab: AtomicBool,
+    /// What the desktop's chooser returned, until taken. `Err` has already been reported.
+    chosen: Mutex<Option<Result<Option<ScreenSource>, ()>>>,
+    /// Counts the desktop's choosers opened or abandoned, so a late answer is let go.
+    chooser: AtomicU32,
     preview: Mutex<Option<Rgba>>,
     /// The newest picture being sent, for your own view.
     sending: Mutex<Option<Rgba>>,
@@ -167,6 +174,8 @@ pub struct ScreenShare {
     live: Option<Worker>,
     preview: Option<Worker>,
     browser: Option<Worker>,
+    /// A source picked in the desktop's chooser that no share has taken yet.
+    picked: Option<ScreenSource>,
 }
 
 impl ScreenShare {
@@ -177,6 +186,7 @@ impl ScreenShare {
             live: None,
             preview: None,
             browser: None,
+            picked: None,
         }
     }
 
@@ -211,6 +221,69 @@ impl ScreenShare {
         *lock(&self.state.error) = None;
         let (state, ctx) = (self.state.clone(), self.ctx.clone());
         self.browser = Some(Worker::spawn(move |stop| browse_loop(&state, &ctx, &stop)));
+    }
+
+    /// Opens the desktop's chooser in place of [`Self::browse`]. Its answer comes from
+    /// [`Self::take_chosen`].
+    pub fn choose_on_desktop(&mut self) {
+        cover_picker(&self.state);
+        *lock(&self.state.error) = None;
+        if let Some(source) = self.picked.take() {
+            screen::release(source);
+        }
+        let asked = self.abandon_chooser() + 1;
+        let (state, ctx) = (self.state.clone(), self.ctx.clone());
+        // Not a `Worker`: the chooser cannot be interrupted, and closing the picker must not
+        // wait for it.
+        std::thread::spawn(move || {
+            let answer = screen::choose_on_desktop();
+            // Checked and stored under the lock that `abandon_chooser` takes.
+            let mut chosen = lock(&state.chosen);
+            if state.chooser.load(Ordering::Acquire) != asked {
+                drop(chosen);
+                if let Ok(Some(source)) = answer {
+                    screen::release(source);
+                }
+                return;
+            }
+            *chosen = Some(answer.map_err(|e| {
+                crate::note!("screen share: the desktop's chooser failed: {e}");
+                *lock(&state.error) = Some(CHOOSER_FAILED.to_string());
+            }));
+            ctx.request_repaint();
+        });
+    }
+
+    /// Lets go of any chooser still open or answered and not taken. Returns the count before.
+    fn abandon_chooser(&self) -> u32 {
+        let mut chosen = lock(&self.state.chosen);
+        let count = self.state.chooser.fetch_add(1, Ordering::AcqRel);
+        let unclaimed = chosen.take();
+        drop(chosen);
+        if let Some(Ok(Some(source))) = unclaimed {
+            screen::release(source);
+        }
+        count
+    }
+
+    /// Abandons any chooser and lets go of a picked source no share has taken.
+    fn forget_picked(&mut self) {
+        self.abandon_chooser();
+        if let Some(source) = self.picked.take() {
+            screen::release(source);
+        }
+    }
+
+    /// The desktop chooser's answer, once: a source, `None` if cancelled, `Err` if it failed
+    /// (see [`Self::error`]).
+    pub fn take_chosen(&mut self) -> Option<Result<Option<ScreenSource>, ()>> {
+        let answer = lock(&self.state.chosen).take()?;
+        if let Ok(Some(source)) = answer
+            && let Some(old) = self.picked.replace(source)
+        {
+            screen::release(old);
+        }
+        Some(answer)
     }
 
     /// What can be shared; `None` until the list has been read.
@@ -254,6 +327,7 @@ impl ScreenShare {
     pub fn close_picker(&mut self) {
         self.stop_preview();
         self.browser = None;
+        self.forget_picked();
         lock(&self.state.thumbnails).clear();
         let mut hold = lock(&self.state.hold);
         *hold = hold.after_closing(Instant::now());
@@ -287,6 +361,10 @@ impl ScreenShare {
 
     /// Starts sharing `source`, or the part of it `crop` covers.
     pub fn start(&mut self, source: ScreenSource, crop: Option<Crop>) {
+        // The share thread lets go of a picked source once it has opened it.
+        if self.picked == Some(source) {
+            self.picked = None;
+        }
         self.close_picker();
         self.live = None;
         *lock(&self.state.error) = None;
@@ -357,7 +435,9 @@ fn share_loop(
     source: ScreenSource,
     crop: Option<Crop>,
 ) {
-    let capture = match ScreenCapture::open_live(source) {
+    let opened = ScreenCapture::open_live(source);
+    screen::release(source);
+    let capture = match opened {
         Ok(capture) => capture,
         Err(e) => return give_up(state, ctx, &e.to_string()),
     };
@@ -388,6 +468,12 @@ fn share_loop(
             Next::Hold => {
                 failures = 0;
                 last_good = Instant::now();
+            }
+            Next::Failed if capture.has_ended() => {
+                crate::note!("screen share: ended by the desktop");
+                state.stopped.store(true, Ordering::Release);
+                ctx.request_repaint();
+                return;
             }
             Next::Failed => {
                 failures += 1;

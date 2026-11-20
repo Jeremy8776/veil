@@ -41,12 +41,6 @@ fn on_open_tab(source: ScreenSource, windows_tab: bool) -> bool {
 }
 
 pub(super) fn browse_loop(state: &State, ctx: &egui::Context, stop: &AtomicBool) {
-    if let Some(reason) = screen::blocked_reason() {
-        *lock(&state.error) = Some(reason.to_string());
-        lock(&state.choices).get_or_insert_with(Vec::new);
-        ctx.request_repaint();
-        return;
-    }
     let mut live = HashMap::new();
     let mut listed = Vec::new();
     let mut next_list = Instant::now();
