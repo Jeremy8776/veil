@@ -26,6 +26,13 @@ const MIN_PREVIEW_W: f32 = 320.0;
 const MAX_PREVIEW_W: f32 = 1200.0;
 /// The card's size until it has been measured, on the first frame.
 const CARD_GUESS: Vec2 = vec2(362.0, 730.0);
+/// The width inside the card, and of each picker in it.
+const CARD_W: f32 = 320.0;
+const PICKER_W: f32 = 280.0;
+/// The card's parts that never scroll: its margins, your name, Start, Back and the note.
+const FIXED_H: f32 = 200.0;
+/// The settings stay at least this tall, however short the window; the page scrolls then.
+const MIN_SCROLL_H: f32 = 160.0;
 
 /// Where the side-by-side layout goes in the space available.
 #[derive(Debug, PartialEq)]
@@ -66,13 +73,18 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
             if space.x > WIDE_FROM {
                 wide(app, ui, host, title, space);
             } else {
-                heading(ui, title);
-                let preview_w = space.x.min(720.0);
-                ui.with_layout(Layout::top_down(Align::Min), |ui| {
-                    preview_column(app, ui, preview_w);
-                    ui.add_space(GAP);
-                    ui.vertical(|ui| details(app, ui, host));
-                });
+                // Stacked, the page itself scrolls, so the card never needs to.
+                egui::ScrollArea::vertical()
+                    .id_salt("prejoin-page")
+                    .show(ui, |ui| {
+                        heading(ui, title);
+                        let preview_w = space.x.min(720.0);
+                        ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                            preview_column(app, ui, preview_w);
+                            ui.add_space(GAP);
+                            ui.vertical(|ui| details(app, ui, host, f32::INFINITY));
+                        });
+                    });
             }
         });
 }
@@ -99,7 +111,13 @@ fn wide(app: &mut VeilApp, ui: &mut egui::Ui, host: bool, title: &str, space: Ve
                 preview_column(app, ui, plan.preview_w);
                 ui.add_space(GAP);
                 // Its own column: inside the row, a card would lay its contents out sideways.
-                ui.vertical(|ui| details(app, ui, host)).response.rect.size()
+                // Capped at the window's height under the title, so the block always fits
+                // and the card's settings scroll instead.
+                let max_h = space.y - HEADER_H;
+                ui.vertical(|ui| details(app, ui, host, max_h))
+                    .response
+                    .rect
+                    .size()
             })
             .inner;
         if (measured - card).length() > 0.5 {
@@ -182,57 +200,22 @@ fn toggles(app: &mut VeilApp, ui: &mut egui::Ui) {
     }
 }
 
-fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
+/// The card: your name, the settings in sections (scrolling when taller than `max_h`
+/// allows), then Start and Back, which never scroll away.
+fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool, max_h: f32) {
     card().show(ui, |ui| {
-        ui.set_width(320.0);
+        ui.set_width(CARD_W);
         ui.label(RichText::new(app.name.trim()).font(theme::bold(18.0)));
         ui.add_space(4.0);
-        let choice = app.media.choice().clone();
-        let lists = &app.devices;
-        if let Some(id) = picker(
-            ui,
-            Icon::Video,
-            "Camera",
-            &lists.cameras,
-            choice.camera.as_deref(),
-            "Default camera",
-        ) {
-            app.media.choose_camera(id);
-        }
-        status(ui, app.media.camera_error());
-        widgets::filter_picker(ui, &app.media);
-        widgets::blur_picker(ui, &app.media);
-        if let Some(id) = picker(
-            ui,
-            Icon::Mic,
-            "Microphone",
-            &lists.mics,
-            choice.mic.as_deref(),
-            "System default",
-        ) {
-            app.media.choose_mic(id);
-        }
-        status(ui, app.media.mic_error());
-        if app.media.mic_on() {
-            level_meter(ui, app.level, 280.0);
-        }
-        if let Some(id) = picker(
-            ui,
-            Icon::Volume,
-            "Speaker",
-            &lists.speakers,
-            choice.speaker.as_deref(),
-            "System default",
-        ) {
-            app.media.choose_speaker(id);
-        }
-        if let Some(choice) = widgets::data_use_picker(ui, app.data_use.get()) {
-            app.set_data_use(choice);
-        }
-        if host && !app.demo {
-            firewall(app, ui);
-            router_question(app, ui);
-        }
+        egui::ScrollArea::vertical()
+            .id_salt("prejoin-settings")
+            .max_height((max_h - FIXED_H).max(MIN_SCROLL_H))
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                video_section(app, ui);
+                audio_section(app, ui);
+                connection_section(app, ui, host);
+            });
         ui.add_space(12.0);
         let action = if host { "Start call" } else { "Join now" };
         if pill(ui, Some(Icon::Video), action, Tone::Primary, 280.0).clicked() {
@@ -249,6 +232,76 @@ fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
         };
         ui.label(RichText::new(note).small().color(MUTED));
     });
+}
+
+/// A section title, with a thin line above every section but the first.
+fn section(ui: &mut egui::Ui, title: &str, first: bool) {
+    if !first {
+        ui.add_space(10.0);
+        let (rect, _) = ui.allocate_exact_size(vec2(PICKER_W, 1.0), Sense::hover());
+        ui.painter().rect_filled(rect, 0.0, theme::LINE);
+        ui.add_space(6.0);
+    }
+    ui.label(RichText::new(title).font(theme::bold(14.0)));
+    ui.add_space(2.0);
+}
+
+fn video_section(app: &mut VeilApp, ui: &mut egui::Ui) {
+    section(ui, "Video", true);
+    let chosen = app.media.choice().camera.clone();
+    if let Some(id) = picker(
+        ui,
+        Icon::Video,
+        "Camera",
+        &app.devices.cameras,
+        chosen.as_deref(),
+        "Default camera",
+    ) {
+        app.media.choose_camera(id);
+    }
+    status(ui, app.media.camera_error());
+    widgets::filter_picker(ui, &app.media);
+    widgets::blur_picker(ui, &app.media);
+}
+
+fn audio_section(app: &mut VeilApp, ui: &mut egui::Ui) {
+    section(ui, "Audio", false);
+    let choice = app.media.choice().clone();
+    if let Some(id) = picker(
+        ui,
+        Icon::Mic,
+        "Microphone",
+        &app.devices.mics,
+        choice.mic.as_deref(),
+        "System default",
+    ) {
+        app.media.choose_mic(id);
+    }
+    status(ui, app.media.mic_error());
+    if app.media.mic_on() {
+        level_meter(ui, app.level, PICKER_W);
+    }
+    if let Some(id) = picker(
+        ui,
+        Icon::Volume,
+        "Speaker",
+        &app.devices.speakers,
+        choice.speaker.as_deref(),
+        "System default",
+    ) {
+        app.media.choose_speaker(id);
+    }
+}
+
+fn connection_section(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
+    section(ui, "Connection", false);
+    if let Some(choice) = widgets::data_use_picker(ui, app.data_use.get()) {
+        app.set_data_use(choice);
+    }
+    if host && !app.demo {
+        firewall(app, ui);
+        router_question(app, ui);
+    }
 }
 
 /// For a host: whether guests can reach you, and the button that lets them.
@@ -337,7 +390,10 @@ mod tests {
     fn a_short_window_limits_the_preview_by_height() {
         let plan = wide_plan(vec2(1800.0, 700.0), CARD, 24.0);
         assert!(plan.preview_w * 9.0 / 16.0 + HEADER_H + CONTROLS_H <= 700.5);
-        assert!(plan.offset.x > 0.0, "the spare width is shared on both sides");
+        assert!(
+            plan.offset.x > 0.0,
+            "the spare width is shared on both sides"
+        );
     }
 
     #[test]

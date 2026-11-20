@@ -17,7 +17,6 @@
 //! - Reading stops at `MAX_FILE` bytes; each field is at most `MAX_FIELD` characters.
 
 use std::fs;
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -242,33 +241,11 @@ impl Store {
 
 /// `Ok(None)` when there is no file yet.
 fn load(dir: &Path) -> Result<Option<Settings>, String> {
-    let file = match fs::File::open(dir.join(FILE)) {
-        Ok(file) => file,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e.to_string()),
-    };
-    let mut text = String::new();
-    file.take(MAX_FILE + 1)
-        .read_to_string(&mut text)
-        .map_err(|e| e.to_string())?;
-    if text.len() as u64 > MAX_FILE {
-        return Err(String::from("the file is too large"));
-    }
-    serde_json::from_str(&text)
-        .map(Some)
-        .map_err(|e| format!("not valid settings: {e}"))
+    crate::json_file::load(dir, FILE, MAX_FILE)
 }
 
 fn write(dir: &Path, settings: &Settings) -> Result<(), String> {
-    let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let temp = dir.join(format!("{FILE}.new"));
-    let mut file = fs::File::create(&temp).map_err(|e| e.to_string())?;
-    file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
-    // On disk before the rename, so a crash never leaves the name on an empty file.
-    file.sync_all().map_err(|e| e.to_string())?;
-    drop(file);
-    fs::rename(&temp, dir.join(FILE)).map_err(|e| e.to_string())
+    crate::json_file::write(dir, FILE, settings)
 }
 
 #[cfg(test)]
