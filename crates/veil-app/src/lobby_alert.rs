@@ -1,18 +1,23 @@
 //! Telling a host who is not looking that someone is waiting in the lobby.
 //!
 //! Purpose: the People button's badge only helps while Veil is in front. When a guest starts
-//! waiting and Veil's window is not focused, Windows shows a notification and the taskbar
-//! button flashes, until the host looks at Veil or nobody is waiting any more.
+//! waiting and Veil's window is not focused, the system shows a notification and Veil's
+//! taskbar button flashes (Windows), its Dock icon bounces (macOS) or its window is marked
+//! urgent (Linux), until the host looks at Veil or nobody is waiting any more.
 //!
 //! Invariants:
 //! - Only new arrivals cause a notification, and only while the window is not focused.
 //!   Someone already seen does not cause another, however many frames pass.
 //! - The flash and the notifications are cleared once: when the window gets focus, or when
 //!   the lobby empties (everyone let in, declined or gone).
-//! - [`LobbyAlert::update`] is pure; [`LobbyAlert::apply`] does the platform calls
-//!   (`veil_media::attention`), which do nothing off Windows.
+//! - [`LobbyAlert::update`] is pure. [`LobbyAlert::apply`] asks the window for attention
+//!   through egui and hands notifications to one worker thread, in order, because they can
+//!   block (`veil_media::attention`).
 
 use std::collections::HashSet;
+use std::sync::mpsc::{self, Sender};
+
+use eframe::egui::{self, UserAttentionType, ViewportCommand};
 
 /// What to do this frame.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -31,6 +36,14 @@ pub struct LobbyAlert {
     seen: HashSet<u32>,
     /// The taskbar button is flashing or a notification may be showing.
     raised: bool,
+    /// The notification thread, started on first use.
+    worker: Option<Sender<Job>>,
+}
+
+/// Work for the notification thread.
+enum Job {
+    Show(String),
+    Clear,
 }
 
 impl LobbyAlert {
@@ -54,23 +67,57 @@ impl LobbyAlert {
         alert
     }
 
-    /// Runs [`Self::update`] and makes the platform calls for `window`, the main window's
-    /// title.
-    pub fn apply(&mut self, lobby: &[(u32, &str)], focused: bool, window: &str) {
+    /// Runs [`Self::update`] and acts on it. `window` is the main window's title.
+    pub fn apply(
+        &mut self,
+        ctx: &egui::Context,
+        lobby: &[(u32, &str)],
+        focused: bool,
+        window: &'static str,
+    ) {
         let alert = self.update(lobby, focused);
         if alert.clear {
-            veil_media::attention::flash(window, false);
-            veil_media::attention::clear_notifications();
+            ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(UserAttentionType::Reset));
+            self.send(Job::Clear, window);
         }
-        if let Some(text) = &alert.notify
-            && let Err(e) = veil_media::attention::notify(window, text, "Open Veil to let them in.")
-        {
-            crate::log::note(&format!("Lobby notification not shown: {e}"));
+        if let Some(text) = alert.notify {
+            self.send(Job::Show(text), window);
         }
         if alert.flash {
-            veil_media::attention::flash(window, true);
+            let attention = UserAttentionType::Critical;
+            ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(attention));
         }
     }
+
+    fn send(&mut self, job: Job, window: &'static str) {
+        let worker = self.worker.get_or_insert_with(|| start_worker(window));
+        // A worker that could not start drops its end; the flash still works.
+        let _ = worker.send(job);
+    }
+}
+
+/// The thread that shows and clears notifications. It ends when [`LobbyAlert`] is dropped.
+fn start_worker(window: &'static str) -> Sender<Job> {
+    let (sender, jobs) = mpsc::channel::<Job>();
+    let started = std::thread::Builder::new()
+        .name("lobby-alert".into())
+        .spawn(move || {
+            for job in jobs {
+                match job {
+                    Job::Show(text) => {
+                        let body = "Open Veil to let them in.";
+                        if let Err(e) = veil_media::attention::notify(window, &text, body) {
+                            crate::log::note(&format!("Lobby notification not shown: {e}"));
+                        }
+                    }
+                    Job::Clear => veil_media::attention::clear_notifications(),
+                }
+            }
+        });
+    if let Err(e) = started {
+        crate::log::note(&format!("Lobby notifications off: {e}"));
+    }
+    sender
 }
 
 /// "Ana wants to join", or "Ana and 2 others want to join".

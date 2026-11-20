@@ -33,7 +33,7 @@ mod sample;
 mod screen_stream;
 
 pub use app_window::{is_app_window, set_hidden_from_capture};
-pub use attention::{clear_notifications, flash_taskbar, show_notification};
+pub use attention::{clear_notifications, show_notification};
 pub use audio::{WasapiCapture, WasapiPlayback};
 pub use audio_devices::{AudioDevice, microphones, speakers};
 pub use camera::{CameraInfo, MfCamera, cameras};

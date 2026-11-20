@@ -297,7 +297,7 @@ impl VeilApp {
             _ => Vec::new(),
         };
         let focused = ctx.input(|i| i.viewport().focused).unwrap_or(false);
-        self.lobby_alert.apply(&lobby, focused, crate::WINDOW_TITLE);
+        self.lobby_alert.apply(ctx, &lobby, focused, crate::WINDOW_TITLE);
     }
 
     /// What you are sending while you share.

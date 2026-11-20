@@ -6,10 +6,11 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ### Added
 
-- **Lobby alerts** for the host on Windows. When someone starts waiting in your lobby while
-  Veil is in the background, Windows shows "Ana wants to join" and Veil's taskbar button
-  flashes. Clicking the notification brings Veil to the front. Both clear when you look at
-  Veil or nobody is waiting.
+- **Lobby alerts** for the host. When someone starts waiting in your lobby while Veil is in
+  the background, you get a notification ("Ana wants to join") and Veil asks for attention:
+  the taskbar button flashes on Windows, the Dock icon bounces on macOS, and the window is
+  marked urgent on Linux. Clicking the notification brings Veil to the front. Both clear
+  when you look at Veil or nobody is waiting.
 
 ## 0.1.11, 19/11/2026
 

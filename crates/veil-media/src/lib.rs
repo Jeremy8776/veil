@@ -30,11 +30,15 @@ pub mod effects;
 pub mod encoder;
 pub mod error;
 pub mod ffi;
+#[cfg(target_os = "linux")]
+mod freedesktop;
 pub mod gate;
 pub mod jitter;
 pub mod ladder;
 #[cfg(any(target_os = "linux", test))]
 pub mod mjpeg;
+#[cfg(target_os = "macos")]
+mod notify_macos;
 pub mod payload;
 pub mod platform;
 pub mod remix;

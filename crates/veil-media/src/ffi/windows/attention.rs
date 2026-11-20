@@ -1,12 +1,12 @@
-//! Getting the host's attention while Veil is in the background: a notification and a
-//! flashing taskbar button. Part of the Windows `ffi` module; the same rules apply (see
-//! `mod.rs`).
+//! Notifications that get the host's attention while Veil is in the background. Part of the
+//! Windows `ffi` module; the same rules apply (see `mod.rs`). The taskbar flash is asked for
+//! through the window (egui's `RequestUserAttention`), not here.
 //!
 //! Purpose: someone waiting in the lobby can only be let in by the host, so the host needs to
 //! know even when another app is in front.
 //!
 //! Invariants:
-//! - Only Veil's own window is flashed or brought forward (`own_window`).
+//! - Only Veil's own window is brought forward (`own_window`).
 //! - Notification text goes in through XML text nodes, never pasted into XML, so a guest's
 //!   chosen name cannot add markup or actions to the notification.
 //! - Windows shows notifications from an app that is not packaged only under a registered app
@@ -17,8 +17,7 @@ use windows::Foundation::TypedEventHandler;
 use windows::UI::Notifications::{ToastNotification, ToastNotificationManager, ToastTemplateType};
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RegSetKeyValueW};
 use windows::Win32::UI::WindowsAndMessaging::{
-    FLASHW_STOP, FLASHW_TIMERNOFG, FLASHW_TRAY, FLASHWINFO, FlashWindowEx, IsIconic, SW_RESTORE,
-    SetForegroundWindow, ShowWindow,
+    IsIconic, SW_RESTORE, SetForegroundWindow, ShowWindow,
 };
 use windows::core::{HSTRING, PCWSTR};
 
@@ -27,32 +26,13 @@ use super::app_window::own_window;
 /// The id Veil's notifications are shown under. Settings > Notifications lists them as Veil.
 const APP_ID: &str = "Veil.VideoCalls";
 
-/// Flashes this process's window called `title` in the taskbar until it comes to the front,
-/// or stops it. False if there is no such window.
-pub fn flash_taskbar(title: &str, on: bool) -> bool {
-    let Some(window) = own_window(title) else {
-        return false;
-    };
-    let info = FLASHWINFO {
-        cbSize: size_of::<FLASHWINFO>() as u32,
-        hwnd: window,
-        dwFlags: if on {
-            FLASHW_TRAY | FLASHW_TIMERNOFG
-        } else {
-            FLASHW_STOP
-        },
-        uCount: 0,
-        dwTimeout: 0,
-    };
-    // SAFETY: `info` is a fully initialised FLASHWINFO with its own size, alive for the call,
-    // and the window belongs to this process. The return value is the old state, not an error.
-    let _ = unsafe { FlashWindowEx(&info) };
-    true
-}
-
 /// Shows a notification with a bold `heading` and a `body` line. Clicking it brings this
 /// process's window called `window` to the front.
-pub fn show_notification(window: &str, heading: &str, body: &str) -> windows::core::Result<()> {
+pub fn show_notification(window: &str, heading: &str, body: &str) -> Result<(), String> {
+    show(window, heading, body).map_err(|e| e.to_string())
+}
+
+fn show(window: &str, heading: &str, body: &str) -> windows::core::Result<()> {
     register_app_id()?;
     let content = ToastNotificationManager::GetTemplateContent(ToastTemplateType::ToastText02)?;
     let lines = content.GetElementsByTagName(&HSTRING::from("text"))?;

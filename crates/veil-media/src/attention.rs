@@ -1,41 +1,32 @@
-//! Getting your attention while Veil is in the background, on every platform.
+//! Notifications that get your attention while Veil is in the background, under one set of
+//! names on every platform.
 //!
-//! Purpose: one set of names for the app. On Windows these show a notification and flash the
-//! taskbar button (`ffi/windows/attention.rs`); elsewhere they do nothing yet.
+//! | | Windows | Linux | macOS |
+//! |---|---|---|---|
+//! | Notification | Windows notifications (`ffi/windows/attention.rs`) | freedesktop.org service on D-Bus (`freedesktop.rs`) | User Notifications (`notify_macos.rs`) |
+//! | Clicking it | brings Veil's window forward | the desktop's own behaviour | opens Veil |
+//!
+//! The taskbar flash or Dock bounce is not here: the app asks for it through its window
+//! (egui's `RequestUserAttention`).
 //!
 //! Invariants:
-//! - `window` is the main window's title; only this process's window of that name is touched.
+//! - Calls may block (D-Bus, WinRT), so the app makes them off its interface thread.
+//! - `window` is the main window's title; only this process's window of that name is
+//!   touched.
 
-/// Flashes the taskbar button of this process's window called `window` until it comes to the
-/// front (`on`), or stops it.
 #[cfg(windows)]
-pub fn flash(window: &str, on: bool) {
-    crate::ffi::windows::flash_taskbar(window, on);
-}
+use crate::ffi::windows as imp;
+#[cfg(target_os = "linux")]
+use crate::freedesktop as imp;
+#[cfg(target_os = "macos")]
+use crate::notify_macos as imp;
 
-/// Shows a notification. Clicking it brings this process's window called `window` forward.
-#[cfg(windows)]
+/// Shows a notification with a bold `heading` and a `body` line.
 pub fn notify(window: &str, heading: &str, body: &str) -> Result<(), String> {
-    crate::ffi::windows::show_notification(window, heading, body).map_err(|e| e.to_string())
+    imp::show_notification(window, heading, body)
 }
 
 /// Takes away the notifications [`notify`] showed.
-#[cfg(windows)]
 pub fn clear_notifications() {
-    crate::ffi::windows::clear_notifications();
+    imp::clear_notifications();
 }
-
-/// shortcut: no taskbar flash off Windows yet. Add each system's call (an urgency hint on
-/// Linux, a Dock bounce on macOS) once hosting has been tested there.
-#[cfg(not(windows))]
-pub fn flash(_window: &str, _on: bool) {}
-
-/// shortcut: no notification off Windows yet. Add each system's call once hosting has been
-/// tested there.
-#[cfg(not(windows))]
-pub fn notify(_window: &str, _heading: &str, _body: &str) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(not(windows))]
-pub fn clear_notifications() {}
