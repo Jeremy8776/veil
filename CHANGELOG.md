@@ -14,6 +14,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   Reactions are sealed and signed like chat. Messages from Veil 0.1.11 and earlier show as
   before but take no reactions, and 0.1.11 cannot read chat from this version.
 
+- **Lobby alerts** for the host. When someone starts waiting in your lobby while Veil is in
+  the background, you get a notification ("Ana wants to join") and Veil asks for attention:
+  the taskbar button flashes on Windows, the Dock icon bounces on macOS, and the window is
+  marked urgent on Linux. Clicking the notification brings Veil to the front. Both clear
+  when you look at Veil or nobody is waiting.
+
 ### Changed
 
 - The pre-join card is grouped into Video, Audio and Connection, and scrolls in a short

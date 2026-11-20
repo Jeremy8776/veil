@@ -24,7 +24,7 @@ use windows::core::{HSTRING, PCWSTR};
 
 /// This process's top-level window called `title`. Other apps may have a window of the same
 /// name, such as a folder called Veil, so each match is checked.
-fn own_window(title: &str) -> Option<HWND> {
+pub(super) fn own_window(title: &str) -> Option<HWND> {
     let title = HSTRING::from(title);
     let mut after = None;
     loop {

@@ -286,13 +286,9 @@ mod tests {
         let mut receiver = FrameReceiver::new(&SECRET, EPOCH).unwrap();
         for message in [
             AppMessage::name("  Jo Bloggs ").unwrap(),
-<<<<<<< HEAD
-            AppMessage::chat("Hello\nsecond line\twith a tab, and émoji 🎉").unwrap(),
+            AppMessage::chat(1, "Hello\nsecond line\twith a tab, and émoji 🎉").unwrap(),
             AppMessage::Hand(true),
             AppMessage::Hand(false),
-=======
-            AppMessage::chat(1, "Hello\nsecond line\twith a tab, and émoji 🎉").unwrap(),
->>>>>>> origin/feat/chat-reactions
         ] {
             let sealed = message.seal(&mut sender, &jo).unwrap();
             let (leaf, plain) = receiver.decrypt(&sealed).unwrap();

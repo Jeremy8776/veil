@@ -28,6 +28,7 @@ mod icons;
 mod json_file;
 mod keystore;
 mod layout;
+mod lobby_alert;
 mod log;
 mod logo;
 mod media;

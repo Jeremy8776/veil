@@ -101,6 +101,22 @@ thread of its own while blur is on, and nothing is sent anywhere to do it.
   your background is never sent sharp unless you turn blur off yourself. Until the first
   result is ready after you turn blur on, the whole picture is blurred.
 
+**Lobby alerts** (host, `veil-app/src/lobby_alert.rs`): when someone starts waiting in your
+lobby and Veil's window is not in front, the system shows a notification with the name they
+chose ("Ana wants to join"), and Veil asks for attention through its window: the taskbar
+button flashes on Windows, the Dock icon bounces on macOS, and the window is marked urgent on
+Linux. Both stop when you look at Veil or nobody is waiting. The notification stays in the
+system's notification list until then, so anyone who can see your screen can see the name.
+- Windows: to show notifications at all, Veil writes its display name under
+  `HKEY_CURRENT_USER\Software\Classes\AppUserModelId\Veil.VideoCalls`. Nothing else is
+  written, and uninstalling leaves that key. Settings > System > Notifications > Veil turns
+  them off.
+- macOS: the first notification makes macOS ask whether Veil may show notifications. Only
+  Veil.app can show them, not a copy started outside the app bundle.
+- Linux: sent to the desktop's notification service on the session D-Bus
+  (`org.freedesktop.Notifications`, through the `zbus` crate). The text is escaped, so a
+  name cannot add markup.
+
 **Kept on your device** (desktop app, Windows, in `%LOCALAPPDATA%\Veil`):
 - `device.key`: your device key. The same key is used for every call, so a safety number
   you checked once still holds next time. Sealed with Windows DPAPI, so the file opens only
@@ -278,7 +294,8 @@ in C and assembly. It is licensed Apache-2.0 and ISC. The desktop app (`veil-app
 (DirectX 12 or Vulkan on Windows) through their own `unsafe` code; Veil's own app code has none.
 On Linux and macOS, `veil-media` reaches the microphone and speakers through `cpal` (ALSA,
 Core Audio) and the Linux camera through `v4l` (Video4Linux2 ioctls); both crates hold their
-own `unsafe` code, and Veil's code that uses them has none. MJPEG camera pictures on Linux are
+own `unsafe` code, and Veil's code that uses them has none. On macOS, lobby notifications go
+through `objc2-user-notifications`, which also holds its own `unsafe` code. MJPEG camera pictures on Linux are
 decoded by `zune-jpeg`, which is pure Rust.
 
 **Fonts and icons:** none are bundled. `veil-app` reads the system's own UI, symbol and icon
@@ -322,6 +339,7 @@ Veil's licence. On Windows, `build.rs` embeds it in the exe with `winresource`.
 | `veil-media/src/ffi/windows/camera.rs` | Media Foundation capture (`MFEnumDeviceSources`, the camera's `IMFMediaSource`, `MFCreateSourceReaderFromMediaSource`, `IMFSourceReader::ReadSample`, `IMF2DBuffer2::Lock2DSize`) | Camera pictures on Windows, converted to NV12 by Windows' own video processing. Each picture is copied out of the locked buffer, within the bounds Windows reports, before it is used. The camera's name stays on the device; nothing about it is sent |
 | `veil-media/src/ffi/windows/app_window.rs` | `GetWindowLongW` (extended style), `GetWindow` (owner), `FindWindowExW`, `GetWindowThreadProcessId`, `SetWindowDisplayAffinity` | Leaving overlays and helper windows out of the screen share picker, by reading those two properties of each window. Veil's sharing bar, and its main window while the picker is open, are found by their fixed titles, checked to belong to Veil, and kept out of screen captures |
 | `veil-media/src/ffi/windows/screen_stream.rs` | Windows Graphics Capture (`GraphicsCaptureItem` through `IGraphicsCaptureItemInterop`, `Direct3D11CaptureFramePool`, `GraphicsCaptureSession`) and Direct3D 11 (`D3D11CreateDevice`, `CreateTexture2D`, `CopySubresourceRegion`, `Map`, `Unmap`) | The live picture of a shared screen or window, and of the thumbnails while the picker is open. Each picture is copied out within the row pitch Windows reports. Thumbnails stay on your device. Only after you press Share are pictures sealed and sent like camera video |
+| `veil-media/src/ffi/windows/attention.rs` | When a notification is clicked, `IsIconic`, `ShowWindow` and `SetForegroundWindow` on Veil's own window (found as in `app_window.rs`); `RegSetKeyValueW` for the app id's display name; Windows notifications (`ToastNotificationManager`, `ToastNotification`, `XmlDocument` text nodes) | Telling a host whose window is in the background that someone is waiting in the lobby. The guest's name goes in as an XML text node, so it cannot add markup or actions to the notification. It sits in `veil-media` only because all of Veil's `unsafe` code does |
 | `veil-media/src/ffi/windows/protect.rs` | DPAPI (`CryptProtectData`, `CryptUnprotectData` with `CRYPTPROTECT_UI_FORBIDDEN` and a per-purpose label as extra entropy, `LocalFree`) | Sealing `veil-app`'s saved device key and verified list to the signed-in Windows user. It sits in `veil-media` only because all of Veil's `unsafe` code does |
 | `veil-media/src/ffi/opus.rs` (every platform) | libopus: `opus_encoder_create`, `opus_encode_float`, `opus_encoder_ctl`, `opus_decoder_create`, `opus_decode_float`, the matching `_destroy` calls, `opus_get_version_string` | Opus audio. Every buffer is a Rust slice whose length is the count passed to libopus, and packet lengths are checked before decoding. Each state is freed once, on drop |
 | `veil-media/src/ffi/openh264.rs` (Linux and macOS; also built for its tests on Windows) | OpenH264's encoder and decoder through their vtables: `WelsCreateSVCEncoder`, `GetDefaultParams`, `InitializeExt`, `SetOption`, `ForceIntraFrame`, `EncodeFrame`, `WelsCreateDecoder`, `Initialize`, `DecodeFrameNoDelay`, `Uninitialize` and the matching `WelsDestroy*` calls | H.264 off Windows, one encoder per simulcast rung with temporal layers, and decoding other members' video. The bitstream comes from another member, so OpenH264's decoder is part of the attack surface. Veil refuses any decoded size above 4K, reads each output plane only within the rows and pitch OpenH264 reports, and copies it out before the next call. Each encoder and decoder is destroyed once, on drop |
