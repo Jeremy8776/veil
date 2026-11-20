@@ -197,6 +197,9 @@ pub async fn run(
                         }
                     }
                 }
+                Some(HostEvent::Refused(device, reason)) => {
+                    crate::note!("call: turned {} away: {reason:?}", short(&device));
+                }
                 Some(HostEvent::Error(e)) => crate::note!("group error: {e}"),
             },
             () = session.pump() => {}

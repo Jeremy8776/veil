@@ -108,6 +108,9 @@ pub(super) async fn run_inbox(
                 let Some(mut state) = ctx.lock() else { break };
                 if state.links.get(&peer).is_some_and(|e| e.id == id) {
                     state.links.remove(&peer);
+                    if state.wanted.contains(&peer) {
+                        super::redial::dropped(&mut state, peer);
+                    }
                 }
             }
         }

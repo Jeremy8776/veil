@@ -81,6 +81,9 @@ pub async fn run(mut args: HostArgs) -> Result<(), String> {
                     print_invite(&host, &args).await?;
                 }
                 Some(HostEvent::Left(device)) => println!("{} left", short(&device)),
+                Some(HostEvent::Refused(device, reason)) => {
+                    println!("turned {} away: {reason:?}", short(&device));
+                }
                 Some(HostEvent::Keys(keys)) => {
                     let roster = keys.roster.clone();
                     session.on_keys(keys);

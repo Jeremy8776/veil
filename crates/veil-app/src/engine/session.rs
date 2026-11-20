@@ -26,7 +26,8 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time::{Interval, MissedTickBehavior, interval};
 use veil_call::{
-    AppError, AppMessage, EpochKeys, Incoming, KeyRing, Media, MediaSession, Path, Routes,
+    AppError, AppMessage, EpochKeys, Incoming, KeyRing, LinkEvent, Media, MediaSession, Path,
+    Routes,
 };
 use veil_forward::Wanted;
 use veil_media::{AudioHeader, AudioSettings, OpusEncoder};
@@ -245,10 +246,27 @@ impl Session {
             Some(pcm) = self.pipes.sound.recv() => self.send_audio(&pcm),
             Some(id) = self.pipes.keyframes.recv() => self.ask_keyframe(id).await,
             _ = self.tick.tick() => {
+                self.media.redial();
+                self.note_link_events();
                 self.refresh_paths();
                 self.sample_stats();
                 self.announce().await;
                 self.subscribe().await;
+            }
+        }
+    }
+
+    /// Logs media links that dropped, came back, or could not be dialled again.
+    fn note_link_events(&self) {
+        for event in self.media.take_events() {
+            match event {
+                LinkEvent::Dropped(peer) => crate::note!("call: lost the link to {}", short(&peer)),
+                LinkEvent::Back { peer, after } => {
+                    crate::note!("call: linked to {} again after {after:.1?}", short(&peer));
+                }
+                LinkEvent::StillDown(peer, e) => {
+                    crate::note!("call: cannot reach {} yet, retrying: {e}", short(&peer));
+                }
             }
         }
     }

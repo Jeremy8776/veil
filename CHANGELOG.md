@@ -2,6 +2,21 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Fixed
+
+- A member whose connection dropped for a moment (for example Wi-Fi off and on) no longer
+  stays on "Connecting" until someone joins or leaves. Veil now links up again by itself,
+  trying again after 1, 2, 4, 8 and then every 16 seconds.
+- Re-opening an invite link that was already used now says so, and asks you to get a new one
+  from the host. It used to say "The host did not let you in."
+
+### Changed
+
+- `veil.log` now notes when a link to someone drops and when it comes back, and the host's
+  log notes each joiner it turns away, with the reason.
+
 ## 0.1.11, 19/11/2026
 
 ### Added

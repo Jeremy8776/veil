@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc::UnboundedReceiver;
 use veil_call::{
-    AppMessage, CallError, CallNode, Directory, EpochKeys, HostEvent, HostHandle, KeyRing, Media,
-    MediaSession, MemberEvent, MemberHandle, Path, Peer, Routes, join,
+    AppMessage, CallError, CallNode, Directory, EpochKeys, HostEvent, HostHandle, KeyRing,
+    LinkEvent, Media, MediaSession, MemberEvent, MemberHandle, Path, Peer, Routes, join,
 };
 use veil_forward::{ForwarderServer, Limits};
 use veil_net::{Node, NodeAddr};
@@ -592,4 +592,52 @@ async fn app_messages_reach_every_member_in_a_mesh_and_through_a_forwarder() {
         let too_big = vec![0; veil_net::control::MAX_APP_LEN + 1];
         assert_eq!(sessions[1].send_app(&too_big).await, 0);
     }
+}
+
+/// Cuts one member's links, as a Wi-Fi blip would, then redials on the app's tick (with no
+/// new routes) until every link is back, and checks media flows again.
+async fn cut_and_redial(call: &mut Call, sessions: &mut [MediaSession]) {
+    let before: Vec<usize> = sessions.iter().map(|m| m.paths().len()).collect();
+    sessions[1].cut_links_for_test();
+    within(async {
+        // Wait for the cut to be seen, so the loop below cannot pass on the old links.
+        while !sessions[1].paths().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        loop {
+            sessions.iter().for_each(MediaSession::redial);
+            let now: Vec<usize> = sessions.iter().map(|m| m.paths().len()).collect();
+            if now == before {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    })
+    .await;
+    let events = sessions[1].take_events();
+    assert!(events.iter().any(|e| matches!(e, LinkEvent::Dropped(_))), "{events:?}");
+    assert!(events.iter().any(|e| matches!(e, LinkEvent::Back { .. })), "{events:?}");
+    // Let a forwarder register the rejoined member's readers before the first frame.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    for from in 0..sessions.len() {
+        frame_reaches_everyone(call, sessions, from).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_dropped_mesh_link_is_dialled_again_without_new_routes() {
+    let mut call = Call::start(Some(start_rendezvous())).await;
+    call.admit_direct().await;
+    call.admit_direct().await;
+    let mut sessions = call.media(false, None).await;
+    cut_and_redial(&mut call, &mut sessions).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_dropped_forwarder_link_is_joined_again_without_new_routes() {
+    let forwarder = start_forwarder();
+    let mut call = Call::start(None).await;
+    call.admit_direct().await;
+    let mut sessions = call.media(true, Some(forwarder)).await;
+    cut_and_redial(&mut call, &mut sessions).await;
 }
