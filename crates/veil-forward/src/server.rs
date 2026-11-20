@@ -199,7 +199,8 @@ pub struct ForwarderServer {
     state: Shared,
     budgets: Arc<Budgets>,
     limits: Limits,
-    only_host: Option<PublicId>,
+    /// When set, the only hosts whose rooms this forwarder serves.
+    hosts: Option<Arc<HashSet<PublicId>>>,
 }
 
 impl ForwarderServer {
@@ -209,14 +210,20 @@ impl ForwarderServer {
             state: Shared::default(),
             budgets: Arc::default(),
             limits,
-            only_host: None,
+            hosts: None,
         }
     }
 
     /// Serves only rooms whose tickets `host` signed. For a forwarder a participant runs for
     /// its own call.
-    pub fn only_host(mut self, host: PublicId) -> Self {
-        self.only_host = Some(host);
+    pub fn only_host(self, host: PublicId) -> Self {
+        self.only_hosts([host])
+    }
+
+    /// Serves only rooms whose tickets one of `hosts` signed. For a node one person runs for
+    /// themselves and the people they choose.
+    pub fn only_hosts(mut self, hosts: impl IntoIterator<Item = PublicId>) -> Self {
+        self.hosts = Some(Arc::new(hosts.into_iter().collect()));
         self
     }
 
@@ -243,7 +250,7 @@ impl ForwarderServer {
         while let Some(incoming) = self.node.accept().await {
             if let Ok(link) = incoming {
                 let (state, budgets) = (self.state.clone(), self.budgets.clone());
-                tokio::spawn(serve(link, state, budgets, self.limits, self.only_host));
+                tokio::spawn(serve(link, state, budgets, self.limits, self.hosts.clone()));
             }
         }
     }
@@ -430,7 +437,7 @@ async fn refuse(link: &Link, out: &mut FramedSend, refusal: Refusal) {
     let _ = tokio::time::timeout(REFUSAL_LINGER, link.quic().closed()).await;
 }
 
-async fn serve(link: Link, state: Shared, budgets: Arc<Budgets>, limits: Limits, only_host: Option<PublicId>) {
+async fn serve(link: Link, state: Shared, budgets: Arc<Budgets>, limits: Limits, hosts: Option<Arc<HashSet<PublicId>>>) {
     let link = Arc::new(link);
     // A link that does not join promptly is dropped, so idle links cannot pile up.
     let joined = tokio::time::timeout(JOIN_WAIT, async {
@@ -448,7 +455,7 @@ async fn serve(link: Link, state: Shared, budgets: Arc<Budgets>, limits: Limits,
         refuse(&link, &mut out, Refusal::BadTicket).await;
         return;
     };
-    if only_host.is_some_and(|host| host != ticket.host) {
+    if hosts.is_some_and(|hosts| !hosts.contains(&ticket.host)) {
         refuse(&link, &mut out, Refusal::NotServed).await;
         return;
     }

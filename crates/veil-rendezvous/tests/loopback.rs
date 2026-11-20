@@ -316,3 +316,34 @@ async fn a_server_for_one_call_refuses_other_rooms() {
     let owner_key = owner.public();
     assert!(register(addr, owner, room, owner_key, None).await.is_ok());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_node_for_chosen_hosts_refuses_strangers_but_not_their_guests() {
+    let friend = Identity::generate();
+    let friend_key = friend.public();
+    let node = Node::bind(&Identity::generate(), localhost()).unwrap();
+    let server = RendezvousServer::new(node).only_hosts([friend_key]);
+    let addr = (server.local_addr().unwrap(), server.id());
+    tokio::spawn(server.run());
+
+    // A stranger can neither open a room nor ask for a reachability check.
+    let stranger = Identity::generate();
+    let stranger_key = stranger.public();
+    let room = room_tag(&[5; 16]);
+    let refused = register(addr, stranger, room, stranger_key, None).await;
+    assert!(matches!(refused, Err(RendezvousError::Refused(Refusal::NotAllowed))));
+    let prober = Node::bind(&Identity::generate(), localhost()).unwrap();
+    let node_addr = veil_net::NodeAddr { key: addr.1, addr: addr.0 };
+    let check = with_timeout(veil_rendezvous::check_reach(&prober, &node_addr, 9)).await;
+    assert!(matches!(check, Err(RendezvousError::Refused(Refusal::NotAllowed))), "{check:?}");
+
+    // The chosen host opens its room, and a guest it allows joins and gets a relay session.
+    let mut owner = register(addr, friend, room, friend_key, None).await.unwrap();
+    let mut visitor = guest(addr, room, &mut owner).await;
+    let visitor_key = visitor.identity.public();
+    let (asked, ()) = tokio::join!(
+        with_timeout(visitor.client.open_relay(friend_key)),
+        consent(&mut owner, visitor_key, Ask::Relay),
+    );
+    assert!(asked.is_ok(), "{asked:?}");
+}

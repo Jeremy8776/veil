@@ -5,6 +5,9 @@
 //! ```toml
 //! # Created on first start. Keep it private: it is this node's identity.
 //! identity_file = "node.key"
+//! # Optional: only these device keys may host calls here. Their guests still join.
+//! # Leave it out to let anyone host.
+//! hosts = ["BASE64URL_DEVICE_KEY"]
 //!
 //! [rendezvous]
 //! listen = "0.0.0.0:4433"
@@ -27,6 +30,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use veil_forward::Limits;
+use veil_security::PublicId;
 
 use crate::NodeError;
 
@@ -34,11 +38,16 @@ pub const MAX_CONFIG_LEN: usize = 64 * 1024;
 /// Members a forwarder room may be configured for. Calls are scoped to about 16 people; the
 /// headroom covers recorders and gateways, which join as members.
 pub const MAX_ROOM_MEMBERS: usize = 64;
+/// Most keys `hosts` may list. Far more than a person's friends; bounds the work at startup.
+pub const MAX_HOSTS: usize = 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub identity_file: PathBuf,
+    /// Device keys allowed to host, as text; `None` lets anyone host. Read with
+    /// [`Config::host_keys`], which `validate` has already checked.
+    pub hosts: Option<Vec<String>>,
     pub rendezvous: Option<RendezvousRole>,
     pub forwarder: Option<ForwarderRole>,
 }
@@ -124,8 +133,36 @@ impl Config {
         Ok(config)
     }
 
+    /// The keys allowed to host, or `None` when anyone may.
+    pub fn host_keys(&self) -> Result<Option<Vec<PublicId>>, NodeError> {
+        let Some(hosts) = &self.hosts else {
+            return Ok(None);
+        };
+        hosts
+            .iter()
+            .map(|text| {
+                veil_net::node_addr::parse_key(text).map_err(|_| {
+                    NodeError::Config(format!(
+                        "hosts: {text:?} is not a device key (43 base64url characters)"
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some)
+    }
+
     fn validate(&self) -> Result<(), NodeError> {
         let bad = |why: &str| Err(NodeError::Config(why.into()));
+        if let Some(hosts) = &self.hosts {
+            // An empty list would let nobody host: almost certainly a mistake.
+            if hosts.is_empty() {
+                return bad("hosts is empty, so nobody could host: list keys or remove the line");
+            }
+            if hosts.len() > MAX_HOSTS {
+                return bad("hosts lists more than 1024 keys");
+            }
+            self.host_keys()?;
+        }
         if self.rendezvous.is_none() && self.forwarder.is_none() {
             return bad("turn on at least one role: [rendezvous] or [forwarder]");
         }
@@ -257,6 +294,18 @@ source_queue_mib = 1
 ");
         let limits = Config::parse(&text).unwrap().forwarder.unwrap().limits();
         assert_eq!(limits.node_queue_bytes, usize::MAX);
+    }
+
+    #[test]
+    fn hosts_are_optional_and_checked() {
+        let key = veil_net::node_addr::key_text(&PublicId([7; 32]));
+        let with = |hosts: &str| format!("identity_file = \"k\"\nhosts = {hosts}\n[rendezvous]\nlisten = \"0.0.0.0:1\"\n");
+        assert_eq!(Config::parse(FULL).unwrap().host_keys().unwrap(), None, "anyone by default");
+        let one = Config::parse(&with(&format!("[\"{key}\"]"))).unwrap();
+        assert_eq!(one.host_keys().unwrap(), Some(vec![PublicId([7; 32])]));
+        for bad in ["[]", "[\"not-a-key\"]", "\"one\"", &format!("[\"{key}x\"]")] {
+            assert!(Config::parse(&with(bad)).is_err(), "{bad}");
+        }
     }
 
     #[test]

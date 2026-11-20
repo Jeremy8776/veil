@@ -29,7 +29,7 @@ pub struct NodeAddr {
 
 impl fmt::Display for NodeAddr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}@{}", URL_SAFE_NO_PAD.encode(self.key.0), self.addr)
+        write!(f, "{}@{}", key_text(&self.key), self.addr)
     }
 }
 
@@ -44,20 +44,29 @@ impl FromStr for NodeAddr {
             .trim()
             .split_once('@')
             .ok_or(NetError::Protocol("node address needs key@address"))?;
-        let bytes = URL_SAFE_NO_PAD
-            .decode(key)
-            .map_err(|_| NetError::Protocol("node key is not base64url"))?;
-        let key: [u8; 32] = bytes
-            .try_into()
-            .map_err(|_| NetError::Protocol("node key is not 32 bytes"))?;
+        let key = parse_key(key)?;
         let addr = addr
             .parse()
             .map_err(|_| NetError::Protocol("node address is not ip:port"))?;
-        Ok(Self {
-            key: PublicId(key),
-            addr,
-        })
+        Ok(Self { key, addr })
     }
+}
+
+/// A device or node key in the same text form as the part before `@`: 43 base64url
+/// characters. Used where a key stands alone, such as a node's list of allowed hosts.
+pub fn key_text(key: &PublicId) -> String {
+    URL_SAFE_NO_PAD.encode(key.0)
+}
+
+/// Reads a key written by [`key_text`].
+pub fn parse_key(text: &str) -> Result<PublicId, NetError> {
+    let bytes = URL_SAFE_NO_PAD
+        .decode(text.trim())
+        .map_err(|_| NetError::Protocol("node key is not base64url"))?;
+    let key: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| NetError::Protocol("node key is not 32 bytes"))?;
+    Ok(PublicId(key))
 }
 
 #[cfg(test)]

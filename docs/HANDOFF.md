@@ -556,10 +556,16 @@ Decisions:
   refuses, Veil shows a written guide and a reachability check. If the router's external
   address differs from the address a rendezvous reflects, the user is behind carrier-grade
   NAT and Veil says a public node is needed: forwarding cannot work there.
-- **Default node: optional.** Veil may ship with the address of a public `veil-node` that
-  Jeremy runs. It is off until the user turns it on, and TRANSPARENCY.md says what it sees
-  (IP addresses, timing, room hashes; never media). The relay's total cap and fair sharing
-  this needed are done (Open shortcuts).
+- **No built-in default node (changed 20/11/2026).** A node address shipped in the app would
+  let anyone host through Jeremy's node and use his upload. Instead `veil-node` takes
+  `hosts = [...]` (device keys allowed to host; their guests still join), and a person
+  behind carrier-grade NAT (a 5G hotspot, for example) sends their key ("Copy device key" on
+  Home) to someone who runs a node, then types that node into Settings > Connection. A host
+  the node refuses gets a clear error instead of a call nobody can find. Rendezvous refuses
+  registration and reachability checks; the forwarder refuses tickets from unlisted hosts.
+  Tested on localhost (`veil-rendezvous` loopback test
+  `a_node_for_chosen_hosts_refuses_strangers_but_not_their_guests`), not yet across the
+  internet.
 - **Servers are chosen in the app**, saved per device. Environment variables still override.
 - `design/` (icon concepts) stays out of git. From 17/11/2026 the icon is concept 33b without
   its teal square, the V cut out, in plain white. `tools/make-icons.py` (needs Pillow) writes
@@ -604,7 +610,8 @@ Work, in order:
    shortcut: the dial comes from the node's own IP, so a NAT that filters by IP only can
    pass it without an open port.
 4. The two-machine internet test (below), with and without a mapped port.
-5. The optional default node.
+5. Done 20/11/2026: nodes for chosen hosts (see the decision above), in place of a default
+   node.
 Video filters (#21) and background blur (#28) were merged and shipped in 0.1.4.
 
 IPv6 (done 17/11/2026, branch `claude/ipv6-first-7000b2`): participants bind one dual-stack
