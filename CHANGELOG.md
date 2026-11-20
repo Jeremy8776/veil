@@ -11,6 +11,9 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 - Veil remembers your camera, microphone, speaker, filter, background blur, mirror and both
   volumes between runs, whether you chose them before or during a call. A saved device that
   is unplugged is kept for next time, and the default is used meanwhile.
+- A newer Veil now shows as a card at the top of Home, with Install and restart (or Get the
+  update where Veil cannot install itself). An invite link that does not open says it may
+  need a newer Veil while an update is waiting.
 
 ## 0.1.11, 19/11/2026
 
