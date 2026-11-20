@@ -25,6 +25,7 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
         ui.add_space(12.0);
         ui.label(RichText::new("Private video calls, encrypted end to end.").color(MUTED));
         ui.add_space(24.0);
+        update_banner(app, ui);
         card().show(ui, |ui| {
             ui.set_width(COLUMN - 40.0);
             ui.label(RichText::new("Your name").color(MUTED));
@@ -62,7 +63,15 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
                         app.demo = false;
                         start(app, false);
                     }
-                    Err(problem) => app.home_error = Some(problem),
+                    Err(mut problem) => {
+                        // Links change form between versions; an old Veil cannot read new ones.
+                        if matches!(app.updates.status(), crate::update::Status::Available(_)) {
+                            problem.push_str(
+                                " It may be from a newer Veil: update above, then try again.",
+                            );
+                        }
+                        app.home_error = Some(problem);
+                    }
                 }
             }
             if let Some(error) = &app.home_error {
@@ -119,47 +128,77 @@ fn dot(ui: &mut egui::Ui) {
     ui.label(RichText::new("·").small().color(MUTED));
 }
 
-/// This build's version, a link when a newer one is out, and the check's off switch.
-fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
+/// A card above everything else while a newer Veil is out, so it is not missed: older
+/// versions may not open newer invite links. Install where this build can install itself,
+/// otherwise a button to the release page.
+fn update_banner(app: &mut VeilApp, ui: &mut egui::Ui) {
     use crate::update::{self, Install, Status};
-    let status = app.updates.status();
-    if let Status::Available(version) = status {
-        let install = app.updates.install_state();
-        centred_row(ui, "update", |ui| {
-            let link = link(ui, &format!("Update available: {version}"), theme::WARN)
-                .on_hover_text("Opens the release page.");
-            if link.clicked() {
-                update::open(version);
-            }
+    let Status::Available(version) = app.updates.status() else {
+        return;
+    };
+    let install = app.updates.install_state();
+    let width = COLUMN - 40.0;
+    card()
+        .stroke(egui::Stroke::new(1.5, theme::ACCENT))
+        .show(ui, |ui| {
+            ui.set_width(width);
+            ui.label(RichText::new(format!("Veil {version} is out")).font(theme::bold(16.0)));
+            ui.label(
+                RichText::new(format!(
+                    "You have {}. Update so you can open the newest invite links.",
+                    update::VERSION
+                ))
+                .small()
+                .color(MUTED),
+            );
+            ui.add_space(8.0);
             if !app.updates.can_install() {
+                let button = pill(ui, None, "Get the update", Tone::Primary, width)
+                    .on_hover_text("Opens the release page.");
+                if button.clicked() {
+                    update::open(version);
+                }
                 return;
             }
             match &install {
                 Install::Idle | Install::Failed(_) => {
-                    let button = ui.small_button("Install").on_hover_text(
-                        "Downloads it from GitHub, checks Veil's release signature, then \
+                    let button = pill(ui, None, "Install and restart", Tone::Primary, width)
+                        .on_hover_text(
+                            "Downloads it from GitHub, checks Veil's release signature, then \
                              installs it. Veil restarts to finish.",
-                    );
+                        );
                     if button.clicked() {
                         app.updates.install(version, ui.ctx());
                     }
                 }
                 Install::Working(step) => {
-                    ui.label(RichText::new(step.as_str()).small().color(MUTED));
+                    ui.label(RichText::new(step.as_str()).color(MUTED));
                 }
                 Install::Started => {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             }
+            if let Install::Failed(why) = &install {
+                ui.label(
+                    RichText::new(format!("Update failed: {why}"))
+                        .small()
+                        .color(theme::WARN),
+                );
+            }
+            if link(ui, "What's new", MUTED)
+                .on_hover_text("Opens the release page.")
+                .clicked()
+            {
+                update::open(version);
+            }
         });
-        if let Install::Failed(why) = install {
-            ui.label(
-                RichText::new(format!("Update failed: {why}"))
-                    .small()
-                    .color(theme::WARN),
-            );
-        }
-    }
+    ui.add_space(12.0);
+}
+
+/// This build's version and the update check's off switch.
+fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
+    use crate::update::{self, Status};
+    let status = app.updates.status();
     let mut on = app.updates.enabled();
     let mut text = format!("Veil {}", update::VERSION);
     if status == Status::UpToDate {
@@ -185,10 +224,24 @@ fn updates(app: &mut VeilApp, ui: &mut egui::Ui) {
 
 /// Your device key's short form and a way to replace it. Returns any trouble saving it.
 fn device_key(app: &mut VeilApp, ui: &mut egui::Ui) -> Option<String> {
-    let (short, problem) = {
+    let (short, full, problem) = {
         let keys = crate::media::lock(&app.keys);
-        (crate::engine::short(&keys.public()), keys.problem.clone())
+        let public = keys.public();
+        (
+            crate::engine::short(&public),
+            veil_net::node_addr::key_text(&public),
+            keys.problem.clone(),
+        )
     };
+    let copy = link(ui, "Copy device key", MUTED).on_hover_text(
+        "Puts this device's key on the clipboard. Send it to someone who runs a veil-node, \
+         so they can let you host calls through it. It is public: it identifies this device, \
+         and cannot be used to sign in as you.",
+    );
+    if copy.clicked() {
+        ui.ctx().copy_text(full);
+    }
+    dot(ui);
     let label = if app.confirm_new_key {
         "Confirm new device key"
     } else {
