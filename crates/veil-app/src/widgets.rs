@@ -287,13 +287,7 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
     if tile.hand_raised {
         let mark = Rect::from_min_size(pos2(rect.left() + 8.0, rect.top() + 8.0), vec2(30.0, 26.0));
         painter.rect_filled(mark, CornerRadius::same(6), theme::WARN);
-        painter.text(
-            mark.center(),
-            Align2::CENTER_CENTER,
-            "\u{270B}",
-            FontId::proportional(15.0),
-            theme::PAGE,
-        );
+        Icon::Hand.paint(&painter, mark.center(), 15.0, theme::PAGE);
     }
 }
 

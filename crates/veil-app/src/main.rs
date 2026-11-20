@@ -76,7 +76,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             let found = theme::load_fonts(&cc.egui_ctx)?;
-            icons::set_available(found.icons);
+            icons::set_segoe(found.segoe_icons);
             theme::apply(&cc.egui_ctx);
             let app = app::VeilApp::new(&cc.egui_ctx);
             #[cfg(feature = "dev-ui")]

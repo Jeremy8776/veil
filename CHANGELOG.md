@@ -9,6 +9,9 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 - **Home screen tools are buttons.** Demo call, Connection, the device key, Logs and the
   update check are now framed buttons with icons under the main card, in place of a row of
   small text links. The update check is a switch.
+- **Proper icons on macOS and Linux.** Where there is no system icon font, Veil now uses a
+  small built-in copy of the Phosphor icons (MIT licence, 7.5 KB) in place of icons drawn
+  from lines, which looked rough, the raised hand most of all. Windows keeps its own icons.
 
 ### Fixed
 
