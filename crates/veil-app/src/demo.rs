@@ -74,6 +74,7 @@ pub fn call(your_name: &str, is_host: bool, now: Instant) -> Call {
         invite_expires: 0,
         invite_until_end: false,
         epoch: 1,
+        group: String::new(),
         demo: true,
         status: crate::model::CallStatus::Live,
         router: crate::model::RouterPort::Off,
@@ -120,6 +121,11 @@ pub fn tick(call: &mut Call, now: Instant) {
         });
         call.unread += 1;
     }
+}
+
+/// A made-up group number for the demo call's key epoch, so it changes when people do.
+pub fn group_number(epoch: u64) -> String {
+    safety_number(1_000 + u32::try_from(epoch % 1_000).unwrap_or(0))
 }
 
 /// A made-up safety number in Veil's format: twelve groups of five digits.

@@ -33,7 +33,8 @@ call, and none of them can see inside it.
 - **You decide who joins.** Invites are signed and single use. The host admits or declines each
   person from the lobby.
 - **Check who you are talking to.** Each pair of people has a safety number. Swap codes once
-  through an app you already trust, or compare them by hand, and it still holds next call.
+  through an app you already trust, or compare them by hand, and it still holds next call. In a
+  group, everyone posts one group code in a group chat and pastes the others' codes.
 - **Share your screen.** Share a screen, an app or part of one, sealed end to end like your
   camera. Filters and background blur work before and during a call.
 - **No accounts, no telemetry.** Veil sends nothing to its authors. Every server address comes

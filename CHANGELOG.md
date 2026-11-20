@@ -20,6 +20,11 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   marked urgent on Linux. Clicking the notification brings Veil to the front. Both clear
   when you look at Veil or nobody is waiting.
 
+- **Check everyone at once.** With two or more others in a call, the Security panel offers a
+  group code. Each person posts theirs in a group chat you all trust, then pastes what everyone
+  posted. Each matching code verifies the person who posted it. Codes from before someone
+  joined or left are reported as old, not as a mismatch.
+
 ### Changed
 
 - The pre-join card is grouped into Video, Audio and Connection, and scrolls in a short
@@ -33,6 +38,9 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 - `veil.log` now notes when a link to someone drops and when it comes back, and the host's
   log notes each joiner it turns away, with the reason.
+
+- "Copy my code" now copies a short message that says who it is from and for, then the code.
+  Paste the whole message: Veil finds the code inside it, and it still compares all 60 digits.
 
 ### Fixed
 

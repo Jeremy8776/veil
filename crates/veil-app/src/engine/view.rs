@@ -73,6 +73,8 @@ pub struct View {
     pub invite_expires: u64,
     pub invite_until_end: bool,
     pub epoch: u64,
+    /// See `Call::group`.
+    pub group: String,
     /// Everyone but you, in roster order.
     pub people: Vec<Person>,
     pub lobby: Vec<Knocker>,
@@ -139,6 +141,7 @@ impl Shared {
                 invite_expires: 0,
                 invite_until_end: false,
                 epoch: 0,
+                group: String::new(),
                 people: Vec::new(),
                 lobby: Vec::new(),
                 router: RouterPort::Off,
@@ -298,6 +301,7 @@ pub fn apply(
     call.router.clone_from(&view.router);
     call.reach.clone_from(&view.reach);
     call.epoch = view.epoch;
+    call.group.clone_from(&view.group);
     call.participants.retain(|p| p.is_you);
     let yours = call.you().map(|p| p.name.clone());
     let shown = labels(
@@ -359,6 +363,7 @@ mod tests {
             invite_expires: 0,
             invite_until_end: false,
             epoch: 3,
+            group: String::from("24680"),
             people: vec![
                 Person {
                     id: 1,
@@ -422,6 +427,7 @@ mod tests {
         );
         assert_eq!(call.status, CallStatus::Live);
         assert_eq!(call.epoch, 3);
+        assert_eq!(call.group, "24680");
         assert_eq!(call.participants.len(), 3);
         assert!(call.participants[0].is_you);
         let host = &call.participants[1];
