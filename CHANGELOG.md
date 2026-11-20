@@ -2,9 +2,13 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
-## Unreleased
+## 0.1.12, 20/11/2026
 
 ### Added
+
+- **Nodes for chosen hosts.** A `veil-node` owner can list the device keys allowed to host
+  calls on their node. Their guests still join through the host's lobby. Copy your device
+  key on Home and share it with the node owner; there is no built-in default node.
 
 - **Emoji in chat.** Emoji now show in colour in messages, from the system's own emoji font:
   Segoe UI Emoji on Windows, Apple Color Emoji on macOS, and Noto Color Emoji (or Twemoji)
@@ -42,7 +46,7 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 - The pre-join card is grouped into Video, Audio and Connection, and scrolls in a short
   window. Start and Back always stay in view.
-- Veil remembers your camera, microphone, speaker, filter, background blur, mirror and both
+- On Windows, Veil remembers your camera, microphone, speaker, filter, background blur, mirror and both
   volumes between runs, whether you chose them before or during a call. A saved device that
   is unplugged is kept for next time, and the default is used meanwhile.
 - A newer Veil now shows as a card at the top of Home, with Install and restart (or Get the
@@ -76,6 +80,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   trying again after 1, 2, 4, 8 and then every 16 seconds.
 - Re-opening an invite link that was already used now says so, and asks you to get a new one
   from the host. It used to say "The host did not let you in."
+
+### Compatibility
+
+- Update every device in a call to read the new chat messages and use reactions. This
+  version still reads chat from 0.1.11 and earlier; those versions cannot read its new chat
+  messages. Names still work both ways. Older versions ignore raised-hand messages.
 
 ## 0.1.11, 19/11/2026
 
