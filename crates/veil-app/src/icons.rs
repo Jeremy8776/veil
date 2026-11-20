@@ -54,6 +54,8 @@ pub enum Icon {
     Effects,
     /// A raised hand, from the symbol font (the icon fonts have none).
     Hand,
+    /// A smiling face, for the chat's emoji button.
+    Emoji,
     /// A shape and its reflection either side of a dashed line, for mirroring your video.
     Mirror,
 }
@@ -80,6 +82,7 @@ impl Icon {
             Self::Info => '\u{E946}',
             Self::Effects => '\u{E790}',
             Self::Hand => '\u{270B}',
+            Self::Emoji => '\u{E76E}',
             Self::Mirror | Self::SpeakerView => return None,
         };
         Some(glyph)
@@ -261,6 +264,12 @@ impl Icon {
                 poly(&[(0.18, -0.05), (0.18, -0.32)]),
                 poly(&[(-0.25, 0.12), (-0.42, -0.08)]),
             ],
+            Self::Emoji => vec![
+                Shape::circle_stroke(center, 0.42 * size, stroke),
+                Shape::circle_filled(p(-0.14, -0.1), w * 0.8, colour),
+                Shape::circle_filled(p(0.14, -0.1), w * 0.8, colour),
+                arc(0.0, 0.0, 0.24, 0.2 * PI, 0.8 * PI),
+            ],
             Self::Mirror => vec![
                 poly(&[(0.0, -0.45), (0.0, -0.27)]),
                 poly(&[(0.0, -0.09), (0.0, 0.09)]),
@@ -298,7 +307,7 @@ impl Icon {
 mod tests {
     use super::*;
 
-    const ALL: [Icon; 20] = [
+    const ALL: [Icon; 21] = [
         Icon::Mic,
         Icon::MicOff,
         Icon::Video,
@@ -318,6 +327,7 @@ mod tests {
         Icon::Volume,
         Icon::Info,
         Icon::Hand,
+        Icon::Emoji,
         Icon::Mirror,
     ];
 

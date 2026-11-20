@@ -13,7 +13,8 @@ use std::time::{Duration, Instant};
 
 use veil_security::safety::Side;
 
-use crate::model::{Call, LinkPath, Message, Participant, Waiting};
+use crate::chat::Message;
+use crate::model::{Call, LinkPath, Participant, Waiting};
 
 /// (name, muted, camera on, link path)
 const PEOPLE: [(&str, bool, bool, LinkPath); 4] = [
@@ -110,10 +111,12 @@ pub fn tick(call: &mut Call, now: Instant) {
     }
     if elapsed >= MESSAGE_AT && !call.chat.iter().any(|m| !m.mine) {
         call.chat.push(Message {
+            id: Some(veil_call::app_msg::new_message_id()),
             from: PEOPLE[1].0.to_string(),
             mine: false,
             at: MESSAGE_AT,
-            text: String::from("Has everyone checked their security codes?"),
+            text: String::from("Has everyone checked their security codes? 🔐"),
+            reactions: Vec::new(),
         });
         call.unread += 1;
     }

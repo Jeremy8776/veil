@@ -57,7 +57,7 @@ use crate::keystore::KeyStore;
 use crate::media::{Worker, lock};
 use crate::model::{Action, Call, CallStatus};
 pub use view::{Shared, is_screen, screen_key};
-use view::View;
+use view::{Said, View};
 
 /// One camera or screen picture, copied out for the encoder.
 pub struct Captured {
@@ -201,7 +201,7 @@ impl Engine {
         self.taps.clone()
     }
 
-    /// Hands a host's decision, or a chat message, to the session. Admitting or declining
+    /// Hands a host's decision, a chat message or a reaction to the session. Admitting or declining
     /// takes the person out of the lobby at once, so a second click cannot repeat it.
     pub fn act(&self, action: Action) {
         if let Action::Verify(id, verified) = action {
@@ -240,13 +240,16 @@ impl Engine {
         let keys = lock(&self.keys);
         let shown = view::apply(&view, &seen, |d| keys.is_verified(d), call, now);
         drop(keys);
-        for (from, text) in self.shared.take_chat() {
+        for (from, said) in self.shared.take_said() {
             // Someone who left between sending and now is named by key prefix alone.
             let name = shown
                 .get(&from)
                 .cloned()
                 .unwrap_or_else(|| format!("Guest {}", short(&from)));
-            call.receive(name, text, now);
+            match said {
+                Said::Chat { id, text } => call.receive(name, id, text, now),
+                Said::React { id, emoji, on } => call.reacted(from, name, id, &emoji, on),
+            }
         }
     }
 

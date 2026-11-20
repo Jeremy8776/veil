@@ -1,9 +1,9 @@
 //! What the engine knows about the call, shared between its threads and the interface.
 //!
 //! Purpose: the session task writes [`View`] (status, invite, people, lobby, key epoch) and
-//! queues chat that arrived, the decoder thread writes pictures and the playback thread
-//! writes what it heard. [`apply`] turns all of that into the screens' [`Call`], once per
-//! interface frame, and [`Shared::take_chat`] hands over new messages once.
+//! queues chat and reactions that arrived, the decoder thread writes pictures and the
+//! playback thread writes what it heard. [`apply`] turns all of that into the screens'
+//! [`Call`], once per interface frame, and [`Shared::take_said`] hands over new chat once.
 //!
 //! Invariants:
 //! - Each lock is held only to copy or replace a value, never across a wait.
@@ -24,7 +24,7 @@ use crate::convert::Rgba;
 use crate::media::lock;
 use crate::model::{Call, CallStatus, LinkPath, Participant, Reachable, RouterPort, Waiting};
 
-/// Chat messages that may wait for the interface; more drop the oldest.
+/// Chat messages and reactions that may wait for the interface; more drop the oldest.
 const CHAT_QUEUE: usize = 256;
 /// No sound for this long shows someone as muted.
 const QUIET: Duration = Duration::from_secs(1);
@@ -32,6 +32,14 @@ const QUIET: Duration = Duration::from_secs(1);
 const DARK: Duration = Duration::from_secs(2);
 /// A decoded level above this, on the meter's 0 to 1 scale, shows someone speaking.
 const SPEAKING: f32 = 0.45;
+
+/// Chat that arrived, for the interface.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Said {
+    /// A message; `id` is None from 0.1.11 and earlier.
+    Chat { id: Option<u64>, text: String },
+    React { id: u64, emoji: String, on: bool },
+}
 
 #[derive(Clone, Debug)]
 pub struct Person {
@@ -110,8 +118,8 @@ pub struct Shared {
     pub view: Mutex<View>,
     pictures: Mutex<HashMap<u32, Picture>>,
     heard: Mutex<HashMap<u32, Heard>>,
-    /// Chat that arrived, as (sender's device, text), not yet in the interface's call.
-    chat: Mutex<Vec<(PublicId, String)>>,
+    /// Chat that arrived, with the sender's device, not yet in the interface's call.
+    chat: Mutex<Vec<(PublicId, Said)>>,
     /// Each other person's tile on screen, as (participant id, width in physical pixels).
     tiles: Mutex<Vec<(u32, f32)>>,
     /// The newest call stats, for the debug overlay (`stats.rs`).
@@ -234,19 +242,19 @@ impl Shared {
         lock(&self.heard).remove(&id);
     }
 
-    /// Queues a chat message that arrived for the interface.
-    pub fn push_chat(&self, from: PublicId, text: String) {
+    /// Queues a chat message or reaction that arrived for the interface.
+    pub fn push_said(&self, from: PublicId, said: Said) {
         let mut chat = lock(&self.chat);
         if chat.len() >= CHAT_QUEUE {
             chat.remove(0);
         }
-        chat.push((from, text));
+        chat.push((from, said));
         drop(chat);
         self.ctx.request_repaint();
     }
 
-    /// Chat that arrived since the last call.
-    pub fn take_chat(&self) -> Vec<(PublicId, String)> {
+    /// Chat and reactions that arrived since the last call.
+    pub fn take_said(&self) -> Vec<(PublicId, Said)> {
         std::mem::take(&mut *lock(&self.chat))
     }
 

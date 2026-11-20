@@ -8,6 +8,7 @@
 pub mod call;
 pub mod call_menus;
 pub mod call_top;
+pub mod chat_panel;
 pub mod connection;
 pub mod controls;
 pub mod home;

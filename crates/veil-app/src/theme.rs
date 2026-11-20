@@ -7,6 +7,8 @@
 //!   (`tools/licences.py`), so the app reads the system's UI font and icon font at start-up.
 //!   Without a UI font the app cannot draw text, so that is a start-up error.
 //! - The icon font is optional: without it, [`crate::icons`] draws icons from strokes.
+//! - The emoji font is optional too, and comes after the UI and symbol fonts, so it only
+//!   draws what they lack.
 
 use std::sync::Arc;
 
@@ -59,6 +61,14 @@ const UI_FONTS: &[&str] = &[
 const BOLD_FONTS: &[&str] = &[r"C:\Windows\Fonts\seguisb.ttf"];
 /// Symbols the UI font lacks (the raised hand).
 const SYMBOL_FONTS: &[&str] = &[r"C:\Windows\Fonts\seguisym.ttf"];
+/// Emoji for chat. egui draws outlines only, so these are read for their one-colour glyphs:
+/// Segoe UI Emoji has them under its colour layers. macOS has only a bitmap colour emoji
+/// font, which egui cannot draw, so emoji there show as boxes.
+const EMOJI_FONTS: &[&str] = &[
+    r"C:\Windows\Fonts\seguiemj.ttf",
+    "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
+    "/usr/share/fonts/noto/NotoEmoji-Regular.ttf",
+];
 /// Icon fonts: Windows 11, then Windows 10.
 const ICON_FONTS: &[&str] = &[
     r"C:\Windows\Fonts\SegoeIcons.ttf",
@@ -85,6 +95,12 @@ pub fn load_fonts(ctx: &egui::Context) -> Result<FontsFound, String> {
             .font_data
             .insert("symbols".into(), Arc::new(FontData::from_owned(symbols)));
         proportional.push("symbols".into());
+    }
+    if let Some(emoji) = first_readable(EMOJI_FONTS) {
+        fonts
+            .font_data
+            .insert("emoji".into(), Arc::new(FontData::from_owned(emoji)));
+        proportional.push("emoji".into());
     }
     let bold = first_readable(BOLD_FONTS);
     let mut bold_family = proportional.clone();

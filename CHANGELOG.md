@@ -2,6 +2,17 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Added
+
+- **Emoji in chat.** Emoji now show in messages (from Segoe UI Emoji on Windows, in one
+  colour). The smiley button beside the message box opens a picker.
+- **Reactions.** Click a message to react with 👍 ❤ 😂 😮 😢 or 🎉. Reactions show under the
+  message with a count; hover to see who reacted, and click one to add or take back yours.
+  Reactions are sealed and signed like chat. Messages from Veil 0.1.11 and earlier show as
+  before but take no reactions, and 0.1.11 cannot read chat from this version.
+
 ## 0.1.11, 19/11/2026
 
 ### Added
