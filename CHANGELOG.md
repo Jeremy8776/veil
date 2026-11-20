@@ -2,6 +2,25 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Changed
+
+- **Home screen tools are buttons.** Demo call, Connection, the device key, Logs and the
+  update check are now framed buttons with icons under the main card, in place of a row of
+  small text links. The update check is a switch.
+- **Proper icons on macOS and Linux.** Where there is no system icon font, Veil now uses a
+  small built-in copy of the Phosphor icons (MIT licence, 7.5 KB) in place of icons drawn
+  from lines, which looked rough, the raised hand most of all. Windows keeps its own icons.
+
+### Fixed
+
+- **Emoji in colour everywhere in chat.** The picker, reactions and message box drew most
+  emoji in one colour, because Segoe UI Symbol came before the emoji font. Chat now asks
+  the colour emoji font first.
+- **Round video corners.** The picture is now clipped to the tile's rounded corners, so its
+  corners no longer show past the edge.
+
 ## 0.1.12, 20/11/2026
 
 ### Added

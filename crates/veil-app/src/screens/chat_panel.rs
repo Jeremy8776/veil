@@ -62,6 +62,7 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
         let field = ui.add(
             TextEdit::singleline(&mut view.draft)
                 .hint_text("Type a message")
+                .font(theme::chat_font(ui))
                 .char_limit(veil_call::app_msg::MAX_CHAT_CHARS)
                 .desired_width(ui.available_width() - 76.0),
         );
@@ -106,7 +107,7 @@ fn message_row(ui: &mut egui::Ui, message: &Message) -> Option<(u64, String)> {
             .inner_margin(egui::Margin::symmetric(10, 6))
             .show(ui, |ui| {
                 ui.set_max_width(250.0);
-                ui.label(&message.text);
+                ui.label(RichText::new(&message.text).family(theme::chat_family()));
             })
             .response;
         let id = message.id?;
@@ -176,17 +177,26 @@ fn picker(button: &egui::Response) -> Option<&'static str> {
 }
 
 fn emoji_button(ui: &mut egui::Ui, emoji: &str, size: f32) -> egui::Response {
-    ui.add(Button::new(RichText::new(emoji).size(size)).frame(false))
+    let text = RichText::new(emoji).size(size).family(theme::chat_family());
+    ui.add(Button::new(text).frame(false))
 }
 
 /// A reaction under a message: the emoji and how many chose it, highlighted if you did,
 /// with who chose it on hover.
 fn chip(ui: &mut egui::Ui, reaction: &Reaction) -> egui::Response {
-    let text = RichText::new(format!("{} {}", reaction.emoji, reaction.by.len())).small();
+    let text = RichText::new(format!("{} {}", reaction.emoji, reaction.by.len()))
+        .small()
+        .family(theme::chat_family());
     let names: Vec<&str> = reaction
         .by
         .iter()
-        .map(|(who, name)| if *who == Reactor::You { "You" } else { name.as_str() })
+        .map(|(who, name)| {
+            if *who == Reactor::You {
+                "You"
+            } else {
+                name.as_str()
+            }
+        })
         .collect();
     let tip = names.join(", ");
     ui.add(

@@ -3,12 +3,14 @@
 //! Purpose: one place for every colour and size, so screens never pick their own.
 //!
 //! Invariants:
-//! - No font is bundled. egui's bundled fonts carry licences outside Veil's allow list
-//!   (`tools/licences.py`), so the app reads the system's UI font and icon font at start-up.
-//!   Without a UI font the app cannot draw text, so that is a start-up error.
-//! - The icon font is optional: without it, [`crate::icons`] draws icons from strokes.
-//! - The emoji font is optional too, and comes after the UI and symbol fonts, so it only
-//!   draws what they lack.
+//! - Text fonts are never bundled. egui's bundled fonts carry licences outside Veil's allow
+//!   list (`tools/licences.py`), so the app reads the system's UI font at start-up. Without a
+//!   UI font the app cannot draw text, so that is a start-up error.
+//! - Icons come from the system's Segoe icon font on Windows. Elsewhere Veil uses its bundled
+//!   Phosphor subset ([`crate::icons::PHOSPHOR_TTF`], MIT), so there is always an icon font.
+//! - The emoji font is optional too. In the UI it comes after the UI and symbol fonts, so it
+//!   only draws what they lack. Chat uses [`chat_family`], where it comes before the symbol
+//!   font: Segoe UI Symbol has one-colour copies of most emoji, which would otherwise win.
 
 use std::sync::Arc;
 
@@ -48,7 +50,7 @@ pub const LOGO: Color32 = Color32::WHITE;
 pub const RADIUS: u8 = 8;
 pub const GAP: f32 = 8.0;
 
-/// The icon font family name, when one was found.
+/// The icon font family name.
 pub const ICON_FAMILY: &str = "icons";
 
 /// Where each operating system usually keeps a UI font, best first. Linux distributions vary,
@@ -70,7 +72,7 @@ const EMOJI_FONTS: &[&str] = &[
     r"C:\Windows\Fonts\seguiemj.ttf",
     "/System/Library/Fonts/Apple Color Emoji.ttc",
 ];
-/// Icon fonts: Windows 11, then Windows 10.
+/// System icon fonts: Windows 11, then Windows 10. Without one, the bundled Phosphor is used.
 const ICON_FONTS: &[&str] = &[
     r"C:\Windows\Fonts\SegoeIcons.ttf",
     r"C:\Windows\Fonts\segmdl2.ttf",
@@ -78,7 +80,8 @@ const ICON_FONTS: &[&str] = &[
 
 /// What [`load_fonts`] found.
 pub struct FontsFound {
-    pub icons: bool,
+    /// The system's Segoe icon font loaded, rather than the bundled Phosphor.
+    pub segoe_icons: bool,
 }
 
 /// Loads the system fonts into egui. Fails only when there is no UI font at all.
@@ -99,12 +102,23 @@ pub fn load_fonts(ctx: &egui::Context) -> Result<FontsFound, String> {
     }
     let emoji = first_readable(EMOJI_FONTS)
         .or_else(|| system_fonts::find_font(system_fonts::EMOJI_FONT_FILES));
+    // Chat: the UI font for letters, then colour emoji ahead of the symbol font.
+    let mut chat = vec![String::from("ui")];
     if let Some(emoji) = emoji {
         fonts
             .font_data
             .insert("emoji".into(), Arc::new(FontData::from_owned(emoji)));
         proportional.push("emoji".into());
+        chat.push("emoji".into());
     }
+    chat.extend(
+        proportional
+            .iter()
+            .skip(1)
+            .filter(|f| *f != "emoji")
+            .cloned(),
+    );
+    fonts.families.insert(chat_family(), chat);
     let bold = first_readable(BOLD_FONTS);
     let mut bold_family = proportional.clone();
     if let Some(bold) = bold {
@@ -122,27 +136,38 @@ pub fn load_fonts(ctx: &egui::Context) -> Result<FontsFound, String> {
     fonts
         .families
         .insert(FontFamily::Name("bold".into()), bold_family);
-    let icons = first_readable(ICON_FONTS);
+    let segoe = first_readable(ICON_FONTS);
     let found = FontsFound {
-        icons: icons.is_some(),
+        segoe_icons: segoe.is_some(),
     };
-    if let Some(icons) = icons {
-        fonts
-            .font_data
-            .insert(ICON_FAMILY.into(), Arc::new(FontData::from_owned(icons)));
-        // Icons, then the UI and symbol fonts for anything the icon font lacks.
-        let mut family = vec![String::from(ICON_FAMILY)];
-        family.extend(proportional.iter().cloned());
-        fonts
-            .families
-            .insert(FontFamily::Name(ICON_FAMILY.into()), family);
-    }
+    let icons = match segoe {
+        Some(segoe) => FontData::from_owned(segoe),
+        None => FontData::from_static(crate::icons::PHOSPHOR_TTF),
+    };
+    fonts.font_data.insert(ICON_FAMILY.into(), Arc::new(icons));
+    // Icons, then the UI and symbol fonts for anything the icon font lacks (the hand on
+    // Windows).
+    let mut family = vec![String::from(ICON_FAMILY)];
+    family.extend(proportional.iter().cloned());
+    fonts
+        .families
+        .insert(FontFamily::Name(ICON_FAMILY.into()), family);
     ctx.set_fonts(fonts);
     Ok(found)
 }
 
 fn first_readable(paths: &[&str]) -> Option<Vec<u8>> {
     paths.iter().find_map(|path| std::fs::read(path).ok())
+}
+
+/// The font family for chat text and emoji: colour emoji win over one-colour symbols.
+pub fn chat_family() -> FontFamily {
+    FontFamily::Name("chat".into())
+}
+
+/// The chat font at the body text size of `ui`.
+pub fn chat_font(ui: &egui::Ui) -> FontId {
+    FontId::new(TextStyle::Body.resolve(ui.style()).size, chat_family())
 }
 
 /// A semibold font of `size`, or regular where no semibold was found.

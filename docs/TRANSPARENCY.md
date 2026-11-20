@@ -325,14 +325,16 @@ own `unsafe` code, and Veil's code that uses them has none. On macOS, lobby noti
 through `objc2-user-notifications`, which also holds its own `unsafe` code. MJPEG camera pictures on Linux are
 decoded by `zune-jpeg`, which is pure Rust.
 
-**Fonts and icons:** none are bundled. `veil-app` reads the system's own UI, symbol and icon
-fonts at start-up (Segoe UI and Segoe Fluent Icons or Segoe MDL2 Assets on Windows). On Linux
-it looks for DejaVu Sans, Noto Sans, Adwaita Sans or Liberation Sans, searching the standard
-font folders by file name, and the deb and rpm packages depend on DejaVu Sans. Where
-there is no icon font (Linux, macOS), icons are drawn from vector strokes in code. egui's
-bundled fonts are turned off because their licences are outside the allow list. The one
-bundled image is Veil's own app icon (`crates/veil-app/assets`), made for Veil and under
-Veil's licence. On Windows, `build.rs` embeds it in the exe with `winresource`.
+**Fonts and icons:** no text font is bundled. `veil-app` reads the system's own UI, symbol,
+emoji and icon fonts at start-up (Segoe UI and Segoe Fluent Icons or Segoe MDL2 Assets on
+Windows). On Linux it looks for DejaVu Sans, Noto Sans, Adwaita Sans or Liberation Sans,
+searching the standard font folders by file name, and the deb and rpm packages depend on
+DejaVu Sans. egui's bundled fonts are turned off because their licences are outside the allow
+list. Where there is no system icon font (Linux, macOS), Veil uses one bundled font: a 7.5 KB
+subset of the Phosphor icon font, MIT licensed, holding only the icons Veil shows
+(`crates/veil-app/assets/phosphor`, with its licence and how to rebuild it). Veil's other
+bundled image is its own app icon (`crates/veil-app/assets`), made for Veil and under Veil's
+licence. On Windows, `build.rs` embeds it in the exe with `winresource`.
 
 **In `veil-media`:**
 - Camera capture is only available through each operating system's own APIs: Media Foundation

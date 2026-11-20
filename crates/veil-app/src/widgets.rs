@@ -231,14 +231,12 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
     painter.rect_filled(rect, radius, theme::TILE);
     match tile.video {
         Some((texture, size)) => {
+            // A textured rounded rect, so the picture itself has round corners on any
+            // background.
             let uv = cover_uv(size, rect.size());
-            painter.image(texture, rect, uv, Color32::WHITE);
-            // Rounds the picture's corners by covering them in the page colour.
-            painter.rect_stroke(
-                rect.expand(1.0),
-                RADIUS + 1,
-                Stroke::new(3.0, theme::PAGE),
-                StrokeKind::Inside,
+            painter.add(
+                egui::epaint::RectShape::filled(rect, radius, Color32::WHITE)
+                    .with_texture(texture, uv),
             );
         }
         None => {
@@ -289,13 +287,7 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
     if tile.hand_raised {
         let mark = Rect::from_min_size(pos2(rect.left() + 8.0, rect.top() + 8.0), vec2(30.0, 26.0));
         painter.rect_filled(mark, CornerRadius::same(6), theme::WARN);
-        painter.text(
-            mark.center(),
-            Align2::CENTER_CENTER,
-            "\u{270B}",
-            FontId::proportional(15.0),
-            theme::PAGE,
-        );
+        Icon::Hand.paint(&painter, mark.center(), 15.0, theme::PAGE);
     }
 }
 
@@ -473,25 +465,4 @@ fn blur_label(blur: Blur) -> &'static str {
         Blur::Light => "Light",
         Blur::Strong => "Strong",
     }
-}
-
-/// A row of widgets centred in the available width. egui lays a row out from the left, so the
-/// row's width from the last frame sets the left margin; a row that changes width is off
-/// centre for one frame, and asks for that frame.
-pub fn centred_row<R>(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
-    let id = ui.make_persistent_id(id);
-    let last: f32 = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(0.0);
-    let available = ui.available_width();
-    let (inner, width) = ui
-        .horizontal(|ui| {
-            ui.add_space(((available - last) / 2.0).max(0.0));
-            let row = ui.horizontal(add);
-            (row.inner, row.response.rect.width())
-        })
-        .inner;
-    if (width - last).abs() > 0.5 {
-        ui.ctx().data_mut(|d| d.insert_temp(id, width));
-        ui.ctx().request_repaint();
-    }
-    inner
 }
