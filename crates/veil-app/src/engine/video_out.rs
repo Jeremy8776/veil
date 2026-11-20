@@ -13,6 +13,10 @@
 //! - A failed encoder is dropped and reopened at most every few seconds; the call goes on
 //!   without your video meanwhile.
 //! - Keyframe requests set a flag; [`Schedule`] limits how often they are obeyed.
+//! - Picture numbers keep rising across encoders. A new size (a shared area chosen or
+//!   changed, another camera), a new data use choice or a failure reopens the encoder, and
+//!   its schedule continues the old numbering: receivers drop pictures numbered at or below
+//!   the last they decoded, so restarting from 0 froze the picture for those watching.
 //! - A shared screen is one layer, marked as spatial 0 and temporal 0, so a forwarder passes it
 //!   to everyone whatever size they ask for. Only the sealed header says it is a screen.
 //! - The ladder follows the data use choice (`data_use.rs`): a new choice reopens the encoder
@@ -191,6 +195,8 @@ fn run(
     let mut active: Option<Active> = None;
     let mut retry_at = Instant::now();
     let mut resumed = true;
+    // Carried across encoders, so a reopened one goes on numbering where the last stopped.
+    let mut next_picture = 0;
     while !stop.load(Ordering::Relaxed) {
         let picture = match pictures.recv_timeout(Duration::from_millis(100)) {
             Ok(picture) => picture,
@@ -219,7 +225,7 @@ fn run(
             if Instant::now() < retry_at {
                 continue;
             }
-            match open(size, stream, data_use) {
+            match open(size, stream, data_use, next_picture) {
                 Ok(opened) => active = Some(opened),
                 Err(e) => {
                     *lock(&control.error) = Some(e.to_string());
@@ -234,7 +240,9 @@ fn run(
             current.schedule.request_keyframe();
             resumed = false;
         }
-        match encode(current, &picture, stream) {
+        let encoded = encode(current, &picture, stream);
+        next_picture = current.schedule.next_picture();
+        match encoded {
             Ok(layers) => {
                 for layer in layers {
                     // A full queue means the network is behind: drop, the gate recovers.
@@ -251,7 +259,12 @@ fn run(
     }
 }
 
-fn open(size: (u16, u16, u32), stream: Stream, data_use: DataUse) -> Result<Active, MediaError> {
+fn open(
+    size: (u16, u16, u32),
+    stream: Stream,
+    data_use: DataUse,
+    first_picture: u64,
+) -> Result<Active, MediaError> {
     let ladder = match stream {
         Stream::Camera => ladder_for(size.0, size.1, size.2, data_use)?,
         Stream::Screen => screen_ladder(size.0, size.1, size.2, data_use)?,
@@ -260,7 +273,7 @@ fn open(size: (u16, u16, u32), stream: Stream, data_use: DataUse) -> Result<Acti
     Ok(Active {
         size,
         data_use,
-        schedule: Schedule::new(ladder),
+        schedule: Schedule::continuing(ladder, first_picture),
         encoder,
     })
 }

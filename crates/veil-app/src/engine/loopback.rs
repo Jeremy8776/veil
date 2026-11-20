@@ -331,6 +331,52 @@ fn loopback_a_shared_screen_arrives_beside_the_camera() {
     assert!(guest.sharers().is_empty(), "the share ends for the guest");
 }
 
+/// A shared area chosen, then changed, mid-share: each new size reopens the sender's encoder,
+/// and those watching must follow it rather than keep the old picture.
+#[test]
+#[ignore = "opens ports, the H.264 encoder and the speaker"]
+fn loopback_a_shared_area_that_changes_size_keeps_moving() {
+    let ctx = egui::Context::default();
+    let host = Engine::start(Role::Host, NetConfig::default(), "Host".into(), Default::default(), fresh_keys(), Default::default(), ctx.clone()).unwrap();
+    let mut host_call = Call::live("Call".into(), "Host", true, Instant::now());
+    wait_for("an invite", &host, &mut host_call, |c| !c.invite.is_empty());
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let invite = InviteLink::parse(&host_call.invite_full, now).unwrap();
+    let guest = Engine::start(Role::Guest(Box::new(invite)), NetConfig::default(), "Guest".into(), Default::default(), fresh_keys(), Default::default(), ctx).unwrap();
+    let mut guest_call = Call::live("Call".into(), "Guest", false, Instant::now());
+    wait_for("a knock", &host, &mut host_call, |c| c.lobby.len() == 1);
+    host.act(Action::Admit(host_call.lobby[0].id));
+    wait_for("admission", &guest, &mut guest_call, |c| {
+        c.status == CallStatus::Live && c.participants.len() == 2
+    });
+    let sender = guest_call.participants[1].id;
+    let taps = host.taps();
+    let mut n = 0u64;
+    // A whole screen, then an area, a different area, and the whole screen again.
+    for (w, h) in [(1_280u16, 720u16), (960, 540), (802, 600), (1_280, 720)] {
+        let start = Instant::now();
+        let mut moving = 0;
+        let mut last = Vec::new();
+        while moving < 10 && start.elapsed() < Duration::from_secs(10) {
+            let (wu, hu) = (usize::from(w), usize::from(h));
+            let mut data = vec![128u8; wu * hu * 3 / 2];
+            data[..wu * hu].fill(40 + (n % 160) as u8);
+            let screen = Captured { width: w, height: h, stride: wu, fps: 30, timestamp_us: n * 33_333, data };
+            let _ = taps.screen.try_send(screen);
+            n += 1;
+            std::thread::sleep(Duration::from_millis(33));
+            for (key, rgba) in guest.take_pictures() {
+                let fresh = rgba.pixels != last;
+                if key == screen_key(sender) && (rgba.width, rgba.height) == (wu, hu) && fresh {
+                    moving += 1;
+                    last = rgba.pixels;
+                }
+            }
+        }
+        assert!(moving >= 10, "{w}x{h}: only {moving} new pictures of that size arrived");
+    }
+}
+
 /// A key that lasts this test only: nothing is saved.
 fn fresh_keys() -> std::sync::Arc<std::sync::Mutex<crate::keystore::KeyStore>> {
     std::sync::Arc::new(std::sync::Mutex::new(crate::keystore::KeyStore::open(None)))

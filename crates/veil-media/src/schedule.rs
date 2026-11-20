@@ -63,9 +63,18 @@ pub struct Schedule {
 impl Schedule {
     /// Starts with every layer wanted. The first picture is a keyframe.
     pub fn new(ladder: Ladder) -> Self {
+        Self::continuing(ladder, 0)
+    }
+
+    /// Like [`Self::new`], numbering pictures from `first_picture`. A sender that reopens
+    /// its encoder (a new size, a new data use choice, a failure) continues from
+    /// [`Self::next_picture`] of the old schedule. Receivers drop any picture numbered at or
+    /// below the last one they decoded (`gate.rs`), keyframes included, so a stream that
+    /// started again from 0 would stay frozen on its old picture.
+    pub fn continuing(ladder: Ladder, first_picture: u64) -> Self {
         Self {
             ladder,
-            picture: 0,
+            picture: first_picture,
             phase: 0,
             latest: [None; MAX_LEVELS as usize],
             last_key: None,
@@ -77,6 +86,11 @@ impl Schedule {
 
     pub fn ladder(&self) -> &Ladder {
         &self.ladder
+    }
+
+    /// The number [`Self::next`] gives the next picture.
+    pub fn next_picture(&self) -> u64 {
+        self.picture
     }
 
     /// A receiver lost the stream. The next picture at least [`MIN_KEY_GAP`] after the last
@@ -330,5 +344,54 @@ mod tests {
         s.set_wanted(Some(Wanted::ALL));
         assert!(s.next(start).layers.is_empty());
         keyframe_by(&mut s, start + MIN_KEY_GAP);
+    }
+
+    /// A shared screen's one layer, as `veil-app` sends it.
+    fn screen(width: u16, height: u16) -> Ladder {
+        let rung = crate::ladder::Rung {
+            tier: crate::ladder::Tier::Thumb,
+            width,
+            height,
+            top_temporal: 0,
+            bitrate_bps: 1_000_000,
+        };
+        Ladder::new(30, 1, vec![rung]).unwrap()
+    }
+
+    /// What a receiver's gate says to `plan`'s one layer.
+    fn received(gate: &mut crate::gate::Gate, plan: &PicturePlan) -> crate::gate::Verdict {
+        let header = crate::payload::VideoHeader {
+            codec: crate::payload::Codec::H264,
+            picture: plan.picture,
+            reference: plan.reference,
+            needs_lower: false,
+            screen: true,
+            timestamp_us: 0,
+            width: 2,
+            height: 2,
+        };
+        gate.admit(plan.layers[0], &header)
+    }
+
+    #[test]
+    fn a_reopened_encoder_continues_the_numbering_so_receivers_take_its_keyframe() {
+        use crate::gate::{Gate, Verdict};
+        let now = Instant::now();
+        let mut gate = Gate::default();
+        let mut whole = Schedule::new(screen(1_920, 1_080));
+        for _ in 0..40 {
+            assert_eq!(received(&mut gate, &whole.next(now)), Verdict::Decode);
+        }
+        assert_eq!(whole.next_picture(), 40);
+        // An area is chosen: a new size, so a new encoder and schedule.
+        let mut area = Schedule::continuing(screen(960, 540), whole.next_picture());
+        let first = area.next(now);
+        assert!(first.keyframe);
+        assert_eq!(first.picture, 40);
+        assert_eq!(received(&mut gate, &first), Verdict::Decode);
+        assert_eq!(received(&mut gate, &area.next(now)), Verdict::Decode);
+        // Starting again from 0 is what froze the picture: the gate drops it as old.
+        let restarted = Schedule::new(screen(960, 540)).next(now);
+        assert_eq!(received(&mut gate, &restarted), Verdict::Drop);
     }
 }
