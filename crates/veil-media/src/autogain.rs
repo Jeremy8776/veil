@@ -4,14 +4,18 @@
 //! about -45 dBFS) is hard to hear and never lights the speaking border. [`AutoGain`] follows
 //! how loud speech is and turns it up or down towards [`TARGET_DB`], as Zoom, Teams and Krisp
 //! do. It learns only from sound the noise model ([`crate::Denoiser`]) scores as speech, so
-//! silence and background noise are never pumped up.
+//! silence and background noise are never pumped up, and the boost fades out when speech stops.
 //!
 //! Invariants:
 //! - The gain stays within [`MIN_GAIN_DB`]..=[`MAX_GAIN_DB`] and moves smoothly: up by at most
 //!   [`RISE_DB_PER_S`], down by at most [`FALL_DB_PER_S`].
 //! - No frame leaves louder than [`CEILING`]: a frame that would is turned down at once, and
 //!   the gain learns from it.
-//! - Without speech the gain holds where it was.
+//! - Without speech the gain holds where it was, and any boost fades out: a frame the model
+//!   does not score as speech gets at most the boost scaled by how recently speech was heard
+//!   (opens in about [`OPEN_S`], fades over [`CLOSE_S`]), so pauses and noise leave close to
+//!   unity. A cut (negative gain) stays on, since it never makes noise louder.
+//! - The applied gain ramps across each frame, so a change never clicks.
 //! - Non-finite samples are treated as silence.
 
 use crate::audio::SAMPLE_RATE;
@@ -30,6 +34,10 @@ pub const FALL_DB_PER_S: f32 = 40.0;
 pub const CEILING: f32 = 0.9;
 /// A frame counts as speech above this voice score from the noise model.
 pub const VOICE: f32 = 0.6;
+/// How fast the boost comes back when speech starts: within a frame or two.
+pub const OPEN_S: f32 = 0.01;
+/// How slowly the boost fades once speech stops, so gaps between words are not pumped.
+pub const CLOSE_S: f32 = 0.4;
 /// Frames quieter than this are not learnt from, even if scored as speech.
 const FLOOR_DB: f32 = -70.0;
 /// Time constants of the speech level estimate: quick to rise, slow to fall, so it follows
@@ -41,6 +49,10 @@ pub struct AutoGain {
     /// Loudness of recent speech, dBFS; `None` until speech is first heard.
     level_db: Option<f32>,
     gain_db: f32,
+    /// How much of a boost is applied, 0 to 1: follows the voice score.
+    open: f32,
+    /// The linear gain applied at the end of the last frame, where the next ramp starts.
+    last: f32,
 }
 
 impl Default for AutoGain {
@@ -62,6 +74,8 @@ impl AutoGain {
         Self {
             level_db: None,
             gain_db: 0.0,
+            open: 0.0,
+            last: 1.0,
         }
     }
 
@@ -96,14 +110,35 @@ impl AutoGain {
             let step = wanted - self.gain_db;
             self.gain_db += step.clamp(-FALL_DB_PER_S * seconds, RISE_DB_PER_S * seconds);
         }
+        let (towards, tau) = if voice >= VOICE {
+            (1.0, OPEN_S)
+        } else {
+            (0.0, CLOSE_S)
+        };
+        self.open += (towards - self.open) * (1.0 - (-seconds / tau).exp());
         let peak = frame.iter().fold(0.0f32, |m, s| m.max(s.abs()));
-        if peak > 0.0 && peak * amplitude(self.gain_db) > CEILING {
+        let mut end = amplitude(self.applied_db());
+        let mut start = self.last;
+        if peak > 0.0 && peak * end > CEILING {
             // This frame would clip: turn down now, and keep the lower gain.
             self.gain_db = db(CEILING / peak).max(MIN_GAIN_DB);
+            end = amplitude(self.applied_db());
+            start = start.min(end);
         }
-        let gain = amplitude(self.gain_db);
-        for sample in frame.iter_mut() {
+        let step = (end - start) / frame.len() as f32;
+        for (i, sample) in frame.iter_mut().enumerate() {
+            let gain = start + step * (i + 1) as f32;
             *sample = (*sample * gain).clamp(-CEILING, CEILING);
+        }
+        self.last = end;
+    }
+
+    /// The gain to apply now, in dB: a boost only as far as speech is heard, a cut always.
+    fn applied_db(&self) -> f32 {
+        if self.gain_db > 0.0 {
+            self.gain_db * self.open
+        } else {
+            self.gain_db
         }
     }
 }
@@ -170,6 +205,31 @@ mod tests {
             agc.process(&mut frame, 0.1);
         }
         assert_eq!(agc.gain_db(), 0.0);
+    }
+
+    #[test]
+    fn pauses_and_noise_are_not_boosted() {
+        let mut agc = AutoGain::new();
+        speak(&mut agc, -45.0, 4);
+        let learnt = agc.gain_db();
+        assert!(learnt > 20.0, "{learnt}");
+        // Two seconds of room noise the model scores as not speech.
+        let mut last = Vec::new();
+        for f in 0..100 {
+            last = tone(-70.0, f * 960);
+            agc.process(&mut last, 0.1);
+        }
+        let level = rms_db(&last);
+        assert!(level < -67.0, "noise left at {level} dBFS");
+        assert_eq!(agc.gain_db(), learnt, "the learnt gain is kept");
+        // Speech comes back at the learnt level within a few frames.
+        let mut back = Vec::new();
+        for f in 0..5 {
+            back = tone(-45.0, f * 960);
+            agc.process(&mut back, 1.0);
+        }
+        let level = rms_db(&back);
+        assert!((level - TARGET_DB).abs() < 3.0, "speech at {level} dBFS");
     }
 
     #[test]
