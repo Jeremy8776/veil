@@ -30,8 +30,16 @@ const CHAT_QUEUE: usize = 256;
 const QUIET: Duration = Duration::from_secs(1);
 /// No picture for this long shows someone's camera as off.
 const DARK: Duration = Duration::from_secs(2);
-/// A decoded level above this, on the meter's 0 to 1 scale, shows someone speaking.
-const SPEAKING: f32 = 0.45;
+/// A level above this, on the meter's 0 to 1 scale, shows someone speaking.
+pub const SPEAKING: f32 = 0.45;
+/// The speaking border stays on this long after the last loud frame, so it follows speech
+/// rather than flickering between syllables.
+pub const SPEAKING_HOLD: Duration = Duration::from_millis(300);
+
+/// Whether someone whose level last passed [`SPEAKING`] at `loud_at` still shows speaking.
+pub fn still_speaking(loud_at: Option<Instant>, now: Instant) -> bool {
+    loud_at.is_some_and(|at| now.saturating_duration_since(at) < SPEAKING_HOLD)
+}
 
 /// Chat that arrived, for the interface.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -109,6 +117,8 @@ pub struct Heard {
     pub at: Instant,
     /// Level of the last frame played, 0 to 1.
     pub level: f32,
+    /// When their level last passed [`SPEAKING`].
+    pub loud_at: Option<Instant>,
 }
 
 /// When each person last showed video and sound.
@@ -239,6 +249,7 @@ impl Shared {
         let entry = heard.entry(id).or_insert(Heard {
             at: Instant::now(),
             level: 0.0,
+            loud_at: None,
         });
         change(entry);
     }
@@ -329,7 +340,7 @@ pub fn apply(
             muted: heard.is_none(),
             camera,
             hand_raised: person.hand_raised,
-            speaking: heard.is_some_and(|h| h.level > SPEAKING),
+            speaking: heard.is_some_and(|h| still_speaking(h.loud_at, now)),
             path: person.path,
             safety: person.safety.clone(),
             side: person.side,
@@ -399,6 +410,17 @@ mod tests {
     }
 
     #[test]
+    fn the_speaking_border_holds_between_syllables() {
+        let now = Instant::now();
+        assert!(!still_speaking(None, now));
+        assert!(still_speaking(Some(now), now));
+        let gap = now + Duration::from_millis(200);
+        assert!(still_speaking(Some(now), gap), "a short gap keeps the border");
+        let pause = now + SPEAKING_HOLD;
+        assert!(!still_speaking(Some(now), pause), "a pause ends it");
+    }
+
+    #[test]
     fn people_show_what_arrived() {
         let now = Instant::now();
         let mut call = Call::live("Call".into(), "Jo", false, now);
@@ -409,6 +431,7 @@ mod tests {
             Heard {
                 at: now,
                 level: 0.8,
+                loud_at: Some(now),
             },
         );
         seen.audio.insert(
@@ -416,6 +439,7 @@ mod tests {
             Heard {
                 at: now.checked_sub(Duration::from_secs(5)).unwrap_or(now),
                 level: 0.9,
+                loud_at: Some(now),
             },
         );
         apply(

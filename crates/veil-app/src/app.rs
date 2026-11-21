@@ -51,6 +51,8 @@ pub struct VeilApp {
     pub preview: Option<TextureHandle>,
     /// Microphone level, smoothed for the meter.
     pub level: f32,
+    /// When the microphone level last passed the speaking threshold, for your border.
+    pub loud_at: Option<Instant>,
     /// What you chose on the pre-join screen, kept for the call.
     pub want_camera: bool,
     pub want_mic: bool,
@@ -101,6 +103,7 @@ impl VeilApp {
             share_view: None,
             preview: None,
             level: 0.0,
+            loud_at: None,
             want_camera: true,
             want_mic: true,
             devices: crate::devices::DeviceLists::default(),
@@ -293,6 +296,9 @@ impl VeilApp {
             }
         }
         let target = self.media.level();
+        if target > crate::engine::SPEAKING {
+            self.loud_at = Some(Instant::now());
+        }
         // Fast attack, slow release, like a hardware meter.
         let rate = if target > self.level { 0.6 } else { 0.15 };
         self.level += (target - self.level) * rate;
