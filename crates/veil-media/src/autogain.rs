@@ -9,9 +9,11 @@
 //! Invariants:
 //! - The gain stays within [`MIN_GAIN_DB`]..=[`MAX_GAIN_DB`] and moves smoothly: up by at most
 //!   [`RISE_DB_PER_S`], down by at most [`FALL_DB_PER_S`].
-//! - No frame leaves louder than [`CEILING`]: a frame that would is turned down at once, and
-//!   the gain learns from it.
-//! - Without speech the gain holds where it was, and any boost fades out: a frame the model
+//! - No frame leaves louder than [`CEILING`]: a frame that would is turned down at once. Only
+//!   a speech frame (a shout) lowers the learnt gain; a loud noise (a door, a key, a cough)
+//!   is limited for that frame alone, so it never leaves the voice quiet afterwards.
+//! - Without speech the learnt gain holds where it was, and the boost fades to unity within
+//!   [`CLOSE_S`]: a frame the model
 //!   does not score as speech gets at most the boost scaled by how recently speech was heard
 //!   (opens in about [`OPEN_S`], fades over [`CLOSE_S`]), so pauses and noise leave close to
 //!   unity. A cut (negative gain) stays on, since it never makes noise louder.
@@ -120,9 +122,16 @@ impl AutoGain {
         let mut end = amplitude(self.applied_db());
         let mut start = self.last;
         if peak > 0.0 && peak * end > CEILING {
-            // This frame would clip: turn down now, and keep the lower gain.
-            self.gain_db = db(CEILING / peak).max(MIN_GAIN_DB);
-            end = amplitude(self.applied_db());
+            // This frame would clip: turn it down now.
+            let fits = db(CEILING / peak).max(MIN_GAIN_DB);
+            if voice >= VOICE {
+                // A shout: keep the lower gain, as speech taught it.
+                self.gain_db = fits;
+                end = amplitude(self.applied_db());
+            } else {
+                // A noise: this frame only.
+                end = amplitude(fits);
+            }
             start = start.min(end);
         }
         let step = (end - start) / frame.len() as f32;
@@ -240,6 +249,21 @@ mod tests {
         agc.process(&mut shout, 1.0);
         assert!(shout.iter().all(|s| s.abs() <= CEILING));
         assert!(agc.gain_db() < 0.0, "learnt from the shout");
+    }
+
+    #[test]
+    fn a_loud_noise_does_not_leave_the_voice_quiet() {
+        let mut agc = AutoGain::new();
+        speak(&mut agc, -45.0, 4);
+        let learnt = agc.gain_db();
+        // A door right after speech, while the boost is still open.
+        let mut door = tone(-6.0, 0);
+        agc.process(&mut door, 0.1);
+        assert!(door.iter().all(|s| s.abs() <= CEILING));
+        assert_eq!(agc.gain_db(), learnt, "the learnt gain is kept");
+        let out = speak(&mut agc, -45.0, 1);
+        let level = rms_db(&out);
+        assert!((level - TARGET_DB).abs() < 3.0, "speech at {level} dBFS");
     }
 
     #[test]
