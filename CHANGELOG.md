@@ -19,13 +19,15 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   with both on, joining stops with a message, since Local only has no relay.
 - **Nearby calls and QR invitations.** Explicit scanning, and opt-in advertising on IPv4
   LANs while Local only is on. One invitation per device every 10 s, 64 per call. A found
-  call shows whether its host is a device you verified before you continue; beacons contain a temporary service key and port, never a name or invitation.
+  call shows whether its host is a device you verified before you continue; beacons contain a
+  temporary service key and port, never a name or invitation. The invitation is sent only to
+  someone who types the six-digit nearby code shown on the host's screen.
   Selecting one fetches a signed full invite over pinned local-only QUIC. QR codes encode
   the full invitation locally; this build does not include a QR camera decoder.
 - **Interface and address updates.** Enumerates usable interfaces without needing an
   internet route. Local only invitations list local scope interface addresses; other
-  invitations keep the short list. Admitted participants send local scope address hints over
-  their authenticated host connection, at most one update per 5 s reaching the host. The host
+  invitations keep the short list. In a Local only call, admitted participants send local
+  scope address hints over their authenticated host connection, at most one update per 5 s reaching the host. The host
   keeps a public hint only if it is the address the link comes from.
 - **Connection recovery.** Rendezvous registrations reconnect with backoff and restore
   current permissions. Brief unexpected host-control interruptions have a bounded resume

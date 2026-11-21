@@ -71,6 +71,7 @@ pub fn call(your_name: &str, is_host: bool, now: Instant) -> Call {
         chat: Vec::new(),
         invite: String::from("veil://join/demo-invite-not-a-real-link"),
         invite_full: String::from("veil://join/demo-invite-not-a-real-link"),
+        nearby_code: String::new(),
         invite_expires: 0,
         invite_until_end: false,
         epoch: 1,

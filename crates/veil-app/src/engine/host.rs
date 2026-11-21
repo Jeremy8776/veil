@@ -160,7 +160,12 @@ pub async fn run(
     // `enforce_policy` already clears discovery outside Local only; this is the second lock.
     let _nearby = if config.nearby_discovery && config.local_only {
         match crate::nearby::advertise(shared.clone()) {
-            Ok(advertiser) => Some(advertiser),
+            Ok(advertiser) => {
+                if let Ok(mut view) = shared.view.lock() {
+                    view.nearby_code = advertiser.code().to_string();
+                }
+                Some(advertiser)
+            }
             Err(e) => {
                 crate::note!("nearby discovery could not start: {e}");
                 None
@@ -267,7 +272,10 @@ pub async fn run(
                 }
                 Some(HostEvent::Addresses { device, addrs: candidate }) => {
                     // Only current members' hints are kept, so this map is bounded by the roster.
-                    if roster.iter().any(|(_, d)| *d == device)
+                    // Guests send hints only in a Local only call. Outside one, a hint would
+                    // spread a member's private addresses across the internet, so none is used.
+                    if config.local_only
+                        && roster.iter().any(|(_, d)| *d == device)
                         && peer_addrs.get(&device) != Some(&candidate)
                     {
                         peer_addrs.insert(device, candidate);

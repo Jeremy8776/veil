@@ -43,6 +43,17 @@ pub fn lifetime(view: &mut CallView, ui: &mut egui::Ui) {
     if !view.call.demo {
         crate::invite_qr::button(ui);
     }
+    if !view.call.nearby_code.is_empty() {
+        ui.label(
+            RichText::new(format!("Nearby code: {}", view.call.nearby_code))
+                .small()
+                .color(MUTED),
+        )
+        .on_hover_text(
+            "Guests who find this call nearby type this code to get the invite. Tell it only \
+             to people you want to invite.",
+        );
+    }
     if view.call.invite != view.call.invite_full {
         let label = RichText::new("Copy full link").small().color(MUTED);
         let full = ui

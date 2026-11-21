@@ -242,6 +242,11 @@ impl Node {
         self.local_policy.set(enabled);
     }
 
+    /// Whether this endpoint is restricted to connected local networks.
+    pub fn is_local_only(&self) -> bool {
+        self.local_policy.enabled()
+    }
+
     pub fn local_addr(&self) -> Result<SocketAddr, NetError> {
         Ok(self.endpoint.local_addr()?)
     }

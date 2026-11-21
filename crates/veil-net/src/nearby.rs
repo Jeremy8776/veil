@@ -2,6 +2,13 @@
 //! name, room identifier or permanent device identity. A person explicitly chooses a beacon;
 //! its full signed invitation is fetched through a pinned, local-only QUIC connection.
 //!
+//! The invitation names the host's permanent key, its addresses and a join token, so it is
+//! handed out only with the [`Code`] shown on the host's screen. Someone on the network who
+//! cannot see that screen learns nothing past the beacon. Guessing is bounded: one attempt
+//! per source per [`PER_SOURCE_GAP`] and [`MAX_FETCHES`] attempts in all, so a stranger has
+//! at most 64 tries at a million codes. Spending those tries can still stop nearby
+//! discovery for this call; the full link and QR keep working.
+//!
 //! This is a small Veil multicast protocol, not mDNS. IPv4 interfaces are joined separately,
 //! so discovery does not need a default route. Multicast may be disabled by the LAN; full
 //! invitations and QR remain independent alternatives.
@@ -160,14 +167,76 @@ impl Drop for Scanner {
     }
 }
 
+/// The six digits the host shows, which the guest types to get the invitation.
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Code([u8; 6]);
+
+impl Code {
+    /// A fresh code from the system's secure random source.
+    pub fn generate() -> Result<Self, NetError> {
+        let random = rustls::crypto::ring::default_provider().secure_random;
+        loop {
+            let mut bytes = [0u8; 4];
+            random
+                .fill(&mut bytes)
+                .map_err(|_| NetError::Config("no secure random source".into()))?;
+            let n = u32::from_le_bytes(bytes);
+            // Rejection keeps every code equally likely.
+            if n < 4_294_000_000 {
+                return Ok(Self::from_number(n % 1_000_000));
+            }
+        }
+    }
+
+    fn from_number(mut n: u32) -> Self {
+        let mut digits = [0u8; 6];
+        for digit in digits.iter_mut().rev() {
+            *digit = b'0' + (n % 10) as u8;
+            n /= 10;
+        }
+        Self(digits)
+    }
+
+    /// Six digits, spaces allowed (as shown: "123 456"). Anything else is not a code.
+    pub fn parse(text: &str) -> Option<Self> {
+        let digits: Vec<u8> = text.bytes().filter(|b| *b != b' ').collect();
+        let digits: [u8; 6] = digits.try_into().ok()?;
+        digits.iter().all(u8::is_ascii_digit).then_some(Self(digits))
+    }
+
+    /// Equal without an early exit, so timing does not reveal how many digits match.
+    fn matches(&self, other: &Self) -> bool {
+        self.0
+            .iter()
+            .zip(other.0.iter())
+            .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+            == 0
+    }
+}
+
+impl std::fmt::Display for Code {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = std::str::from_utf8(&self.0).map_err(|_| std::fmt::Error)?;
+        write!(f, "{} {}", &text[..3], &text[3..])
+    }
+}
+
+/// Never printed in logs.
+impl std::fmt::Debug for Code {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Code(..)")
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 enum Request {
-    Invite,
+    Invite(Code),
 }
 
 /// Holds the temporary invitation service and its beacons for the host's call lifetime.
 pub struct Advertiser {
     tasks: Vec<JoinHandle<()>>,
+    code: Code,
 }
 impl Drop for Advertiser {
     fn drop(&mut self) {
@@ -178,9 +247,10 @@ impl Drop for Advertiser {
 }
 
 impl Advertiser {
-    /// Call only after the host opted in. Anyone on the LAN can request the invitation and
-    /// knock; the host still decides admission. `invite` reads the latest single-use link.
+    /// Call only after the host opted in. The invitation goes only to someone who gives
+    /// [`Self::code`]; the host still decides admission. `invite` reads the latest link.
     pub fn start(invite: Arc<dyn Fn() -> Option<String> + Send + Sync>) -> Result<Self, NetError> {
+        let code = Code::generate()?;
         let identity = Identity::generate();
         let node = Node::bind_local(&identity, 0)?;
         let bytes = beacon(identity.public(), node.local_addr()?.port());
@@ -214,8 +284,14 @@ impl Advertiser {
         });
         // A distinct callback clone is supplied below; both callbacks are read-only.
         Ok(Self {
-            tasks: vec![announce, serve(node, invite)],
+            tasks: vec![announce, serve(node, invite, code)],
+            code,
         })
+    }
+
+    /// The code to show on the host's screen.
+    pub fn code(&self) -> Code {
+        self.code
     }
 }
 
@@ -252,7 +328,11 @@ fn admit_source(
     true
 }
 
-fn serve(node: Node, invite: Arc<dyn Fn() -> Option<String> + Send + Sync>) -> JoinHandle<()> {
+fn serve(
+    node: Node,
+    invite: Arc<dyn Fn() -> Option<String> + Send + Sync>,
+    code: Code,
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         let slots = Arc::new(Semaphore::new(8));
         let mut serving = JoinSet::new();
@@ -274,8 +354,10 @@ fn serve(node: Node, invite: Arc<dyn Fn() -> Option<String> + Send + Sync>) -> J
                 let _slot = slot;
                 let answer = async {
                     let (mut out, mut input) = link.accept_control().await?.split();
-                    let Request::Invite = input.recv::<Request>().await?;
-                    let full = invite().filter(|full| full.len() <= MAX_LINK_LEN);
+                    let Request::Invite(given) = input.recv::<Request>().await?;
+                    // A wrong code gets the same answer as no open call.
+                    let full = if given.matches(&code) { invite() } else { None }
+                        .filter(|full| full.len() <= MAX_LINK_LEN);
                     out.send(&full).await
                 };
                 let _ = tokio::time::timeout(SERVICE_WAIT, answer).await;
@@ -289,18 +371,18 @@ fn serve(node: Node, invite: Arc<dyn Fn() -> Option<String> + Send + Sync>) -> J
 
 /// Explicit user action only. A throwaway identity fetches locally; the signed invitation
 /// is validated before it can be used to join. No public endpoint or DNS is consulted.
-pub async fn fetch(found: &Found, now_unix: u64) -> Result<Invite, NetError> {
+pub async fn fetch(found: &Found, code: Code, now_unix: u64) -> Result<Invite, NetError> {
     let fetch = async {
         let node = Node::bind_local(&Identity::generate(), 0)?;
         let link = node.connect(&[found.addr], found.key).await?;
         let (mut out, mut input) = link.open_control().await?.split();
-        out.send(&Request::Invite).await?;
+        out.send(&Request::Invite(code)).await?;
         let full = input
             .recv::<Option<String>>()
             .await?
             .filter(|full| full.len() <= MAX_LINK_LEN)
             .ok_or(NetError::Protocol(
-                "nearby invitation is no longer available",
+                "wrong code, or the call is no longer open",
             ))?;
         let invite = Invite::from_link(&full, now_unix)
             .map_err(|_| NetError::Protocol("nearby invitation is invalid or expired"))?;
@@ -330,6 +412,21 @@ mod tests {
         let mut appended = bytes;
         appended.push(1);
         assert!(decode(&appended, found.addr).is_none());
+    }
+
+    #[test]
+    fn codes_are_six_digits_and_compare_exactly() {
+        let code = Code::generate().unwrap();
+        let shown = code.to_string();
+        assert_eq!(shown.len(), 7, "shown as 123 456");
+        assert_eq!(Code::parse(&shown), Some(code));
+        assert_eq!(Code::from_number(42).to_string(), "000 042");
+        for bad in ["12345", "1234567", "12a456", ""] {
+            assert!(Code::parse(bad).is_none(), "{bad}");
+        }
+        let a = Code::parse("111111").unwrap();
+        assert!(a.matches(&a) && !a.matches(&Code::parse("111112").unwrap()));
+        assert_eq!(format!("{code:?}"), "Code(..)", "never logged");
     }
 
     #[test]
@@ -369,8 +466,21 @@ mod tests {
             key: service.public(),
             addr: SocketAddr::from((Ipv4Addr::LOCALHOST, node.local_addr().unwrap().port())),
         };
-        let serving = serve(node, Arc::new(move || Some(full.clone())));
-        let fetched = fetch(&found, now).await.unwrap();
+        let code = Code::parse("123 456").unwrap();
+        let serving = serve(node, Arc::new(move || Some(full.clone())), code);
+        let wrong = Code::parse("123457").unwrap();
+        assert!(fetch(&found, wrong, now).await.is_err(), "a wrong code gets nothing");
+        // One attempt per source per window, so the right code now has to wait as well.
+        assert!(fetch(&found, code, now).await.is_err());
+        serving.abort();
+        let node = Node::bind_local(&service, 0).unwrap();
+        let found = Found {
+            key: service.public(),
+            addr: SocketAddr::from((Ipv4Addr::LOCALHOST, node.local_addr().unwrap().port())),
+        };
+        let full = invite.to_link(&host).unwrap();
+        let serving = serve(node, Arc::new(move || Some(full.clone())), code);
+        let fetched = fetch(&found, code, now).await.unwrap();
         assert_eq!(fetched, invite);
         assert_ne!(
             found.key, fetched.host,

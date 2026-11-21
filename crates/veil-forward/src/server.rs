@@ -41,6 +41,7 @@
 //! shortcut: no forwarder-to-forwarder cascade yet; one forwarder serves a whole room.
 
 mod budget;
+mod fan_out;
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
@@ -48,19 +49,17 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use bytes::Bytes;
 use tokio::sync::mpsc;
 use veil_net::accept::block;
-use veil_net::control::MAX_APP_LEN;
 use veil_net::{FramedSend, Link, NetError, Node};
 use veil_security::PublicId;
-use veil_security::frame::frame_layer;
 
 use crate::protocol::{ClientMsg, Refusal, ServerMsg};
 use crate::subscribe::{Subscriptions, Wanted};
 use crate::ticket::RosterTicket;
 pub use budget::QueueMonitor;
-use budget::{Budgets, Reservation, reserve_all};
+use budget::{Budgets, Reservation};
+use fan_out::{fan_out_app, fan_out_audio, fan_out_video};
 
 /// Frames waiting for one receiver, counted in frames. The byte budget usually binds first.
 const VIDEO_QUEUE: usize = 256;
@@ -417,23 +416,6 @@ fn request_keyframe(state: &Shared, key: &RoomKey, me: PublicId, id: u64, sender
     }
 }
 
-/// Passes a sealed app message from member `me` (this link `id`) to everyone else in the
-/// room. Too large, or from a replaced link, it is dropped; a full control queue drops it
-/// for that receiver only.
-fn fan_out_app(state: &Shared, key: &RoomKey, me: PublicId, id: u64, sealed: Vec<u8>) {
-    if sealed.len() > MAX_APP_LEN {
-        return;
-    }
-    let Some(s) = lock(state) else { return };
-    let Some(room) = s.rooms.get(key) else { return };
-    if !room.members.get(&me).is_some_and(|m| m.id == id) {
-        return;
-    }
-    for (_, member) in room.members.iter().filter(|(device, _)| **device != me) {
-        let _ = member.control.try_send(ServerMsg::App(sealed.clone()));
-    }
-}
-
 fn leave(state: &Shared, key: &RoomKey, me: PublicId, id: u64) {
     if let Some(mut s) = lock(state)
         && let Some(room) = s.rooms.get_mut(key)
@@ -487,21 +469,6 @@ async fn watch_alone(
             None => return,
         }
     }
-}
-
-/// Everyone in the room except the sender.
-fn others<T>(state: &Shared, key: &RoomKey, me: PublicId, pick: impl Fn(&Member) -> T) -> Vec<T> {
-    lock(state)
-        .and_then(|s| {
-            s.rooms.get(key).map(|room| {
-                room.members
-                    .iter()
-                    .filter(|(device, _)| **device != me)
-                    .map(|(_, m)| pick(m))
-                    .collect()
-            })
-        })
-        .unwrap_or_default()
 }
 
 async fn refuse(link: &Link, out: &mut FramedSend, refusal: Refusal) {
@@ -651,53 +618,4 @@ async fn serve(
     video.abort();
     audio.abort();
     alone.abort();
-}
-
-fn fan_out_video(
-    state: &Shared,
-    budgets: &Arc<Budgets>,
-    limits: &Limits,
-    key: &RoomKey,
-    me: PublicId,
-    frame_id: u32,
-    sealed: Vec<u8>,
-) {
-    let Ok(layer) = frame_layer(&sealed) else {
-        return;
-    };
-    let receivers: Vec<_> = lock(state)
-        .and_then(|mut s| {
-            s.rooms.get_mut(key).map(|room| {
-                room.members
-                    .iter_mut()
-                    .filter(|(device, _)| **device != me)
-                    .filter_map(|(_, m)| {
-                        m.subs
-                            .pass(&me, layer)
-                            .then(|| (m.video.clone(), m.queued.clone(), m.source))
-                    })
-                    .collect()
-            })
-        })
-        .unwrap_or_default();
-    let len = sealed.len();
-    let frame = Arc::new(sealed);
-    for (queue, queued, source) in receivers {
-        if let Some(reservation) = reserve_all(budgets, &queued, source, len, limits) {
-            // A full queue hands the frame back; dropping it releases the reservation.
-            let _ = queue.try_send(Frame {
-                id: frame_id,
-                sealed: frame.clone(),
-                enqueued: Instant::now(),
-                _reservation: reservation,
-            });
-        }
-    }
-}
-
-fn fan_out_audio(state: &Shared, key: &RoomKey, me: PublicId, packet: &Bytes) {
-    for conn in others(state, key, me, |m| m.conn.clone()) {
-        // Audio is loss tolerant: a full or too-small path drops the packet.
-        let _ = conn.send_datagram(packet.clone());
-    }
 }

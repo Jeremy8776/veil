@@ -37,18 +37,24 @@ Virtual or bridged interfaces can belong to these subnets: this is not proof of 
 proximity. The mode does not configure or restrict other applications on the computer.
 
 Nearby discovery is off by default and only runs with Local only on, so the invitation it
-hands out names local addresses only. Each device can fetch one invitation every 10 seconds,
-and at most 64 per call. An advertising host broadcasts a temporary service
+hands out names local addresses only. The host's screen shows a six-digit nearby code, and
+the invitation is sent only to a device that gives that code. A wrong code gets the same
+answer as a closed call. Each device can try once every 10 seconds, and the host answers
+at most 64 tries per call, so a stranger has at most 64 guesses at a million codes; using
+up those tries can stop nearby discovery for that call, but not the full link or QR. An advertising host broadcasts a temporary service
 key and port on IPv4 multicast, revealing that Veil is offering a call on that network.
 It broadcasts no display name, permanent device key or invitation. Selecting a result
-fetches the full signed invitation over encrypted, key-pinned local QUIC using a throwaway
-client identity. The fetched invitation identifies the host and its addresses. QR display
+fetches the full signed invitation, after the code is typed, over encrypted, key-pinned
+local QUIC using a throwaway client identity. The fetched invitation identifies the host and its addresses. QR display
 encodes that same full invitation on the device; anyone who can read it holds the invite.
 There is no built-in camera decoder. Discovery is currently a Veil-specific protocol,
 not mDNS, and may fail on networks that block multicast or communication between clients.
 
-Outside relay-only mode, authenticated members now report local scope interface addresses
-(private and link-local IPv4, unique local and link-local IPv6) to the host. The host keeps
+In a Local only call, and outside relay-only mode, authenticated members report local
+scope interface addresses (private and link-local IPv4, unique local and link-local IPv6)
+to the host. In any other call members report none, and the host ignores any it gets:
+those members may be across the internet, and a full address list fingerprints a machine
+(a link-local IPv6 address can carry the network card's MAC address). The host keeps
 a public address only when it is the one the member's link comes from, and passes the hints
 to other current members in signed mesh plans. Members on the same network can therefore
 see each other's local addresses, including virtual adapters in those ranges. Invitations

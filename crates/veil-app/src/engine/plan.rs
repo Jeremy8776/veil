@@ -207,11 +207,47 @@ fn dialable(addr: SocketAddr) -> Result<(), String> {
 }
 
 /// This machine's address on its local network, if it has one.
+///
+/// The routing table knows which interface is the real network: it skips virtual switches
+/// (Hyper-V, WSL, Docker) that sort first by address. Connecting a UDP socket only looks the
+/// route up; nothing is sent. With no default route (a hotspot with no internet), the
+/// interface list is used instead.
 pub fn lan_ip() -> Option<IpAddr> {
-    veil_net::local::candidates(1)
-        .into_iter()
-        .map(|a| a.ip())
-        .find(|ip| ip.is_ipv4() && !ip.is_loopback())
+    routed_ip().or_else(|| {
+        let candidates: Vec<IpAddr> = veil_net::local::candidates(1)
+            .into_iter()
+            .map(|a| a.ip())
+            .collect();
+        fallback_ip(&candidates)
+    })
+}
+
+fn routed_ip() -> Option<IpAddr> {
+    let socket = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
+    // A documentation address (TEST-NET-1): nothing is sent, the route is only looked up.
+    socket.connect((Ipv4Addr::new(192, 0, 2, 1), 9)).ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+    (!ip.is_unspecified() && !ip.is_loopback()).then_some(ip)
+}
+
+/// With no route to go by: a private IPv4 address before a self-assigned (169.254) one,
+/// which is what an adapter with no network gives itself.
+///
+/// shortcut: with several private networks and no default route, the lowest address wins
+/// and may be a virtual switch. Upgrade by letting the person pick the network in
+/// Connection if offline hotspots with virtual adapters turn out to be common.
+fn fallback_ip(candidates: &[IpAddr]) -> Option<IpAddr> {
+    let v4 = || {
+        candidates
+            .iter()
+            .filter_map(|ip| match ip {
+                IpAddr::V4(v4) if !v4.is_loopback() && !v4.is_unspecified() => Some(*v4),
+                _ => None,
+            })
+    };
+    v4().find(|ip| ip.is_private())
+        .or_else(|| v4().next())
+        .map(IpAddr::V4)
 }
 
 /// Addresses for the invite: configured ones first, then this machine's public IPv6 address
@@ -377,6 +413,18 @@ mod tests {
                 && config.advertise.is_empty()
         );
         assert_eq!(config.port, 7711);
+    }
+
+    #[test]
+    fn without_a_route_a_private_address_beats_a_self_assigned_one() {
+        let ips: Vec<IpAddr> = ["fd00::1", "169.254.120.25", "192.168.1.139", "127.0.0.1"]
+            .iter()
+            .map(|ip| ip.parse().unwrap())
+            .collect();
+        assert_eq!(super::fallback_ip(&ips), Some("192.168.1.139".parse().unwrap()));
+        let only_link_local: Vec<IpAddr> = vec!["169.254.1.2".parse().unwrap()];
+        assert_eq!(super::fallback_ip(&only_link_local), Some(only_link_local[0]));
+        assert_eq!(super::fallback_ip(&["::1".parse().unwrap()]), None);
     }
 
     #[test]

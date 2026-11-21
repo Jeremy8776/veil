@@ -126,13 +126,7 @@ pub async fn join_with(
     let mut group = joiner.join(&welcome, &invite.host)?;
     let (host, room_id, me) = (invite.host, invite.room_id, call.identity().public());
     let (node, presence, relay_only) = call.redial_context();
-    // Only local scope addresses are offered: the host and the other members already see the
-    // public address this link comes from, and the host drops any other public one.
-    let mut candidates = if relay_only {
-        Vec::new()
-    } else {
-        veil_net::local::local_candidates(node.local_addr()?.port())
-    };
+    let mut candidates = own_hints(&node, relay_only);
     out.send(&Control::Addresses(candidates.clone())).await?;
 
     let (events, events_rx) = mpsc::unbounded_channel();
@@ -174,9 +168,7 @@ pub async fn join_with(
                                 }
                                 // The new control connection receives its own address update,
                                 // even if the local address has not changed since the outage.
-                                candidates = if relay_only { Vec::new() } else {
-                                    node.local_addr().map(|a| veil_net::local::local_candidates(a.port())).unwrap_or_default()
-                                };
+                                candidates = own_hints(&node, relay_only);
                                 if send_control(&mut out, &Control::Addresses(candidates.clone())).await.is_err() {
                                     live.close("control recovery failed");
                                     continue;
@@ -191,9 +183,7 @@ pub async fn join_with(
                     },
                 },
                 _ = refresh.tick() => {
-                    let next = if relay_only { Vec::new() } else {
-                        node.local_addr().map(|a| veil_net::local::local_candidates(a.port())).unwrap_or_default()
-                    };
+                    let next = own_hints(&node, relay_only);
                     if next != candidates {
                         candidates = next;
                         if send_control(&mut out, &Control::Addresses(candidates.clone())).await.is_err() {
@@ -284,6 +274,21 @@ pub async fn join_with(
         current: current_rx,
         task,
     })
+}
+
+/// The addresses this member tells the host about, which reach every other member.
+///
+/// Only in a Local only call, and only local scope ones. In any other call the members may be
+/// across the internet: a full list of private and link-local addresses would fingerprint
+/// this machine (a link-local IPv6 address can carry the network card's MAC address), and
+/// they already see the public address this link comes from. Hide my address sends none.
+fn own_hints(node: &Node, relay_only: bool) -> Vec<SocketAddr> {
+    if relay_only || !node.is_local_only() {
+        return Vec::new();
+    }
+    node.local_addr()
+        .map(|a| veil_net::local::local_candidates(a.port()))
+        .unwrap_or_default()
 }
 
 /// A background reader or probe must not outlive its member session.

@@ -1,5 +1,6 @@
 //! The explicit home-screen nearby scan. Nothing runs until the person starts a search;
-//! listening stops on leaving Home or after 20 seconds. Fetches use throwaway device keys.
+//! listening stops on leaving Home or after 20 seconds. Fetches use throwaway device keys
+//! and need the code shown on the host's screen.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -24,6 +25,9 @@ pub struct Nearby {
     generation: Arc<AtomicU64>,
     /// A fetched invitation waiting for the person to confirm its host.
     confirm: Option<veil_security::invite::Invite>,
+    /// The call picked from the list, waiting for the host's code.
+    chosen: Option<Found>,
+    code: String,
 }
 
 impl Drop for Nearby {
@@ -38,6 +42,8 @@ impl Nearby {
         self.generation.fetch_add(1, Ordering::Relaxed);
         self.fetching = false;
         self.confirm = None;
+        self.chosen = None;
+        self.code.clear();
         if let Ok(mut answer) = self.answer.lock() {
             *answer = None;
         }
@@ -102,7 +108,7 @@ impl Nearby {
         });
     }
 
-    fn fetch(&mut self, found: Found, ctx: egui::Context) {
+    fn fetch(&mut self, found: Found, code: nearby::Code, ctx: egui::Context) {
         self.fetching = true;
         let answer = self.answer.clone();
         let generation = self.generation.clone();
@@ -114,7 +120,7 @@ impl Nearby {
                 .map_err(|e| e.to_string())
                 .and_then(|runtime| {
                     runtime
-                        .block_on(nearby::fetch(&found, crate::screens::invite::now_unix()))
+                        .block_on(nearby::fetch(&found, code, crate::screens::invite::now_unix()))
                         .map_err(|e| e.to_string())
                 });
             if let Ok(mut answer) = answer.lock()
@@ -185,7 +191,9 @@ impl Nearby {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        if !rows.is_empty() {
+        if let Some(found) = self.chosen.clone() {
+            self.code_ui(ui, found);
+        } else if !rows.is_empty() {
             ui.label(
                 RichText::new("Nearby calls are unverified. The host still admits you.")
                     .small()
@@ -199,7 +207,8 @@ impl Nearby {
                     )
                     .clicked()
                 {
-                    self.fetch(found, ui.ctx().clone());
+                    self.chosen = Some(found);
+                    self.code.clear();
                 }
             }
         } else if searching {
@@ -219,6 +228,45 @@ impl Nearby {
             ui.ctx().request_repaint_after(Duration::from_millis(250));
         }
         None
+    }
+}
+
+impl Nearby {
+    /// Asks for the code on the host's screen. Without it the host's service sends nothing.
+    fn code_ui(&mut self, ui: &mut egui::Ui, found: Found) {
+        ui.label(
+            RichText::new(format!(
+                "Type the nearby code shown on the host's screen for call {}.",
+                found.label()
+            ))
+            .small()
+            .color(MUTED),
+        );
+        let code = nearby::Code::parse(&self.code);
+        ui.horizontal(|ui| {
+            let field = ui.add(
+                egui::TextEdit::singleline(&mut self.code)
+                    .hint_text("123 456")
+                    .desired_width(90.0)
+                    .char_limit(7),
+            );
+            let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let get = ui
+                .add_enabled(code.is_some() && !self.fetching, egui::Button::new("Get invite"))
+                .clicked();
+            if (get || enter)
+                && !self.fetching
+                && let Some(code) = code
+            {
+                self.chosen = None;
+                self.code.clear();
+                self.fetch(found, code, ui.ctx().clone());
+            }
+            if ui.button("Cancel").clicked() {
+                self.chosen = None;
+                self.code.clear();
+            }
+        });
     }
 }
 

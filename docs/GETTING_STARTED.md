@@ -4,7 +4,8 @@ For the unreleased networking changes, enable **Local only** in **Connection**, 
 restart Veil before an offline session. Saved internet server fields and router mappings
 are ignored in this mode. Use **Copy full link** or **Show full invite QR**; decoding a QR currently
 requires another QR reader and pasting the resulting link. Nearby scanning is explicit;
-hosts must opt into making their calls discoverable. Nearby discovery currently uses IPv4
+hosts must opt into making their calls discoverable, and a guest types the nearby code
+shown on the host's screen to get the invite. Nearby discovery currently uses IPv4
 multicast. Full invitations remain available if multicast is blocked. Wi-Fi client
 isolation can prevent all local connections even when devices share a network name.
 
