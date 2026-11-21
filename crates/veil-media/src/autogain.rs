@@ -9,7 +9,8 @@
 //! Invariants:
 //! - The gain stays within [`MIN_GAIN_DB`]..=[`MAX_GAIN_DB`] and moves smoothly: up by at most
 //!   [`RISE_DB_PER_S`], down by at most [`FALL_DB_PER_S`].
-//! - No frame leaves louder than [`CEILING`]: a frame that would is turned down at once. Only
+//! - No frame leaves louder than [`CEILING`], counting any volume applied after this one
+//!   ([`AutoGain::set_after`]), so a mic volume above 100% cannot make it clip: a frame that would is turned down at once. Only
 //!   a speech frame (a shout) lowers the learnt gain; a loud noise (a door, a key, a cough)
 //!   is limited for that frame alone, so it never leaves the voice quiet afterwards.
 //! - Without speech the learnt gain holds where it was, and the boost fades to unity within
@@ -55,6 +56,8 @@ pub struct AutoGain {
     open: f32,
     /// The linear gain applied at the end of the last frame, where the next ramp starts.
     last: f32,
+    /// Highest sample out of this stage: [`CEILING`] divided by any boost applied after it.
+    limit: f32,
 }
 
 impl Default for AutoGain {
@@ -78,7 +81,15 @@ impl AutoGain {
             gain_db: 0.0,
             open: 0.0,
             last: 1.0,
+            limit: CEILING,
         }
+    }
+
+    /// Tells the stage the gain applied after it (the manual mic volume), so its output still
+    /// stays under [`CEILING`] once that is applied. A gain of 1 or less changes nothing.
+    pub fn set_after(&mut self, gain: f32) {
+        let gain = if gain.is_finite() { gain.max(1.0) } else { 1.0 };
+        self.limit = CEILING / gain;
     }
 
     /// The gain now, in dB.
@@ -121,9 +132,9 @@ impl AutoGain {
         let peak = frame.iter().fold(0.0f32, |m, s| m.max(s.abs()));
         let mut end = amplitude(self.applied_db());
         let mut start = self.last;
-        if peak > 0.0 && peak * end > CEILING {
+        if peak > 0.0 && peak * end > self.limit {
             // This frame would clip: turn it down now.
-            let fits = db(CEILING / peak).max(MIN_GAIN_DB);
+            let fits = db(self.limit / peak).max(MIN_GAIN_DB);
             if voice >= VOICE {
                 // A shout: keep the lower gain, as speech taught it.
                 self.gain_db = fits;
@@ -137,7 +148,7 @@ impl AutoGain {
         let step = (end - start) / frame.len() as f32;
         for (i, sample) in frame.iter_mut().enumerate() {
             let gain = start + step * (i + 1) as f32;
-            *sample = (*sample * gain).clamp(-CEILING, CEILING);
+            *sample = (*sample * gain).clamp(-self.limit, self.limit);
         }
         self.last = end;
     }
@@ -264,6 +275,18 @@ mod tests {
         let out = speak(&mut agc, -45.0, 1);
         let level = rms_db(&out);
         assert!((level - TARGET_DB).abs() < 3.0, "speech at {level} dBFS");
+    }
+
+    #[test]
+    fn a_mic_volume_above_100_percent_cannot_make_it_clip() {
+        let mut agc = AutoGain::new();
+        agc.set_after(1.5);
+        speak(&mut agc, -45.0, 4);
+        let mut shout = tone(-3.0, 0);
+        agc.process(&mut shout, 1.0);
+        assert!(shout.iter().all(|s| (s * 1.5).abs() <= CEILING + 1e-6));
+        agc.set_after(f32::NAN);
+        assert_eq!(agc.limit, CEILING);
     }
 
     #[test]

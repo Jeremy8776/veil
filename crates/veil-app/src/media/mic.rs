@@ -41,7 +41,8 @@ impl Chain {
         }
     }
 
-    fn apply(&mut self, frame: &mut [f32], suppress: bool, auto: bool) {
+    /// `after` is the mic volume applied next, so Auto volume leaves it room.
+    fn apply(&mut self, frame: &mut [f32], suppress: bool, auto: bool, after: f32) {
         let run = suppress || auto;
         if run && !self.running {
             self.denoiser.reset();
@@ -59,6 +60,7 @@ impl Chain {
             0.0
         };
         if auto {
+            self.agc.set_after(after);
             self.agc.process(frame, voice);
         }
     }
@@ -88,12 +90,14 @@ pub(super) fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, 
             Ok(frame) => {
                 scaled.clear();
                 scaled.extend_from_slice(frame);
+                let mic_gain = shared.mic_gain.get();
                 chain.apply(
                     &mut scaled,
                     shared.suppress_noise.load(Ordering::Relaxed),
                     shared.auto_gain.load(Ordering::Relaxed),
+                    mic_gain,
                 );
-                crate::volume::scale(&mut scaled, shared.mic_gain.get());
+                crate::volume::scale(&mut scaled, mic_gain);
                 if let Some(taps) = lock(&shared.taps).as_ref() {
                     let _ = taps.audio.try_send(scaled.clone());
                 }
