@@ -4,7 +4,18 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Added
+
+- **Auto volume.** Veil now turns your voice up or down to a steady level, so a quiet
+  microphone is easy to hear. It learns only from speech, so silence and background noise are
+  never boosted, and a sudden shout is turned down before it distorts. It is on by default;
+  turn it off under Audio settings > Auto volume.
+
 ### Changed
+
+- **Steadier speaking border.** The border now stays on for a moment between words instead of
+  flickering with each syllable.
+- Noise suppression, Auto volume and Remove noise from others are remembered between runs.
 
 - **Home screen tools are buttons.** Demo call, Connection, the device key, Logs and the
   update check are now framed buttons with icons under the main card, in place of a row of

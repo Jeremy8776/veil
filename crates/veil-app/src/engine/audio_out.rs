@@ -31,7 +31,7 @@ use veil_media::{
     AudioHeader, AudioSettings, Denoiser, JitterBuffer, MediaError, OpusDecoder, Playout,
 };
 
-use super::view::Shared;
+use super::view::{SPEAKING, Shared};
 use crate::media::{Worker, meter};
 use crate::volume::{Playback, scale};
 
@@ -110,7 +110,12 @@ fn run(packets: &Receiver<AudioIn>, shared: &Shared, playback: Arc<Playback>, st
                 }
                 _ => 0.0,
             };
-            shared.heard(*id, |heard| heard.level = level);
+            shared.heard(*id, |heard| {
+                heard.level = level;
+                if level > SPEAKING {
+                    heard.loud_at = Some(Instant::now());
+                }
+            });
         }
         scale(&mut mix, speaker_out.playback.volume.get());
         speaker_out.play(&mix);

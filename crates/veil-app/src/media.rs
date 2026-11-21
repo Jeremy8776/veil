@@ -5,7 +5,7 @@
 //! thread hands over a level from 0 to 1. During a call, [`Taps`] also pass each picture and
 //! each 20 ms of sound to the call engine, which encodes and encrypts them. Mirroring, a chosen
 //! [`Blur`] and then a [`Filter`] are applied to each picture before either of those, and noise
-//! suppression then the microphone volume (`volume.rs`) to each 20 ms of sound (`media/mic.rs`). The speaker choice and volume live
+//! suppression, automatic volume and then the microphone volume (`volume.rs`) to each 20 ms of sound (`media/mic.rs`). The speaker choice and volume live
 //! here too ([`LocalMedia::playback`]) and the call's playback thread follows them.
 //!
 //! Invariants:
@@ -58,8 +58,9 @@ struct Shared {
     /// Microphone volume, applied before the meter and the call.
     mic_gain: Gain,
     /// Remove background noise from the microphone, before the volume, meter and call.
-    /// shortcut: forgotten when Veil closes, like `mirror`.
     suppress_noise: AtomicBool,
+    /// Bring speech to a steady level, after noise suppression and before the volume.
+    auto_gain: AtomicBool,
 }
 
 /// Shown when the camera turns itself off because blur cannot keep up.
@@ -131,6 +132,7 @@ impl LocalMedia {
             ctx,
             shared: Arc::new(Shared {
                 suppress_noise: AtomicBool::new(true),
+                auto_gain: AtomicBool::new(true),
                 ..Shared::default()
             }),
             camera: None,
@@ -162,6 +164,14 @@ impl LocalMedia {
     /// Takes effect on the next 20 ms of sound, for the meter and the call alike.
     pub fn set_noise_suppression(&self, on: bool) {
         self.shared.suppress_noise.store(on, Ordering::Relaxed);
+    }
+
+    pub fn auto_gain(&self) -> bool {
+        self.shared.auto_gain.load(Ordering::Relaxed)
+    }
+
+    pub fn set_auto_gain(&self, on: bool) {
+        self.shared.auto_gain.store(on, Ordering::Relaxed);
     }
 
     pub fn speaker_volume(&self) -> f32 {

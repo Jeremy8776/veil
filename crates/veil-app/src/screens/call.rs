@@ -162,7 +162,8 @@ impl CallView {
 
     /// Your own tile follows the devices and the microphone level.
     fn sync_you(&mut self, app: &VeilApp) {
-        let speaking = app.media.mic_on() && app.level > 0.45;
+        let speaking = app.media.mic_on()
+            && crate::engine::still_speaking(app.loud_at, Instant::now());
         if let Some(you) = self.call.you_mut() {
             you.muted = !app.media.mic_on();
             you.camera = app.media.camera_on();
