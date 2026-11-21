@@ -18,7 +18,8 @@
 //!   does not score as speech gets at most the boost scaled by how recently speech was heard
 //!   (opens in about [`OPEN_S`], fades over [`CLOSE_S`]), so pauses and noise leave close to
 //!   unity. A cut (negative gain) stays on, since it never makes noise louder.
-//! - The applied gain ramps across each frame, so a change never clicks.
+//! - The applied gain is continuous from sample to sample, so a change never clicks: it ramps
+//!   across the frame, or over [`LIMIT_RAMP`] samples when the ceiling must come down fast.
 //! - Non-finite samples are treated as silence.
 
 use crate::audio::SAMPLE_RATE;
@@ -41,6 +42,9 @@ pub const VOICE: f32 = 0.6;
 pub const OPEN_S: f32 = 0.01;
 /// How slowly the boost fades once speech stops, so gaps between words are not pumped.
 pub const CLOSE_S: f32 = 0.4;
+/// When a frame would clip, the gain comes down over this many samples (1 ms) from where
+/// the last frame ended, as a limiter's attack, then holds; [`CEILING`] catches the rest.
+pub const LIMIT_RAMP: usize = 48;
 /// Frames quieter than this are not learnt from, even if scored as speech.
 const FLOOR_DB: f32 = -70.0;
 /// Time constants of the speech level estimate: quick to rise, slow to fall, so it follows
@@ -131,7 +135,8 @@ impl AutoGain {
         self.open += (towards - self.open) * (1.0 - (-seconds / tau).exp());
         let peak = frame.iter().fold(0.0f32, |m, s| m.max(s.abs()));
         let mut end = amplitude(self.applied_db());
-        let mut start = self.last;
+        let start = self.last;
+        let mut ramp = frame.len();
         if peak > 0.0 && peak * end > self.limit {
             // This frame would clip: turn it down now.
             let fits = db(self.limit / peak).max(MIN_GAIN_DB);
@@ -143,11 +148,17 @@ impl AutoGain {
                 // A noise: this frame only.
                 end = amplitude(fits);
             }
-            start = start.min(end);
+            if end < start {
+                ramp = LIMIT_RAMP.min(frame.len());
+            }
         }
-        let step = (end - start) / frame.len() as f32;
+        let step = (end - start) / ramp as f32;
         for (i, sample) in frame.iter_mut().enumerate() {
-            let gain = start + step * (i + 1) as f32;
+            let gain = if i < ramp {
+                start + step * (i + 1) as f32
+            } else {
+                end
+            };
             *sample = (*sample * gain).clamp(-self.limit, self.limit);
         }
         self.last = end;
@@ -286,6 +297,26 @@ mod tests {
         agc.process(&mut shout, 1.0);
         assert!(shout.iter().all(|s| (s * 1.5).abs() <= CEILING + 1e-6));
         agc.set_after(f32::NAN);
+        assert_eq!(agc.limit, CEILING);
+    }
+
+    #[test]
+    fn the_limiter_never_jumps_between_frames() {
+        let mut agc = AutoGain::new();
+        speak(&mut agc, -45.0, 4);
+        let before = agc.last;
+        // A door that starts quietly, so the first sample out shows the gain unclamped.
+        let mut door = vec![0.001f32; 960];
+        door[100..].fill(0.5);
+        agc.process(&mut door, 0.1);
+        let first = door[0] / 0.001;
+        assert!(
+            (before - first) / before < 0.1,
+            "gain jumped from {before} to {first}"
+        );
+        assert!(door[LIMIT_RAMP..].iter().all(|s| *s <= CEILING + 1e-6));
+        // A muted mic volume still leaves a finite ceiling.
+        agc.set_after(0.0);
         assert_eq!(agc.limit, CEILING);
     }
 
