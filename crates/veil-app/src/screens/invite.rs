@@ -40,6 +40,9 @@ pub fn now_unix() -> u64 {
 pub fn lifetime(view: &mut CallView, ui: &mut egui::Ui) {
     let text = lifetime_text(&view.call, now_unix());
     ui.label(RichText::new(text).small().color(MUTED));
+    if !view.call.demo {
+        crate::invite_qr::button(ui);
+    }
     if view.call.invite != view.call.invite_full {
         let label = RichText::new("Copy full link").small().color(MUTED);
         let full = ui

@@ -5,7 +5,10 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use veil_forward::protocol::ServerMsg;
-use veil_forward::{ForwardError, ForwarderClient, ForwarderServer, Limits, QueueMonitor, Refusal, RosterTicket, Wanted};
+use veil_forward::{
+    ForwardError, ForwarderClient, ForwarderServer, Limits, QueueMonitor, Refusal, RosterTicket,
+    Wanted,
+};
 use veil_net::Node;
 use veil_rendezvous::room_tag;
 use veil_security::frame::{FrameReceiver, FrameSender};
@@ -33,7 +36,10 @@ struct Room {
 
 impl Room {
     fn new(id: u8) -> Self {
-        Self { host: Identity::generate(), tag: room_tag(&[id; 16]) }
+        Self {
+            host: Identity::generate(),
+            tag: room_tag(&[id; 16]),
+        }
     }
 
     fn ticket(&self, epoch: u64, members: &[&Identity]) -> Vec<u8> {
@@ -60,7 +66,10 @@ async fn join_as(
 ) -> Result<Member, ForwardError> {
     let node = Node::bind(identity, localhost()).unwrap();
     let client = ForwarderClient::join(&node, &[forwarder.0], forwarder.1, ticket).await?;
-    Ok(Member { _node: node, client })
+    Ok(Member {
+        _node: node,
+        client,
+    })
 }
 
 /// Joins a fresh device under an epoch 0 ticket that lists it.
@@ -70,17 +79,91 @@ async fn join(forwarder: (SocketAddr, PublicId), room: &Room) -> Result<Member, 
 }
 
 async fn with_timeout<T>(f: impl std::future::Future<Output = T>) -> T {
-    tokio::time::timeout(Duration::from_secs(10), f).await.expect("timed out")
+    tokio::time::timeout(Duration::from_secs(10), f)
+        .await
+        .expect("timed out")
 }
 
 async fn nothing_arrives<T>(f: impl std::future::Future<Output = T>) -> bool {
-    tokio::time::timeout(Duration::from_millis(400), f).await.is_err()
+    tokio::time::timeout(Duration::from_millis(400), f)
+        .await
+        .is_err()
 }
 
 /// Waits until the forwarder has registered everyone: joins are answered after registration,
 /// so this only gives the server's reader tasks a moment to start.
 async fn settle() {
     tokio::time::sleep(Duration::from_millis(50)).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_probe_does_not_allocate_a_room() {
+    let forwarder = start(Limits {
+        max_rooms: 1,
+        ..Limits::default()
+    });
+    let identity = Identity::generate();
+    let node = Node::bind(&identity, localhost()).unwrap();
+    let first = Room::new(40);
+    ForwarderClient::probe(
+        &node,
+        &[forwarder.0],
+        forwarder.1,
+        &first.ticket(0, &[&identity]),
+    )
+    .await
+    .unwrap();
+    // The checked room consumes no capacity. A different room can take the only slot.
+    let second = Room::new(41);
+    let _member = join(forwarder, &second).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn probing_a_future_epoch_does_not_evict_or_replace_live_members() {
+    let forwarder = start(Limits::default());
+    let room = Room::new(42);
+    let alice = Identity::generate();
+    let bob = Identity::generate();
+    let ticket = room.ticket(0, &[&alice, &bob]);
+    let a = join_as(forwarder, &alice, &ticket).await.unwrap();
+    let b = join_as(forwarder, &bob, &ticket).await.unwrap();
+    settle().await;
+    // A future proposed roster excludes Bob, but probing must leave the old call intact.
+    ForwarderClient::probe(
+        &a._node,
+        &[forwarder.0],
+        forwarder.1,
+        &room.ticket(1, &[&alice]),
+    )
+    .await
+    .unwrap();
+    a.client
+        .link()
+        .send_datagram(b"existing connection still works")
+        .unwrap();
+    let packet = with_timeout(b.client.link().recv_datagram()).await.unwrap();
+    assert_eq!(&packet[..], b"existing connection still works");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_probe_requires_the_devices_own_valid_ticket() {
+    let forwarder = start(Limits::default());
+    let room = Room::new(43);
+    let alice = Identity::generate();
+    let stranger = Node::bind(&Identity::generate(), localhost()).unwrap();
+    let error = ForwarderClient::probe(
+        &stranger,
+        &[forwarder.0],
+        forwarder.1,
+        &room.ticket(0, &[&alice]),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(error, ForwardError::Refused(Refusal::NotListed)));
+    let error = ForwarderClient::probe(&stranger, &[forwarder.0], forwarder.1, &[0; 12])
+        .await
+        .unwrap_err();
+    assert!(matches!(error, ForwardError::Refused(Refusal::BadTicket)));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -98,12 +181,21 @@ async fn sealed_frames_reach_every_other_member_unchanged() {
     a.client.link().send_frame(42, &sealed).await.unwrap();
 
     for receiver in [&b, &c] {
-        let (id, got) = with_timeout(receiver.client.link().recv_frame()).await.unwrap();
+        let (id, got) = with_timeout(receiver.client.link().recv_frame())
+            .await
+            .unwrap();
         assert_eq!((id, &got), (42, &sealed), "forwarded byte for byte");
         let mut rx = FrameReceiver::new(&SECRET, 1).unwrap();
-        assert_eq!(rx.decrypt(&got).unwrap().0, 0, "receiver still sees the true sender");
+        assert_eq!(
+            rx.decrypt(&got).unwrap().0,
+            0,
+            "receiver still sees the true sender"
+        );
     }
-    assert!(nothing_arrives(a.client.link().recv_frame()).await, "never echoed to the sender");
+    assert!(
+        nothing_arrives(a.client.link().recv_frame()).await,
+        "never echoed to the sender"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -200,7 +292,11 @@ async fn a_forwarder_for_one_host_refuses_other_hosts() {
         Err(ForwardError::Refused(Refusal::NotServed))
     ));
     let member = Identity::generate();
-    assert!(join_as(forwarder, &member, &mine.ticket(0, &[&member])).await.is_ok());
+    assert!(
+        join_as(forwarder, &member, &mine.ticket(0, &[&member]))
+            .await
+            .is_ok()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -209,7 +305,10 @@ async fn a_ticket_from_another_host_opens_a_separate_room() {
     let room = Room::new(9);
     let a = join(forwarder, &room).await.unwrap();
     // A squatter who knows the tag signs its own ticket: it lands in a room of its own.
-    let squat = Room { host: Identity::generate(), tag: room.tag };
+    let squat = Room {
+        host: Identity::generate(),
+        tag: room.tag,
+    };
     let squatter = join(forwarder, &squat).await.unwrap();
     assert_eq!(squatter.client.members_at_join(), 1);
     let b = join(forwarder, &room).await.unwrap();
@@ -224,14 +323,21 @@ async fn a_ticket_from_another_host_opens_a_separate_room() {
 async fn a_newer_ticket_drops_removed_members_and_old_tickets_stop_working() {
     let forwarder = start(Limits::default());
     let room = Room::new(10);
-    let (ia, ib, ic) = (Identity::generate(), Identity::generate(), Identity::generate());
+    let (ia, ib, ic) = (
+        Identity::generate(),
+        Identity::generate(),
+        Identity::generate(),
+    );
     let first = room.ticket(1, &[&ia, &ib, &ic]);
     let a = join_as(forwarder, &ia, &first).await.unwrap();
     let b = join_as(forwarder, &ib, &first).await.unwrap();
     let c = join_as(forwarder, &ic, &first).await.unwrap();
 
     // The host removed b; a passes on the next epoch's ticket.
-    a.client.update_ticket(&room.ticket(2, &[&ia, &ic])).await.unwrap();
+    a.client
+        .update_ticket(&room.ticket(2, &[&ia, &ic]))
+        .await
+        .unwrap();
     with_timeout(b.client.link().quic().closed()).await;
     drop(b);
     assert!(matches!(
@@ -249,49 +355,86 @@ async fn a_newer_ticket_drops_removed_members_and_old_tickets_stop_working() {
 async fn a_receiver_gets_only_the_layers_it_subscribes_to() {
     let forwarder = start(Limits::default());
     let room = Room::new(40);
-    let (alice, bob, carol) = (Identity::generate(), Identity::generate(), Identity::generate());
+    let (alice, bob, carol) = (
+        Identity::generate(),
+        Identity::generate(),
+        Identity::generate(),
+    );
     let ticket = room.ticket(0, &[&alice, &bob, &carol]);
     let a = join_as(forwarder, &alice, &ticket).await.unwrap();
     let b = join_as(forwarder, &bob, &ticket).await.unwrap();
     let c = join_as(forwarder, &carol, &ticket).await.unwrap();
-    b.client.subscribe(&[(alice.public(), Wanted::THUMB)]).await.unwrap();
+    b.client
+        .subscribe(&[(alice.public(), Wanted::THUMB)])
+        .await
+        .unwrap();
     settle().await;
 
     let mut tx = FrameSender::new(&SECRET, 0, 0).unwrap();
-    let base = tx.encrypt_layer(Layer::new(0, 0, true).unwrap(), b"thumb").unwrap();
-    let uhd = tx.encrypt_layer(Layer::new(2, 0, true).unwrap(), b"uhd").unwrap();
+    let base = tx
+        .encrypt_layer(Layer::new(0, 0, true).unwrap(), b"thumb")
+        .unwrap();
+    let uhd = tx
+        .encrypt_layer(Layer::new(2, 0, true).unwrap(), b"uhd")
+        .unwrap();
     a.client.link().send_frame(1, &base).await.unwrap();
     a.client.link().send_frame(2, &uhd).await.unwrap();
 
     let (id, _) = with_timeout(b.client.link().recv_frame()).await.unwrap();
     assert_eq!(id, 1, "thumbnail subscriber gets the base layer");
-    assert!(nothing_arrives(b.client.link().recv_frame()).await, "and not the uhd layer");
+    assert!(
+        nothing_arrives(b.client.link().recv_frame()).await,
+        "and not the uhd layer"
+    );
     let mut got = vec![
         with_timeout(c.client.link().recv_frame()).await.unwrap().0,
         with_timeout(c.client.link().recv_frame()).await.unwrap().0,
     ];
     got.sort_unstable();
-    assert_eq!(got, [1, 2], "a receiver that never subscribed gets every layer");
+    assert_eq!(
+        got,
+        [1, 2],
+        "a receiver that never subscribed gets every layer"
+    );
 
     // Raising waits for a keyframe: a mid-group uhd frame is still dropped.
-    b.client.subscribe(&[(alice.public(), Wanted::ALL)]).await.unwrap();
+    b.client
+        .subscribe(&[(alice.public(), Wanted::ALL)])
+        .await
+        .unwrap();
     settle().await;
-    let mid = tx.encrypt_layer(Layer::new(2, 0, false).unwrap(), b"mid").unwrap();
+    let mid = tx
+        .encrypt_layer(Layer::new(2, 0, false).unwrap(), b"mid")
+        .unwrap();
     a.client.link().send_frame(3, &mid).await.unwrap();
     assert!(nothing_arrives(b.client.link().recv_frame()).await);
-    let key = tx.encrypt_layer(Layer::new(0, 0, true).unwrap(), b"key").unwrap();
+    let key = tx
+        .encrypt_layer(Layer::new(0, 0, true).unwrap(), b"key")
+        .unwrap();
     a.client.link().send_frame(4, &key).await.unwrap();
-    assert_eq!(with_timeout(b.client.link().recv_frame()).await.unwrap().0, 4);
-    let next = tx.encrypt_layer(Layer::new(2, 0, false).unwrap(), b"next").unwrap();
+    assert_eq!(
+        with_timeout(b.client.link().recv_frame()).await.unwrap().0,
+        4
+    );
+    let next = tx
+        .encrypt_layer(Layer::new(2, 0, false).unwrap(), b"next")
+        .unwrap();
     a.client.link().send_frame(5, &next).await.unwrap();
-    assert_eq!(with_timeout(b.client.link().recv_frame()).await.unwrap().0, 5);
+    assert_eq!(
+        with_timeout(b.client.link().recv_frame()).await.unwrap().0,
+        5
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn keyframe_requests_reach_only_the_named_sender() {
     let forwarder = start(Limits::default());
     let room = Room::new(41);
-    let (alice, bob, carol) = (Identity::generate(), Identity::generate(), Identity::generate());
+    let (alice, bob, carol) = (
+        Identity::generate(),
+        Identity::generate(),
+        Identity::generate(),
+    );
     let ticket = room.ticket(0, &[&alice, &bob, &carol]);
     let a = join_as(forwarder, &alice, &ticket).await.unwrap();
     let b = join_as(forwarder, &bob, &ticket).await.unwrap();
@@ -299,11 +442,20 @@ async fn keyframe_requests_reach_only_the_named_sender() {
     settle().await;
 
     b.client.request_keyframe(alice.public()).await.unwrap();
-    assert_eq!(with_timeout(a.client.recv()).await.unwrap(), ServerMsg::KeyframeRequest);
-    assert!(nothing_arrives(c.client.recv()).await, "carol was not named");
+    assert_eq!(
+        with_timeout(a.client.recv()).await.unwrap(),
+        ServerMsg::KeyframeRequest
+    );
+    assert!(
+        nothing_arrives(c.client.recv()).await,
+        "carol was not named"
+    );
 
     // A request naming a device outside the room goes nowhere.
-    b.client.request_keyframe(Identity::generate().public()).await.unwrap();
+    b.client
+        .request_keyframe(Identity::generate().public())
+        .await
+        .unwrap();
     assert!(nothing_arrives(a.client.recv()).await);
 }
 
@@ -317,10 +469,22 @@ async fn a_subscription_raise_asks_the_sender_for_a_keyframe() {
     let b = join_as(forwarder, &bob, &ticket).await.unwrap();
     settle().await;
 
-    b.client.subscribe(&[(alice.public(), Wanted::THUMB)]).await.unwrap();
-    assert!(nothing_arrives(a.client.recv()).await, "lowering needs no keyframe");
-    b.client.subscribe(&[(alice.public(), Wanted::ALL)]).await.unwrap();
-    assert_eq!(with_timeout(a.client.recv()).await.unwrap(), ServerMsg::KeyframeRequest);
+    b.client
+        .subscribe(&[(alice.public(), Wanted::THUMB)])
+        .await
+        .unwrap();
+    assert!(
+        nothing_arrives(a.client.recv()).await,
+        "lowering needs no keyframe"
+    );
+    b.client
+        .subscribe(&[(alice.public(), Wanted::ALL)])
+        .await
+        .unwrap();
+    assert_eq!(
+        with_timeout(a.client.recv()).await.unwrap(),
+        ServerMsg::KeyframeRequest
+    );
 }
 
 const MIB: usize = 1024 * 1024;
@@ -337,7 +501,11 @@ fn start_monitored(limits: Limits) -> ((SocketAddr, PublicId), QueueMonitor) {
 
 /// Eight two-member rooms; every member sends `frames` frames of `len` bytes and reads nothing.
 /// Returns the members, still connected.
-async fn fill_unread_rooms(forwarder: (SocketAddr, PublicId), frames: u32, len: usize) -> Vec<Member> {
+async fn fill_unread_rooms(
+    forwarder: (SocketAddr, PublicId),
+    frames: u32,
+    len: usize,
+) -> Vec<Member> {
     let mut members = Vec::new();
     for n in 0..8u8 {
         let room = Room::new(100 + n);
@@ -352,7 +520,9 @@ async fn fill_unread_rooms(forwarder: (SocketAddr, PublicId), frames: u32, len: 
         let sealed = tx.encrypt(&vec![9u8; len]).unwrap();
         for member in &members {
             // The forwarder reads promptly, so these sends finish although nobody reads back.
-            with_timeout(member.client.link().send_frame(id, &sealed)).await.unwrap();
+            with_timeout(member.client.link().send_frame(id, &sealed))
+                .await
+                .unwrap();
         }
     }
     members
@@ -380,20 +550,35 @@ async fn unread_receivers_cannot_pin_more_than_the_node_budget_and_frames_expire
     // Larger than the stream window (1.25 MB), so the first send to an unread receiver blocks.
     let members = fill_unread_rooms(forwarder, 3, 2 * MIB).await;
     let peak = peak_queued(&monitor, Duration::from_millis(100)).await;
-    assert!(peak > 0, "frames were queued behind receivers that do not read");
-    assert!(peak <= node_budget, "queued {peak} exceeds the node budget {node_budget}");
+    assert!(
+        peak > 0,
+        "frames were queued behind receivers that do not read"
+    );
+    assert!(
+        peak <= node_budget,
+        "queued {peak} exceeds the node budget {node_budget}"
+    );
 
     // Everything expires: stuck sends are abandoned and stale frames dropped.
     let start = Instant::now();
     while monitor.queued_bytes() != 0 {
-        assert!(start.elapsed() < Duration::from_millis(1500), "queue did not drain: {}", monitor.queued_bytes());
+        assert!(
+            start.elapsed() < Duration::from_millis(1500),
+            "queue did not drain: {}",
+            monitor.queued_bytes()
+        );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
     // A receiver that starts reading after the deadline gets none of the old frames.
     for member in &members {
         loop {
-            match tokio::time::timeout(Duration::from_millis(300), member.client.link().recv_frame()).await {
+            match tokio::time::timeout(
+                Duration::from_millis(300),
+                member.client.link().recv_frame(),
+            )
+            .await
+            {
                 Err(_) => break,
                 Ok(Ok((id, _))) => panic!("old frame {id} arrived after its deadline"),
                 Ok(Err(_)) => {}
@@ -416,7 +601,10 @@ async fn one_source_block_is_held_to_its_share_below_the_node_budget() {
     let members = fill_unread_rooms(forwarder, 3, 2 * MIB).await;
     let peak = peak_queued(&monitor, Duration::from_millis(300)).await;
     assert!(peak >= 2 * MIB, "the share was used: {peak}");
-    assert!(peak <= source_budget, "queued {peak} exceeds the source share {source_budget}");
+    assert!(
+        peak <= source_budget,
+        "queued {peak} exceeds the source share {source_budget}"
+    );
     drop(members);
 }
 
@@ -429,7 +617,9 @@ async fn sixteen_reading_members_exchange_large_frames_under_default_limits() {
     let ticket = room.ticket(0, &refs);
     let mut members = Vec::new();
     for identity in &identities {
-        members.push(std::sync::Arc::new(join_as(forwarder, identity, &ticket).await.unwrap()));
+        members.push(std::sync::Arc::new(
+            join_as(forwarder, identity, &ticket).await.unwrap(),
+        ));
     }
     settle().await;
 
@@ -454,7 +644,10 @@ async fn sixteen_reading_members_exchange_large_frames_under_default_limits() {
     }
     let start = Instant::now();
     while monitor.queued_bytes() != 0 {
-        assert!(start.elapsed() < Duration::from_secs(3), "bytes were not released");
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "bytes were not released"
+        );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }

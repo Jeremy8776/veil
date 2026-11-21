@@ -30,9 +30,10 @@
 //!   (`docs/ARCHITECTURE.md` section 2), and lives exactly as long as the call. The forwarder
 //!   sees sealed frames only, and admits only devices on the host's signed roster ticket.
 //!
-//! shortcut: the host's own forwarder is reachable on its own network only, and the host's
-//! uplink then carries every stream to every member. Set `VEIL_FORWARDER` to a public
-//! `veil-node` for large calls across the internet.
+//! A forwarder is proposed only after a mesh plan is in place. Every current member checks
+//! its pinned endpoint and signed roster ticket without joining. Only unanimous, timely
+//! replies for the current request permit publishing the forwarded plan. A remote guest
+//! unable to reach the host's LAN forwarder therefore keeps the call in its mesh.
 //!
 //! shortcut: applying routes waits for dials (a few seconds for a hole punch) and holds this
 //! loop meanwhile, so media pauses briefly when someone joins. Every wait on a peer is bounded
@@ -40,6 +41,7 @@
 //! stream credit delays Remove by seconds at most (GHSA-37f5-22p2-q6hr). Move
 //! `MediaSession::apply` to its own task when calls grow.
 
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -51,8 +53,11 @@ use veil_net::{Node, NodeAddr};
 use veil_rendezvous::{Refusal, RendezvousServer, room_tag};
 use veil_security::{Identity, PublicId};
 
-use super::plan::{NetConfig, advertised, lan_ip, plan_for, resolve};
+mod forwarder_check;
+
+use forwarder_check::{checked_plan, finish_checked_plan, own_check};
 use super::pinhole::V6Port;
+use super::plan::{NetConfig, advertised, lan_ip, resolve};
 use super::reach::Reachability;
 use super::router::{Event, PortStatus, Router};
 use super::session::{Pipes, Session};
@@ -68,17 +73,33 @@ pub async fn run(
     pipes: Pipes,
     mut commands: UnboundedReceiver<Command>,
 ) -> Result<(), String> {
+    let config = config.enforce_policy();
     let me = identity.public();
     // A fresh key's public half is 32 random-looking bytes; its first 16 make a room id.
     let room_id: [u8; 16] = Identity::generate().public().0[..16]
         .try_into()
         .map_err(|_| "room id")?;
-    let node = Node::bind_any(&identity, config.port)
-        .map_err(|e| format!("Cannot open the network: {e}"))?;
+    let node = if config.local_only {
+        Node::bind_local(&identity, config.port)
+    } else {
+        Node::bind_any(&identity, config.port)
+    }
+    .map_err(|e| format!("Cannot open the network: {e}"))?;
+    node.set_local_only(config.local_only);
     let port = node.local_addr().map_err(|e| e.to_string())?.port();
     let lan = lan_ip();
-    let v6 = if node.ipv6() { veil_net::family::global_ipv6() } else { None };
-    crate::note!("network: port {port}, IPv6 {}", v6.map_or_else(|| "none".into(), |ip| ip.to_string()));
+    let v6 = if !config.local_only && node.ipv6() {
+        veil_net::family::global_ipv6()
+    } else {
+        None
+    };
+    crate::note!(
+        "network: port {port}, IPv6 {}",
+        v6.map_or_else(|| "none".into(), |ip| ip.to_string())
+    );
+    // A server set in Settings that cannot be found stops the call, as before, rather than
+    // quietly hosting on this network only. Local only clears these first, so a local call
+    // never waits on them.
     let configured = resolve(config.rendezvous.as_ref(), "rendezvous").await?;
     // The public node's IPv6 address, for checking ours from outside.
     let configured6 = match (&config.rendezvous, v6) {
@@ -87,14 +108,20 @@ pub async fn run(
     };
     let rendezvous = match configured {
         Some(addr) => addr,
-        None => own_server(lan, Own::Rendezvous, &identity, room_id)?,
+        None => own_server(lan, Own::Rendezvous, &identity, room_id, config.local_only)?,
     };
     let forwarder = match (
         resolve(config.forwarder.as_ref(), "forwarder").await?,
         configured,
     ) {
         (Some(addr), _) => Some(addr),
-        (None, None) => Some(own_server(lan, Own::Forwarder, &identity, room_id)?),
+        (None, None) => Some(own_server(
+            lan,
+            Own::Forwarder,
+            &identity,
+            room_id,
+            config.local_only,
+        )?),
         (None, Some(_)) => None,
     };
     let (host, mut events) = HostHandle::start(&identity, room_id).map_err(|e| e.to_string())?;
@@ -111,12 +138,37 @@ pub async fn run(
         crate::note!("rendezvous {rendezvous} did not answer; direct links only");
     }
     let mut addrs = advertised(&config, v6, lan, port);
+    publish_addresses(&host, &addrs).await;
     let mut until_end = false;
     let mut relay = RelayAddrs::from(rendezvous);
-    let mut expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
+    if configured.is_none() {
+        relay.addrs = hosted_addresses(rendezvous, None, config.local_only);
+    }
+    let mut expires = new_invite(
+        &host,
+        &call,
+        &addrs,
+        &relay,
+        until_end,
+        config.local_only,
+        &shared,
+    )
+    .await;
     if expires == 0 {
         return Err("Cannot make an invite.".into());
     }
+    // `enforce_policy` already clears discovery outside Local only; this is the second lock.
+    let _nearby = if config.nearby_discovery && config.local_only {
+        match crate::nearby::advertise(shared.clone()) {
+            Ok(advertiser) => Some(advertiser),
+            Err(e) => {
+                crate::note!("nearby discovery could not start: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let mut router = Router::start(config.open_port, lan, port);
     // Guests reach each other by punching or relaying through the rendezvous, so the host's
     // own one needs its port open too, or guests on the internet see the host but not each
@@ -149,6 +201,16 @@ pub async fn run(
     let media = call.media().map_err(|e| e.to_string())?;
     let mut session = Session::new(media, &identity, me, your_name, shared.clone(), pipes);
     let mut knocks: Vec<(u32, PublicId)> = Vec::new();
+    let mut roster = Vec::new();
+    let mut peer_addrs: HashMap<PublicId, Vec<SocketAddr>> = HashMap::new();
+    let mut pending_plan = None;
+    let mut request = 0u64;
+    // Whether members' media currently runs through the forwarder, and whether an address
+    // change is waiting for the next tick. Address changes replan at most once a tick.
+    let mut forwarded = false;
+    let mut replan = false;
+    let mut refresh = tokio::time::interval(Duration::from_secs(2));
+    refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let result = loop {
         tokio::select! {
             command = commands.recv() => match command {
@@ -160,7 +222,7 @@ pub async fn run(
                 // A fresh link with the chosen lifetime; one already sent keeps its own.
                 Some(Command::Act(Action::InviteUntilEnd(chosen))) => {
                     until_end = chosen;
-                    expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
+                    expires = new_invite(&host, &call, &addrs, &relay, until_end, config.local_only, &shared).await;
                 }
                 Some(Command::Act(action)) => act(&host, &session.ids, &mut knocks, action).await,
             },
@@ -178,7 +240,7 @@ pub async fn run(
                     };
                     shared.update(|view| view.lobby.push(knocker));
                     // The knock used the invite's token: give out a fresh one.
-                    expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
+                    expires = new_invite(&host, &call, &addrs, &relay, until_end, config.local_only, &shared).await;
                 }
                 // Joins and leaves go to the log, so a call across networks shows when the
                 // host heard of each.
@@ -193,26 +255,65 @@ pub async fn run(
                     let id = session.ids.id(device);
                     knocks.retain(|(_, d)| *d != device);
                     shared.update(|view| view.lobby.retain(|k| k.id != id));
+                    peer_addrs.remove(&device);
                 }
                 Some(HostEvent::Keys(keys)) => {
-                    let roster = keys.roster.clone();
+                    roster = keys.roster.clone();
                     session.on_keys(keys);
-                    // A plan that fails leaves the old routes standing; the call goes on.
-                    if roster.len() > 1 {
-                        match plan_for(&roster, me, &addrs, forwarder) {
-                            Ok((plan, directory)) => match host.publish_plan(plan, directory).await {
-                                Ok(routes) => session.on_routes(routes).await,
-                                Err(e) => crate::note!("cannot publish the plan: {e}"),
-                            },
-                            Err(e) => crate::note!("{e}"),
-                        }
+                    peer_addrs.retain(|device, _| roster.iter().any(|(_, d)| d == device));
+                    replan = false;
+                    pending_plan = checked_plan(&host, &call, &mut session, &roster, me,
+                        &addrs, &peer_addrs, forwarder, &mut request, &mut forwarded).await;
+                }
+                Some(HostEvent::Addresses { device, addrs: candidate }) => {
+                    // Only current members' hints are kept, so this map is bounded by the roster.
+                    if roster.iter().any(|(_, d)| *d == device)
+                        && peer_addrs.get(&device) != Some(&candidate)
+                    {
+                        peer_addrs.insert(device, candidate);
+                        replan = true;
                     }
+                }
+                Some(HostEvent::PlanChecked { device, request, ok }) => {
+                    if let Some(pending) = pending_plan.as_mut() {
+                        pending.checks.report(device, request, ok);
+                    }
+                    finish_checked_plan(&mut pending_plan, &host, &mut session, &mut forwarded).await;
                 }
                 Some(HostEvent::Refused(device, reason)) => {
                     crate::note!("call: turned {} away: {reason:?}", short(&device));
                 }
                 Some(HostEvent::Error(e)) => crate::note!("group error: {e}"),
             },
+            (request, ok) = own_check(&mut pending_plan) => {
+                if let Some(pending) = pending_plan.as_mut() {
+                    pending.own.take();
+                    pending.checks.report(me, request, ok);
+                }
+                finish_checked_plan(&mut pending_plan, &host, &mut session, &mut forwarded).await;
+            }
+            _ = refresh.tick() => {
+                finish_checked_plan(&mut pending_plan, &host, &mut session, &mut forwarded).await;
+                if replan {
+                    replan = false;
+                    pending_plan = checked_plan(&host, &call, &mut session, &roster, me,
+                        &addrs, &peer_addrs, forwarder, &mut request, &mut forwarded).await;
+                }
+                let current_v6 = if config.local_only { None } else { veil_net::family::global_ipv6() };
+                let mut current = advertised(&config, current_v6, lan_ip(), port);
+                if let Some(mapped) = router_addr {
+                    current.retain(|at| *at != mapped);
+                    current.insert(0, mapped);
+                    current.truncate(veil_security::invite::MAX_ADDRS);
+                }
+                if current != addrs {
+                    addrs = current;
+                    publish_addresses(&host, &addrs).await;
+                    expires = new_invite(&host, &call, &addrs, &relay, until_end, config.local_only, &shared).await;
+                    pending_plan = checked_plan(&host, &call, &mut session, &roster, me,
+                        &addrs, &peer_addrs, forwarder, &mut request, &mut forwarded).await;
+                }
+            }
             () = session.pump() => {}
             event = next_router(&mut router) => {
                 let open = match &event {
@@ -221,7 +322,8 @@ pub async fn run(
                 };
                 ports.call_changed(event);
                 // The router's address goes first in every invite from now on.
-                if open != router_addr {
+                let changed = open != router_addr;
+                if changed {
                     addrs.retain(|a| Some(*a) != router_addr);
                     if let Some(addr) = open {
                         addrs.retain(|a| *a != addr);
@@ -229,6 +331,11 @@ pub async fn run(
                         addrs.truncate(veil_security::invite::MAX_ADDRS);
                     }
                     router_addr = open;
+                }
+                if changed {
+                    publish_addresses(&host, &addrs).await;
+                    pending_plan = checked_plan(&host, &call, &mut session, &roster, me,
+                        &addrs, &peer_addrs, forwarder, &mut request, &mut forwarded).await;
                 }
                 let checking = open.is_some_and(|at| check(&mut reach, &call, configured, at));
                 shared.update(|view| {
@@ -238,7 +345,7 @@ pub async fn run(
                     }
                 });
                 if ports.settled() {
-                    expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
+                    expires = new_invite(&host, &call, &addrs, &relay, until_end, config.local_only, &shared).await;
                 }
             }
             event = next_router(&mut relay_router) => {
@@ -252,15 +359,15 @@ pub async fn run(
                 if let Some(addr) = public {
                     crate::note!("rendezvous: guests on the internet reach it at {addr}");
                 }
-                relay.addrs = public.into_iter().chain([rendezvous.addr]).collect();
+                relay.addrs = hosted_addresses(rendezvous, public, config.local_only);
                 shared.update(|view| view.router = ports.view());
                 if ports.settled() {
-                    expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
+                    expires = new_invite(&host, &call, &addrs, &relay, until_end, config.local_only, &shared).await;
                 }
             }
             // The link shown always works: one that ran out unused is replaced.
             () = until(expires) => {
-                expires = new_invite(&host, &call, &addrs, &relay, until_end, &shared).await;
+                expires = new_invite(&host, &call, &addrs, &relay, until_end, config.local_only, &shared).await;
             }
             // Whether or not the pinhole opened, the IPv6 address can be checked now.
             _ = next_v6(&mut v6_port) => {
@@ -279,6 +386,28 @@ pub async fn run(
     // Together, because leaving waits about a second and each close may take 0.8 s of it.
     tokio::join!(close_router(router), close_router(relay_router), close_v6);
     result
+}
+
+async fn publish_addresses(host: &HostHandle, addrs: &[SocketAddr]) {
+    if let Err(e) = host.set_addresses(addrs.to_vec()).await {
+        crate::note!("cannot update host connection addresses: {e}");
+    }
+}
+
+/// Where guests reach the host's own helper. In a Local only call it listens on every
+/// interface, so its local scope addresses are listed too (IPv6-only LANs need them).
+/// Otherwise only the router's public mapping and the LAN address are given, as before.
+fn hosted_addresses(node: NodeAddr, public: Option<SocketAddr>, local_only: bool) -> Vec<SocketAddr> {
+    let extra = if local_only {
+        veil_net::local::local_candidates(node.addr.port())
+    } else {
+        Vec::new()
+    };
+    let mut addrs: Vec<_> = public.into_iter().chain([node.addr]).chain(extra).collect();
+    let mut seen = HashSet::new();
+    addrs.retain(|at| seen.insert(*at));
+    addrs.truncate(veil_call::relay_field::MAX_RELAY_ADDRS);
+    addrs
 }
 
 async fn close_router(router: Option<Router>) {
@@ -333,7 +462,11 @@ async fn act(host: &HostHandle, ids: &Ids, knocks: &mut Vec<(u32, PublicId)>, ac
             None => return,
         },
         // The session sends chat (see `run`); the engine saves verified keys.
-        Action::Chat(..) | Action::React(..) | Action::Hand(_) | Action::Verify(..) | Action::InviteUntilEnd(_) => {
+        Action::Chat(..)
+        | Action::React(..)
+        | Action::Hand(_)
+        | Action::Verify(..)
+        | Action::InviteUntilEnd(_) => {
             return;
         }
     };
@@ -359,18 +492,33 @@ fn own_server(
     kind: Own,
     host: &Identity,
     room_id: [u8; 16],
+    local_only: bool,
 ) -> Result<NodeAddr, String> {
     let what = match kind {
         Own::Rendezvous => "rendezvous",
         Own::Forwarder => "forwarder",
     };
     let identity = Identity::generate();
-    let node = Node::bind(&identity, SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0))
-        .map_err(|e| format!("Cannot open the {what}: {e}"))?;
+    // Outside Local only the helper stays IPv4, as before: dual stack would put it on the
+    // host's global IPv6 address, reachable from the whole internet.
+    let node = if local_only {
+        Node::bind_local(&identity, 0)
+    } else {
+        Node::bind(&identity, SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0))
+    }
+    .map_err(|e| format!("Cannot open the {what}: {e}"))?;
+    node.set_local_only(local_only);
     let port = node.local_addr().map_err(|e| e.to_string())?.port();
+    let candidates = veil_net::local::local_candidates(port);
+    let local_addr = candidates
+        .iter()
+        .find(|at| Some(at.ip()) == lan)
+        .or_else(|| if local_only { candidates.first() } else { None })
+        .copied()
+        .unwrap_or_else(|| SocketAddr::new(lan.unwrap_or(Ipv4Addr::LOCALHOST.into()), port));
     let addr = NodeAddr {
         key: node.id(),
-        addr: SocketAddr::new(lan.unwrap_or(Ipv4Addr::LOCALHOST.into()), port),
+        addr: local_addr,
     };
     match kind {
         Own::Rendezvous => drop(tokio::spawn(
@@ -406,12 +554,14 @@ async fn shortened(
 /// Makes a fresh invite link that works for an hour or `until_end`, and shows it. Returns
 /// when to look again: the link's expiry, or a minute from now if no link could be made
 /// (logged), so a failure is retried without spinning.
+#[allow(clippy::too_many_arguments)]
 async fn new_invite(
     host: &HostHandle,
     call: &CallNode,
     addrs: &[SocketAddr],
     relay: &RelayAddrs,
     until_end: bool,
+    local_only: bool,
     shared: &Shared,
 ) -> u64 {
     let now = invites::now_unix();
@@ -419,7 +569,11 @@ async fn new_invite(
     let listed = addrs.iter().map(ToString::to_string).collect();
     match host.invite(listed, Some(relay.to_string()), expires).await {
         Ok(full) => {
-            let link = shortened(call, addrs, relay, &full).await;
+            let link = if local_only {
+                full.clone()
+            } else {
+                shortened(call, addrs, relay, &full).await
+            };
             shared.update(|view| {
                 view.invite = link;
                 view.invite_full = full;

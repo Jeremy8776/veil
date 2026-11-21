@@ -13,19 +13,21 @@
 //! - [`advertised`]: the invite's direct addresses. Each is given only if it can work.
 //!   A public IPv6 address comes straight after the configured ones: guests dial IPv6
 //!   first (`veil_net::family::dial_order`), and older versions skip what they cannot dial.
-//! - [`plan_for`]: this epoch's members as a mesh, or, past `Policy::mesh_max` (4 people) and
-//!   with a forwarder known, every member through the forwarder.
+//! - [`plan_for_with_addresses`]: this epoch's members as a mesh, or, past
+//!   `Policy::mesh_max` (4 people) and with a forwarder known, a proposed forwarded plan.
+//!   `host.rs` checks every member's access before publishing that proposal.
 //!
 //! Invariants:
-//! - Finding this machine's LAN address sends nothing: connecting a UDP socket only asks the
-//!   routing table which interface would be used.
+//! - Finding this machine's addresses enumerates interfaces without sending packets or
+//!   needing a default internet route.
 //! - The plan's directory lists exactly the roster, as `HostHandle::publish_plan` requires,
 //!   plus the forwarder when there is one.
 //!
 //! shortcut: capacities are assumed, not measured, so the plan follows the policy alone: a
 //! mesh up to 4 people, the forwarder above that. Measure links to plan by real capacity.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
+use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use veil_call::{Directory, Peer};
 use veil_net::{NodeAddr, NodeName};
@@ -39,6 +41,10 @@ const FORWARDER_ID: NodeId = NodeId(u32::MAX);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NetConfig {
+    /// Restrict all call dials to connected local networks; ignore internet helpers.
+    pub local_only: bool,
+    /// Explicitly advertise this call to nearby devices using temporary identifiers.
+    pub nearby_discovery: bool,
     pub rendezvous: Option<NodeName>,
     pub forwarder: Option<NodeName>,
     pub advertise: Vec<SocketAddr>,
@@ -93,7 +99,31 @@ impl NetConfig {
         for problem in problems {
             crate::note!("ignoring {problem}");
         }
-        config
+        config.enforce_policy()
+    }
+
+    /// Privacy policy wins over saved fields and environment overrides. It only ever removes
+    /// reach: it never turns a privacy setting off. Hide my address stays on with Local only,
+    /// and [`Self::conflict`] then stops the call instead of quietly dialling direct.
+    pub fn enforce_policy(mut self) -> Self {
+        if self.local_only {
+            self.rendezvous = None;
+            self.forwarder = None;
+            self.advertise.clear();
+            self.open_port = false;
+        } else {
+            // Nearby discovery hands the invitation to anyone on the network. Outside Local
+            // only that invitation names internet addresses and helpers, so it stays off.
+            self.nearby_discovery = false;
+        }
+        self
+    }
+
+    /// Why these settings cannot make a call, if they cannot. Checked before any socket opens.
+    pub fn conflict(&self) -> Option<&'static str> {
+        (self.local_only && self.relay_only).then_some(
+            "Hide my address needs a relay, and Local only uses none. Turn one of them off in Settings > Connection.",
+        )
     }
 }
 
@@ -178,11 +208,10 @@ fn dialable(addr: SocketAddr) -> Result<(), String> {
 
 /// This machine's address on its local network, if it has one.
 pub fn lan_ip() -> Option<IpAddr> {
-    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
-    // A documentation address (TEST-NET-1): nothing is sent, the route is only looked up.
-    socket.connect((Ipv4Addr::new(192, 0, 2, 1), 9)).ok()?;
-    let ip = socket.local_addr().ok()?.ip();
-    (!ip.is_unspecified() && !ip.is_loopback()).then_some(ip)
+    veil_net::local::candidates(1)
+        .into_iter()
+        .map(|a| a.ip())
+        .find(|ip| ip.is_ipv4() && !ip.is_loopback())
 }
 
 /// Addresses for the invite: configured ones first, then this machine's public IPv6 address
@@ -194,15 +223,41 @@ pub fn advertised(
     lan: Option<IpAddr>,
     port: u16,
 ) -> Vec<SocketAddr> {
-    let mut addrs = config.advertise.clone();
-    if let Some(ip) = v6.filter(|ip| veil_net::family::is_global_v6(*ip)) {
+    advertised_with_candidates(config, v6, lan, port, &veil_net::local::local_candidates(port))
+}
+
+fn advertised_with_candidates(
+    config: &NetConfig,
+    v6: Option<Ipv6Addr>,
+    lan: Option<IpAddr>,
+    port: u16,
+    candidates: &[SocketAddr],
+) -> Vec<SocketAddr> {
+    let mut addrs = if config.local_only {
+        Vec::new()
+    } else {
+        config.advertise.clone()
+    };
+    if let Some(ip) = v6.filter(|ip| !config.local_only && veil_net::family::is_global_v6(*ip)) {
         addrs.push(SocketAddr::new(ip.into(), port));
     }
     if let Some(ip) = lan {
         addrs.push(SocketAddr::new(ip, port));
     }
+    // Other interfaces only help guests on the same network, so they are listed only for
+    // a Local only call, and only local scope ones. An invite that may travel over the
+    // internet keeps the short list: configured, public IPv6, the LAN address, loopback.
+    if config.local_only {
+        addrs.extend(
+            candidates
+                .iter()
+                .copied()
+                .filter(|a| veil_net::local::is_local_scope(a.ip())),
+        );
+    }
     addrs.push(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port));
-    addrs.dedup();
+    let mut seen = std::collections::HashSet::new();
+    addrs.retain(|addr| seen.insert(*addr));
     addrs.truncate(veil_security::invite::MAX_ADDRS);
     addrs
 }
@@ -210,11 +265,22 @@ pub fn advertised(
 /// This epoch's plan and the directory behind it. Only the host's addresses are known, so in
 /// a mesh members reach each other by punching through the rendezvous. With a `forwarder`, a
 /// call larger than `Policy::mesh_max` goes through it instead.
+#[cfg(test)]
 pub fn plan_for(
     roster: &[(u32, PublicId)],
     me: PublicId,
     addrs: &[SocketAddr],
     forwarder: Option<NodeAddr>,
+) -> Result<(Plan, Directory), String> {
+    plan_for_with_addresses(roster, me, addrs, forwarder, &HashMap::new())
+}
+
+pub fn plan_for_with_addresses(
+    roster: &[(u32, PublicId)],
+    me: PublicId,
+    addrs: &[SocketAddr],
+    forwarder: Option<NodeAddr>,
+    known: &HashMap<PublicId, Vec<SocketAddr>>,
 ) -> Result<(Plan, Directory), String> {
     let mine = roster
         .iter()
@@ -255,7 +321,7 @@ pub fn plan_for(
                 let addrs = if *device == me {
                     addrs.to_vec()
                 } else {
-                    Vec::new()
+                    known.get(device).cloned().unwrap_or_default()
                 };
                 (
                     NodeId(*leaf),
@@ -277,6 +343,79 @@ mod tests {
     use veil_security::Identity;
 
     use super::*;
+
+    // Address policy tests must not depend on the test machine's actual interfaces.
+    fn advertised(
+        config: &NetConfig,
+        v6: Option<Ipv6Addr>,
+        lan: Option<IpAddr>,
+        port: u16,
+    ) -> Vec<SocketAddr> {
+        super::advertised_with_candidates(config, v6, lan, port, &[])
+    }
+
+    #[test]
+    fn local_policy_wins_over_environment_and_keeps_listening_port() {
+        let config = NetConfig {
+            local_only: true,
+            open_port: true,
+            relay_only: true,
+            ..NetConfig::default()
+        }
+        .with_env(|name| match name {
+            ENV_PORT => Some("7711".into()),
+            ENV_ADVERTISE => Some("198.51.100.2:7710".into()),
+            _ => None,
+        });
+        assert!(config.local_only);
+        assert!(!config.open_port);
+        assert!(config.relay_only, "Local only never turns Hide my address off");
+        assert!(config.conflict().is_some(), "the pair stops the call instead");
+        assert!(
+            config.rendezvous.is_none()
+                && config.forwarder.is_none()
+                && config.advertise.is_empty()
+        );
+        assert_eq!(config.port, 7711);
+    }
+
+    #[test]
+    fn all_interface_candidates_are_deduplicated_and_bounded() {
+        let a: SocketAddr = "192.168.1.20:5000".parse().unwrap();
+        let b: SocketAddr = "10.20.0.2:5000".parse().unwrap();
+        let public: SocketAddr = "81.2.69.160:5000".parse().unwrap();
+        let local = NetConfig {
+            local_only: true,
+            ..NetConfig::default()
+        };
+        let list =
+            super::advertised_with_candidates(&local, None, Some(a.ip()), 5000, &[a, b, a, public]);
+        assert_eq!(list, vec![a, b, "127.0.0.1:5000".parse().unwrap()]);
+        // An invite that may cross the internet lists no extra interfaces.
+        let list = super::advertised_with_candidates(
+            &NetConfig::default(),
+            None,
+            Some(a.ip()),
+            5000,
+            &[a, b, public],
+        );
+        assert_eq!(list, vec![a, "127.0.0.1:5000".parse().unwrap()]);
+    }
+
+    #[test]
+    fn admitted_guest_addresses_are_included_in_mesh_routes() {
+        let (host, guest) = (Identity::generate().public(), Identity::generate().public());
+        let addr = "192.168.1.22:5001".parse().unwrap();
+        let (_, directory) = plan_for_with_addresses(
+            &[(0, host), (1, guest)],
+            host,
+            &[],
+            None,
+            &HashMap::from([(guest, vec![addr])]),
+        )
+        .unwrap();
+        assert_eq!(directory.members[&NodeId(1)].addrs, vec![addr]);
+    }
 
     fn node_text(addr: &str) -> String {
         NodeAddr {
@@ -407,7 +546,10 @@ mod tests {
         );
         // A private (unique local) IPv6 address never goes in an invite.
         let ula: Ipv6Addr = "fd00::1".parse().unwrap();
-        assert_eq!(advertised(&NetConfig::default(), Some(ula), None, 1).len(), 1);
+        assert_eq!(
+            advertised(&NetConfig::default(), Some(ula), None, 1).len(),
+            1
+        );
     }
 
     #[test]

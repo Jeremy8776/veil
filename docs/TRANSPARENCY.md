@@ -16,6 +16,7 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 | Per-frame encryption with a layer marker | Signed organisation policy, OIDC or SAML identity |
 | QUIC links pinned to device keys | Metrics export (OpenTelemetry) |
 | Rendezvous, hole punching, relay | Compliance recording, federation, gateways |
+| Unreleased: Local only mode, opt-in IPv4 nearby discovery, full-invite QR display, bounded control/helper recovery | QR camera decoding, host handover, automatic fallback after an active forwarder outage |
 | Forwarder with layer subscriptions | Padding against size analysis |
 | `veil-node`, `veil-probe` | An independent security audit |
 | The desktop app in a real call: host, lobby, guest, video and sound both ways, names and chat | |
@@ -26,6 +27,34 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 [SECURITY.md](../SECURITY.md).
 
 ## 2. What other parties can see
+
+**Unreleased local networking additions.** Saved **Local only** mode prevents call sockets
+from sending to or receiving from addresses outside loopback and directly connected
+non-point-to-point subnets, including replies and migrated paths. It ignores configured
+internet helpers, public address overrides and router port opening; update requests are
+disabled. Enable it, save and restart for a session without any earlier in-flight request.
+Virtual or bridged interfaces can belong to these subnets: this is not proof of physical
+proximity. The mode does not configure or restrict other applications on the computer.
+
+Nearby discovery is off by default and only runs with Local only on, so the invitation it
+hands out names local addresses only. Each device can fetch one invitation every 10 seconds,
+and at most 64 per call. An advertising host broadcasts a temporary service
+key and port on IPv4 multicast, revealing that Veil is offering a call on that network.
+It broadcasts no display name, permanent device key or invitation. Selecting a result
+fetches the full signed invitation over encrypted, key-pinned local QUIC using a throwaway
+client identity. The fetched invitation identifies the host and its addresses. QR display
+encodes that same full invitation on the device; anyone who can read it holds the invite.
+There is no built-in camera decoder. Discovery is currently a Veil-specific protocol,
+not mDNS, and may fail on networks that block multicast or communication between clients.
+
+Outside relay-only mode, authenticated members now report local scope interface addresses
+(private and link-local IPv4, unique local and link-local IPv6) to the host. The host keeps
+a public address only when it is the one the member's link comes from, and passes the hints
+to other current members in signed mesh plans. Members on the same network can therefore
+see each other's local addresses, including virtual adapters in those ranges. Invitations
+outside Local only list the configured, public IPv6 and main LAN address, as before.
+No company service or central directory is introduced by these changes. Host-control
+recovery retains only a bounded, in-memory commit journal; it does not persist call history.
 
 Media, display names and chat are encrypted on the sender's device and opened only on
 members' devices. Relays, forwarders and rendezvous nodes never hold these keys. They can still

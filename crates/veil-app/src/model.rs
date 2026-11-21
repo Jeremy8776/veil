@@ -80,6 +80,8 @@ pub enum CallStatus {
     /// A guest waiting for the host to let them in.
     Lobby,
     Live,
+    /// Established call whose host control connection is being safely resumed.
+    Reconnecting,
     /// The call is over for you; the text says why.
     Ended(String),
 }

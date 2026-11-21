@@ -23,7 +23,9 @@ const ROOM: [u8; 16] = [6; 16];
 const FORWARDER_ID: NodeId = NodeId(1_000);
 
 async fn within<T>(f: impl std::future::Future<Output = T>) -> T {
-    tokio::time::timeout(Duration::from_secs(20), f).await.expect("timed out")
+    tokio::time::timeout(Duration::from_secs(20), f)
+        .await
+        .expect("timed out")
 }
 
 fn localhost() -> SocketAddr {
@@ -39,7 +41,10 @@ fn now() -> u64 {
 
 fn start_rendezvous() -> NodeAddr {
     let server = RendezvousServer::new(Node::bind(&Identity::generate(), localhost()).unwrap());
-    let addr = NodeAddr { key: server.id(), addr: server.local_addr().unwrap() };
+    let addr = NodeAddr {
+        key: server.id(),
+        addr: server.local_addr().unwrap(),
+    };
     tokio::spawn(server.run());
     addr
 }
@@ -47,7 +52,10 @@ fn start_rendezvous() -> NodeAddr {
 fn start_forwarder() -> NodeAddr {
     let node = Node::bind(&Identity::generate(), localhost()).unwrap();
     let server = ForwarderServer::new(node, Limits::default());
-    let addr = NodeAddr { key: server.id(), addr: server.local_addr().unwrap() };
+    let addr = NodeAddr {
+        key: server.id(),
+        addr: server.local_addr().unwrap(),
+    };
     tokio::spawn(server.run());
     addr
 }
@@ -100,8 +108,18 @@ impl Call {
         let node = CallNode::start(&identity, node, ROOM, relay, host.clone()).await;
         assert_eq!(node.has_rendezvous(), relay.is_some());
         let keys = next_host_keys(&mut events).await;
-        let parties = vec![Party { node, keys, member: None }];
-        Self { host, events, addr, relay, parties }
+        let parties = vec![Party {
+            node,
+            keys,
+            member: None,
+        }];
+        Self {
+            host,
+            events,
+            addr,
+            relay,
+            parties,
+        }
     }
 
     async fn invite(&self, addrs: Vec<String>) -> Invite {
@@ -139,7 +157,11 @@ impl Call {
             party.keys = next_member_keys(party.member.as_mut().unwrap()).await;
         }
         assert!(self.parties.iter().all(|p| p.keys.epoch == keys.epoch));
-        self.parties.push(Party { node, keys, member: Some(member) });
+        self.parties.push(Party {
+            node,
+            keys,
+            member: Some(member),
+        });
         path
     }
 
@@ -157,7 +179,15 @@ impl Call {
             me: NodeId(leaf),
             members: roster
                 .iter()
-                .map(|(leaf, device)| (NodeId(*leaf), Peer { device: *device, addrs: Vec::new() }))
+                .map(|(leaf, device)| {
+                    (
+                        NodeId(*leaf),
+                        Peer {
+                            device: *device,
+                            addrs: Vec::new(),
+                        },
+                    )
+                })
                 .collect(),
             forwarders: forwarder.map(|f| (FORWARDER_ID, f)).into_iter().collect(),
         }
@@ -185,14 +215,20 @@ impl Call {
             participant: false,
             can_forward: true,
         });
-        let policy = Policy { mesh_max: if forwarded { 1 } else { 4 }, ..Policy::default() };
+        let policy = Policy {
+            mesh_max: if forwarded { 1 } else { 4 },
+            ..Policy::default()
+        };
         plan(&nodes, &[], &policy).unwrap()
     }
 
     /// Starts every party's media session and applies the host's plan.
     async fn media(&mut self, forwarded: bool, forwarder: Option<NodeAddr>) -> Vec<MediaSession> {
-        let mut sessions: Vec<MediaSession> =
-            self.parties.iter_mut().map(|p| p.node.media().unwrap()).collect();
+        let mut sessions: Vec<MediaSession> = self
+            .parties
+            .iter_mut()
+            .map(|p| p.node.media().unwrap())
+            .collect();
         self.replan(&mut sessions, forwarded, forwarder).await;
         sessions
     }
@@ -207,12 +243,21 @@ impl Call {
         forwarder: Option<NodeAddr>,
     ) {
         let plan = self.plan(forwarded);
-        let mine = self.host.publish_plan(plan, self.directory(0, forwarder)).await.unwrap();
+        let mine = self
+            .host
+            .publish_plan(plan, self.directory(0, forwarder))
+            .await
+            .unwrap();
         let mut all = vec![mine];
         for party in &mut self.parties[1..] {
             all.push(next_member_routes(party.member.as_mut().unwrap()).await);
         }
-        let roster: Vec<PublicId> = self.parties[0].keys.roster.iter().map(|(_, d)| *d).collect();
+        let roster: Vec<PublicId> = self.parties[0]
+            .keys
+            .roster
+            .iter()
+            .map(|(_, d)| *d)
+            .collect();
         let mut applying = Vec::new();
         for (mut media, routed) in sessions.drain(..).zip(all) {
             media.members(roster.iter().copied());
@@ -266,7 +311,11 @@ async fn mesh_call_punches_links_and_every_member_opens_each_frame() {
         let paths = media.paths();
         assert_eq!(paths.len(), 2, "a link to each other member");
         // No addresses were in the directory, so leaders reached peers by punching.
-        assert!(paths.iter().all(|(_, p)| matches!(p, Path::Punched | Path::Direct)));
+        assert!(
+            paths
+                .iter()
+                .all(|(_, p)| matches!(p, Path::Punched | Path::Direct))
+        );
     }
     for from in 0..3 {
         frame_reaches_everyone(&mut call, &mut sessions, from).await;
@@ -281,7 +330,10 @@ async fn mesh_call_punches_links_and_every_member_opens_each_frame() {
             break packet;
         }
     };
-    assert_eq!(call.parties[2].keys.receiver.decrypt(&incoming).unwrap().1, b"audio");
+    assert_eq!(
+        call.parties[2].keys.receiver.decrypt(&incoming).unwrap().1,
+        b"audio"
+    );
 }
 
 /// GHSA-rvhv-r5mr-2w3h: in a mesh a member's link carries only that member's frames, so one
@@ -352,6 +404,94 @@ async fn forwarded_call_sends_each_frame_once_and_every_member_opens_it() {
     }
 }
 
+/// A failed layout transition must leave every old media link and its dial permissions
+/// intact. Previously applying a forwarder plan dropped the mesh before trying to join it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_refusing_forwarder_does_not_replace_a_working_mesh() {
+    let mut call = Call::start(Some(start_rendezvous())).await;
+    call.admit_direct().await;
+    call.admit_direct().await;
+    let mut sessions = call.media(false, None).await;
+    let old_paths: Vec<_> = sessions.iter().map(MediaSession::paths).collect();
+
+    // This is a real listening forwarder with a valid transport key, but it serves a
+    // different host. Reachability alone is insufficient: admission must succeed too.
+    let node = Node::bind(&Identity::generate(), localhost()).unwrap();
+    let forwarder = NodeAddr {
+        key: node.id(),
+        addr: node.local_addr().unwrap(),
+    };
+    let server =
+        ForwarderServer::new(node, Limits::default()).only_host(Identity::generate().public());
+    tokio::spawn(server.run());
+    let plan = call.plan(true);
+    let mine = call
+        .host
+        .publish_plan(plan, call.directory(0, Some(forwarder)))
+        .await
+        .unwrap();
+    let mut routes = vec![mine];
+    for party in &mut call.parties[1..] {
+        routes.push(next_member_routes(party.member.as_mut().unwrap()).await);
+    }
+    for ((media, route), old) in sessions.iter_mut().zip(routes).zip(old_paths) {
+        let failures = within(media.apply(route)).await;
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].0, forwarder.key);
+        assert_eq!(media.paths(), old, "the old mesh must survive refusal");
+        media.ready(Duration::from_millis(10)).await.unwrap();
+    }
+    for from in 0..3 {
+        frame_reaches_everyone(&mut call, &mut sessions, from).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn every_member_checks_a_proposed_forwarder_while_the_mesh_stays_up() {
+    let mut call = Call::start(Some(start_rendezvous())).await;
+    call.admit_direct().await;
+    call.admit_direct().await;
+    let mut sessions = call.media(false, None).await;
+    let old_paths: Vec<_> = sessions.iter().map(MediaSession::paths).collect();
+    let forwarder = start_forwarder();
+    let route = call
+        .host
+        .probe_plan(call.plan(true), call.directory(0, Some(forwarder)), 77)
+        .await
+        .unwrap();
+    let Routes::Forwarder { addr, ticket } = route else {
+        panic!("forwarder routes")
+    };
+    within(call.parties[0].node.probe_forwarder(addr, ticket))
+        .await
+        .unwrap();
+    let mut checked = std::collections::HashSet::new();
+    while checked.len() < 2 {
+        if let HostEvent::PlanChecked {
+            device,
+            request,
+            ok,
+        } = within(call.events.recv()).await.unwrap()
+        {
+            assert_eq!(request, 77);
+            assert!(ok);
+            checked.insert(device);
+        }
+    }
+    for (media, old) in sessions.iter().zip(old_paths) {
+        assert_eq!(media.paths(), old);
+    }
+    for from in 0..3 {
+        frame_reaches_everyone(&mut call, &mut sessions, from).await;
+    }
+    // Once the app has all answers it may publish the actual layout. Probing itself did
+    // not consume the forwarder's member slots, so the real joins succeed normally.
+    call.replan(&mut sessions, true, Some(forwarder)).await;
+    for from in 0..3 {
+        frame_reaches_everyone(&mut call, &mut sessions, from).await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn members_follow_the_hosts_plan_through_a_join() {
     let mut call = Call::start(Some(start_rendezvous())).await;
@@ -362,7 +502,10 @@ async fn members_follow_the_hosts_plan_through_a_join() {
     let stale = call.directory(0, None);
     call.admit_direct().await;
     let refused = call.host.publish_plan(call.plan(false), stale).await;
-    assert!(matches!(refused, Err(CallError::Plan(_))), "a last-epoch directory: {refused:?}");
+    assert!(
+        matches!(refused, Err(CallError::Plan(_))),
+        "a last-epoch directory: {refused:?}"
+    );
 
     sessions.push(call.parties[2].node.media().unwrap());
     call.replan(&mut sessions, false, None).await;
@@ -440,8 +583,16 @@ async fn a_frame_sealed_before_an_epoch_change_opens_in_the_grace_period() {
     let mut call = Call::start(None).await;
     call.admit_direct().await;
     let mut ring = new_ring(&mut call.parties[0].keys);
-    let late = call.parties[1].keys.sender.encrypt(b"sealed in epoch 1").unwrap();
-    let too_late = call.parties[1].keys.sender.encrypt(b"also epoch 1").unwrap();
+    let late = call.parties[1]
+        .keys
+        .sender
+        .encrypt(b"sealed in epoch 1")
+        .unwrap();
+    let too_late = call.parties[1]
+        .keys
+        .sender
+        .encrypt(b"also epoch 1")
+        .unwrap();
 
     call.admit_direct().await;
     let changed = Instant::now();
@@ -469,7 +620,10 @@ async fn a_removed_member_gets_no_grace_on_the_old_epoch() {
     rotate(&mut ring, &mut call.parties[0].keys, changed);
     // The removed member still holds the old epoch's keys and seals after the change.
     let injected = removed.keys.sender.encrypt(b"injected").unwrap();
-    assert_eq!(ring.open(&injected, changed), Err(SecurityError::UnknownKey));
+    assert_eq!(
+        ring.open(&injected, changed),
+        Err(SecurityError::UnknownKey)
+    );
     // So is a frame from a member who stays: the price of closing the window.
     assert_eq!(ring.open(&stays, changed), Err(SecurityError::UnknownKey));
 }
@@ -483,7 +637,11 @@ async fn a_peer_that_stops_reading_cannot_hold_send_frame() {
     let sessions = call.media(false, None).await;
     let frame = vec![7u8; 4 * 1024];
     for i in 0..3_000u32 {
-        let sent = tokio::time::timeout(Duration::from_millis(500), sessions[0].send_frame(i, &frame)).await;
+        let sent = tokio::time::timeout(
+            Duration::from_millis(500),
+            sessions[0].send_frame(i, &frame),
+        )
+        .await;
         assert!(sent.is_ok(), "send_frame waited on the peer at frame {i}");
     }
 }
@@ -553,7 +711,10 @@ async fn keyframe_requests_reach_the_sender_in_a_mesh_and_through_a_forwarder() 
         assert!(within(sessions[2].request_keyframe(sender)).await.unwrap());
         next_keyframe_request(&mut sessions[0]).await;
         let quiet = tokio::time::timeout(Duration::from_millis(300), sessions[1].recv()).await;
-        assert!(quiet.is_err(), "only the named sender is asked (forwarded: {forwarded})");
+        assert!(
+            quiet.is_err(),
+            "only the named sender is asked (forwarded: {forwarded})"
+        );
     }
 }
 
@@ -570,7 +731,9 @@ async fn app_messages_reach_every_member_in_a_mesh_and_through_a_forwarder() {
 
         let message = AppMessage::chat(1, "hello from party 1").unwrap();
         let party = &mut call.parties[1];
-        let sealed = message.seal(&mut party.keys.sender, party.node.identity()).unwrap();
+        let sealed = message
+            .seal(&mut party.keys.sender, party.node.identity())
+            .unwrap();
         assert!(within(sessions[1].send_app(&sealed)).await >= 1);
         let leaf = call.directory(1, None).me.0;
         for i in [0, 2] {
@@ -579,7 +742,10 @@ async fn app_messages_reach_every_member_in_a_mesh_and_through_a_forwarder() {
                     break packet;
                 }
             };
-            assert_eq!(packet, sealed, "passed on unchanged (forwarded: {forwarded})");
+            assert_eq!(
+                packet, sealed,
+                "passed on unchanged (forwarded: {forwarded})"
+            );
             let device = call.parties[1].node.identity().public();
             let receiver = &mut call.parties[i].keys.receiver;
             let (sender, plain) = receiver.decrypt(&packet).unwrap();
@@ -615,8 +781,14 @@ async fn cut_and_redial(call: &mut Call, sessions: &mut [MediaSession]) {
     })
     .await;
     let events = sessions[1].take_events();
-    assert!(events.iter().any(|e| matches!(e, LinkEvent::Dropped(_))), "{events:?}");
-    assert!(events.iter().any(|e| matches!(e, LinkEvent::Back { .. })), "{events:?}");
+    assert!(
+        events.iter().any(|e| matches!(e, LinkEvent::Dropped(_))),
+        "{events:?}"
+    );
+    assert!(
+        events.iter().any(|e| matches!(e, LinkEvent::Back { .. })),
+        "{events:?}"
+    );
     // Let a forwarder register the rejoined member's readers before the first frame.
     tokio::time::sleep(Duration::from_millis(100)).await;
     for from in 0..sessions.len() {

@@ -77,7 +77,10 @@ pub fn own_candidates(local: SocketAddr) -> Vec<SocketAddr> {
     own_candidates_with(local, global_ipv6)
 }
 
-fn own_candidates_with(local: SocketAddr, v6: impl FnOnce() -> Option<Ipv6Addr>) -> Vec<SocketAddr> {
+fn own_candidates_with(
+    local: SocketAddr,
+    v6: impl FnOnce() -> Option<Ipv6Addr>,
+) -> Vec<SocketAddr> {
     match local.ip() {
         IpAddr::V6(ip) if ip.is_unspecified() => v6()
             .map(|ip| vec![SocketAddr::new(ip.into(), local.port())])
@@ -91,22 +94,35 @@ fn own_candidates_with(local: SocketAddr, v6: impl FnOnce() -> Option<Ipv6Addr>)
 /// addresses become plain IPv4 and duplicates are dropped. IPv6 comes first; IPv4 waits
 /// [`V4_HEAD_START`] when there is any IPv6 candidate. `ipv6` says whether this socket can
 /// reach IPv6 at all; without it IPv6 candidates are left out. Link-local IPv6 addresses
-/// cannot be dialled without an interface, so they are left out too. At most `max` are kept.
+/// require a nonzero interface scope. At most `max` are kept.
 pub fn dial_order(addrs: &[SocketAddr], ipv6: bool, max: usize) -> Vec<(SocketAddr, Duration)> {
     let mut v6 = Vec::new();
     let mut v4 = Vec::new();
     for addr in addrs {
-        let addr = SocketAddr::new(addr.ip().to_canonical(), addr.port());
+        let addr = match addr {
+            SocketAddr::V6(v6) if v6.ip().to_ipv4_mapped().is_none() => *addr,
+            _ => SocketAddr::new(addr.ip().to_canonical(), addr.port()),
+        };
         if v6.contains(&addr) || v4.contains(&addr) {
             continue;
         }
         match addr.ip() {
             IpAddr::V4(_) => v4.push(addr),
-            IpAddr::V6(ip) if ipv6 && !ip.is_unicast_link_local() => v6.push(addr),
+            IpAddr::V6(ip)
+                if ipv6
+                    && (!ip.is_unicast_link_local()
+                        || matches!(addr, SocketAddr::V6(v6) if v6.scope_id() != 0)) =>
+            {
+                v6.push(addr)
+            }
             IpAddr::V6(_) => {}
         }
     }
-    let wait = if v6.is_empty() { Duration::ZERO } else { V4_HEAD_START };
+    let wait = if v6.is_empty() {
+        Duration::ZERO
+    } else {
+        V4_HEAD_START
+    };
     v6.into_iter()
         .map(|a| (a, Duration::ZERO))
         .chain(v4.into_iter().map(|a| (a, wait)))
@@ -125,6 +141,16 @@ mod tests {
 
     fn sa(text: &str) -> SocketAddr {
         text.parse().unwrap()
+    }
+
+    #[test]
+    fn scoped_ipv6_candidates_keep_the_local_interface_index() {
+        let scoped = sa("[fe80::1%7]:7710");
+        assert_eq!(
+            dial_order(&[scoped], true, 16),
+            vec![(scoped, Duration::ZERO)]
+        );
+        assert!(dial_order(&[sa("[fe80::1]:7710")], true, 16).is_empty());
     }
 
     #[test]

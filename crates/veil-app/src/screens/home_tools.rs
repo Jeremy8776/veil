@@ -34,8 +34,9 @@ pub fn show(app: &mut VeilApp, ui: &mut Ui, width: f32) {
                 crate::screens::home::start(app, true);
             }
             let connection = button(ui, Icon::Signal, "Connection", false, half)
-                .on_hover_text("Your own servers and a fixed port, for calls across the internet.");
+                .on_hover_text("Local networks, nearby discovery, your own servers and a fixed port.");
             if connection.clicked() {
+                app.nearby.stop();
                 let form = crate::screens::connection::Form::new(&app.connection);
                 app.screen = crate::app::Screen::Connection(Box::new(form));
             }
@@ -51,11 +52,18 @@ pub fn show(app: &mut VeilApp, ui: &mut Ui, width: f32) {
                 crate::log::open_folder();
             }
             let on = app.updates.enabled();
-            let toggle = switch(ui, Icon::Refresh, "Check for updates", on, half).on_hover_text(
-                "Asks GitHub once per start whether a newer Veil is out. GitHub sees your IP \
-                 address. Nothing is downloaded unless you choose Install.",
-            );
-            if toggle.clicked() {
+            let local_only = app.connection.saved.local_only;
+            let toggle = ui
+                .add_enabled_ui(!local_only, |ui| {
+                    switch(ui, Icon::Refresh, "Check for updates", on, half)
+                })
+                .inner
+                .on_hover_text(
+                    "Asks GitHub once per start whether a newer Veil is out. GitHub sees your IP \
+                     address. Nothing is downloaded unless you choose Install.",
+                )
+                .on_disabled_hover_text("Off while Local only is on.");
+            if toggle.clicked() && !local_only {
                 app.updates.set_enabled(!on, ui.ctx());
             }
         });

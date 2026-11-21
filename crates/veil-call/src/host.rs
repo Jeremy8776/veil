@@ -17,16 +17,16 @@
 //! [`HostHandle::publish_plan`]. The actor checks the plan lists exactly this epoch's members,
 //! signs it, and queues it behind the epoch's commit, so every member reads the commit first.
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
+use std::collections::{HashMap, VecDeque};
+use std::net::SocketAddr;
+use std::time::{Duration, Instant};
 
 use getrandom::SysRng;
 use getrandom::rand_core::UnwrapErr;
 use tokio::sync::{mpsc, oneshot, watch};
 use veil_group::{Group, GroupError, Knock, Lobby};
 use veil_net::control::{Control, RefuseReason};
-use veil_net::{FramedRecv, FramedSend, Link, Node};
+use veil_net::Link;
 use veil_rendezvous::protocol::MAX_PASSES;
 use veil_security::invite::Invite;
 use veil_security::{Identity, PublicId};
@@ -36,8 +36,18 @@ use crate::inbound::Inbound;
 use crate::routes::{Directory, Routes};
 use crate::{CallError, CallPlan, EpochKeys, now_unix};
 
+mod hints;
+mod link;
+mod recovery;
+
+pub(crate) use hints::checked_candidates;
+pub use hints::MAX_HINTS;
+use link::{Opened, run_link};
+pub use recovery::CONTROL_RECOVERY;
+use recovery::REPLAY_COMMITS;
+
 /// Control messages queued for one link. A member that falls this far behind is dropped.
-const OUTBOX: usize = 64;
+const OUTBOX: usize = 72;
 const COMMANDS: usize = 64;
 const LINGER: Duration = Duration::from_secs(2);
 
@@ -54,7 +64,10 @@ pub struct Allowed {
 pub enum HostEvent {
     /// A joiner with a valid token is waiting. Answer with [`HostHandle::decide`].
     Knock(PublicId),
-    Joined { device: PublicId, leaf: u32 },
+    Joined {
+        device: PublicId,
+        leaf: u32,
+    },
     /// A member left or was removed.
     Left(PublicId),
     /// A joiner was turned away before or while joining, for example with a used invite.
@@ -63,6 +76,15 @@ pub enum HostEvent {
     Keys(EpochKeys),
     /// The group refused an operation. The session carries on in its previous epoch.
     Error(GroupError),
+    Addresses {
+        device: PublicId,
+        addrs: Vec<std::net::SocketAddr>,
+    },
+    PlanChecked {
+        device: PublicId,
+        request: u64,
+        ok: bool,
+    },
 }
 
 enum Command {
@@ -74,11 +96,21 @@ enum Command {
     },
     AddLink(Link),
     AddInbound(Inbound),
-    Decide { device: PublicId, admit: bool },
+    Decide {
+        device: PublicId,
+        admit: bool,
+    },
     Remove(PublicId),
+    Addresses(Vec<SocketAddr>),
     Publish {
         plan: Plan,
         directory: Directory,
+        reply: oneshot::Sender<Result<Routes, CallError>>,
+    },
+    Probe {
+        plan: Plan,
+        directory: Directory,
+        request: u64,
         reply: oneshot::Sender<Result<Routes, CallError>>,
     },
 }
@@ -86,9 +118,9 @@ enum Command {
 /// Events from one link task. `u64` is the link's id, so a stale or duplicate link of a
 /// device can never act for the device's current link.
 enum Internal {
-    Opened(PublicId, u64, mpsc::Sender<Control>),
+    Opened(PublicId, u64, mpsc::Sender<Control>, Control),
     Message(PublicId, u64, Control),
-    Closed(PublicId, u64),
+    Closed(PublicId, u64, bool),
 }
 
 /// Controls a running host session. Cheap to clone.
@@ -122,6 +154,13 @@ impl HostHandle {
             internal,
             next_link: 0,
             allowed: allowed_tx,
+            recovering: HashMap::new(),
+            history: VecDeque::new(),
+            latest_plan: None,
+            addresses: Vec::new(),
+            hints: HashMap::new(),
+            checking: None,
+            cut_off: Vec::new(),
         };
         tokio::spawn(actor.run(commands_rx, internal_rx));
         Ok((Self { commands, allowed }, events_rx))
@@ -133,7 +172,10 @@ impl HostHandle {
     }
 
     async fn send(&self, command: Command) -> Result<(), CallError> {
-        self.commands.send(command).await.map_err(|_| CallError::Closed)
+        self.commands
+            .send(command)
+            .await
+            .map_err(|_| CallError::Closed)
     }
 
     /// Makes a signed invite link with a fresh one-time token for this room.
@@ -172,10 +214,45 @@ impl HostHandle {
     /// Signs this epoch's layout and sends it to every member. `directory` must list exactly
     /// the current members; a plan made for an earlier epoch is refused. Returns the host's
     /// own routes. Members get theirs as [`crate::MemberEvent::Routes`].
-    pub async fn publish_plan(&self, plan: Plan, directory: Directory) -> Result<Routes, CallError> {
+    pub async fn publish_plan(
+        &self,
+        plan: Plan,
+        directory: Directory,
+    ) -> Result<Routes, CallError> {
         let (reply, answer) = oneshot::channel();
-        self.send(Command::Publish { plan, directory, reply }).await?;
+        self.send(Command::Publish {
+            plan,
+            directory,
+            reply,
+        })
+        .await?;
         answer.await.map_err(|_| CallError::Closed)?
+    }
+
+    /// Tests a proposed plan without replacing any member's working routes.
+    pub async fn probe_plan(
+        &self,
+        plan: Plan,
+        directory: Directory,
+        request: u64,
+    ) -> Result<Routes, CallError> {
+        let (reply, answer) = oneshot::channel();
+        self.send(Command::Probe {
+            plan,
+            directory,
+            request,
+            reply,
+        })
+        .await?;
+        answer.await.map_err(|_| CallError::Closed)?
+    }
+
+    /// Shares bounded connection hints over each authenticated host-control connection.
+    /// New members and resumed members receive the most recent snapshot as well.
+    pub async fn set_addresses(&self, addrs: Vec<SocketAddr>) -> Result<(), CallError> {
+        let addrs =
+            checked_candidates(addrs).ok_or(CallError::Protocol("invalid host addresses"))?;
+        self.send(Command::Addresses(addrs)).await
     }
 
     /// Removes a member. Its link closes after it receives the commit.
@@ -193,6 +270,16 @@ struct Actor {
     internal: mpsc::Sender<Internal>,
     next_link: u64,
     allowed: watch::Sender<Allowed>,
+    recovering: HashMap<PublicId, (u64, Instant)>,
+    history: VecDeque<(u64, Vec<u8>)>,
+    latest_plan: Option<(u64, Vec<u8>)>,
+    addresses: Vec<SocketAddr>,
+    /// Per member: when its last address update went out, and the newest one waiting.
+    hints: HashMap<PublicId, (Instant, Option<Vec<SocketAddr>>)>,
+    /// The forwarder check in flight, and the members yet to answer it. One answer each.
+    checking: Option<(u64, std::collections::HashSet<PublicId>)>,
+    /// Devices cut off for falling behind. They are removed, not offered recovery.
+    cut_off: Vec<PublicId>,
 }
 
 impl Actor {
@@ -201,8 +288,14 @@ impl Actor {
         mut commands: mpsc::Receiver<Command>,
         mut internal: mpsc::Receiver<Internal>,
     ) {
+        let mut expiry = tokio::time::interval(Duration::from_secs(1));
+        expiry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
+                _ = expiry.tick() => {
+                    self.expire_recovery();
+                    self.flush_hints();
+                }
                 command = commands.recv() => match command {
                     Some(command) => self.command(command),
                     // Every handle dropped: the call is over.
@@ -210,7 +303,13 @@ impl Actor {
                 },
                 Some(event) = internal.recv() => self.internal(event),
             }
+            self.remove_cut_off();
             self.publish_allowed();
+        }
+        // Reliable explicit goodbye is delivered before stream closure. A stream FIN alone
+        // is indistinguishable from a transport interruption to the recovering member.
+        for device in self.others() {
+            self.send_to(&device, Control::Ended);
         }
     }
 
@@ -252,7 +351,12 @@ impl Actor {
             .get(device)
             .is_some_and(|(_, outbox)| outbox.try_send(message).is_err());
         if full {
+            // Falling this far behind ends membership, as before recovery existed. Removal
+            // runs after the current step (`remove_cut_off`), so loops over members stay valid.
             self.links.remove(device);
+            if !self.cut_off.contains(device) {
+                self.cut_off.push(*device);
+            }
         }
     }
 
@@ -265,6 +369,11 @@ impl Actor {
     }
 
     fn broadcast_commit(&mut self, commit: &[u8], to: &[PublicId]) {
+        self.history
+            .push_back((self.group.epoch(), commit.to_vec()));
+        while self.history.len() > REPLAY_COMMITS {
+            self.history.pop_front();
+        }
         for device in to {
             self.send_to(device, Control::Commit(commit.to_vec()));
         }
@@ -297,9 +406,25 @@ impl Actor {
             }
             Command::AddInbound(inbound) => {
                 self.next_link = self.next_link.wrapping_add(1);
-                let Inbound { link, out, input, first, via } = inbound;
-                let opened = Opened { out, input, first, _via: via };
-                tokio::spawn(run_link(link, Some(opened), self.next_link, self.internal.clone()));
+                let Inbound {
+                    link,
+                    out,
+                    input,
+                    first,
+                    via,
+                } = inbound;
+                let opened = Opened {
+                    out,
+                    input,
+                    first,
+                    _via: via,
+                };
+                tokio::spawn(run_link(
+                    link,
+                    Some(opened),
+                    self.next_link,
+                    self.internal.clone(),
+                ));
             }
             Command::Decide { device, admit } => {
                 let knock = Knock { device };
@@ -315,8 +440,26 @@ impl Actor {
                 }
             }
             Command::Remove(device) => self.remove(device, true),
-            Command::Publish { plan, directory, reply } => {
+            Command::Addresses(addrs) => {
+                self.addresses = addrs;
+                for device in self.others() {
+                    self.send_to(&device, Control::Addresses(self.addresses.clone()));
+                }
+            }
+            Command::Publish {
+                plan,
+                directory,
+                reply,
+            } => {
                 let _ = reply.send(self.publish(&plan, &directory));
+            }
+            Command::Probe {
+                plan,
+                directory,
+                request,
+                reply,
+            } => {
+                let _ = reply.send(self.probe(&plan, &directory, request));
             }
         }
     }
@@ -327,13 +470,50 @@ impl Actor {
         let plan = CallPlan::from_plan(plan, directory, room_id, epoch, &self.identity)?;
         let members: Vec<PublicId> = self.group.members().into_iter().map(|(_, d)| d).collect();
         if !plan.covers(&members) {
-            return Err(CallError::Plan("the directory does not list this epoch's members"));
+            return Err(CallError::Plan(
+                "the directory does not list this epoch's members",
+            ));
         }
         let sealed = plan.seal(&self.identity)?;
+        self.latest_plan = Some((epoch, sealed.clone()));
         for device in self.others() {
             self.send_to(&device, Control::Plan(sealed.clone()));
         }
         plan.routes_for(&self.identity.public())
+    }
+
+    fn probe(
+        &mut self,
+        plan: &Plan,
+        directory: &Directory,
+        request: u64,
+    ) -> Result<Routes, CallError> {
+        let proposed = CallPlan::from_plan(
+            plan,
+            directory,
+            self.lobby.room_id(),
+            self.group.epoch(),
+            &self.identity,
+        )?;
+        let members: Vec<PublicId> = self.group.members().into_iter().map(|(_, d)| d).collect();
+        if !proposed.covers(&members) {
+            return Err(CallError::Plan(
+                "the directory does not list this epoch's members",
+            ));
+        }
+        let sealed = proposed.seal(&self.identity)?;
+        // Only answers to this request, one per member asked, reach the engine.
+        self.checking = Some((request, self.others().into_iter().collect()));
+        for device in self.others() {
+            self.send_to(
+                &device,
+                Control::ProbePlan {
+                    request,
+                    sealed: sealed.clone(),
+                },
+            );
+        }
+        proposed.routes_for(&self.identity.public())
     }
 
     fn invite(
@@ -342,18 +522,30 @@ impl Actor {
         relay: Option<String>,
         expires_unix: u64,
     ) -> Result<String, CallError> {
-        let mut invite =
-            Invite::new(&self.identity, addrs, relay, expires_unix, &mut UnwrapErr(SysRng))
-                .map_err(GroupError::Security)?;
+        let mut invite = Invite::new(
+            &self.identity,
+            addrs,
+            relay,
+            expires_unix,
+            &mut UnwrapErr(SysRng),
+        )
+        .map_err(GroupError::Security)?;
         // The invite names this call's room, not the fresh id `Invite::new` drew.
         invite.room_id = self.lobby.room_id();
         self.lobby.add_invite(&invite)?;
-        Ok(invite.to_link(&self.identity).map_err(GroupError::Security)?)
+        Ok(invite
+            .to_link(&self.identity)
+            .map_err(GroupError::Security)?)
     }
 
     /// Removes a member and starts a new epoch. `tell_them` sends the removed member the commit
     /// first, so it learns it was removed rather than seeing a dropped link.
     fn remove(&mut self, device: PublicId, tell_them: bool) {
+        self.recovering.remove(&device);
+        self.hints.remove(&device);
+        if let Some((_, waiting)) = self.checking.as_mut() {
+            waiting.remove(&device);
+        }
         match self.group.remove(&device) {
             Ok(commit) => {
                 let mut to = self.others();
@@ -373,21 +565,28 @@ impl Actor {
         }
     }
 
-    /// True when `link` is not the device's current link (a duplicate it refused).
-    fn stale(&self, device: &PublicId, link: u64) -> bool {
-        self.links.get(device).is_some_and(|(current, _)| *current != link)
-    }
-
     fn internal(&mut self, event: Internal) {
         match event {
-            Internal::Opened(device, link, outbox) => {
-                // One control link per device; a second one is closed by dropping its queue.
-                self.links.entry(device).or_insert((link, outbox));
+            Internal::Opened(device, link, outbox, Control::Resume { room_id, epoch }) => {
+                self.resume(device, link, outbox, room_id, epoch);
             }
-            // A closed link with no entry left was cut off or removed already; removing again
-            // is harmless and catches a member cut off for falling behind.
-            Internal::Closed(device, link) if !self.stale(&device, link) => {
-                self.remove(device, false);
+            Internal::Opened(device, link, outbox, first) => {
+                if let std::collections::hash_map::Entry::Vacant(entry) = self.links.entry(device) {
+                    entry.insert((link, outbox));
+                    // This link replaces any outage; the expiry timer must not remove it later.
+                    self.recovering.remove(&device);
+                    self.message(device, first);
+                }
+            }
+            Internal::Closed(device, link, voluntary) if !self.stale(&device, link) => {
+                self.links.remove(&device);
+                if !voluntary && self.group.members().iter().any(|(_, id)| *id == device) {
+                    self.recovering
+                        .entry(device)
+                        .or_insert((link, Instant::now() + CONTROL_RECOVERY));
+                } else {
+                    self.remove(device, false);
+                }
             }
             Internal::Message(device, link, message)
                 if !self.stale(&device, link) && self.links.contains_key(&device) =>
@@ -413,6 +612,9 @@ impl Actor {
                     Ok(admission) => {
                         self.broadcast_commit(&admission.commit, &existing);
                         self.send_to(&device, Control::Welcome(admission.welcome));
+                        if !self.addresses.is_empty() {
+                            self.send_to(&device, Control::Addresses(self.addresses.clone()));
+                        }
                         let leaf = self
                             .group
                             .members()
@@ -431,63 +633,29 @@ impl Actor {
                 }
             }
             Control::Ping(n) => self.send_to(&device, Control::Pong(n)),
+            Control::Addresses(addrs)
+                if self.group.members().iter().any(|(_, id)| *id == device) =>
+            {
+                // `run_link` already filtered these against the link's observed address.
+                if addrs.len() <= MAX_HINTS {
+                    self.hint(device, addrs);
+                }
+            }
+            Control::PlanChecked { request, ok } => {
+                let asked = self.checking.as_mut().is_some_and(|(current, waiting)| {
+                    *current == request && waiting.remove(&device)
+                });
+                if asked {
+                    self.emit(HostEvent::PlanChecked {
+                        device,
+                        request,
+                        ok,
+                    });
+                }
+            }
             // Nothing else is meaningful from a joiner or member.
             _ => {}
         }
     }
 }
 
-/// A link whose control stream is already open and whose first message is already read.
-struct Opened {
-    out: FramedSend,
-    input: FramedRecv,
-    first: Control,
-    /// Keeps a relayed link's virtual node alive for as long as the link.
-    _via: Option<Arc<Node>>,
-}
-
-async fn run_link(link: Link, opened: Option<Opened>, id: u64, actor: mpsc::Sender<Internal>) {
-    let device = link.peer();
-    let (mut out, mut input, first, _via) = match opened {
-        Some(o) => (o.out, o.input, Some(o.first), o._via),
-        None => {
-            let Ok(control) = link.accept_control().await else {
-                return;
-            };
-            let (out, input) = control.split();
-            (out, input, None, None)
-        }
-    };
-    let (outbox, mut queue) = mpsc::channel(OUTBOX);
-    if actor.send(Internal::Opened(device, id, outbox)).await.is_err() {
-        return;
-    }
-    if let Some(first) = first
-        && actor.send(Internal::Message(device, id, first)).await.is_err()
-    {
-        return;
-    }
-    let reader = {
-        let actor = actor.clone();
-        tokio::spawn(async move {
-            while let Ok(message) = input.recv::<Control>().await {
-                if actor.send(Internal::Message(device, id, message)).await.is_err() {
-                    return;
-                }
-            }
-            let _ = actor.send(Internal::Closed(device, id)).await;
-        })
-    };
-    while let Some(message) = queue.recv().await {
-        if out.send(&message).await.is_err() {
-            // A device the host can no longer write to must not stay in the roster.
-            let _ = actor.send(Internal::Closed(device, id)).await;
-            break;
-        }
-    }
-    // The actor let go of this link. Let the last message arrive before closing.
-    drop(out);
-    let _ = tokio::time::timeout(LINGER, link.quic().closed()).await;
-    link.close("bye");
-    reader.abort();
-}

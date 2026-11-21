@@ -29,6 +29,8 @@ pub mod endpoint;
 pub mod error;
 pub mod family;
 pub mod frames;
+pub mod local;
+pub mod nearby;
 pub mod node_addr;
 pub mod node_name;
 pub mod tls;

@@ -11,6 +11,33 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   never boosted, and a sudden shout is turned down before it distorts. It is on by default;
   turn it off under Audio settings > Auto volume.
 
+- **Local only.** Restricts call sockets to loopback and connected non-point-to-point
+  subnets, including replies and path migration. Ignores configured internet helpers,
+  advertised public addresses and router port opening. Disables update checks/download
+  starts; restart after enabling it for a clean session without an earlier in-flight check.
+  Local joining uses the full signed invitation. Local only never turns off Hide my address:
+  with both on, joining stops with a message, since Local only has no relay.
+- **Nearby calls and QR invitations.** Explicit scanning, and opt-in advertising on IPv4
+  LANs while Local only is on. One invitation per device every 10 s, 64 per call. A found
+  call shows whether its host is a device you verified before you continue; beacons contain a temporary service key and port, never a name or invitation.
+  Selecting one fetches a signed full invite over pinned local-only QUIC. QR codes encode
+  the full invitation locally; this build does not include a QR camera decoder.
+- **Interface and address updates.** Enumerates usable interfaces without needing an
+  internet route. Local only invitations list local scope interface addresses; other
+  invitations keep the short list. Admitted participants send local scope address hints over
+  their authenticated host connection, at most one update per 5 s reaching the host. The host
+  keeps a public hint only if it is the address the link comes from.
+- **Connection recovery.** Rendezvous registrations reconnect with backoff and restore
+  current permissions. Brief unexpected host-control interruptions have a bounded resume
+  window and bounded MLS commit replay; deliberate leave, removal and host shutdown remain
+  distinct. Host restart and host handover are not supported.
+- **Forwarder checks.** Every member checks the proposed forwarder and signed admission
+  ticket before a mesh switches. A call already on the forwarder stays on it when people
+  join or leave; its ticket is updated instead. Failed or expired checks retain mesh routes. A failed
+  forwarder join retains existing media links. Checks do not reserve capacity; a forwarder
+  failing after unanimous checks can still interrupt the transition. Network-wide rollback
+  and automatic recovery after a later forwarder outage are not implemented.
+
 ### Changed
 
 - **Steadier speaking border.** The border now stays on for a moment between words instead of
@@ -31,6 +58,13 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   the colour emoji font first.
 - **Round video corners.** The picture is now clipped to the tile's rounded corners, so its
   corners no longer show past the edge.
+
+### Compatibility
+
+- New control and forwarder protocol messages require every participant and node to use
+  this development build. This is an implementation batch for networking items 1–8;
+  TCP fallback, independent helper failover, phone transports and delayed messaging remain
+  future work.
 
 ## 0.1.12, 20/11/2026
 

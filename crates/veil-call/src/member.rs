@@ -4,11 +4,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
-use veil_group::{Applied, GroupError, Joiner};
+use veil_group::{Applied, Group, GroupError, Joiner};
 use veil_net::control::Control;
-use veil_net::{FramedRecv, Link, Node};
+use veil_net::{FramedRecv, FramedSend, Link, Node};
 use veil_security::invite::Invite;
 
 use crate::node::{CallNode, Path};
@@ -30,8 +30,14 @@ pub enum MemberEvent {
     PlanRefused(CallError),
     /// The host removed this member. No later keys will arrive.
     Removed,
-    /// The link to the host closed. The call is over for this member.
+    /// An unexpected transport loss is being recovered without changing membership.
+    Reconnecting,
+    /// The pinned host accepted recovery and all missed commits have been applied.
+    Reconnected,
+    /// The host intentionally ended the call.
     Closed,
+    /// The bounded recovery attempt failed; a fresh invitation is needed.
+    ConnectionLost,
     /// A commit could not be applied, so this member's state no longer matches the group.
     /// The session stops; rejoin with a new invite.
     Failed(GroupError),
@@ -40,29 +46,26 @@ pub enum MemberEvent {
 /// A joined member's session. Dropping it leaves the call.
 pub struct MemberHandle {
     pub events: mpsc::UnboundedReceiver<MemberEvent>,
-    link: Arc<Link>,
-    path: Path,
-    /// The virtual node of a relayed link to the host.
-    _via: Option<Arc<Node>>,
+    current: watch::Receiver<(Arc<Link>, Path)>,
     task: JoinHandle<()>,
 }
 
 impl Drop for MemberHandle {
     fn drop(&mut self) {
         self.task.abort();
-        self.link.close("left");
+        self.current.borrow().0.close("left");
     }
 }
 
 impl MemberHandle {
     /// The control link to the host.
-    pub fn link(&self) -> &Link {
-        &self.link
+    pub fn link(&self) -> Arc<Link> {
+        self.current.borrow().0.clone()
     }
 
     /// How the control link reached the host.
     pub fn path(&self) -> Path {
-        self.path
+        self.current.borrow().1
     }
 }
 
@@ -94,7 +97,7 @@ pub async fn join_with(
     if invite.room_id != call.room_id() {
         return Err(CallError::Protocol("a node started for this invite's room"));
     }
-    let addrs: Vec<SocketAddr> = invite.addrs.iter().filter_map(|a| a.parse().ok()).collect();
+    let mut addrs: Vec<SocketAddr> = invite.addrs.iter().filter_map(|a| a.parse().ok()).collect();
     let dialled = call.dial(invite.host, &addrs).await?;
     let (path, via) = (dialled.path, dialled.via);
     let link = Arc::new(dialled.link);
@@ -113,7 +116,8 @@ pub async fn join_with(
     }
 
     let joiner = Joiner::new(call.identity())?;
-    out.send(&Control::KeyPackage(joiner.key_package()?)).await?;
+    out.send(&Control::KeyPackage(joiner.key_package()?))
+        .await?;
     let welcome = match recv(&mut input, STEP).await? {
         Control::Welcome(welcome) => welcome,
         Control::Refused(reason) => return Err(CallError::Refused(reason)),
@@ -121,15 +125,121 @@ pub async fn join_with(
     };
     let mut group = joiner.join(&welcome, &invite.host)?;
     let (host, room_id, me) = (invite.host, invite.room_id, call.identity().public());
+    let (node, presence, relay_only) = call.redial_context();
+    // Only local scope addresses are offered: the host and the other members already see the
+    // public address this link comes from, and the host drops any other public one.
+    let mut candidates = if relay_only {
+        Vec::new()
+    } else {
+        veil_net::local::local_candidates(node.local_addr()?.port())
+    };
+    out.send(&Control::Addresses(candidates.clone())).await?;
 
     let (events, events_rx) = mpsc::unbounded_channel();
     let _ = events.send(MemberEvent::Keys(EpochKeys::from_group(&group)?));
+    let (current, current_rx) = watch::channel((link.clone(), path));
     let task = tokio::spawn(async move {
+        let mut live = link;
+        let mut _via = via;
+        // One dedicated reader owns each framed stream; select never cancels a partial read.
+        let (mut reader, mut inbox) = start_reader(input);
+        let mut refresh = tokio::time::interval(Duration::from_secs(2));
+        refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let (checked, mut checks) = mpsc::channel(1);
+        let mut probe: Option<Reader> = None;
         let ending = loop {
-            let Ok(message) = input.recv::<Control>().await else {
-                break MemberEvent::Closed;
+            let message = tokio::select! {
+                message = inbox.recv() => match message {
+                    Some(message) => message,
+                    None => {
+                        if live.peer_closed_with("bye") { break MemberEvent::Closed; }
+                        let _ = events.send(MemberEvent::Reconnecting);
+                        drop(probe.take());
+                        while checks.try_recv().is_ok() {}
+                        let before = group.epoch();
+                        match recover_control(&node, presence.as_ref(), relay_only, host, &addrs, room_id, &mut group).await {
+                            Ok((dialled, send, input)) => {
+                                live = Arc::new(dialled.link);
+                                _via = dialled.via;
+                                out = send;
+                                let next = start_reader(input);
+                                reader = next.0;
+                                inbox = next.1;
+                                let _ = current.send((live.clone(), dialled.path));
+                                if group.epoch() != before {
+                                    match EpochKeys::from_group(&group) {
+                                        Ok(keys) => { let _ = events.send(MemberEvent::Keys(keys)); }
+                                        Err(e) => break MemberEvent::Failed(e),
+                                    }
+                                }
+                                // The new control connection receives its own address update,
+                                // even if the local address has not changed since the outage.
+                                candidates = if relay_only { Vec::new() } else {
+                                    node.local_addr().map(|a| veil_net::local::local_candidates(a.port())).unwrap_or_default()
+                                };
+                                if send_control(&mut out, &Control::Addresses(candidates.clone())).await.is_err() {
+                                    live.close("control recovery failed");
+                                    continue;
+                                }
+                                let _ = events.send(MemberEvent::Reconnected);
+                                continue;
+                            }
+                            Err(CallError::Group(e)) => break MemberEvent::Failed(e),
+                            Err(CallError::Refused(_)) => break MemberEvent::Removed,
+                            Err(_) => break MemberEvent::ConnectionLost,
+                        }
+                    },
+                },
+                _ = refresh.tick() => {
+                    let next = if relay_only { Vec::new() } else {
+                        node.local_addr().map(|a| veil_net::local::local_candidates(a.port())).unwrap_or_default()
+                    };
+                    if next != candidates {
+                        candidates = next;
+                        if send_control(&mut out, &Control::Addresses(candidates.clone())).await.is_err() {
+                            live.close("control write failed");
+                        }
+                    }
+                    continue;
+                },
+                Some((request, epoch, ok)) = checks.recv() => {
+                    if epoch == group.epoch() && send_control(&mut out, &Control::PlanChecked { request, ok }).await.is_err() {
+                        live.close("control write failed");
+                    }
+                    continue;
+                },
             };
             match message {
+                Control::Ended => break MemberEvent::Closed,
+                Control::ProbePlan { request, sealed } => {
+                    // A host-signed plan binds the target to this room and current epoch.
+                    // Probe asynchronously so a dead forwarder cannot delay removal commits.
+                    let routes = CallPlan::open(&sealed, &host, room_id, group.epoch())
+                        .and_then(|plan| plan.routes_for(&me));
+                    let (node, checked, epoch) = (node.clone(), checked.clone(), group.epoch());
+                    probe = Some(Reader(tokio::spawn(async move {
+                        let ok = match routes {
+                            Ok(Routes::Forwarder { addr, ticket }) => {
+                                matches!(
+                                    tokio::time::timeout(
+                                        Duration::from_secs(8),
+                                        veil_forward::ForwarderClient::probe(
+                                            &node,
+                                            &[addr.addr],
+                                            addr.key,
+                                            &ticket
+                                        )
+                                    )
+                                    .await,
+                                    Ok(Ok(()))
+                                )
+                            }
+                            Ok(Routes::Mesh { .. }) => true,
+                            Err(_) => false,
+                        };
+                        let _ = checked.send((request, epoch, ok)).await;
+                    })));
+                }
                 Control::Commit(commit) => match group.apply(&commit) {
                     Ok(Applied::NewEpoch(_)) => match EpochKeys::from_group(&group) {
                         Ok(keys) => {
@@ -144,21 +254,126 @@ pub async fn join_with(
                     let event = CallPlan::open(&sealed, &host, room_id, group.epoch())
                         .and_then(|plan| plan.routes_for(&me))
                         .map_or_else(MemberEvent::PlanRefused, MemberEvent::Routes);
+                    if !relay_only
+                        && let MemberEvent::Routes(Routes::Mesh { peers, .. }) = &event
+                        && let Some(peer) = peers.iter().find(|peer| peer.device == host)
+                    {
+                        addrs = peer.addrs.clone();
+                    }
                     let _ = events.send(event);
                 }
-                Control::Ping(n) if out.send(&Control::Pong(n)).await.is_err() => {
-                    break MemberEvent::Closed;
+                Control::Addresses(next) => {
+                    // This stream is pinned to the host. Never learn addresses from any
+                    // other member, and keep relay-only recovery from exposing our address.
+                    if !relay_only && let Some(next) = crate::host::checked_candidates(next) {
+                        addrs = next;
+                    }
+                }
+                Control::Ping(n) if send_control(&mut out, &Control::Pong(n)).await.is_err() => {
+                    live.close("control write failed");
                 }
                 _ => {}
             }
         };
+        drop(probe);
+        drop(reader);
         let _ = events.send(ending);
     });
     Ok(MemberHandle {
         events: events_rx,
-        link,
-        path,
-        _via: via,
+        current: current_rx,
         task,
     })
+}
+
+/// A background reader or probe must not outlive its member session.
+struct Reader(JoinHandle<()>);
+impl Drop for Reader {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// New control streams always get their own reader. Dropping its guard stops it.
+fn start_reader(mut input: FramedRecv) -> (Reader, mpsc::Receiver<Control>) {
+    let (messages, inbox) = mpsc::channel(72);
+    let reader = Reader(tokio::spawn(async move {
+        while let Ok(message) = input.recv::<Control>().await {
+            if messages.send(message).await.is_err() {
+                break;
+            }
+        }
+    }));
+    (reader, inbox)
+}
+
+async fn send_control(out: &mut FramedSend, message: &Control) -> Result<(), CallError> {
+    tokio::time::timeout(Duration::from_secs(3), out.send(message))
+        .await
+        .map_err(|_| CallError::Timeout)?
+        .map_err(CallError::Net)
+}
+
+/// Recovery authenticates the same device and pinned host. It never reuses a lobby token or
+/// creates a new membership. Only contiguous host-authenticated commits advance the group.
+async fn recover_control(
+    node: &Node,
+    presence: Option<&crate::presence::Presence>,
+    relay_only: bool,
+    host: veil_security::PublicId,
+    addrs: &[SocketAddr],
+    room_id: [u8; 16],
+    group: &mut Group,
+) -> Result<(crate::dial::Dialled, FramedSend, FramedRecv), CallError> {
+    let deadline = tokio::time::Instant::now() + crate::host::CONTROL_RECOVERY;
+    let mut gap = Duration::from_millis(200);
+    loop {
+        let attempt = async {
+            let dialled = crate::dial::dial(node, presence, host, addrs, relay_only).await?;
+            let (mut out, mut input) = dialled.link.open_control().await?.split();
+            send_control(
+                &mut out,
+                &Control::Resume {
+                    room_id,
+                    epoch: group.epoch(),
+                },
+            )
+            .await?;
+            let current = match recv(&mut input, STEP).await? {
+                Control::Resumed { epoch }
+                    if epoch >= group.epoch() && epoch - group.epoch() <= 64 =>
+                {
+                    epoch
+                }
+                Control::Refused(reason) => return Err(CallError::Refused(reason)),
+                _ => return Err(CallError::Protocol("resume acknowledgment")),
+            };
+            while group.epoch() < current {
+                let Control::Commit(commit) = recv(&mut input, STEP).await? else {
+                    return Err(CallError::Protocol("recovery commit"));
+                };
+                match group.apply(&commit)? {
+                    Applied::NewEpoch(_) => {}
+                    Applied::Removed => {
+                        return Err(CallError::Refused(
+                            veil_net::control::RefuseReason::DeclinedByHost,
+                        ));
+                    }
+                }
+            }
+            Ok((dialled, out, input))
+        };
+        match tokio::time::timeout_at(deadline, attempt).await {
+            Ok(Ok(connection)) => return Ok(connection),
+            Ok(Err(e @ (CallError::Refused(_) | CallError::Group(_) | CallError::Protocol(_)))) => {
+                return Err(e);
+            }
+            Err(_) => return Err(CallError::Timeout),
+            Ok(Err(_)) => {}
+        }
+        tokio::time::timeout_at(deadline, tokio::time::sleep(gap))
+            .await
+            .map_err(|_| CallError::Timeout)?;
+        gap = (gap * 2).min(Duration::from_secs(3));
+    }
 }

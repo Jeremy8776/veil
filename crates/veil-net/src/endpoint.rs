@@ -96,6 +96,8 @@ pub struct Node {
     key: Arc<CertifiedKey>,
     id: PublicId,
     mtu: u16,
+    local_policy: Arc<crate::local::Policy>,
+    local_refresh: tokio::task::JoinHandle<()>,
     ready: tokio::sync::Mutex<mpsc::Receiver<Link>>,
     acceptor: tokio::task::JoinHandle<()>,
 }
@@ -103,6 +105,7 @@ pub struct Node {
 impl Drop for Node {
     fn drop(&mut self) {
         self.acceptor.abort();
+        self.local_refresh.abort();
     }
 }
 
@@ -115,7 +118,7 @@ impl Node {
             }
             _ => std::net::UdpSocket::bind(addr)?,
         };
-        Self::on_socket(identity, socket)
+        Self::on_socket(identity, socket, false)
     }
 
     /// Binds `port` (0 for any) for both IPv4 and IPv6 on one socket, or IPv4 only where the
@@ -123,31 +126,75 @@ impl Node {
     /// in either family.
     pub fn bind_any(identity: &Identity, port: u16) -> Result<Self, NetError> {
         match family::dual_stack(port) {
-            Ok(socket) => Self::on_socket(identity, socket),
+            Ok(socket) => Self::on_socket(identity, socket, false),
             Err(_) => Self::bind(identity, SocketAddr::from((Ipv4Addr::UNSPECIFIED, port))),
         }
     }
 
-    fn on_socket(identity: &Identity, socket: std::net::UdpSocket) -> Result<Self, NetError> {
+    /// Binds a Local only endpoint with its packet policy enabled before accepting traffic.
+    pub fn bind_local(identity: &Identity, port: u16) -> Result<Self, NetError> {
+        let socket = family::dual_stack(port).or_else(|_| {
+            std::net::UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))
+        })?;
+        Self::on_socket(identity, socket, true)
+    }
+
+    fn on_socket(
+        identity: &Identity,
+        socket: std::net::UdpSocket,
+        local_only: bool,
+    ) -> Result<Self, NetError> {
         let key = tls::certified_key(identity)?;
-        let mut server = quinn::ServerConfig::with_crypto(Arc::new(tls::server_config(key.clone())?));
+        let mut server =
+            quinn::ServerConfig::with_crypto(Arc::new(tls::server_config(key.clone())?));
         server.transport_config(transport(INITIAL_MTU)?);
-        let endpoint = quinn::Endpoint::new(
+        let local_policy = Arc::new(crate::local::Policy::default());
+        local_policy.set(local_only);
+        let socket = quinn::Runtime::wrap_udp_socket(&quinn::TokioRuntime, socket)?;
+        let socket = Arc::new(crate::local::LocalSocket {
+            socket,
+            policy: local_policy.clone(),
+        });
+        let endpoint = quinn::Endpoint::new_with_abstract_socket(
             quinn::EndpointConfig::default(),
             Some(server),
             socket,
             Arc::new(quinn::TokioRuntime),
         )?;
-        Ok(Self::new(endpoint, key, identity.public(), INITIAL_MTU))
+        Ok(Self::new(
+            endpoint,
+            key,
+            identity.public(),
+            INITIAL_MTU,
+            local_policy,
+        ))
     }
 
-    fn new(endpoint: quinn::Endpoint, key: Arc<CertifiedKey>, id: PublicId, mtu: u16) -> Self {
+    fn new(
+        endpoint: quinn::Endpoint,
+        key: Arc<CertifiedKey>,
+        id: PublicId,
+        mtu: u16,
+        local_policy: Arc<crate::local::Policy>,
+    ) -> Self {
         let (ready, acceptor) = accept::start(endpoint.clone());
+        let policy = local_policy.clone();
+        let local_refresh = tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(2));
+            loop {
+                tick.tick().await;
+                if policy.enabled() {
+                    policy.refresh();
+                }
+            }
+        });
         Self {
             endpoint,
             key,
             id,
             mtu,
+            local_policy,
+            local_refresh,
             ready: tokio::sync::Mutex::new(ready),
             acceptor,
         }
@@ -160,8 +207,14 @@ impl Node {
         identity: &Identity,
         socket: Arc<dyn quinn::AsyncUdpSocket>,
     ) -> Result<Self, NetError> {
+        let local_policy = Arc::new(crate::local::Policy::default());
+        let socket = Arc::new(crate::local::LocalSocket {
+            socket,
+            policy: local_policy.clone(),
+        });
         let key = tls::certified_key(identity)?;
-        let mut server = quinn::ServerConfig::with_crypto(Arc::new(tls::server_config(key.clone())?));
+        let mut server =
+            quinn::ServerConfig::with_crypto(Arc::new(tls::server_config(key.clone())?));
         server.transport_config(transport(RELAYED_MTU)?);
         let endpoint = quinn::Endpoint::new_with_abstract_socket(
             quinn::EndpointConfig::default(),
@@ -169,11 +222,24 @@ impl Node {
             socket,
             Arc::new(quinn::TokioRuntime),
         )?;
-        Ok(Self::new(endpoint, key, identity.public(), RELAYED_MTU))
+        Ok(Self::new(
+            endpoint,
+            key,
+            identity.public(),
+            RELAYED_MTU,
+            local_policy,
+        ))
     }
 
     pub fn id(&self) -> PublicId {
         self.id
+    }
+
+    /// Restricts this endpoint to loopback and connected non-point-to-point subnets.
+    /// Applies to every UDP packet (including incoming handshakes and QUIC migration),
+    /// and to verified/unverified dials. Enable before starting any connection.
+    pub fn set_local_only(&self, enabled: bool) {
+        self.local_policy.set(enabled);
     }
 
     pub fn local_addr(&self) -> Result<SocketAddr, NetError> {
@@ -187,7 +253,11 @@ impl Node {
 
     /// Dials every address, IPv6 first and IPv4 a moment later (`family::dial_order`), and
     /// returns the first link that proves it holds `expected`.
-    pub async fn connect(&self, addrs: &[SocketAddr], expected: PublicId) -> Result<Link, NetError> {
+    pub async fn connect(
+        &self,
+        addrs: &[SocketAddr],
+        expected: PublicId,
+    ) -> Result<Link, NetError> {
         let crypto = tls::client_config(self.key.clone(), expected)?;
         let link = self.dial(addrs, crypto).await?;
         if link.peer != expected {
@@ -203,7 +273,8 @@ impl Node {
     /// throwaway identity, since the peer sees this node's key. Everything else uses
     /// [`Self::connect`].
     pub async fn connect_unverified(&self, addrs: &[SocketAddr]) -> Result<Link, NetError> {
-        self.dial(addrs, tls::unverified_client_config(self.key.clone())?).await
+        self.dial(addrs, tls::unverified_client_config(self.key.clone())?)
+            .await
     }
 
     async fn dial(
@@ -211,6 +282,15 @@ impl Node {
         addrs: &[SocketAddr],
         crypto: quinn::crypto::rustls::QuicClientConfig,
     ) -> Result<Link, NetError> {
+        if self.local_policy.enabled() {
+            self.local_policy.refresh();
+        }
+        let addrs: Vec<_> = addrs
+            .iter()
+            .copied()
+            .flat_map(crate::local::scoped_candidates)
+            .filter(|addr| self.local_policy.allows(*addr))
+            .collect();
         if addrs.is_empty() {
             return Err(NetError::NoAddresses);
         }
@@ -219,7 +299,7 @@ impl Node {
 
         let mut attempts = JoinSet::new();
         let mut last_error = String::new();
-        for (addr, wait) in family::dial_order(addrs, self.ipv6(), MAX_CANDIDATES) {
+        for (addr, wait) in family::dial_order(&addrs, self.ipv6(), MAX_CANDIDATES) {
             let endpoint = self.endpoint.clone();
             let config = config.clone();
             attempts.spawn(async move {
@@ -235,7 +315,9 @@ impl Node {
             });
         }
         if attempts.is_empty() {
-            return Err(NetError::Connect(String::from("no address in a family this node can reach")));
+            return Err(NetError::Connect(String::from(
+                "no address in a family this node can reach",
+            )));
         }
         while let Some(result) = attempts.join_next().await {
             match result {
@@ -296,7 +378,17 @@ impl Link {
     /// an IPv4-mapped IPv6 address.
     pub fn remote_addr(&self) -> SocketAddr {
         let addr = self.conn.remote_address();
-        SocketAddr::new(addr.ip().to_canonical(), addr.port())
+        match addr {
+            SocketAddr::V6(v6) if v6.ip().to_ipv4_mapped().is_none() => addr,
+            _ => SocketAddr::new(addr.ip().to_canonical(), addr.port()),
+        }
+    }
+
+    /// Whether the authenticated remote endpoint deliberately closed with this reason.
+    /// A timeout or reset does not count as an intentional departure.
+    pub fn peer_closed_with(&self, reason: &str) -> bool {
+        matches!(self.conn.close_reason(), Some(quinn::ConnectionError::ApplicationClosed(ref close))
+            if close.reason.as_ref() == reason.as_bytes())
     }
 
     pub fn rtt(&self) -> Duration {
@@ -340,7 +432,10 @@ impl Link {
             .open_uni()
             .await
             .map_err(|e| NetError::Closed(e.to_string()))?;
-        let mut stream = ResetOnDrop { stream, finished: false };
+        let mut stream = ResetOnDrop {
+            stream,
+            finished: false,
+        };
         let mut head = [0u8; 8];
         head[..4].copy_from_slice(&frame_id.to_be_bytes());
         head[4..].copy_from_slice(&len.to_be_bytes());
@@ -405,7 +500,9 @@ struct ResetOnDrop {
 
 impl ResetOnDrop {
     fn finish(&mut self) -> Result<(), NetError> {
-        self.stream.finish().map_err(|e| NetError::Closed(e.to_string()))?;
+        self.stream
+            .finish()
+            .map_err(|e| NetError::Closed(e.to_string()))?;
         self.finished = true;
         Ok(())
     }

@@ -44,6 +44,7 @@ eframe = { version = "0.37", default-features = false, features = [
 # Colour emoji in chat: draws the system emoji font's COLR (Windows), sbix (macOS) or CBDT
 # (Linux) glyphs. The same epaint eframe uses; this only turns the feature on.
 epaint = { version = "0.37", default-features = false, features = ["color_fonts"] }
+qrcodegen = "1.8.0"
 
 [build-dependencies]
 # Windows version information (build.rs). MIT; the same crate as ArtCraft uses.

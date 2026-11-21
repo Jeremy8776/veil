@@ -334,7 +334,7 @@ fn firewall(app: &VeilApp, ui: &mut egui::Ui) {
 /// Asked once, before the first call you host: may Veil open a port on your router? The
 /// answer is saved either way and can be changed in Settings > Connection.
 fn router_question(app: &mut VeilApp, ui: &mut egui::Ui) {
-    if app.connection.saved.asked_open_port {
+    if app.connection.saved.asked_open_port || app.connection.saved.local_only {
         return;
     }
     ui.add_space(8.0);

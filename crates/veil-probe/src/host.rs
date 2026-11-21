@@ -40,14 +40,7 @@ pub async fn run(mut args: HostArgs) -> Result<(), String> {
         }
     }
     let (host, mut events) = HostHandle::start(&identity, room_id).map_err(|e| e.to_string())?;
-    let mut call = CallNode::start(
-        &identity,
-        node,
-        room_id,
-        args.rendezvous,
-        host.clone(),
-    )
-    .await;
+    let mut call = CallNode::start(&identity, node, room_id, args.rendezvous, host.clone()).await;
     println!(
         "host {} listening on {}",
         short(&identity.public()),
@@ -96,6 +89,7 @@ pub async fn run(mut args: HostArgs) -> Result<(), String> {
                     }
                 }
                 Some(HostEvent::Error(e)) => println!("group error: {e}"),
+                Some(HostEvent::Addresses { .. } | HostEvent::PlanChecked { .. }) => {},
                 None => return Err("the host session stopped".into()),
             },
             Some(incoming) = session.media.recv() => session.on_incoming(incoming).await,

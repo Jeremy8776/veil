@@ -148,10 +148,7 @@ pub fn open_folder() {
         use std::os::windows::process::CommandExt;
         /// No console window flashes up.
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let explorer = crate::firewall::system_program(
-            std::env::var("SystemRoot").ok().as_deref(),
-            "explorer.exe",
-        );
+        let explorer = windows_explorer(std::env::var_os("SystemRoot").as_deref());
         // The path is Veil's own folder, passed as one argument: no shell reads it.
         let _ = std::process::Command::new(explorer)
             .arg(&dir)
@@ -162,6 +159,17 @@ pub fn open_folder() {
     let _ = std::process::Command::new("/usr/bin/open").arg(&dir).spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
     let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
+}
+
+/// Explorer lives directly in the Windows folder, unlike the tools in System32.
+#[cfg(any(windows, test))]
+fn windows_explorer(system_root: Option<&std::ffi::OsStr>) -> PathBuf {
+    PathBuf::from(
+        system_root
+            .filter(|root| !root.is_empty())
+            .unwrap_or_else(|| std::ffi::OsStr::new(r"C:\Windows")),
+    )
+    .join("explorer.exe")
 }
 
 /// Writes a line to Veil's log file and stderr, like `eprintln!`.
@@ -178,6 +186,23 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+
+    #[test]
+    fn explorer_is_in_the_windows_folder() {
+        assert_eq!(
+            windows_explorer(None),
+            PathBuf::from(r"C:\Windows").join("explorer.exe")
+        );
+        assert_eq!(
+            windows_explorer(Some(std::ffi::OsStr::new(""))),
+            windows_explorer(None)
+        );
+        let root = Path::new(r"D:\Windows folder");
+        assert_eq!(
+            windows_explorer(Some(root.as_os_str())),
+            root.join("explorer.exe")
+        );
+    }
 
     #[test]
     fn clock_reads_in_utc() {

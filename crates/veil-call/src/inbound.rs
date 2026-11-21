@@ -79,7 +79,7 @@ impl Router {
             via,
         };
         match &inbound.first {
-            Control::Hello { .. } => {
+            Control::Hello { .. } | Control::Resume { .. } => {
                 if let Some(host) = &self.host {
                     let _ = host.add_inbound(inbound).await;
                 } else {
@@ -89,7 +89,8 @@ impl Router {
             Control::Media { room_id } if *room_id == self.room_id => {
                 if let Err(e) = self.media.try_send(inbound) {
                     let inbound = match e {
-                        mpsc::error::TrySendError::Full(i) | mpsc::error::TrySendError::Closed(i) => i,
+                        mpsc::error::TrySendError::Full(i)
+                        | mpsc::error::TrySendError::Closed(i) => i,
                     };
                     inbound.link.close("busy");
                 }
@@ -115,7 +116,14 @@ mod tests {
 
     fn router() -> (Router, mpsc::Receiver<Inbound>) {
         let (media, inbox) = mpsc::channel(4);
-        (Router { room_id: ROOM, host: None, media }, inbox)
+        (
+            Router {
+                room_id: ROOM,
+                host: None,
+                media,
+            },
+            inbox,
+        )
     }
 
     #[tokio::test]
@@ -123,7 +131,9 @@ mod tests {
         let node = Arc::new(bind(&Identity::generate()));
         let (router, _inbox) = router();
         let wait = router.accept_relayed(node.clone(), Duration::from_millis(20));
-        tokio::time::timeout(SOON, wait).await.expect("the wait ends by itself");
+        tokio::time::timeout(SOON, wait)
+            .await
+            .expect("the wait ends by itself");
         assert_eq!(Arc::strong_count(&node), 1);
     }
 
@@ -142,11 +152,15 @@ mod tests {
         out.send(&Control::Media { room_id: ROOM }).await.unwrap();
         tokio::time::timeout(SOON, waiting).await.unwrap().unwrap();
 
-        let inbound = tokio::time::timeout(SOON, inbox.recv()).await.unwrap().unwrap();
+        let inbound = tokio::time::timeout(SOON, inbox.recv())
+            .await
+            .unwrap()
+            .unwrap();
         assert!(inbound.via.is_some(), "the link holds its node");
         assert_eq!(inbound.link.peer(), dialler.id());
 
-        let second = tokio::time::timeout(Duration::from_secs(1), dialler.connect(&[addr], key)).await;
+        let second =
+            tokio::time::timeout(Duration::from_secs(1), dialler.connect(&[addr], key)).await;
         assert!(!matches!(second, Ok(Ok(_))), "a session carries one link");
     }
 }
