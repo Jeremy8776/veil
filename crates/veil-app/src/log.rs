@@ -160,7 +160,12 @@ fn civil(days: i64) -> (i64, u32, u32) {
 /// Opens the log folder without blocking the UI. Unix children are waited and reaped.
 #[derive(Default)]
 pub struct FolderOpener {
-    pending: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+    pending: Option<FolderRequest>,
+}
+
+struct FolderRequest {
+    result: std::sync::mpsc::Receiver<Result<(), String>>,
+    deadline: std::time::Instant,
 }
 
 impl FolderOpener {
@@ -188,7 +193,9 @@ impl FolderOpener {
         ctx: eframe::egui::Context,
         job: impl FnOnce() -> Result<(), String> + Send + 'static,
     ) -> Result<(), String> {
+        const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
         let (send, receive) = std::sync::mpsc::channel();
+        let wake = ctx.clone();
         std::thread::Builder::new()
             .name("open-log-folder".into())
             .spawn(move || {
@@ -200,14 +207,29 @@ impl FolderOpener {
                 ctx.request_repaint();
             })
             .map_err(|why| format!("Cannot start log folder opener: {why}"))?;
-        self.pending = Some(receive);
+        self.pending = Some(FolderRequest {
+            result: receive,
+            deadline: std::time::Instant::now() + TIMEOUT,
+        });
+        wake.request_repaint_after(TIMEOUT);
         Ok(())
     }
 
     pub fn poll(&mut self) -> Option<Result<(), String>> {
-        let result = match self.pending.as_ref()?.try_recv() {
+        let pending = self.pending.as_ref()?;
+        let result = match pending.result.try_recv() {
             Ok(result) => result,
-            Err(std::sync::mpsc::TryRecvError::Empty) => return None,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                if std::time::Instant::now() < pending.deadline {
+                    return None;
+                }
+                // Some openers remain alive while their file-manager window is open.
+                // Release the UI request; its worker keeps reaping that process, and
+                // its eventual result cannot affect a later retry's separate channel.
+                Err(String::from(
+                    "The log folder opener is still running. Check your file manager, or click Logs to try again.",
+                ))
+            }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => Err(String::from(
                 "The log folder opener stopped before reporting a result.",
             )),
@@ -349,6 +371,55 @@ mod tests {
         };
         assert_eq!(result, Err(String::from("file manager failed")));
         assert!(opener.poll().is_none(), "the error is delivered once");
+    }
+
+    #[test]
+    fn a_slow_opener_times_out_and_cannot_block_or_poison_a_retry() {
+        let mut opener = FolderOpener::default();
+        let (release, wait) = std::sync::mpsc::channel();
+        let (finished, completion) = std::sync::mpsc::channel();
+        opener
+            .start_worker(eframe::egui::Context::default(), move || {
+                wait.recv().unwrap();
+                finished.send(()).unwrap();
+                Err(String::from("old opener failed"))
+            })
+            .unwrap();
+        assert!(opener.poll().is_none());
+        opener.pending.as_mut().unwrap().deadline = std::time::Instant::now();
+        assert!(
+            opener
+                .poll()
+                .unwrap()
+                .unwrap_err()
+                .contains("still running")
+        );
+        assert!(
+            opener.pending.is_none(),
+            "a timed-out opener must allow retries"
+        );
+
+        opener
+            .start_worker(eframe::egui::Context::default(), || Ok(()))
+            .unwrap();
+        release.send(()).unwrap();
+        completion.recv_timeout(Duration::from_secs(2)).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let result = loop {
+            if let Some(result) = opener.poll() {
+                break result;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "retry did not complete"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(
+            result,
+            Ok(()),
+            "a late failure belongs only to the old request"
+        );
     }
 
     #[test]
