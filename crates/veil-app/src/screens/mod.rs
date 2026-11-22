@@ -14,6 +14,7 @@ pub mod connection;
 pub mod controls;
 pub mod group_check;
 pub mod home;
+mod home_setup;
 pub mod home_tools;
 pub mod invite;
 pub mod panels;

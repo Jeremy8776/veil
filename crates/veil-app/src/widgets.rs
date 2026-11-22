@@ -18,6 +18,28 @@ use crate::icons::Icon;
 use crate::media::LocalMedia;
 use crate::theme::{self, ACCENT, DANGER, MUTED, RADIUS, RAISED, RAISED_HOVER, TEXT};
 
+/// Collect control help in draw order, preferring pointer hover over keyboard focus.
+#[derive(Default)]
+pub struct HelpState<T> {
+    hovered: Option<T>,
+    focused: Option<T>,
+}
+
+impl<T: Copy + Default> HelpState<T> {
+    pub fn track(&mut self, response: &Response, topic: T) {
+        if response.contains_pointer() {
+            self.hovered = Some(topic);
+        }
+        if response.has_focus() {
+            self.focused = Some(topic);
+        }
+    }
+
+    pub fn active(&self) -> T {
+        self.hovered.or(self.focused).unwrap_or_default()
+    }
+}
+
 /// How a call-bar button looks.
 #[derive(Clone, Copy, Default)]
 pub struct ControlState {
@@ -136,19 +158,23 @@ pub fn pill(ui: &mut Ui, icon: Option<Icon>, label: &str, tone: Tone, width: f32
     let icon_w = if icon.is_some() { 26.0 } else { 0.0 };
     let w = width.max(text_w + icon_w + 32.0);
     let (rect, response) = ui.allocate_exact_size(vec2(w, 40.0), Sense::click());
-    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, label));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), label));
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered();
-        let (fill, fg) = match tone {
-            Tone::Primary => (
-                if hovered { theme::ACCENT_HOVER } else { ACCENT },
-                Color32::WHITE,
-            ),
-            Tone::Danger => (
-                if hovered { theme::DANGER_HOVER } else { DANGER },
-                Color32::WHITE,
-            ),
-            Tone::Quiet => (if hovered { RAISED_HOVER } else { RAISED }, TEXT),
+        let (fill, fg) = if !ui.is_enabled() {
+            (RAISED, MUTED)
+        } else {
+            match tone {
+                Tone::Primary => (
+                    if hovered { theme::ACCENT_HOVER } else { ACCENT },
+                    Color32::WHITE,
+                ),
+                Tone::Danger => (
+                    if hovered { theme::DANGER_HOVER } else { DANGER },
+                    Color32::WHITE,
+                ),
+                Tone::Quiet => (if hovered { RAISED_HOVER } else { RAISED }, TEXT),
+            }
         };
         let painter = ui.painter();
         painter.rect_filled(rect, CornerRadius::same(RADIUS), fill);
@@ -174,6 +200,81 @@ pub fn pill(ui: &mut Ui, icon: Option<Icon>, label: &str, tone: Tone, width: f32
         );
     }
     response
+}
+
+/// A settings row with a labelled switch. The whole row is clickable and keyboard focusable.
+pub fn toggle_row(ui: &mut Ui, value: &mut bool, label: &str, detail: &str) -> Response {
+    let compact = detail.is_empty();
+    let width = ui.available_width();
+    let foreground = if ui.is_enabled() { TEXT } else { MUTED };
+    // Reserve the switch's space on both sides so the text stays on the card's centre line.
+    let text_width = (width - if compact { 96.0 } else { 144.0 }).max(1.0);
+    let mut title_job =
+        egui::text::LayoutJob::simple(label.to_owned(), theme::bold(14.0), foreground, text_width);
+    title_job.halign = egui::Align::Center;
+    let title = ui.painter().layout_job(title_job);
+    let mut detail_job = egui::text::LayoutJob::simple(
+        detail.to_owned(),
+        FontId::proportional(13.0),
+        MUTED,
+        text_width,
+    );
+    detail_job.halign = egui::Align::Center;
+    let detail = ui.painter().layout_job(detail_job);
+    let height = if compact {
+        (title.size().y + 12.0).max(48.0)
+    } else {
+        (title.size().y + detail.size().y + 6.0).max(48.0) + 16.0
+    };
+    let (rect, mut response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+    if response.clicked() {
+        *value = !*value;
+        response.mark_changed();
+    }
+    response.widget_info(|| WidgetInfo::selected(Role::Switch, ui.is_enabled(), *value, label));
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        let top = if compact {
+            rect.center().y - title.size().y / 2.0
+        } else {
+            rect.top() + 8.0
+        };
+        let detail_y = top + title.size().y + 6.0;
+        // Center-aligned egui galleys already extend equally either side of x=0
+        // (Galley::rect.center().x == 0). Paint at the row centre; subtracting
+        // half the wrap width would shift the label and detail to the left.
+        painter.galley(pos2(rect.center().x, top), title, foreground);
+        if !compact {
+            painter.galley(pos2(rect.center().x, detail_y), detail, MUTED);
+        }
+        let track =
+            Rect::from_center_size(pos2(rect.right() - 22.0, rect.center().y), vec2(44.0, 24.0));
+        let fill = match (*value, response.hovered()) {
+            (true, true) => theme::ACCENT_HOVER,
+            (true, false) => ACCENT,
+            (false, true) => RAISED_HOVER,
+            (false, false) => RAISED,
+        };
+        painter.rect_filled(track, 12, if ui.is_enabled() { fill } else { theme::LINE });
+        if !*value {
+            painter.rect_stroke(track, 12, Stroke::new(1.0, MUTED), StrokeKind::Inside);
+        }
+        let thumb_x = if *value {
+            track.right() - 12.0
+        } else {
+            track.left() + 12.0
+        };
+        painter.circle_filled(pos2(thumb_x, track.center().y), 8.0, foreground);
+        if response.has_focus() {
+            painter.rect_stroke(
+                track.expand(3.0),
+                15,
+                Stroke::new(2.0, TEXT),
+                StrokeKind::Outside,
+            );
+        }
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// A small icon-only button with a tooltip and an accessible label.
@@ -466,3 +567,6 @@ fn blur_label(blur: Blur) -> &'static str {
         Blur::Strong => "Strong",
     }
 }
+
+#[cfg(all(test, windows))]
+mod tests;

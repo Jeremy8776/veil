@@ -2,6 +2,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -File tools\dev-ui.ps1
 #   powershell -ExecutionPolicy Bypass -File tools\dev-ui.ps1 -Screen prejoin
+#   powershell -ExecutionPolicy Bypass -File tools\dev-ui.ps1 -Screen home -Profile dev
 #
 # -Screen picks where Veil opens: call (the demo call, the default), prejoin or home.
 # -Once builds, opens, checks Veil stays up, closes it and exits.
@@ -17,12 +18,18 @@
 param(
     [ValidateSet('call', 'prejoin', 'home')]
     [string]$Screen = 'call',
+    [ValidateSet('release', 'dev')]
+    [string]$Profile = 'release',
+    [string]$TargetDir = $env:CARGO_TARGET_DIR,
     [switch]$Once
 )
 
 $root = Split-Path -Parent $PSScriptRoot
-$built = Join-Path $root 'target\release\veil-app.exe'
-$parked = Join-Path $root 'target\release\veil-app.old.exe'
+if (-not $TargetDir) { $TargetDir = Join-Path $root 'target' }
+$TargetDir = [IO.Path]::GetFullPath($TargetDir)
+$profileDir = if ($Profile -eq 'dev') { 'debug' } else { 'release' }
+$built = Join-Path $TargetDir "$profileDir\veil-app.exe"
+$parked = Join-Path $TargetDir "$profileDir\veil-app.old.exe"
 $runDir = Join-Path $root 'target\dev-ui'
 $runExe = Join-Path $runDir 'veil-app.exe'
 $watched = @('crates\veil-app\src', 'crates\veil-app\assets', 'crates\veil-media\src') |
@@ -68,7 +75,7 @@ function Invoke-Build {
     }
     Push-Location $root
     try {
-        & cargo build --locked --release -j 8 -p veil-app --features dev-ui
+        & cargo build --locked --profile $Profile --target-dir $TargetDir -j 8 -p veil-app --features dev-ui
         return ($LASTEXITCODE -eq 0)
     }
     finally {

@@ -26,11 +26,10 @@ use crate::engine::plan::{self, NetConfig};
 
 const FILE: &str = "connection.json";
 const BACKUP: &str = "connection.json.bak";
-/// Far more than four fields need.
-const MAX_FILE: u64 = 16 * 1024;
+/// Bounded storage for the active fields and up to sixteen named setups.
+const MAX_FILE: u64 = 256 * 1024;
 /// Longest text accepted in one field.
 pub const MAX_FIELD: usize = 512;
-
 /// One field of the settings, for errors and environment overrides.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Field {
@@ -146,10 +145,115 @@ impl Settings {
     }
 }
 
+/// Why a draft cannot be applied or saved.
+#[derive(Debug)]
+pub enum SaveError {
+    Fields(Vec<(Field, String)>),
+    Conflict(&'static str),
+    Setup(String),
+}
+
+impl std::fmt::Display for SaveError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Fields(_) => {
+                formatter.write_str("This setup has invalid fields. Open Connection to fix them.")
+            }
+            Self::Conflict(problem) => formatter.write_str(problem),
+            Self::Setup(problem) => formatter.write_str(problem),
+        }
+    }
+}
+
+pub const MAX_SETUP_NAME: usize = 40;
+pub const MAX_SETUPS: usize = 16;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Setup {
+    pub id: u64,
+    pub name: String,
+    pub settings: Settings,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct SavedFile {
+    #[serde(flatten)]
+    settings: Settings,
+    setups: Vec<Setup>,
+    active_setup: Option<u64>,
+}
+
+impl SavedFile {
+    fn validate(&self) -> Result<(), String> {
+        for settings in
+            std::iter::once(&self.settings).chain(self.setups.iter().map(|setup| &setup.settings))
+        {
+            if Field::ALL
+                .iter()
+                .any(|field| settings.field(*field).chars().count() > MAX_FIELD)
+            {
+                return Err(String::from("a saved connection field is too long"));
+            }
+        }
+        if self.setups.is_empty() && self.active_setup.is_none() {
+            return Ok(());
+        }
+        if self.setups.len() > MAX_SETUPS {
+            return Err(String::from("too many saved setups"));
+        }
+        for (index, setup) in self.setups.iter().enumerate() {
+            validate_name(&setup.name)?;
+            if setup.id == 0
+                || self.setups[..index]
+                    .iter()
+                    .any(|s| s.id == setup.id || s.name.eq_ignore_ascii_case(&setup.name))
+            {
+                return Err(String::from("duplicate setup name or identifier"));
+            }
+        }
+        let active = self
+            .setups
+            .iter()
+            .find(|s| Some(s.id) == self.active_setup)
+            .ok_or_else(|| String::from("the active setup is missing"))?;
+        if active.settings != self.settings {
+            return Err(String::from(
+                "the active setup does not match its saved settings",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn validate_name(name: &str) -> Result<(), String> {
+    if name.trim().is_empty()
+        || name.chars().count() > MAX_SETUP_NAME
+        || name.chars().any(char::is_control)
+    {
+        Err(format!(
+            "Use a setup name from 1 to {MAX_SETUP_NAME} characters."
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// A recent, explicit server check. It never claims that incoming calls can reach this host.
+#[derive(Clone)]
+pub struct Checked {
+    pub config: NetConfig,
+    pub at: std::time::Instant,
+    pub servers_reachable: Option<bool>,
+}
+
 /// The saved settings and where they live.
 pub struct Store {
     dir: Option<PathBuf>,
     pub saved: Settings,
+    setups: Vec<Setup>,
+    active_setup: u64,
+    pub checked: Option<Checked>,
     /// The file on disk did not load, so saving must first move it aside.
     bad_file: bool,
     /// Something that went wrong reading or writing, for the settings screen.
@@ -162,6 +266,13 @@ impl Store {
         let mut store = Self {
             dir,
             saved: Settings::default(),
+            setups: vec![Setup {
+                id: 1,
+                name: String::from("Default"),
+                settings: Settings::default(),
+            }],
+            active_setup: 1,
+            checked: None,
             bad_file: false,
             problem: None,
         };
@@ -169,7 +280,14 @@ impl Store {
             return store;
         };
         match load(&dir) {
-            Ok(Some(settings)) => {
+            Ok(Some(file)) => {
+                let settings = file.settings;
+                if !file.setups.is_empty() {
+                    store.setups = file.setups;
+                    store.active_setup = file.active_setup.unwrap_or(1);
+                } else {
+                    store.setups[0].settings = settings.clone();
+                }
                 if settings.check().is_err() {
                     store.problem = Some(String::from(
                         "A saved connection setting is not valid, so Veil uses its defaults \
@@ -208,6 +326,29 @@ impl Store {
         saved.with_env(|name| std::env::var(name).ok())
     }
 
+    /// The same effective settings without logging invalid overrides on every UI frame.
+    pub fn summary_config(&self) -> Result<NetConfig, &'static str> {
+        let config = self
+            .saved
+            .check()
+            .map_err(|_| "Fix the saved connection fields")?;
+        let config = config.with_env(|name| {
+            let value = std::env::var(name).ok()?;
+            let valid = match name {
+                plan::ENV_RENDEZVOUS | plan::ENV_FORWARDER => plan::parse_node(&value).is_ok(),
+                plan::ENV_ADVERTISE => plan::parse_advertise(&value).is_ok(),
+                plan::ENV_PORT => plan::parse_port(&value).is_ok(),
+                _ => false,
+            };
+            valid.then_some(value)
+        });
+        if config.conflict().is_some() {
+            Err("Resolve Local only / Hide my address")
+        } else {
+            Ok(config)
+        }
+    }
+
     /// Saves a new data use choice and keeps every other setting as saved. If the saved
     /// settings do not pass their checks (edited by hand), the choice lasts this run only.
     pub fn set_data_use(&mut self, data_use: DataUse) {
@@ -218,31 +359,157 @@ impl Store {
         }
     }
 
-    /// Checks and saves `settings`. Nothing is saved unless every field is good.
-    pub fn save(&mut self, settings: Settings) -> Result<(), Vec<(Field, String)>> {
-        settings.check()?;
+    /// Checks and saves the active setup, including choices made before a call.
+    pub fn save(&mut self, settings: Settings) -> Result<(), SaveError> {
+        let name = self.active_name().to_owned();
+        self.save_setup(Some(self.active_setup), &name, settings)
+    }
+
+    pub fn setups(&self) -> &[Setup] {
+        &self.setups
+    }
+    pub fn active_id(&self) -> u64 {
+        self.active_setup
+    }
+    pub fn active_name(&self) -> &str {
+        self.setups
+            .iter()
+            .find(|setup| setup.id == self.active_setup)
+            .map_or("Default", |setup| setup.name.as_str())
+    }
+
+    /// A setup is made active only after all validation has succeeded.
+    pub fn save_setup(
+        &mut self,
+        id: Option<u64>,
+        name: &str,
+        settings: Settings,
+    ) -> Result<(), SaveError> {
+        let oversized: Vec<_> = Field::ALL
+            .into_iter()
+            .filter(|field| settings.field(*field).chars().count() > MAX_FIELD)
+            .map(|field| (field, format!("At most {MAX_FIELD} characters.")))
+            .collect();
+        if !oversized.is_empty() {
+            return Err(SaveError::Fields(oversized));
+        }
+        let config = settings.check().map_err(SaveError::Fields)?;
+        if let Some(problem) = config.conflict() {
+            return Err(SaveError::Conflict(problem));
+        }
+        let name = name.trim();
+        validate_name(name).map_err(SaveError::Setup)?;
+        if self
+            .setups
+            .iter()
+            .any(|s| Some(s.id) != id && s.name.eq_ignore_ascii_case(name))
+        {
+            return Err(SaveError::Setup(String::from(
+                "Use a different setup name.",
+            )));
+        }
+        let id = if let Some(id) = id {
+            if !self.setups.iter().any(|s| s.id == id) {
+                return Err(SaveError::Setup(String::from(
+                    "This setup no longer exists.",
+                )));
+            }
+            id
+        } else {
+            if self.setups.len() >= MAX_SETUPS {
+                return Err(SaveError::Setup(format!(
+                    "Keep up to {MAX_SETUPS} saved setups. Remove one first."
+                )));
+            }
+            self.setups
+                .iter()
+                .map(|s| s.id)
+                .max()
+                .unwrap_or(0)
+                .checked_add(1)
+                .ok_or_else(|| SaveError::Setup(String::from("Cannot create another setup.")))?
+        };
+        let setup = Setup {
+            id,
+            name: name.to_owned(),
+            settings: settings.clone(),
+        };
+        if let Some(existing) = self.setups.iter_mut().find(|s| s.id == id) {
+            *existing = setup;
+        } else {
+            self.setups.push(setup);
+        }
+        self.active_setup = id;
+        self.saved = settings;
+        self.persist();
+        Ok(())
+    }
+
+    pub fn activate(&mut self, id: u64) -> Result<(), SaveError> {
+        let setup = self
+            .setups
+            .iter()
+            .find(|s| s.id == id)
+            .cloned()
+            .ok_or_else(|| SaveError::Setup(String::from("This setup no longer exists.")))?;
+        self.save_setup(Some(id), &setup.name, setup.settings)
+    }
+
+    /// The active setup is never removed implicitly.
+    pub fn remove_setup(&mut self, id: u64) -> Result<(), String> {
+        if id == self.active_setup {
+            return Err(String::from(
+                "Switch to another setup before removing this one.",
+            ));
+        }
+        let index = self
+            .setups
+            .iter()
+            .position(|s| s.id == id)
+            .ok_or_else(|| String::from("This setup no longer exists."))?;
+        self.setups.remove(index);
+        self.persist();
+        Ok(())
+    }
+
+    fn persist(&mut self) {
+        // Runtime-only choices can still change `saved` after a validation failure.
+        // Keep the active snapshot consistent when another setup is later removed.
+        if let Some(active) = self
+            .setups
+            .iter_mut()
+            .find(|setup| setup.id == self.active_setup)
+        {
+            active.settings = self.saved.clone();
+        }
         let Some(dir) = self.dir.clone() else {
-            self.saved = settings;
             self.problem = Some(String::from(
                 "Veil has no folder to save in here, so these settings last this run only.",
             ));
-            return Ok(());
+            return;
         };
         if self.bad_file {
             // Kept, not deleted: it may hold values someone typed by hand.
             if let Err(e) = fs::rename(dir.join(FILE), dir.join(BACKUP))
                 && e.kind() != std::io::ErrorKind::NotFound
             {
-                self.saved = settings;
                 self.problem = Some(format!(
                     "The old settings file could not be moved aside ({e}), so it was left as \
                      it is. These settings last this run only."
                 ));
-                return Ok(());
+                return;
             }
             self.bad_file = false;
         }
-        match write(&dir, &settings) {
+        match crate::json_file::write(
+            &dir,
+            FILE,
+            &SavedFile {
+                settings: self.saved.clone(),
+                setups: self.setups.clone(),
+                active_setup: Some(self.active_setup),
+            },
+        ) {
             Ok(()) => self.problem = None,
             Err(e) => {
                 self.problem = Some(format!(
@@ -250,18 +517,16 @@ impl Store {
                 ));
             }
         }
-        self.saved = settings;
-        Ok(())
     }
 }
 
 /// `Ok(None)` when there is no file yet.
-fn load(dir: &Path) -> Result<Option<Settings>, String> {
-    crate::json_file::load(dir, FILE, MAX_FILE)
-}
-
-fn write(dir: &Path, settings: &Settings) -> Result<(), String> {
-    crate::json_file::write(dir, FILE, settings)
+fn load(dir: &Path) -> Result<Option<SavedFile>, String> {
+    let file: Option<SavedFile> = crate::json_file::load(dir, FILE, MAX_FILE)?;
+    if let Some(file) = &file {
+        file.validate()?;
+    }
+    Ok(file)
 }
 
 #[cfg(test)]
@@ -271,6 +536,128 @@ mod tests {
     use veil_security::Identity;
 
     use super::*;
+
+    #[test]
+    fn legacy_settings_migrate_and_named_setups_round_trip_independently() {
+        let dir = temp_dir("setups-migration");
+        crate::json_file::write(&dir, FILE, &good()).unwrap();
+        let mut store = Store::open(Some(dir.clone()));
+        let original = store.saved.clone();
+        assert_eq!(store.active_name(), "Default");
+        assert_eq!(store.setups()[0].settings, original);
+        let first = store.active_id();
+        let mut work = good();
+        work.port = "7711".into();
+        store.save_setup(None, "Work VPS", work.clone()).unwrap();
+        let work_id = store.active_id();
+        let mut store = Store::open(Some(dir.clone()));
+        assert_eq!(store.setups().len(), 2);
+        assert_eq!(store.saved, work);
+        assert_eq!(store.active_name(), "Work VPS");
+        store.activate(first).unwrap();
+        assert_eq!(store.saved, original);
+        store.set_data_use(DataUse::AudioOnly);
+        assert_eq!(
+            store
+                .setups()
+                .iter()
+                .find(|s| s.id == work_id)
+                .unwrap()
+                .settings,
+            work
+        );
+        let store = Store::open(Some(dir.clone()));
+        assert_eq!(store.saved.data_use, DataUse::AudioOnly);
+        assert_eq!(store.active_id(), first);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn setup_validation_and_removal_preserve_the_active_setup() {
+        let dir = temp_dir("setups-validation");
+        let mut store = Store::open(Some(dir.clone()));
+        store.save(good()).unwrap();
+        let first = store.active_id();
+        let bytes = fs::read(dir.join(FILE)).unwrap();
+        for name in ["", "default", "bad\nname"] {
+            assert!(matches!(
+                store.save_setup(None, name, good()),
+                Err(SaveError::Setup(_))
+            ));
+            assert_eq!(fs::read(dir.join(FILE)).unwrap(), bytes);
+        }
+        assert!(store.remove_setup(first).is_err());
+        store.save_setup(None, "Gaming VPS", good()).unwrap();
+        let active = store.active_id();
+        store.remove_setup(first).unwrap();
+        let reloaded = Store::open(Some(dir.clone()));
+        assert_eq!(reloaded.setups().len(), 1);
+        assert_eq!(reloaded.active_id(), active);
+        assert_eq!(reloaded.active_name(), "Gaming VPS");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn invalid_setup_metadata_is_preserved_as_a_bad_file() {
+        let dir = temp_dir("setups-corrupt");
+        fs::create_dir_all(&dir).unwrap();
+        let bytes = br#"{"setups":[],"active_setup":42}"#;
+        fs::write(dir.join(FILE), bytes).unwrap();
+        let mut store = Store::open(Some(dir.clone()));
+        assert!(store.problem.is_some());
+        assert_eq!(fs::read(dir.join(FILE)).unwrap(), bytes);
+        store.save(Settings::default()).unwrap();
+        assert_eq!(fs::read(dir.join(BACKUP)).unwrap(), bytes);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn runtime_choice_and_setup_removal_keep_the_active_snapshot_consistent() {
+        let dir = temp_dir("setups-runtime-choice");
+        let mut store = Store::open(Some(dir.clone()));
+        let first = store.active_id();
+        store
+            .save_setup(None, "Local", Settings::default())
+            .unwrap();
+        store.saved.local_only = true;
+        store.saved.hide_address = true;
+        store.set_data_use(DataUse::AudioOnly);
+        store.remove_setup(first).unwrap();
+        let again = Store::open(Some(dir.clone()));
+        assert!(again.problem.is_none());
+        assert!(again.saved.local_only && again.saved.hide_address);
+        assert_eq!(again.saved.data_use, DataUse::AudioOnly);
+        assert!(again.config().conflict().is_some());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn inactive_setup_fields_are_bounded_on_read() {
+        let dir = temp_dir("setups-field-limit");
+        let settings = Settings::default();
+        let file = SavedFile {
+            settings: settings.clone(),
+            setups: vec![
+                Setup {
+                    id: 1,
+                    name: "Default".into(),
+                    settings,
+                },
+                Setup {
+                    id: 2,
+                    name: "Oversized".into(),
+                    settings: Settings {
+                        rendezvous: "x".repeat(MAX_FIELD + 1),
+                        ..Settings::default()
+                    },
+                },
+            ],
+            active_setup: Some(1),
+        };
+        crate::json_file::write(&dir, FILE, &file).unwrap();
+        assert!(Store::open(Some(dir.clone())).problem.is_some());
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn local_only_ignores_bad_internet_fields_but_validates_listening_port() {
@@ -285,7 +672,10 @@ mod tests {
         };
         let config = settings.check().unwrap();
         assert!(config.local_only && !config.open_port && config.relay_only);
-        assert!(config.conflict().is_some(), "Hide my address is kept, so the call stops");
+        assert!(
+            config.conflict().is_some(),
+            "Hide my address is kept, so the call stops"
+        );
         assert!(
             config.rendezvous.is_none()
                 && config.forwarder.is_none()
@@ -421,6 +811,32 @@ mod tests {
         assert!(store.save(bad).is_err());
         assert_eq!(store.saved, Settings::default());
         assert!(!dir.join(FILE).exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn conflicting_privacy_choices_cannot_replace_saved_settings() {
+        let dir = temp_dir("privacy-conflict");
+        let mut store = Store::open(Some(dir.clone()));
+        store.save(good()).unwrap();
+        let baseline = store.saved.clone();
+        let bytes = fs::read(dir.join(FILE)).unwrap();
+        let mut draft = baseline.clone();
+        draft.local_only = true;
+        assert!(matches!(
+            store.save(draft.clone()),
+            Err(SaveError::Conflict(_))
+        ));
+        assert!(
+            draft.local_only && draft.hide_address,
+            "neither choice is silently dropped"
+        );
+        assert_eq!(store.saved, baseline);
+        assert_eq!(fs::read(dir.join(FILE)).unwrap(), bytes);
+
+        draft.hide_address = false;
+        store.save(draft.clone()).unwrap();
+        assert_eq!(Store::open(Some(dir.clone())).saved, draft);
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -28,6 +28,17 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 
 ## 2. What other parties can see
 
+**Unreleased connection checks.** Only pressing **Test these settings** starts a check.
+It opens a temporary UDP endpoint and checks local addresses without starting a call,
+registering a room or opening router ports. Outside Local only it resolves configured
+server names and attempts encrypted QUIC connections pinned to their public keys. DNS
+resolvers and those servers can see the request and your IP address and timing. The
+check uses a throwaway device identity, not your saved device key. It does not prove that
+the server allows you to host, that a router mapping works, or that an incoming call can
+reach you. Saved Local only still restricts an unsaved draft. Changing a checked setup
+invalidates its result; server reachability is displayed for at most five minutes and is
+not kept between runs. The Home summary never treats a reachable server as verified hosting.
+
 **Unreleased local networking additions.** Saved **Local only** mode prevents call sockets
 from sending to or receiving from addresses outside loopback and directly connected
 non-point-to-point subnets, including replies and migrated paths. It ignores configured
@@ -203,6 +214,13 @@ system's notification list until then, so anyone who can see your screen can see
 - The same key in every call means anyone who meets you in two calls can tell it is the same
   device. Before 16/11/2026 every call used a new key.
 - `no-update-check`: present only if you turned the update check off.
+- `connection.json`: the active Connection fields and up to sixteen named setups, including
+  their public server keys, addresses, port, privacy choices and Data use setting. Existing
+  fields become the Default setup. It is plain JSON, not sealed. A malformed file is left
+  in place until you save; saving first keeps it as `connection.json.bak`. Named setups have
+  the same settings-directory limitations on Linux/macOS described above. Selecting a setup
+  changes the settings for the next call and whether update requests are allowed; it does
+  not itself contact its servers. A request already in flight may finish.
 - `updates\`: the last update you chose to install from the MSI, kept until the next one.
 - `logs\veil.log` and `logs\veil.previous.log` (from 0.1.3, `veil-app/src/log.rs`): this run's
   log and the last run's, for you to send when something goes wrong. "Logs" on the home

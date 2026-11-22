@@ -49,6 +49,11 @@ pub const LOGO: Color32 = Color32::WHITE;
 
 pub const RADIUS: u8 = 8;
 pub const GAP: f32 = 8.0;
+/// Shared proportions for the Home and Connection forms.
+pub const FORM_WIDTH: f32 = 512.0;
+pub const HELP_WIDTH: f32 = 320.0;
+pub const PAGE_COLUMN_GAP: f32 = 32.0;
+pub const FORM_CONTROL_WIDTH: f32 = 240.0;
 
 /// The icon font family name.
 pub const ICON_FAMILY: &str = "icons";
