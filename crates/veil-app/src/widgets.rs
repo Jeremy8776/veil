@@ -240,6 +240,9 @@ pub fn toggle_row(ui: &mut Ui, value: &mut bool, label: &str, detail: &str) -> R
             rect.top() + 8.0
         };
         let detail_y = top + title.size().y + 6.0;
+        // Center-aligned egui galleys already extend equally either side of x=0
+        // (Galley::rect.center().x == 0). Paint at the row centre; subtracting
+        // half the wrap width would shift the label and detail to the left.
         painter.galley(pos2(rect.center().x, top), title, foreground);
         if !compact {
             painter.galley(pos2(rect.center().x, detail_y), detail, MUTED);
@@ -564,3 +567,6 @@ fn blur_label(blur: Blur) -> &'static str {
         Blur::Strong => "Strong",
     }
 }
+
+#[cfg(all(test, windows))]
+mod tests;
