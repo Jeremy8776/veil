@@ -164,7 +164,7 @@ pub fn open_folder() -> Result<(), String> {
         .map_err(|why| format!("Cannot create log folder {}: {why}", dir.display()))?;
     let mut command = folder_command(
         std::env::consts::OS,
-        std::env::var("SystemRoot").ok().as_deref(),
+        std::env::var_os("SystemRoot").as_deref(),
         &dir,
     );
     #[cfg(windows)]
@@ -188,21 +188,29 @@ pub fn open_folder() -> Result<(), String> {
 }
 
 /// Each native opener receives the folder as one argument, without a shell.
-fn folder_command(os: &str, system_root: Option<&str>, dir: &Path) -> std::process::Command {
+fn folder_command(
+    os: &str,
+    system_root: Option<&std::ffi::OsStr>,
+    dir: &Path,
+) -> std::process::Command {
     let program = match os {
-        "windows" => {
-            // Explorer lives in the Windows folder, unlike tools in System32.
-            let root = system_root
-                .filter(|root| !root.is_empty())
-                .unwrap_or(r"C:\Windows");
-            format!(r"{}\explorer.exe", root.trim_end_matches('\\'))
-        }
-        "macos" => String::from("/usr/bin/open"),
-        _ => String::from("xdg-open"),
+        "windows" => windows_explorer(system_root).into_os_string(),
+        "macos" => std::ffi::OsString::from("/usr/bin/open"),
+        _ => std::ffi::OsString::from("xdg-open"),
     };
     let mut command = std::process::Command::new(program);
     command.arg(dir);
     command
+}
+
+/// Explorer lives directly in the Windows folder, unlike tools in System32.
+fn windows_explorer(system_root: Option<&std::ffi::OsStr>) -> PathBuf {
+    PathBuf::from(
+        system_root
+            .filter(|root| !root.is_empty())
+            .unwrap_or_else(|| std::ffi::OsStr::new(r"C:\Windows")),
+    )
+    .join("explorer.exe")
 }
 
 /// Writes a line to Veil's log file and stderr, like `eprintln!`.
@@ -248,12 +256,12 @@ mod tests {
     fn native_folder_openers_keep_the_path_as_one_argument() {
         let dir = Path::new("test user's log folder");
         for (os, expected) in [
-            ("windows", r"D:\Windows\explorer.exe"),
-            ("macos", "/usr/bin/open"),
-            ("linux", "xdg-open"),
+            ("windows", PathBuf::from(r"D:\Windows").join("explorer.exe")),
+            ("macos", PathBuf::from("/usr/bin/open")),
+            ("linux", PathBuf::from("xdg-open")),
         ] {
-            let command = folder_command(os, Some(r"D:\Windows\"), dir);
-            assert_eq!(command.get_program(), std::ffi::OsStr::new(expected));
+            let command = folder_command(os, Some(std::ffi::OsStr::new(r"D:\Windows\")), dir);
+            assert_eq!(command.get_program(), expected.as_os_str());
             assert_eq!(
                 command.get_args().collect::<Vec<_>>(),
                 vec![dir.as_os_str()]
@@ -263,11 +271,13 @@ mod tests {
 
     #[test]
     fn explorer_falls_back_to_the_windows_folder_not_system32() {
-        for root in [None, Some("")] {
+        for root in [None, Some(std::ffi::OsStr::new(""))] {
             let command = folder_command("windows", root, Path::new("logs"));
             assert_eq!(
                 command.get_program(),
-                std::ffi::OsStr::new(r"C:\Windows\explorer.exe")
+                PathBuf::from(r"C:\Windows")
+                    .join("explorer.exe")
+                    .as_os_str()
             );
         }
     }

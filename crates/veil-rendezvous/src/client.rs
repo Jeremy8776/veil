@@ -12,7 +12,9 @@ use veil_net::{FramedSend, Link, NetError, Node, NodeAddr};
 use veil_security::PublicId;
 use veil_security::short_invite::SealedInvite;
 
-use crate::protocol::{Ask, ClientMsg, STREAM_HEADER, ServerMsg, parse_stream_header, split_session};
+use crate::protocol::{
+    Ask, ClientMsg, STREAM_HEADER, ServerMsg, parse_stream_header, split_session,
+};
 use crate::{RelaySocket, RendezvousError};
 
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
@@ -227,7 +229,8 @@ impl RendezvousClient {
                 sealed: bytes,
             })
             .await?;
-        self.answer(|m| matches!(m, ServerMsg::InviteStored)).await?;
+        self.answer(|m| matches!(m, ServerMsg::InviteStored))
+            .await?;
         Ok(())
     }
 
@@ -243,7 +246,8 @@ impl RendezvousClient {
         }
     }
 
-    pub(crate) fn close(&self) {
+    /// Ends this registration and its relay sockets. A later client must register again.
+    pub fn close(&self) {
         self.link.close("done");
     }
 
@@ -274,7 +278,11 @@ impl RendezvousClient {
         let mut inboxes = self.inboxes.lock().map_err(|_| RendezvousError::Closed)?;
         add_inbox(&mut inboxes, session, tx);
         drop(inboxes);
-        Ok(Arc::new(RelaySocket::new(self.link.quic().clone(), session, rx)))
+        Ok(Arc::new(RelaySocket::new(
+            self.link.quic().clone(),
+            session,
+            rx,
+        )))
     }
 
     /// Waits for the reply `want` describes, or a refusal. Other notices are kept for
@@ -305,7 +313,10 @@ impl RendezvousClient {
             }
             // Two members asking each other at once would each wait for the other's answer.
             if let ServerMsg::Request { from, kind } = message
-                && self.consent.as_ref().is_some_and(|allows| allows(&from, kind))
+                && self
+                    .consent
+                    .as_ref()
+                    .is_some_and(|allows| allows(&from, kind))
             {
                 self.out.send(&ClientMsg::Accept { from, kind }).await?;
                 continue;
@@ -319,7 +330,11 @@ impl RendezvousClient {
 }
 
 /// Adds a session's inbox, and forgets those whose socket has gone.
-fn add_inbox(inboxes: &mut HashMap<u32, mpsc::Sender<Bytes>>, session: u32, inbox: mpsc::Sender<Bytes>) {
+fn add_inbox(
+    inboxes: &mut HashMap<u32, mpsc::Sender<Bytes>>,
+    session: u32,
+    inbox: mpsc::Sender<Bytes>,
+) {
     inboxes.retain(|_, open| !open.is_closed());
     inboxes.insert(session, inbox);
 }

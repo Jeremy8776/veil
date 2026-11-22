@@ -38,6 +38,8 @@ enum Help {
     #[default]
     Overview,
     Field(Field),
+    LocalOnly,
+    Nearby,
     Router,
     Hide,
     Save,
@@ -63,6 +65,8 @@ impl Help {
                 let (label, _, help) = text(field);
                 (label, help)
             }
+            Self::LocalOnly => ("Local only", LOCAL_HELP),
+            Self::Nearby => ("Discoverable nearby", NEARBY_HELP),
             Self::Router => ("Open a port on my router", ROUTER_HELP),
             Self::Hide => ("Hide my address", HIDE_HELP),
         }
@@ -134,6 +138,8 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
                                     if save.clicked() {
                                         match app.connection.save(form.draft.clone()) {
                                             Ok(()) => {
+                                                app.updates
+                                                    .set_network_allowed(!form.draft.local_only);
                                                 form.problems.clear();
                                                 form.saved = true;
                                             }
@@ -193,6 +199,48 @@ fn settings(
     card()
         .show(ui, |ui| {
             ui.set_width((width - 42.0).max(0.0));
+            let local = toggle_row(
+                ui,
+                &mut form.draft.local_only,
+                "Local only",
+                "Keep call traffic on connected local networks.",
+            );
+            help.track(&local, Help::LocalOnly);
+            if local.changed() {
+                form.saved = false;
+            }
+            let nearby = ui
+                .add_enabled_ui(form.draft.local_only, |ui| {
+                    toggle_row(
+                        ui,
+                        &mut form.draft.nearby_discovery,
+                        "Discoverable nearby",
+                        "Let nearby devices find your call with its six-digit code.",
+                    )
+                })
+                .inner;
+            help.track(&nearby, Help::Nearby);
+            if nearby.changed() {
+                form.saved = false;
+            }
+            if show_tooltips {
+                local.on_hover_text(LOCAL_HELP);
+                nearby
+                    .on_hover_text(NEARBY_HELP)
+                    .on_disabled_hover_text("Turn on Local only first.");
+            }
+            if form.draft.local_only && form.draft.hide_address {
+                ui.label(
+                    RichText::new(
+                        "Hide my address needs a relay. Turn it off to join with Local only.",
+                    )
+                    .small()
+                    .color(theme::DANGER_HOVER),
+                );
+            }
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(8.0);
             for field in Field::ALL {
                 field_input(ui, form, field, &overridden, help, show_tooltips);
                 ui.add_space(12.0);
@@ -274,6 +322,9 @@ fn field_input(
         ui.label(RichText::new(problem).small().color(theme::DANGER_HOVER));
     }
 }
+
+const LOCAL_HELP: &str = "Call only devices on connected local networks. Ignores internet servers and router port opening, and disables update checks. Use a full invitation. A request already in flight may finish; restart Veil for a clean local-only session.";
+const NEARBY_HELP: &str = "Needs Local only. Devices on this network can find your call and ask for its invitation using the six-digit code on the host's screen. The host still decides who may join.";
 
 /// The router setting's tooltip, also used by the question before the first hosted call.
 pub const ROUTER_HELP: &str = "While you host a call, Veil asks your router (UPnP, NAT-PMP or \

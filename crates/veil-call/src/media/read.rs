@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 use veil_forward::protocol::ServerMsg;
-use veil_net::{FrameReader, FramedRecv};
 use veil_net::control::{Control, MAX_APP_LEN};
+use veil_net::{FrameReader, FramedRecv};
 use veil_security::PublicId;
 
 use super::{Carrier, Ctx, Incoming, Media};
@@ -39,7 +39,11 @@ pub(super) async fn audio(carrier: Arc<Carrier>, via: PublicId, incoming: mpsc::
 }
 
 /// A member link's control stream.
-pub(super) async fn member_control(mut input: FramedRecv, via: PublicId, incoming: mpsc::Sender<Incoming>) {
+pub(super) async fn member_control(
+    mut input: FramedRecv,
+    via: PublicId,
+    incoming: mpsc::Sender<Incoming>,
+) {
     while let Ok(message) = input.recv::<Control>().await {
         match message {
             Control::KeyframeRequest => {
@@ -59,7 +63,11 @@ pub(super) async fn member_control(mut input: FramedRecv, via: PublicId, incomin
 }
 
 /// A forwarder link's control stream.
-pub(super) async fn forwarder_control(carrier: Arc<Carrier>, via: PublicId, incoming: mpsc::Sender<Incoming>) {
+pub(super) async fn forwarder_control(
+    carrier: Arc<Carrier>,
+    via: PublicId,
+    incoming: mpsc::Sender<Incoming>,
+) {
     let Carrier::Forwarder(client) = &*carrier else {
         return;
     };
@@ -76,7 +84,7 @@ pub(super) async fn forwarder_control(carrier: Arc<Carrier>, via: PublicId, inco
                     return;
                 }
             }
-            ServerMsg::Joined { .. } | ServerMsg::Refused(_) => {}
+            ServerMsg::Joined { .. } | ServerMsg::Refused(_) | ServerMsg::Available => {}
         }
     }
 }

@@ -88,6 +88,19 @@ fn router(ui: &mut egui::Ui, port: &RouterPort) {
     }
 }
 
+/// For a host whose rendezvous server is not answering. Veil keeps trying in the background.
+fn server(ui: &mut egui::Ui, down: bool) {
+    if !down {
+        return;
+    }
+    ui.add_space(4.0);
+    ui.label(RichText::new("Server not answering").small().color(theme::WARN))
+        .on_hover_text(
+            "The rendezvous server is not answering. Guests on your network can still join, \
+             but guests on the internet may not reach you. Veil keeps trying.",
+        );
+}
+
 /// For a host with a public node: whether it could dial the call's public address, with the
 /// detail in the tooltip.
 fn reach(ui: &mut egui::Ui, reach: &Reachable) {
@@ -119,6 +132,7 @@ fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
         crate::screens::invite::lifetime(view, ui);
     }
     if view.call.is_host {
+        server(ui, view.call.server_down);
         router(ui, &view.call.router);
         reach(ui, &view.call.reach);
     }

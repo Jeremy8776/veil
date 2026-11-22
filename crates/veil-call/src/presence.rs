@@ -63,6 +63,8 @@ const RELAY_WAIT: Duration = Duration::from_secs(10);
 /// Requests kept while no route expects their sender yet. The server forgets them at 10 s.
 const WAIT: Duration = Duration::from_secs(8);
 const MAX_WAITING: usize = 64;
+/// Reconnection retries never hammer a missing helper; the delay doubles to this cap.
+const RECONNECT_MAX: Duration = Duration::from_secs(16);
 
 enum Command {
     Introduce(PublicId, oneshot::Sender<Result<Punch, CallError>>),
@@ -118,6 +120,7 @@ impl Consent {
 pub(crate) struct Presence {
     commands: mpsc::Sender<Command>,
     consent: Arc<Consent>,
+    connected: Arc<AtomicBool>,
 }
 
 impl Presence {
@@ -130,29 +133,39 @@ impl Presence {
         consent: Arc<Consent>,
         seat: Seat,
     ) -> Result<(Self, tokio::task::JoinHandle<()>), CallError> {
-        let mut client = RendezvousClient::connect(&node, &server.addrs, server.key)
-            .await
-            .map_err(CallError::Rendezvous)?;
-        // A dual-stack node also gives its public IPv6 address, so members can dial it first.
-        let locals = veil_net::family::own_candidates(node.local_addr()?);
         let (host, pass, mut allowed) = match seat {
             Seat::Host(allowed) => (identity.public(), None, Some(allowed)),
             Seat::Guest { host, pass } => (host, Some(pass), None),
         };
-        client
-            .register(room_tag(&router.room_id), host, pass, locals)
-            .await
-            .map_err(CallError::Rendezvous)?;
-        if let Some(allowed) = allowed.as_mut() {
-            let now = allowed.borrow_and_update().clone();
+        let initial = async {
+            let mut client = RendezvousClient::connect(&node, &server.addrs, server.key).await?;
+            let locals = veil_net::family::own_candidates(node.local_addr()?);
             client
-                .allow(now.members, now.passes)
-                .await
-                .map_err(CallError::Rendezvous)?;
+                .register(room_tag(&router.room_id), host, pass, locals)
+                .await?;
+            if let Some(allowed) = allowed.as_mut() {
+                let now = allowed.borrow_and_update().clone();
+                client.allow(now.members, now.passes).await?;
+            }
+            Ok::<_, veil_rendezvous::RendezvousError>(client)
         }
-        let policy = consent.clone();
-        client.set_consent(Arc::new(move |from, kind| policy.agree(from, kind)));
+        .await;
+        let client = match initial {
+            Ok(mut client) => {
+                let policy = consent.clone();
+                client.set_consent(Arc::new(move |from, kind| policy.agree(from, kind)));
+                Some(client)
+            }
+            // An explicit refusal remains visible to the caller; do not obscure host ACLs.
+            Err(error @ veil_rendezvous::RendezvousError::Refused(_)) => {
+                return Err(CallError::Rendezvous(error));
+            }
+            // A temporarily unavailable helper is optional. Keep trying in the background
+            // while direct calls proceed instead of permanently losing this presence.
+            Err(_) => None,
+        };
         let (commands, rx) = mpsc::channel(COMMANDS);
+        let connected = Arc::new(AtomicBool::new(client.is_some()));
         let actor = Actor {
             identity: Identity::from_secret(&identity.secret_bytes()),
             node,
@@ -163,8 +176,23 @@ impl Presence {
             consent: consent.clone(),
             waiting: VecDeque::new(),
             allowed,
+            server: server.clone(),
+            host,
+            pass,
+            connected: connected.clone(),
         };
-        Ok((Self { commands, consent }, tokio::spawn(actor.run(rx))))
+        Ok((
+            Self {
+                commands,
+                consent,
+                connected,
+            },
+            tokio::spawn(actor.run(rx)),
+        ))
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::Acquire)
     }
 
     /// The peers this participant's routes now link to. Their requests are accepted, and
@@ -202,7 +230,7 @@ impl Presence {
 struct Actor {
     identity: Identity,
     node: Arc<Node>,
-    client: RendezvousClient,
+    client: Option<RendezvousClient>,
     router: Router,
     /// Relay sessions others opened, waiting for their links. Dropped with the actor.
     relayed: RelayPlaces,
@@ -213,6 +241,16 @@ struct Actor {
     waiting: VecDeque<(PublicId, Ask, Instant)>,
     /// The host's allow list, while this participant hosts.
     allowed: Option<watch::Receiver<Allowed>>,
+    server: RelayAddrs,
+    host: PublicId,
+    pass: Option<[u8; 32]>,
+    connected: Arc<AtomicBool>,
+}
+
+impl Drop for Actor {
+    fn drop(&mut self) {
+        self.connected.store(false, Ordering::Release);
+    }
 }
 
 /// The host's next allow list. Never resolves for a joiner.
@@ -227,20 +265,31 @@ async fn next_allowed(allowed: &mut Option<watch::Receiver<Allowed>>) -> Option<
 impl Actor {
     async fn run(mut self, mut commands: mpsc::Receiver<Command>) {
         loop {
+            if self.client.is_none() && !self.recover(&mut commands).await {
+                break;
+            }
             tokio::select! {
                 command = commands.recv() => match command {
                     Some(command) => self.command(command).await,
                     None => break,
                 },
-                notice = self.client.next_event() => match notice {
+                notice = next_notice(&mut self.client) => match notice {
                     Some(notice) => self.notice(notice).await,
-                    // The rendezvous link closed. Requests now fail with `Closed`.
-                    None => break,
+                    // Existing direct links survive. Restore registration and the latest
+                    // permissions before accepting any new helper traffic.
+                    None => if !self.recover(&mut commands).await { break },
                 },
                 allowed = next_allowed(&mut self.allowed) => match allowed {
                     // A refused or lost update leaves the last list standing.
                     Some(now) => {
-                        let _ = self.client.allow(now.members, now.passes).await;
+                        let restored = match self.client.as_mut() {
+                            Some(client) => client.allow(now.members, now.passes).await.is_ok(),
+                            None => false,
+                        };
+                        if !restored && !self.recover(&mut commands).await
+                        {
+                            break;
+                        }
                     }
                     // The host session ended.
                     None => self.allowed = None,
@@ -249,10 +298,78 @@ impl Actor {
         }
     }
 
+    /// Retries with the same pinned helper and identity. Old relay sessions and pending
+    /// introductions belong to the failed connection and are never carried into the new one.
+    /// Commands fail promptly while disconnected, leaving the media redial loop in charge of
+    /// retrying them. A host always republishes its CURRENT permissions, never a stale copy.
+    async fn recover(&mut self, commands: &mut mpsc::Receiver<Command>) -> bool {
+        self.connected.store(false, Ordering::Release);
+        if let Some(client) = self.client.take() {
+            client.close();
+        }
+        self.relayed = RelayPlaces::default();
+        self.waiting.clear();
+        self.dial_backs.abort_all();
+        let mut gap = Duration::from_secs(1);
+        loop {
+            let delay = tokio::time::sleep(gap);
+            tokio::pin!(delay);
+            loop {
+                tokio::select! {
+                    () = &mut delay => break,
+                    command = commands.recv() => match command {
+                        Some(command) => disconnected(command),
+                        None => return false,
+                    },
+                }
+            }
+            let node = self.node.clone();
+            let server = self.server.clone();
+            let (host, pass, room) = (self.host, self.pass, self.router.room_id);
+            let attempt = async {
+                let mut client =
+                    RendezvousClient::connect(&node, &server.addrs, server.key).await?;
+                let locals = veil_net::family::own_candidates(node.local_addr()?);
+                client.register(room_tag(&room), host, pass, locals).await?;
+                Ok::<_, veil_rendezvous::RendezvousError>(client)
+            };
+            tokio::pin!(attempt);
+            let result = loop {
+                tokio::select! {
+                    result = &mut attempt => break result,
+                    command = commands.recv() => match command {
+                        Some(command) => disconnected(command),
+                        None => return false,
+                    },
+                }
+            };
+            if let Ok(mut client) = result {
+                // Registration alone must not make a host visible with stale permissions.
+                let restored = if let Some(allowed) = self.allowed.as_mut() {
+                    let now = allowed.borrow_and_update().clone();
+                    client.allow(now.members, now.passes).await.is_ok()
+                } else {
+                    true
+                };
+                if restored {
+                    let policy = self.consent.clone();
+                    client.set_consent(Arc::new(move |from, kind| policy.agree(from, kind)));
+                    self.client = Some(client);
+                    self.connected.store(true, Ordering::Release);
+                    return true;
+                }
+            }
+            gap = (gap * 2).min(RECONNECT_MAX);
+        }
+    }
+
     async fn command(&mut self, command: Command) {
         match command {
             Command::Introduce(peer, reply) => {
-                let result = self.client.introduce(peer).await.map_err(CallError::Rendezvous);
+                let result = match self.client.as_mut() {
+                    Some(client) => client.introduce(peer).await.map_err(CallError::Rendezvous),
+                    None => Err(CallError::Closed),
+                };
                 let _ = reply.send(result);
             }
             Command::Relay(peer, reply) => {
@@ -260,10 +377,13 @@ impl Actor {
             }
             Command::Recheck => {
                 let now = Instant::now();
-                self.waiting.retain(|(.., at)| now.duration_since(*at) < WAIT);
+                self.waiting
+                    .retain(|(.., at)| now.duration_since(*at) < WAIT);
                 for (from, kind, at) in std::mem::take(&mut self.waiting) {
                     if self.consent.agree(&from, kind) {
-                        let _ = self.client.accept(from, kind).await;
+                        if let Some(client) = self.client.as_mut() {
+                            let _ = client.accept(from, kind).await;
+                        }
                     } else {
                         self.waiting.push_back((from, kind, at));
                     }
@@ -276,7 +396,9 @@ impl Actor {
     /// case the routes that expect that member are about to arrive.
     async fn request(&mut self, from: PublicId, kind: Ask) {
         if self.consent.agree(&from, kind) {
-            let _ = self.client.accept(from, kind).await;
+            if let Some(client) = self.client.as_mut() {
+                let _ = client.accept(from, kind).await;
+            }
             return;
         }
         if self.waiting.len() >= MAX_WAITING {
@@ -286,8 +408,14 @@ impl Actor {
     }
 
     async fn open_relay(&mut self, peer: PublicId) -> Result<Arc<Node>, CallError> {
-        let session = self.client.open_relay(peer).await.map_err(CallError::Rendezvous)?;
-        let socket = self.client.relay_socket(session).map_err(CallError::Rendezvous)?;
+        let client = self.client.as_mut().ok_or(CallError::Closed)?;
+        let session = client
+            .open_relay(peer)
+            .await
+            .map_err(CallError::Rendezvous)?;
+        let socket = client
+            .relay_socket(session)
+            .map_err(CallError::Rendezvous)?;
         Ok(Arc::new(Node::bind_virtual(&self.identity, socket)?))
     }
 
@@ -316,13 +444,20 @@ impl Actor {
                 });
             }
             ServerMsg::RelayReady { session, peer } => {
-                let Ok(socket) = self.client.relay_socket(session) else {
+                let Some(socket) = self
+                    .client
+                    .as_ref()
+                    .and_then(|client| client.relay_socket(session).ok())
+                else {
                     return;
                 };
                 let Ok(inner) = Node::bind_virtual(&self.identity, socket) else {
                     return;
                 };
-                let wait = self.router.clone().accept_relayed(Arc::new(inner), RELAY_WAIT);
+                let wait = self
+                    .router
+                    .clone()
+                    .accept_relayed(Arc::new(inner), RELAY_WAIT);
                 self.relayed.start(peer, wait);
             }
             _ => {}
@@ -330,29 +465,173 @@ impl Actor {
     }
 }
 
+async fn next_notice(client: &mut Option<RendezvousClient>) -> Option<ServerMsg> {
+    match client.as_mut() {
+        Some(client) => client.next_event().await,
+        None => None,
+    }
+}
+
+/// A caller waiting on a lost helper never has to wait through the backoff.
+fn disconnected(command: Command) {
+    match command {
+        Command::Introduce(_, reply) => {
+            let _ = reply.send(Err(CallError::Closed));
+        }
+        Command::Relay(_, reply) => {
+            let _ = reply.send(Err(CallError::Closed));
+        }
+        Command::Recheck => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn disconnected_requests_fail_without_waiting_for_backoff() {
+        let (reply, answer) = oneshot::channel();
+        disconnected(Command::Introduce(PublicId([1; 32]), reply));
+        assert!(matches!(answer.await, Ok(Err(CallError::Closed))));
+        let (reply, answer) = oneshot::channel();
+        disconnected(Command::Relay(PublicId([1; 32]), reply));
+        assert!(matches!(answer.await, Ok(Err(CallError::Closed))));
+    }
+
+    /// Real sockets: losing the helper is temporary and a host restores its NEW permission
+    /// list. An old member must not regain permission from a snapshot taken before the loss.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn helper_restart_restores_current_permissions_and_connectivity() {
+        use veil_rendezvous::{Refusal, RendezvousError, RendezvousServer};
+        let host_id = Identity::generate();
+        let helper_id = Identity::generate();
+        let removed = Identity::generate();
+        let added = Identity::generate();
+        let room = [41; 16];
+        let bind = |id: &Identity, at| Node::bind(id, at).unwrap();
+        let helper = bind(&helper_id, "127.0.0.1:0".parse().unwrap());
+        let addr = helper.local_addr().unwrap();
+        let server = RelayAddrs {
+            key: helper.id(),
+            addrs: vec![addr],
+        };
+        let running = tokio::spawn(RendezvousServer::new(helper).run());
+        let node = Arc::new(bind(&host_id, "127.0.0.1:0".parse().unwrap()));
+        let (allowed, rx) = watch::channel(Allowed {
+            members: vec![removed.public()],
+            passes: vec![],
+        });
+        let (media, _inbox) = mpsc::channel(1);
+        let router = Router {
+            room_id: room,
+            host: None,
+            media,
+        };
+        let consent = Arc::new(Consent {
+            open: true,
+            ..Consent::default()
+        });
+        let (presence, task) =
+            Presence::start(&host_id, node, &server, router, consent, Seat::Host(rx))
+                .await
+                .unwrap();
+        assert!(presence.is_connected());
+        running.abort();
+        let _ = running.await;
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while presence.is_connected() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("detect helper loss");
+        allowed
+            .send(Allowed {
+                members: vec![added.public()],
+                passes: vec![],
+            })
+            .unwrap();
+        // QUIC endpoint shutdown may retain its UDP socket briefly while draining.
+        let helper = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match Node::bind(&helper_id, addr) {
+                    Ok(node) => break node,
+                    Err(_) => tokio::time::sleep(Duration::from_millis(20)).await,
+                }
+            }
+        })
+        .await
+        .expect("old helper releases its socket");
+        let running = tokio::spawn(RendezvousServer::new(helper).run());
+        tokio::time::timeout(Duration::from_secs(20), async {
+            while !presence.is_connected() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("register after helper restart");
+        for (identity, permitted) in [(&removed, false), (&added, true)] {
+            let peer = bind(identity, "127.0.0.1:0".parse().unwrap());
+            let mut client = RendezvousClient::connect(&peer, &[addr], helper_id.public())
+                .await
+                .unwrap();
+            let result = client
+                .register(room_tag(&room), host_id.public(), None, vec![])
+                .await;
+            if permitted {
+                assert!(result.is_ok(), "latest allowed member is restored");
+            } else {
+                assert!(
+                    matches!(result, Err(RendezvousError::Refused(Refusal::NotAllowed))),
+                    "an old permission is not restored: {result:?}"
+                );
+            }
+        }
+        task.abort();
+        let _ = task.await;
+        assert!(
+            !presence.is_connected(),
+            "status clears when its actor is cancelled"
+        );
+        running.abort();
+    }
 
     #[test]
     fn consent_follows_role_routes_and_relay_only() {
         let (known, stranger) = (PublicId([1; 32]), PublicId([2; 32]));
         let member = Consent::default();
-        assert!(!member.allows(&known, Ask::Introduce), "nobody before routes");
+        assert!(
+            !member.allows(&known, Ask::Introduce),
+            "nobody before routes"
+        );
         member.expected.lock().map(|mut e| e.insert(known)).ok();
         assert!(member.allows(&known, Ask::Introduce));
         assert!(member.allows(&known, Ask::Relay));
-        assert!(!member.allows(&stranger, Ask::Introduce), "an invite alone is not enough");
+        assert!(
+            !member.allows(&stranger, Ask::Introduce),
+            "an invite alone is not enough"
+        );
         assert!(!member.allows(&stranger, Ask::Relay));
         member.relay_only.store(true, Ordering::Relaxed);
-        assert!(!member.allows(&known, Ask::Introduce), "relay-only hides its address");
-        assert!(member.allows(&known, Ask::Relay), "but still takes relayed links");
+        assert!(
+            !member.allows(&known, Ask::Introduce),
+            "relay-only hides its address"
+        );
+        assert!(
+            member.allows(&known, Ask::Relay),
+            "but still takes relayed links"
+        );
 
         let host = Consent {
             open: true,
             ..Consent::default()
         };
-        assert!(host.allows(&stranger, Ask::Introduce), "joiners dial the host");
+        assert!(
+            host.allows(&stranger, Ask::Introduce),
+            "joiners dial the host"
+        );
         host.relay_only.store(true, Ordering::Relaxed);
         assert!(!host.allows(&stranger, Ask::Introduce));
         assert!(host.allows(&stranger, Ask::Relay));
@@ -367,7 +646,10 @@ mod tests {
         };
         assert!(!host.may_dial_back(&peer, 1), "nothing was agreed");
         assert!(host.agree(&peer, Ask::Relay));
-        assert!(!host.may_dial_back(&peer, 1), "a relay is not an introduction");
+        assert!(
+            !host.may_dial_back(&peer, 1),
+            "a relay is not an introduction"
+        );
         assert!(host.agree(&peer, Ask::Introduce));
         assert!(host.may_dial_back(&peer, 1));
 
@@ -376,6 +658,9 @@ mod tests {
         assert!(host.agree(&other, Ask::Introduce));
         host.relay_only.store(true, Ordering::Relaxed);
         assert!(!host.may_dial_back(&other, 1));
-        assert!(!host.agree(&other, Ask::Introduce), "and it agrees to no more");
+        assert!(
+            !host.agree(&other, Ask::Introduce),
+            "and it agrees to no more"
+        );
     }
 }

@@ -25,13 +25,18 @@ pub enum ClientMsg {
     /// A sealed app message (a name or chat) for every other member of the room. The
     /// forwarder cannot open it and passes it on unchanged, up to `veil_net::MAX_APP_LEN`.
     App(Vec<u8>),
+    /// Checks this member's admission without joining, reserving a room, advancing its
+    /// epoch, or replacing an existing link. Valid only as the first message.
+    Probe { ticket: Vec<u8> },
 }
 
 /// Forwarder to member.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ServerMsg {
     /// Joined. `members` counts everyone in the room, including this member.
-    Joined { members: u16 },
+    Joined {
+        members: u16,
+    },
     Refused(Refusal),
     /// Someone in the room needs a keyframe from this member: a receiver lost the stream, or
     /// raised its subscription.
@@ -39,6 +44,8 @@ pub enum ServerMsg {
     /// Another member's sealed app message, unchanged. It does not say who sent it: the
     /// sender index inside the sealed message does, once opened.
     App(Vec<u8>),
+    /// The probe's signed roster ticket and pinned device are accepted. No place is held.
+    Available,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]

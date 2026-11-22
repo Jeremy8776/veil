@@ -24,7 +24,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::Version;
+use super::{NetworkGate, Version};
 use super::{download, verify};
 
 #[cfg_attr(target_os = "macos", path = "apply/macos.rs")]
@@ -92,7 +92,8 @@ impl Kind {
         };
         // Earlier downloads are of no use now.
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).map_err(|e| format!("cannot make a download folder ({e})"))?;
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("cannot make a download folder ({e})"))?;
         Ok(dir.join(name))
     }
 
@@ -195,7 +196,10 @@ fn start_after_exit(command: &mut std::process::Command) -> std::io::Result<()> 
 }
 
 /// In a helper: returns once the Veil that started it has exited ([`start_after_exit`]).
-#[cfg_attr(not(windows), allow(dead_code, reason = "the macOS and Linux helpers are scripts"))]
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "the macOS and Linux helpers are scripts")
+)]
 fn wait_for_exit() {
     let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink());
 }
@@ -206,26 +210,36 @@ pub fn run(
     kind: &Kind,
     version: Version,
     key: &[u8; 32],
+    network: &NetworkGate,
     report: &mut dyn FnMut(String),
 ) -> Result<(), String> {
-    let name = kind.asset(version).ok_or("this copy of Veil is updated by hand")?;
+    let name = kind
+        .asset(version)
+        .ok_or("this copy of Veil is updated by hand")?;
     report(String::from("Checking the release"));
-    let sums = download::small(&download::url(version, "SHA256SUMS.txt"))?;
-    let signature = download::small(&download::url(version, "SHA256SUMS.txt.sig"))?;
+    let sums = download::small(&download::url(version, "SHA256SUMS.txt"), network)?;
+    let signature = download::small(&download::url(version, "SHA256SUMS.txt.sig"), network)?;
     let digest = verify::signed_digest(&sums, &signature, key, &name)?;
     let dest = kind.download_path(&name)?;
     let mut last = None;
-    download::file(&download::url(version, &name), &dest, &digest, &mut |done, total| {
-        let text = match total {
-            Some(total) if total > 0 => format!("Downloading {}%", done * 100 / total),
-            _ => format!("Downloading {} MB", done / 1_000_000),
-        };
-        if last.as_ref() != Some(&text) {
-            report(text.clone());
-            last = Some(text);
-        }
-    })?;
+    download::file(
+        &download::url(version, &name),
+        &dest,
+        &digest,
+        network,
+        &mut |done, total| {
+            let text = match total {
+                Some(total) if total > 0 => format!("Downloading {}%", done * 100 / total),
+                _ => format!("Downloading {} MB", done / 1_000_000),
+            };
+            if last.as_ref() != Some(&text) {
+                report(text.clone());
+                last = Some(text);
+            }
+        },
+    )?;
     report(String::from("Installing"));
+    network.check()?;
     kind.install(&dest)
 }
 
@@ -235,9 +249,32 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn a_started_worker_observes_the_new_policy_before_downloading() {
+        let network = NetworkGate::new(true);
+        let worker = network.clone();
+        let mut steps = Vec::new();
+        let result = run(
+            &Kind::Msi,
+            Version(99, 0, 0),
+            &[0; 32],
+            &worker,
+            &mut |step| {
+                steps.push(step);
+                network.set(false);
+            },
+        );
+        assert!(result.unwrap_err().contains("Local only"));
+        assert_eq!(steps, [String::from("Checking the release")]);
+    }
+
+    #[test]
     fn a_bundle_is_found_from_its_executable() {
         let exe = Path::new("/Applications/Veil.app/Contents/MacOS/veil-app");
-        assert_eq!(bundle_of(exe), Some(PathBuf::from("/Applications/Veil.app")));
+        assert_eq!(
+            bundle_of(exe),
+            Some(PathBuf::from("/Applications/Veil.app"))
+        );
         for other in [
             "/usr/local/bin/veil-app",
             "/Applications/Veil/Contents/MacOS/veil-app",

@@ -30,8 +30,16 @@ const CHAT_QUEUE: usize = 256;
 const QUIET: Duration = Duration::from_secs(1);
 /// No picture for this long shows someone's camera as off.
 const DARK: Duration = Duration::from_secs(2);
-/// A decoded level above this, on the meter's 0 to 1 scale, shows someone speaking.
-const SPEAKING: f32 = 0.45;
+/// A level above this, on the meter's 0 to 1 scale, shows someone speaking.
+pub const SPEAKING: f32 = 0.45;
+/// The speaking border stays on this long after the last loud frame, so it follows speech
+/// rather than flickering between syllables.
+pub const SPEAKING_HOLD: Duration = Duration::from_millis(300);
+
+/// Whether someone whose level last passed [`SPEAKING`] at `loud_at` still shows speaking.
+pub fn still_speaking(loud_at: Option<Instant>, now: Instant) -> bool {
+    loud_at.is_some_and(|at| now.saturating_duration_since(at) < SPEAKING_HOLD)
+}
 
 /// Chat that arrived, for the interface.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,6 +77,8 @@ pub struct View {
     pub invite: String,
     /// See `Call::invite_full`.
     pub invite_full: String,
+    /// See `Call::nearby_code`.
+    pub nearby_code: String,
     /// See `Call::invite_expires` and `Call::invite_until_end`.
     pub invite_expires: u64,
     pub invite_until_end: bool,
@@ -80,6 +90,8 @@ pub struct View {
     pub lobby: Vec<Knocker>,
     pub router: RouterPort,
     pub reach: Reachable,
+    /// See `Call::server_down`.
+    pub server_down: bool,
 }
 
 /// Marks a picture key as someone's shared screen rather than their camera.
@@ -109,6 +121,8 @@ pub struct Heard {
     pub at: Instant,
     /// Level of the last frame played, 0 to 1.
     pub level: f32,
+    /// When their level last passed [`SPEAKING`].
+    pub loud_at: Option<Instant>,
 }
 
 /// When each person last showed video and sound.
@@ -138,6 +152,7 @@ impl Shared {
                 status: CallStatus::Connecting,
                 invite: String::new(),
                 invite_full: String::new(),
+                nearby_code: String::new(),
                 invite_expires: 0,
                 invite_until_end: false,
                 epoch: 0,
@@ -146,6 +161,7 @@ impl Shared {
                 lobby: Vec::new(),
                 router: RouterPort::Off,
                 reach: Reachable::Unknown,
+                server_down: false,
             }),
             pictures: Mutex::default(),
             heard: Mutex::default(),
@@ -239,6 +255,7 @@ impl Shared {
         let entry = heard.entry(id).or_insert(Heard {
             at: Instant::now(),
             level: 0.0,
+            loud_at: None,
         });
         change(entry);
     }
@@ -296,10 +313,12 @@ pub fn apply(
     call.status = view.status.clone();
     call.invite.clone_from(&view.invite);
     call.invite_full.clone_from(&view.invite_full);
+    call.nearby_code.clone_from(&view.nearby_code);
     call.invite_expires = view.invite_expires;
     call.invite_until_end = view.invite_until_end;
     call.router.clone_from(&view.router);
     call.reach.clone_from(&view.reach);
+    call.server_down = view.server_down;
     call.epoch = view.epoch;
     call.group.clone_from(&view.group);
     call.participants.retain(|p| p.is_you);
@@ -329,7 +348,7 @@ pub fn apply(
             muted: heard.is_none(),
             camera,
             hand_raised: person.hand_raised,
-            speaking: heard.is_some_and(|h| h.level > SPEAKING),
+            speaking: heard.is_some_and(|h| still_speaking(h.loud_at, now)),
             path: person.path,
             safety: person.safety.clone(),
             side: person.side,
@@ -360,6 +379,7 @@ mod tests {
             status: CallStatus::Live,
             invite: "veil://join/x".into(),
             invite_full: "veil://join/x".into(),
+            nearby_code: String::new(),
             invite_expires: 0,
             invite_until_end: false,
             epoch: 3,
@@ -395,7 +415,19 @@ mod tests {
             }],
             router: RouterPort::Off,
             reach: Reachable::Unknown,
+            server_down: false,
         }
+    }
+
+    #[test]
+    fn the_speaking_border_holds_between_syllables() {
+        let now = Instant::now();
+        assert!(!still_speaking(None, now));
+        assert!(still_speaking(Some(now), now));
+        let gap = now + Duration::from_millis(200);
+        assert!(still_speaking(Some(now), gap), "a short gap keeps the border");
+        let pause = now + SPEAKING_HOLD;
+        assert!(!still_speaking(Some(now), pause), "a pause ends it");
     }
 
     #[test]
@@ -409,6 +441,7 @@ mod tests {
             Heard {
                 at: now,
                 level: 0.8,
+                loud_at: Some(now),
             },
         );
         seen.audio.insert(
@@ -416,6 +449,7 @@ mod tests {
             Heard {
                 at: now.checked_sub(Duration::from_secs(5)).unwrap_or(now),
                 level: 0.9,
+                loud_at: Some(now),
             },
         );
         apply(

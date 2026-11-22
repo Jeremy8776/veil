@@ -56,7 +56,7 @@ use crate::data_use::DataUseCell;
 use crate::keystore::KeyStore;
 use crate::media::{Worker, lock};
 use crate::model::{Action, Call, CallStatus};
-pub use view::{Shared, is_screen, screen_key};
+pub use view::{SPEAKING, Shared, is_screen, screen_key, still_speaking};
 use view::{Said, View};
 
 /// One camera or screen picture, copied out for the encoder.

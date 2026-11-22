@@ -510,8 +510,12 @@ the rule on the host and a guest then connected.
 `cargo test -j 8 -p veil-app firewall -- --ignored --nocapture` reads the rules only.
 A public `veil-node` (`VEIL_RENDEZVOUS`) removes the need for any rule, since every flow then
 starts outbound. The MSI (from 17/11/2026) adds the same rule for the installed
-`veil-app.exe` (`packaging/windows/veil.wxs`, WiX's firewall extension, one rule named "Veil" for
-Private and Public) and removes it on uninstall, so the button does not show there.
+`veil-app.exe` (`packaging/windows/veil.wxs`, WiX's firewall extension, one rule named "Veil")
+and removes it on uninstall. From 22/11/2026 that rule covers Private networks only, and the
+check and button work on the kind of network the PC is on now: on a Public network (like
+this PC's Wi-Fi) the host sees "This network is set to Public" and "Allow on Public
+networks", whose tooltip says to set a home network to Private instead. Not yet tried by
+hand on the MSI.
 Tested by hand 17/11/2026: install, upgrade over an older MSI, and uninstall left nothing
 behind (folder, Start menu entry, firewall rule, registry).
 

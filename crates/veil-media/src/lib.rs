@@ -8,7 +8,7 @@
 //! to ask the sender for a keyframe. Per-OS encoders implement [`VideoEncoder`] and decoders
 //! [`VideoDecoder`]. Audio is
 //! Opus ([`OpusEncoder`], [`OpusDecoder`]) with an [`AudioHeader`] in front of each packet,
-//! put back in order by a [`JitterBuffer`]. A [`Denoiser`] removes background noise from speech.
+//! put back in order by a [`JitterBuffer`]. A [`Denoiser`] removes background noise from speech and [`AutoGain`] evens out its level.
 //!
 //! Invariants:
 //! - `unsafe` only in [`ffi`], one module per OS, under the rules in `docs/TRANSPARENCY.md`
@@ -20,6 +20,7 @@
 pub mod annexb;
 pub mod attention;
 pub mod audio;
+pub mod autogain;
 pub mod blur;
 pub mod capture;
 // Also built for tests on Windows, where it compiles against WASAPI.
@@ -54,6 +55,7 @@ pub mod v4l_camera;
 pub mod yuv;
 
 pub use audio::{AudioHeader, AudioSettings, Channels};
+pub use autogain::AutoGain;
 pub use blur::{Blur, BlurEngine, BlurStatus};
 pub use capture::{CameraMode, NativeMode, PixelFormat};
 pub use decoder::VideoDecoder;

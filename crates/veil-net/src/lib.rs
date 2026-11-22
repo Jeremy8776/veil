@@ -8,6 +8,8 @@
 //! - TLS 1.3 only, with RFC 7250 raw public keys. The device's Ed25519 key *is* the TLS
 //!   identity. There is no certificate authority to trust or compromise.
 //! - A dialler always names the key it expects. A link to any other key fails the handshake.
+//! - A listener shows its key only to a dialler that proves it already knows it (`knock`),
+//!   unless the node is a public service marked open ([`Node::admit_strangers`]).
 //! - A listener learns the dialler's key from the handshake. Whether that key may join a room
 //!   is decided above this layer (lobby and group membership), never here.
 //! - Media is already sealed by `veil-security` before it reaches this crate. Transport
@@ -29,6 +31,9 @@ pub mod endpoint;
 pub mod error;
 pub mod family;
 pub mod frames;
+mod knock;
+pub mod local;
+pub mod nearby;
 pub mod node_addr;
 pub mod node_name;
 pub mod tls;

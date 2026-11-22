@@ -26,7 +26,7 @@ pub struct Denoiser {
     state: Box<DenoiseState<'static>>,
     input: [f32; BLOCK],
     output: [f32; BLOCK],
-    /// How sure the model was that the last block held speech, 0 to 1.
+    /// How sure the model was that the last frame held speech: its best block, 0 to 1.
     voice: f32,
 }
 
@@ -52,6 +52,7 @@ impl Denoiser {
         if frame.is_empty() || !frame.len().is_multiple_of(BLOCK) {
             return false;
         }
+        self.voice = 0.0;
         for chunk in frame.as_chunks_mut::<BLOCK>().0 {
             for (into, sample) in self.input.iter_mut().zip(chunk.iter()) {
                 *into = if sample.is_finite() {
@@ -60,7 +61,8 @@ impl Denoiser {
                     0.0
                 };
             }
-            self.voice = self.state.process_frame(&mut self.output, &self.input);
+            let voice = self.state.process_frame(&mut self.output, &self.input);
+            self.voice = self.voice.max(voice);
             for (sample, out) in chunk.iter_mut().zip(self.output.iter()) {
                 *sample = (out / SCALE).clamp(-1.0, 1.0);
             }
@@ -68,7 +70,7 @@ impl Denoiser {
         true
     }
 
-    /// How sure the model was that the last block held speech, 0 to 1.
+    /// How sure the model was that the last frame held speech (its best 10 ms), 0 to 1.
     pub fn voice(&self) -> f32 {
         self.voice
     }

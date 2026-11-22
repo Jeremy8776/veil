@@ -70,9 +70,10 @@ fn demo(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHelpState) {
 
 fn connection(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHelpState) {
     let response = button(ui, Icon::Signal, "Connection", false, width)
-        .on_hover_text("Your own servers and a fixed port, for calls across the internet.");
+        .on_hover_text("Local networks, nearby discovery, your own servers and a fixed port.");
     track_help(&response, HomeHelp::Connection, help);
     if response.clicked() {
+        app.nearby.stop();
         let form = super::connection::Form::new(&app.connection);
         app.screen = crate::app::Screen::Connection(Box::new(form));
     }
@@ -98,13 +99,26 @@ fn updates(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHelpState)
     if app.updates.status() == crate::update::Status::UpToDate {
         detail.push_str(" · up to date");
     }
-    let response = switch(ui, Icon::Refresh, "Check for updates", &detail, on, width)
+    let local_only = app.connection.saved.local_only;
+    let response = ui
+        .add_enabled_ui(!local_only, |ui| {
+            switch(
+                ui,
+                Icon::Refresh,
+                "Check for updates",
+                &detail,
+                on && !local_only,
+                width,
+            )
+        })
+        .inner
         .on_hover_text(
             "Asks GitHub once per start whether a newer Veil is out. GitHub sees your IP \
          address. Nothing is downloaded unless you choose Install.",
-        );
+        )
+        .on_disabled_hover_text("Off while Local only is on.");
     track_help(&response, HomeHelp::Updates, help);
-    if response.clicked() {
+    if response.clicked() && !local_only {
         app.updates.set_enabled(!on, ui.ctx());
     }
 }

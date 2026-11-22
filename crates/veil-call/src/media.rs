@@ -39,11 +39,11 @@ use veil_net::control::{Control, MAX_APP_LEN};
 use veil_net::{FramedRecv, FramedSend, Link, Node, NodeAddr};
 use veil_security::PublicId;
 
+use crate::CallError;
 use crate::inbound::Inbound;
 use crate::node::Path;
 use crate::presence::Presence;
 use crate::routes::{Peer, Routes, dials};
-use crate::CallError;
 
 mod links;
 mod read;
@@ -67,7 +67,10 @@ const INCOMING: usize = 1_024;
 /// A sealed packet as it arrived, or a request about this member's own video.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Media {
-    Video { frame_id: u32, sealed: Vec<u8> },
+    Video {
+        frame_id: u32,
+        sealed: Vec<u8>,
+    },
     Audio(Bytes),
     /// Someone cannot decode this member's video until its next keyframe. Unauthenticated:
     /// a forwarder or member can send it at will, so the sender limits how often it obeys
@@ -88,7 +91,10 @@ pub struct Incoming {
 
 enum Carrier {
     /// A link to another member, with its media control stream.
-    Member { link: Link, control: tokio::sync::Mutex<FramedSend> },
+    Member {
+        link: Link,
+        control: tokio::sync::Mutex<FramedSend>,
+    },
     Forwarder(ForwarderClient),
 }
 
@@ -176,7 +182,11 @@ impl Ctx {
         let carrier = Arc::new(carrier);
         let control = match rest.input {
             Some(input) => tokio::spawn(read::member_control(input, peer, self.incoming.clone())),
-            None => tokio::spawn(read::forwarder_control(carrier.clone(), peer, self.incoming.clone())),
+            None => tokio::spawn(read::forwarder_control(
+                carrier.clone(),
+                peer,
+                self.incoming.clone(),
+            )),
         };
         let (frames, writer) = write::spawn_writer(carrier.clone());
         let readers = [
@@ -298,7 +308,13 @@ impl MediaSession {
                 .collect();
             let mine = peers.iter().filter(|p| dials(&self.me, reachable, p));
             state.plan = redial::Plan::Mesh(mine.map(|p| (p.device, p.clone())).collect());
-            let State { links, wanted, retry, lost, .. } = &mut *state;
+            let State {
+                links,
+                wanted,
+                retry,
+                lost,
+                ..
+            } = &mut *state;
             links.retain(|peer, _| wanted.contains(peer));
             retry.retain(|peer, _| wanted.contains(peer));
             lost.retain(|peer, _| wanted.contains(peer));
@@ -346,28 +362,29 @@ impl MediaSession {
         addr: NodeAddr,
         ticket: &[u8],
     ) -> Vec<(PublicId, CallError)> {
-        // Through a forwarder no member dials this one.
-        if let Some(presence) = &self.presence {
-            presence.expect([]);
-        }
-        let have = self.ctx.lock().and_then(|mut state| {
-            state.wanted = HashSet::from([addr.key]);
-            state.expected.clear();
-            state.early.clear();
-            state.links.retain(|peer, _| *peer == addr.key);
-            state.retry.retain(|peer, _| *peer == addr.key);
-            state.lost.retain(|peer, _| *peer == addr.key);
-            state.plan = redial::Plan::Forwarder { addr, ticket: ticket.to_vec() };
-            state.links.get(&addr.key).map(|e| e.carrier.clone())
-        });
-        self.ctx.changed();
+        // Keep the current routes and their introduction permissions while trying the new
+        // forwarder. An unreachable or refusing forwarder must not destroy a working mesh.
+        // In particular, the host's private LAN forwarder may not be reachable by an internet
+        // guest. Only an admitted replacement is allowed to retire the old links.
+        let have = self
+            .ctx
+            .lock()
+            .and_then(|state| state.links.get(&addr.key).map(|e| e.carrier.clone()));
         if let Some(carrier) = have {
             // Already linked: hand on this epoch's ticket so the forwarder drops removed members.
             let Carrier::Forwarder(client) = &*carrier else {
                 return Vec::new();
             };
             return match client.update_ticket(ticket).await {
-                Ok(()) => Vec::new(),
+                Ok(()) => {
+                    if let Some(mut state) = self.ctx.lock() {
+                        state.plan = redial::Plan::Forwarder {
+                            addr,
+                            ticket: ticket.to_vec(),
+                        };
+                    }
+                    Vec::new()
+                }
                 Err(e) => vec![(addr.key, CallError::Forward(e))],
             };
         }
@@ -378,9 +395,27 @@ impl MediaSession {
         match joined {
             Ok(client) => {
                 if let Some(mut state) = self.ctx.lock() {
-                    let extra = Extra { input: None, via: None };
+                    state.wanted = HashSet::from([addr.key]);
+                    state.expected.clear();
+                    state.early.clear();
+                    state.links.retain(|peer, _| *peer == addr.key);
+                    state.retry.retain(|peer, _| *peer == addr.key);
+                    state.lost.retain(|peer, _| *peer == addr.key);
+                    state.plan = redial::Plan::Forwarder {
+                        addr,
+                        ticket: ticket.to_vec(),
+                    };
+                    let extra = Extra {
+                        input: None,
+                        via: None,
+                    };
                     let carrier = Carrier::Forwarder(client);
-                    self.ctx.adopt(&mut state, addr.key, carrier, Path::Forwarder, extra);
+                    self.ctx
+                        .adopt(&mut state, addr.key, carrier, Path::Forwarder, extra);
+                }
+                // Through the admitted forwarder no member dials this one any more.
+                if let Some(presence) = &self.presence {
+                    presence.expect([]);
                 }
                 self.ctx.changed();
                 Vec::new()
@@ -431,7 +466,10 @@ impl MediaSession {
 
     /// Link drops, returns and failed redials since the last call, oldest first.
     pub fn take_events(&self) -> Vec<LinkEvent> {
-        self.ctx.lock().map(|mut s| std::mem::take(&mut s.events)).unwrap_or_default()
+        self.ctx
+            .lock()
+            .map(|mut s| std::mem::take(&mut s.events))
+            .unwrap_or_default()
     }
 
     /// Each linked peer and the path its link took.
@@ -483,9 +521,13 @@ impl MediaSession {
             sends.spawn(async move {
                 match &*carrier {
                     Carrier::Member { .. } => {
-                        write::control(&carrier, &Control::App(sealed.to_vec())).await.is_ok()
+                        write::control(&carrier, &Control::App(sealed.to_vec()))
+                            .await
+                            .is_ok()
                     }
-                    Carrier::Forwarder(client) => write::forwarder(client.send_app(&sealed)).await.is_ok(),
+                    Carrier::Forwarder(client) => {
+                        write::forwarder(client.send_app(&sealed)).await.is_ok()
+                    }
                 }
             });
         }
@@ -507,7 +549,10 @@ impl MediaSession {
     pub async fn subscribe(&self, request: &[(PublicId, Wanted)]) -> Result<(), CallError> {
         for carrier in self.carriers() {
             if let Carrier::Forwarder(client) = &*carrier {
-                client.subscribe(request).await.map_err(CallError::Forward)?;
+                client
+                    .subscribe(request)
+                    .await
+                    .map_err(CallError::Forward)?;
             }
         }
         Ok(())

@@ -27,7 +27,7 @@ pub struct HelpState<T> {
 
 impl<T: Copy + Default> HelpState<T> {
     pub fn track(&mut self, response: &Response, topic: T) {
-        if response.hovered() {
+        if response.contains_pointer() {
             self.hovered = Some(topic);
         }
         if response.has_focus() {

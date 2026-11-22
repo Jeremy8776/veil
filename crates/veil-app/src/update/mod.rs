@@ -23,6 +23,7 @@
 
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -129,6 +130,7 @@ pub enum Install {
 }
 
 pub struct Updates {
+    network_allowed: NetworkGate,
     dir: Option<PathBuf>,
     status: Arc<Mutex<Status>>,
     /// A check ran or is running this start.
@@ -137,20 +139,59 @@ pub struct Updates {
     kind: apply::Kind,
 }
 
+/// Shared with workers: changing the connection policy also stops their next request.
+#[derive(Clone)]
+pub(super) struct NetworkGate(Arc<AtomicBool>);
+
+impl NetworkGate {
+    fn new(allowed: bool) -> Self {
+        Self(Arc::new(AtomicBool::new(allowed)))
+    }
+
+    fn allowed(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+
+    fn set(&self, allowed: bool) {
+        self.0.store(allowed, Ordering::Release);
+    }
+
+    pub(super) fn check(&self) -> Result<(), String> {
+        self.allowed()
+            .then_some(())
+            .ok_or_else(|| String::from("update stopped: Local only is enabled"))
+    }
+}
+
 impl Updates {
     /// Reads your choice from `dir` and, unless you turned the check off, starts it in the
     /// background.
+    #[cfg(test)]
     pub fn start(dir: Option<PathBuf>, ctx: &egui::Context) -> Self {
+        Self::start_with_network(dir, ctx, true)
+    }
+
+    pub fn start_with_network(dir: Option<PathBuf>, ctx: &egui::Context, allowed: bool) -> Self {
         let off = dir.as_ref().is_some_and(|d| d.join(OFF_FILE).exists());
         let mut updates = Self::idle(dir);
+        updates.network_allowed.set(allowed);
         if !off {
             updates.check(ctx);
         }
         updates
     }
 
+    /// Stops future checks and downloads. An HTTP request already in flight may finish.
+    pub fn set_network_allowed(&mut self, allowed: bool) {
+        self.network_allowed.set(allowed);
+        if !allowed {
+            self.set(Status::Off);
+        }
+    }
+
     fn idle(dir: Option<PathBuf>) -> Self {
         Self {
+            network_allowed: NetworkGate::new(true),
             dir,
             status: Arc::new(Mutex::new(Status::Off)),
             started: false,
@@ -162,7 +203,9 @@ impl Updates {
     /// Whether this copy can install an update itself: it was installed from a package
     /// Veil knows how to replace, and the build carries Veil's release key.
     pub fn can_install(&self) -> bool {
-        verify::release_key().is_some() && self.kind.asset(Version(0, 0, 0)).is_some()
+        self.network_allowed.allowed()
+            && verify::release_key().is_some()
+            && self.kind.asset(Version(0, 0, 0)).is_some()
     }
 
     pub fn install_state(&self) -> Install {
@@ -172,15 +215,23 @@ impl Updates {
     /// Downloads, checks and installs `version` in the background, unless an install is
     /// already running or has started.
     pub fn install(&self, version: Version, ctx: &egui::Context) {
-        let Some(key) = verify::release_key() else { return };
+        if !self.network_allowed.allowed() {
+            return;
+        }
+        let Some(key) = verify::release_key() else {
+            return;
+        };
         {
-            let Ok(mut state) = self.install.lock() else { return };
+            let Ok(mut state) = self.install.lock() else {
+                return;
+            };
             if matches!(*state, Install::Working(_) | Install::Started) {
                 return;
             }
             *state = Install::Working(String::from("Starting"));
         }
         let (state, kind, ctx) = (self.install.clone(), self.kind.clone(), ctx.clone());
+        let network = self.network_allowed.clone();
         let set = move |next: Install, state: &Mutex<Install>, ctx: &egui::Context| {
             if let Ok(mut s) = state.lock() {
                 *s = next;
@@ -197,7 +248,7 @@ impl Updates {
                     }
                     set(Install::Working(line), &state, &ctx);
                 };
-                let result = apply::run(&kind, version, &key, &mut report);
+                let result = apply::run(&kind, version, &key, &network, &mut report);
                 match &result {
                     Ok(()) => crate::note!("update to {version}: installer started, closing"),
                     Err(why) => crate::note!("update to {version} failed ({kind:?}): {why}"),
@@ -229,6 +280,9 @@ impl Updates {
     /// Turns the check on or off and remembers the choice. Turning it on checks now if this
     /// start has not already.
     pub fn set_enabled(&mut self, on: bool, ctx: &egui::Context) {
+        if on && !self.network_allowed.allowed() {
+            return;
+        }
         if let Some(dir) = &self.dir {
             let marker = dir.join(OFF_FILE);
             // Best effort: if the folder cannot be written the choice lasts this run.
@@ -256,21 +310,20 @@ impl Updates {
     }
 
     fn check(&mut self, ctx: &egui::Context) {
-        if self.started {
+        if self.started || !self.network_allowed.allowed() {
             return;
         }
         self.started = true;
         self.set(Status::Checking);
         let (status, ctx) = (self.status.clone(), ctx.clone());
+        let network = self.network_allowed.clone();
         let spawned = std::thread::Builder::new()
             .name(String::from("update check"))
             .spawn(move || {
-                let found = match (fetch(), Version::current()) {
+                let found = match (fetch_from(API, &network), Version::current()) {
                     (Some(body), Some(current)) => match newer(&body, current) {
                         Some(version) => Status::Available(version),
-                        None if serde_json::from_str::<Release>(&body).is_ok() => {
-                            Status::UpToDate
-                        }
+                        None if serde_json::from_str::<Release>(&body).is_ok() => Status::UpToDate,
                         None => Status::Unknown,
                     },
                     _ => Status::Unknown,
@@ -290,23 +343,13 @@ impl Updates {
 }
 
 /// The body of GitHub's answer, or `None` for any failure or a status other than 200.
+#[cfg(test)]
 fn fetch() -> Option<String> {
-    fetch_from(API)
+    fetch_from(API, &NetworkGate::new(true))
 }
 
-fn fetch_from(url: &str) -> Option<String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(TIMEOUT))
-        .https_only(true)
-        .http_status_as_error(false)
-        .build()
-        .into();
-    let mut response = agent
-        .get(url)
-        .header("User-Agent", &format!("veil-app/{VERSION}"))
-        .header("Accept", "application/vnd.github+json")
-        .call()
-        .ok()?;
+fn fetch_from(url: &str, network: &NetworkGate) -> Option<String> {
+    let mut response = download::get(url, TIMEOUT, network, true).ok()?;
     if response.status() != 200 {
         return None;
     }
@@ -358,10 +401,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn local_only_start_and_toggle_never_schedule_a_request() {
+        let ctx = egui::Context::default();
+        let mut updates = Updates::start_with_network(None, &ctx, false);
+        updates.set_enabled(true, &ctx);
+        assert!(!updates.started);
+        assert_eq!(updates.status(), Status::Off);
+        assert!(!updates.can_install());
+        updates.install(Version(99, 0, 0), &ctx);
+        assert_eq!(updates.install_state(), Install::Idle);
+    }
+
+    #[test]
     fn versions_are_three_plain_numbers() {
         assert_eq!(Version::parse("0.1.0"), Some(Version(0, 1, 0)));
         assert_eq!(Version::parse("10.20.30"), Some(Version(10, 20, 30)));
-        for bad in ["", "1.2", "1.2.3.4", "1.2.x", "1..3", "+1.2.3", "1.2.3-rc1", " 1.2.3", "1.2.9999999999"] {
+        for bad in [
+            "",
+            "1.2",
+            "1.2.3.4",
+            "1.2.x",
+            "1..3",
+            "+1.2.3",
+            "1.2.3-rc1",
+            " 1.2.3",
+            "1.2.9999999999",
+        ] {
             assert_eq!(Version::parse(bad), None, "{bad:?}");
         }
         assert_eq!(Version::from_tag("v1.2.3"), Some(Version(1, 2, 3)));
@@ -380,14 +445,39 @@ mod tests {
     fn only_a_newer_published_release_is_offered() {
         let current = Version(0, 2, 0);
         let release = |tag: &str, draft: bool, pre: bool| {
-            format!(r#"{{"tag_name":"{tag}","draft":{draft},"prerelease":{pre},"html_url":"https://evil.example"}}"#)
+            format!(
+                r#"{{"tag_name":"{tag}","draft":{draft},"prerelease":{pre},"html_url":"https://evil.example"}}"#
+            )
         };
-        assert_eq!(newer(&release("v0.3.0", false, false), current), Some(Version(0, 3, 0)));
-        assert_eq!(newer(&release("v0.2.0", false, false), current), None, "same version");
-        assert_eq!(newer(&release("v0.1.9", false, false), current), None, "older");
-        assert_eq!(newer(&release("v0.3.0", true, false), current), None, "draft");
-        assert_eq!(newer(&release("v0.3.0", false, true), current), None, "pre-release");
-        assert_eq!(newer(&release("v0.3.0-rc1", false, false), current), None, "not x.y.z");
+        assert_eq!(
+            newer(&release("v0.3.0", false, false), current),
+            Some(Version(0, 3, 0))
+        );
+        assert_eq!(
+            newer(&release("v0.2.0", false, false), current),
+            None,
+            "same version"
+        );
+        assert_eq!(
+            newer(&release("v0.1.9", false, false), current),
+            None,
+            "older"
+        );
+        assert_eq!(
+            newer(&release("v0.3.0", true, false), current),
+            None,
+            "draft"
+        );
+        assert_eq!(
+            newer(&release("v0.3.0", false, true), current),
+            None,
+            "pre-release"
+        );
+        assert_eq!(
+            newer(&release("v0.3.0-rc1", false, false), current),
+            None,
+            "not x.y.z"
+        );
         assert_eq!(newer("not json", current), None);
         assert_eq!(newer(r#"{"message":"Not Found"}"#, current), None);
     }
@@ -420,8 +510,14 @@ mod tests {
     #[ignore = "makes network requests to api.github.com"]
     fn fetch_reads_the_latest_release() {
         let public = "https://api.github.com/repos/cli/cli/releases/latest";
-        let body = fetch_from(public).unwrap();
-        assert!(newer(&body, Version(0, 0, 0)).is_some(), "cli/cli has a vX.Y.Z release");
-        println!("Veil: {:?}", fetch().map(|body| newer(&body, Version(0, 0, 0))));
+        let body = fetch_from(public, &NetworkGate::new(true)).unwrap();
+        assert!(
+            newer(&body, Version(0, 0, 0)).is_some(),
+            "cli/cli has a vX.Y.Z release"
+        );
+        println!(
+            "Veil: {:?}",
+            fetch().map(|body| newer(&body, Version(0, 0, 0)))
+        );
     }
 }

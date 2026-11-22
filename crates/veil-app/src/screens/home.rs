@@ -60,7 +60,7 @@ impl HomeHelp {
             ),
             Self::Connection => (
                 "Connection",
-                "Choose your own servers, set a fixed call port, or control router port opening and address privacy. These settings apply to your next call.",
+                "Choose Local only and nearby discovery, your own servers, a fixed call port, or address privacy. These settings apply to your next call.",
             ),
             Self::DeviceKey => (
                 "Your device key",
@@ -205,6 +205,15 @@ fn home_form(
             if let Some(error) = &app.home_error {
                 ui.add_space(8.0);
                 ui.label(RichText::new(error).color(theme::DANGER_HOVER));
+            }
+            let keys = app.keys.clone();
+            let verified = move |key: &veil_security::PublicId| {
+                keys.lock().is_ok_and(|keys| keys.is_verified(key))
+            };
+            if let Some(invite) = app.nearby.ui(ui, verified) {
+                app.joining = Some(invite);
+                app.demo = false;
+                start(app, false);
             }
         })
         .response
@@ -353,6 +362,7 @@ pub(crate) fn start(app: &mut VeilApp, host: bool) {
         return;
     }
     app.home_error = None;
+    app.nearby.stop();
     app.go_pre_join(host);
 }
 

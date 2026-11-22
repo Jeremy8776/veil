@@ -4,7 +4,8 @@
 
   - For all users, in Program Files\Veil. Windows asks for permission once, at install.
   - Adds the firewall rule the app's "Allow guests" button would add (docs/HANDOFF.md,
-    firewall): inbound UDP to veil-app.exe only, on Private and Public networks, named "Veil".
+    firewall): inbound UDP to veil-app.exe only, on Private networks only, named "Veil".
+    Public networks (cafes, hotels) are left closed; the app asks for them only while on one.
     Uninstalling removes it.
   - installed-by-msi tells the app it may update itself through a newer MSI
     (crates/veil-app/src/update/apply.rs).
@@ -23,8 +24,8 @@
            Language="1033">
     <MajorUpgrade DowngradeErrorMessage="A newer version of Veil is already installed." />
     <MediaTemplate EmbedCab="yes" />
-    <!-- Firewall profiles as Windows numbers them: 2 Private + 4 Public. Not Domain. -->
-    <Property Id="VEIL_FIREWALL_PROFILES" Value="6" />
+    <!-- Firewall profiles as Windows numbers them: 2 Private. Not Public (4) or Domain (1). -->
+    <Property Id="VEIL_FIREWALL_PROFILES" Value="2" />
 
     <Icon Id="veil.ico" SourceFile="$(IconPath)" />
     <Property Id="ARPPRODUCTICON" Value="veil.ico" />
@@ -35,7 +36,7 @@
       <Directory Id="INSTALLFOLDER" Name="Veil">
         <Component Id="App" Bitness="always64">
           <File Id="VeilApp" Source="$(BinDir)\veil-app.exe" KeyPath="yes">
-            <!-- One rule for both profiles: WiX names a rule by Name, so two rules called
+            <!-- One rule, named "Veil" like the app's own: WiX names a rule by Name, so two rules called
                  "Veil" (one per profile) leave only the second. -->
             <fw:FirewallException Id="Firewall" Name="Veil" Protocol="udp" Scope="any" Profile="[VEIL_FIREWALL_PROFILES]" />
           </File>

@@ -63,6 +63,8 @@ impl Field {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    pub local_only: bool,
+    pub nearby_discovery: bool,
     pub rendezvous: String,
     pub forwarder: String,
     pub advertise: String,
@@ -101,11 +103,18 @@ impl Settings {
     pub fn check(&self) -> Result<NetConfig, Vec<(Field, String)>> {
         let mut problems = Vec::new();
         let mut config = NetConfig {
+            local_only: self.local_only,
+            nearby_discovery: self.nearby_discovery,
             open_port: self.open_port,
             relay_only: self.hide_address,
             ..NetConfig::default()
         };
         for field in Field::ALL {
+            // Keep internet settings on disk for later, but do not let an unavailable or
+            // mistyped server prevent a local call. The listening port still matters.
+            if self.local_only && field != Field::Port {
+                continue;
+            }
             let text = self.field(field);
             if text.chars().count() > MAX_FIELD {
                 problems.push((field, format!("At most {MAX_FIELD} characters.")));
@@ -122,7 +131,7 @@ impl Settings {
             }
         }
         if problems.is_empty() {
-            Ok(config)
+            Ok(config.enforce_policy())
         } else {
             Err(problems)
         }
@@ -187,7 +196,14 @@ impl Store {
         // A saved file always parses, but one edited by hand may not: use the defaults then.
         let saved = self.saved.check().unwrap_or_else(|problems| {
             crate::note!("saved connection settings ignored: {problems:?}");
-            NetConfig::default()
+            NetConfig {
+                local_only: self.saved.local_only,
+                nearby_discovery: self.saved.nearby_discovery,
+                // A broken file must not quietly drop a privacy choice either.
+                relay_only: self.saved.hide_address,
+                ..NetConfig::default()
+            }
+            .enforce_policy()
         });
         saved.with_env(|name| std::env::var(name).ok())
     }
@@ -256,6 +272,39 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn local_only_ignores_bad_internet_fields_but_validates_listening_port() {
+        let mut settings = Settings {
+            local_only: true,
+            rendezvous: "invalid saved host".into(),
+            forwarder: "also invalid".into(),
+            advertise: "not an address".into(),
+            open_port: true,
+            hide_address: true,
+            ..Settings::default()
+        };
+        let config = settings.check().unwrap();
+        assert!(config.local_only && !config.open_port && config.relay_only);
+        assert!(config.conflict().is_some(), "Hide my address is kept, so the call stops");
+        assert!(
+            config.rendezvous.is_none()
+                && config.forwarder.is_none()
+                && config.advertise.is_empty()
+        );
+        settings.port = "invalid".into();
+        assert!(settings.check().is_err());
+    }
+
+    #[test]
+    fn malformed_port_does_not_silently_disable_local_only() {
+        let mut store = Store::open(None);
+        store.saved.local_only = true;
+        store.saved.port = "invalid".into();
+        assert!(store.config().local_only);
+        store.saved.hide_address = true;
+        assert!(store.config().relay_only, "nor Hide my address");
+    }
+
     fn temp_dir(name: &str) -> PathBuf {
         let dir =
             std::env::temp_dir().join(format!("veil-connection-{name}-{}", std::process::id()));
@@ -281,6 +330,8 @@ mod tests {
             asked_open_port: true,
             hide_address: true,
             data_use: DataUse::Saver,
+            local_only: false,
+            nearby_discovery: false,
         }
     }
 

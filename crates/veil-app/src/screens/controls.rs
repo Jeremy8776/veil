@@ -32,9 +32,13 @@ pub const CONTROLS: usize = 5;
 /// The arrows drawn here.
 pub const MENUS: usize = 2;
 const MENU_INNER: f32 = 280.0;
-/// Tooltips for the two noise switches in the audio menu.
-const NOISE_HINT: &str = "Removes fans, typing, traffic and other background sound from your      microphone. It runs on this computer, so your sound goes nowhere else.";
-const CLEAN_OTHERS_HINT: &str = "Removes background sound from everyone else, on this computer.      Uses a little more processor for each person in the call.";
+/// Tooltips for the switches in the audio menu.
+const NOISE_HINT: &str = "Removes fans, typing, traffic and other background sound from your \
+     microphone. It runs on this computer, so your sound goes nowhere else.";
+const AUTO_GAIN_HINT: &str = "Turns your voice up or down to a steady level, so a quiet \
+     microphone is easy to hear. Learns only from speech.";
+const CLEAN_OTHERS_HINT: &str = "Removes background sound from everyone else, on this computer. \
+     Uses a little more processor for each person in the call.";
 /// Shown wherever mirroring can be turned on or off.
 pub const MIRROR_HINT: &str = "Flips your video left to right, for you and everyone in the call.";
 /// The Auto row while Auto is saving data because the connection is slow.
@@ -143,13 +147,19 @@ fn audio_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     }
     device_error(ui, app.media.mic_error());
     let mut mic = app.media.mic_volume();
-    let hint = "Microphone volume. Above 100% boosts a quiet microphone.";
+    let hint = "Microphone volume, on top of Auto volume. Above 100% boosts a quiet microphone.";
     if call_menus::volume(ui, "Mic volume", &mut mic, MIC_MAX, hint) {
         app.media.set_mic_volume(mic);
     }
     if app.media.mic_on() {
         ui.add_space(2.0);
         level_meter(ui, app.level, ui.available_width());
+    }
+    ui.add_space(4.0);
+    let auto = app.media.auto_gain();
+    let button = call_menus::toggle_button(ui, Icon::Volume, "Auto volume", auto);
+    if button.on_hover_text(AUTO_GAIN_HINT).clicked() {
+        app.media.set_auto_gain(!auto);
     }
     ui.add_space(4.0);
     let suppress = app.media.noise_suppression();

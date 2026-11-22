@@ -1,5 +1,6 @@
 //! Your device and video choices, kept between runs: camera, microphone, speaker, filter,
-//! background blur, mirror and both volumes.
+//! background blur, mirror, both volumes and the sound switches (Noise suppression, Auto
+//! volume, Remove noise from others).
 //!
 //! Purpose: [`Store::observe`] is fed what [`LocalMedia`] holds once a frame, so a choice
 //! made anywhere (the pre-join card or a call menu) is saved without each control having to
@@ -15,6 +16,7 @@
 //! - Anything still waiting to be written is written when the store is dropped.
 
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -44,15 +46,28 @@ pub struct Prefs {
     /// `None` until first changed: Veil's own default is used.
     pub mic_volume: Option<f32>,
     pub speaker_volume: Option<f32>,
+    /// The sound switches; `None` until first changed, like the volumes.
+    pub noise_suppression: Option<bool>,
+    pub auto_gain: Option<bool>,
+    pub clean_others: Option<bool>,
 }
 
 impl Prefs {
-    /// Sets the filter, blur, mirror and volumes. Devices wait for the lists
+    /// Sets the filter, blur, mirror, volumes and sound switches. Devices wait for the lists
     /// ([`Prefs::devices`]), since a saved one may not be plugged in.
     pub fn apply(&self, media: &LocalMedia) {
         media.set_filter(self.filter);
         media.set_blur(self.blur);
         media.set_mirror(self.mirror);
+        if let Some(on) = self.noise_suppression {
+            media.set_noise_suppression(on);
+        }
+        if let Some(on) = self.auto_gain {
+            media.set_auto_gain(on);
+        }
+        if let Some(on) = self.clean_others {
+            media.playback().clean_others.store(on, Ordering::Relaxed);
+        }
         if let Some(v) = self.mic_volume {
             media.set_mic_volume(v);
         }
@@ -83,6 +98,9 @@ impl Prefs {
             mirror: media.mirror(),
             mic_volume: Some(media.mic_volume()),
             speaker_volume: Some(media.speaker_volume()),
+            noise_suppression: Some(media.noise_suppression()),
+            auto_gain: Some(media.auto_gain()),
+            clean_others: Some(media.playback().clean_others.load(Ordering::Relaxed)),
         }
     }
 }
@@ -252,6 +270,9 @@ mod tests {
             mirror: true,
             mic_volume: Some(1.5),
             speaker_volume: Some(0.4),
+            noise_suppression: Some(false),
+            auto_gain: Some(true),
+            clean_others: Some(true),
         }
     }
 

@@ -80,6 +80,8 @@ pub enum CallStatus {
     /// A guest waiting for the host to let them in.
     Lobby,
     Live,
+    /// Established call whose host control connection is being safely resumed.
+    Reconnecting,
     /// The call is over for you; the text says why.
     Ended(String),
 }
@@ -144,6 +146,9 @@ pub struct Call {
     /// The same invite in full, which needs no fetch. Equal to `invite` when no short link
     /// could be made.
     pub invite_full: String,
+    /// The code a nearby guest types to fetch the invitation; empty when nearby discovery
+    /// is off. Shown only on the host's own screen.
+    pub nearby_code: String,
     /// When the invite link stops working, in Unix seconds; 0 until there is one.
     pub invite_expires: u64,
     /// The host chose to keep each invite link working until the call ends.
@@ -157,6 +162,8 @@ pub struct Call {
     pub status: CallStatus,
     pub router: RouterPort,
     pub reach: Reachable,
+    /// For a host: the rendezvous server it uses is not answering, and Veil keeps trying.
+    pub server_down: bool,
     /// Decisions and chat not yet handed to the engine. Always empty in a demo.
     pub outbox: Vec<Action>,
     /// Chat messages not yet seen with the chat panel open.
@@ -189,6 +196,7 @@ impl Call {
             chat: Vec::new(),
             invite: String::new(),
             invite_full: String::new(),
+            nearby_code: String::new(),
             invite_expires: 0,
             invite_until_end: false,
             epoch: 0,
@@ -197,6 +205,7 @@ impl Call {
             status: CallStatus::Connecting,
             router: RouterPort::Off,
             reach: Reachable::Unknown,
+            server_down: false,
             outbox: Vec::new(),
             unread: 0,
             next_id: 1,

@@ -51,6 +51,8 @@ pub struct VeilApp {
     pub preview: Option<TextureHandle>,
     /// Microphone level, smoothed for the meter.
     pub level: f32,
+    /// When the microphone level last passed the speaking threshold, for your border.
+    pub loud_at: Option<Instant>,
     /// What you chose on the pre-join screen, kept for the call.
     pub want_camera: bool,
     pub want_mic: bool,
@@ -72,6 +74,7 @@ pub struct VeilApp {
     pub updates: crate::update::Updates,
     /// Your own servers and port, kept between runs (`connection.rs`).
     pub connection: crate::connection::Store,
+    pub nearby: crate::nearby::Nearby,
     /// How much data calls use, shared with the running call (`data_use.rs`).
     pub data_use: Arc<crate::data_use::DataUseCell>,
     /// Your devices, filter, blur, mirror and volumes, kept between runs (`preferences.rs`).
@@ -84,6 +87,11 @@ pub struct VeilApp {
 impl VeilApp {
     pub fn new(ctx: &egui::Context) -> Self {
         let connection = crate::connection::Store::open(keystore::default_dir());
+        let updates = crate::update::Updates::start_with_network(
+            keystore::default_dir(),
+            ctx,
+            !connection.saved.local_only,
+        );
         let data_use = Arc::new(crate::data_use::DataUseCell::new(connection.saved.data_use));
         let prefs = crate::preferences::Store::open(keystore::default_dir());
         let media = LocalMedia::new(ctx.clone());
@@ -101,6 +109,7 @@ impl VeilApp {
             share_view: None,
             preview: None,
             level: 0.0,
+            loud_at: None,
             want_camera: true,
             want_mic: true,
             devices: crate::devices::DeviceLists::default(),
@@ -110,8 +119,9 @@ impl VeilApp {
             firewall: crate::firewall::Firewall::new(),
             keys: Arc::new(Mutex::new(KeyStore::open(keystore::default_dir()))),
             confirm_new_key: false,
-            updates: crate::update::Updates::start(keystore::default_dir(), ctx),
+            updates,
             connection,
+            nearby: crate::nearby::Nearby::default(),
             data_use,
             prefs,
             lobby_alert: crate::lobby_alert::LobbyAlert::default(),
@@ -156,7 +166,15 @@ impl VeilApp {
             let config = self.connection.config();
             let data = self.data_use.clone();
             data.set_auto_saving(false);
-            match Engine::start(role, config, name.clone(), playback, keys, data, self.ctx.clone()) {
+            match Engine::start(
+                role,
+                config,
+                name.clone(),
+                playback,
+                keys,
+                data,
+                self.ctx.clone(),
+            ) {
                 Ok(engine) => {
                     self.media.set_taps(Some(engine.taps()));
                     self.share.set_tap(Some(engine.taps().screen));
@@ -219,7 +237,9 @@ impl VeilApp {
     pub fn keep_screens(&mut self, sharers: &[u32]) {
         self.remote.retain(|key, _| {
             !crate::engine::is_screen(*key)
-                || sharers.iter().any(|id| crate::engine::screen_key(*id) == *key)
+                || sharers
+                    .iter()
+                    .any(|id| crate::engine::screen_key(*id) == *key)
         });
     }
 
@@ -293,6 +313,9 @@ impl VeilApp {
             }
         }
         let target = self.media.level();
+        if target > crate::engine::SPEAKING {
+            self.loud_at = Some(Instant::now());
+        }
         // Fast attack, slow release, like a hardware meter.
         let rate = if target > self.level { 0.6 } else { 0.15 };
         self.level += (target - self.level) * rate;
@@ -311,13 +334,17 @@ impl VeilApp {
     /// clears that once you look or the lobby empties (`lobby_alert.rs`).
     fn alert_lobby(&mut self, ctx: &egui::Context) {
         let lobby: Vec<(u32, &str)> = match &self.screen {
-            Screen::Call(view) if view.call.is_host => {
-                view.call.lobby.iter().map(|w| (w.id, w.name.as_str())).collect()
-            }
+            Screen::Call(view) if view.call.is_host => view
+                .call
+                .lobby
+                .iter()
+                .map(|w| (w.id, w.name.as_str()))
+                .collect(),
             _ => Vec::new(),
         };
         let focused = ctx.input(|i| i.viewport().focused).unwrap_or(false);
-        self.lobby_alert.apply(ctx, &lobby, focused, crate::WINDOW_TITLE);
+        self.lobby_alert
+            .apply(ctx, &lobby, focused, crate::WINDOW_TITLE);
     }
 
     /// What you are sending while you share.

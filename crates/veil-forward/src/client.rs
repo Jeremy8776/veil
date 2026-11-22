@@ -8,10 +8,11 @@ use veil_net::{FramedRecv, FramedSend, Link, Node};
 use veil_security::PublicId;
 
 use crate::ForwardError;
-use crate::subscribe::Wanted;
 use crate::protocol::{ClientMsg, ServerMsg};
+use crate::subscribe::Wanted;
 
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// A joined forwarder link. Send sealed frames with `link().send_frame` and audio with
 /// `link().send_datagram`; every other member of the room receives them.
@@ -24,6 +25,39 @@ pub struct ForwarderClient {
 }
 
 impl ForwarderClient {
+    /// Verifies reachability, role and admission before a call retires working routes.
+    /// This check has one deadline over dialing, stream opening, writing and reading. It
+    /// never joins a room or displaces this device's existing forwarding link. Availability
+    /// is only a snapshot, not a reservation; a subsequent join can still fail.
+    pub async fn probe(
+        node: &Node,
+        addrs: &[SocketAddr],
+        forwarder: PublicId,
+        ticket: &[u8],
+    ) -> Result<(), ForwardError> {
+        let check = async {
+            let link = node.connect(addrs, forwarder).await?;
+            let result = async {
+                let (mut out, mut input) = link.open_control().await?.split();
+                out.send(&ClientMsg::Probe {
+                    ticket: ticket.to_vec(),
+                })
+                .await?;
+                match input.recv::<ServerMsg>().await? {
+                    ServerMsg::Available => Ok(()),
+                    ServerMsg::Refused(why) => Err(ForwardError::Refused(why)),
+                    _ => Err(ForwardError::Closed),
+                }
+            }
+            .await;
+            link.close("forwarder check complete");
+            result
+        };
+        tokio::time::timeout(PROBE_TIMEOUT, check)
+            .await
+            .map_err(|_| ForwardError::Timeout)?
+    }
+
     /// Connects to a forwarder, pinned to its key, and joins the room a sealed
     /// [`crate::RosterTicket`] names.
     pub async fn join(
@@ -32,9 +66,29 @@ impl ForwarderClient {
         forwarder: PublicId,
         ticket: &[u8],
     ) -> Result<Self, ForwardError> {
+        // The peer controls stream credit as well as the reply. Cover every stage, not
+        // only reading Joined, so a forwarder that passed a probe cannot later park a
+        // topology transition indefinitely by withholding its control stream.
+        tokio::time::timeout(
+            veil_net::endpoint::CONNECT_TIMEOUT + ANSWER_TIMEOUT,
+            Self::join_inner(node, addrs, forwarder, ticket),
+        )
+        .await
+        .map_err(|_| ForwardError::Timeout)?
+    }
+
+    async fn join_inner(
+        node: &Node,
+        addrs: &[SocketAddr],
+        forwarder: PublicId,
+        ticket: &[u8],
+    ) -> Result<Self, ForwardError> {
         let link = node.connect(addrs, forwarder).await?;
         let (mut out, mut input) = link.open_control().await?.split();
-        out.send(&ClientMsg::Join { ticket: ticket.to_vec() }).await?;
+        out.send(&ClientMsg::Join {
+            ticket: ticket.to_vec(),
+        })
+        .await?;
         let answer = tokio::time::timeout(ANSWER_TIMEOUT, input.recv::<ServerMsg>())
             .await
             .map_err(|_| ForwardError::Timeout)??;
@@ -46,7 +100,9 @@ impl ForwarderClient {
                 input: Mutex::new(input),
             }),
             ServerMsg::Refused(refusal) => Err(ForwardError::Refused(refusal)),
-            ServerMsg::KeyframeRequest | ServerMsg::App(_) => Err(ForwardError::Closed),
+            ServerMsg::KeyframeRequest | ServerMsg::App(_) | ServerMsg::Available => {
+                Err(ForwardError::Closed)
+            }
         }
     }
 

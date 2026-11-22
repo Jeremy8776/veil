@@ -198,6 +198,8 @@ mod tests {
                 HostEvent::Knock(_)
                 | HostEvent::Joined { .. }
                 | HostEvent::Left(_)
+                | HostEvent::Addresses { .. }
+                | HostEvent::PlanChecked { .. }
                 | HostEvent::Refused(..) => {}
                 HostEvent::Error(e) => panic!("host error: {e}"),
             }
