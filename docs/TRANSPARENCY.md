@@ -16,7 +16,7 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 | Per-frame encryption with a layer marker | Signed organisation policy, OIDC or SAML identity |
 | QUIC links pinned to device keys | Metrics export (OpenTelemetry) |
 | Rendezvous, hole punching, relay | Compliance recording, federation, gateways |
-| Unreleased: Local only mode, opt-in IPv4 nearby discovery, full-invite QR display, bounded control/helper recovery | QR camera decoding, host handover, automatic fallback after an active forwarder outage |
+| 0.1.13: Local only mode, opt-in IPv4 nearby discovery, full-invite QR display, bounded control/helper recovery, saved setups and explicit connection checks | QR camera decoding, host handover, automatic fallback after an active forwarder outage |
 | Forwarder with layer subscriptions | Padding against size analysis |
 | `veil-node`, `veil-probe` | An independent security audit |
 | The desktop app in a real call: host, lobby, guest, video and sound both ways, names and chat | |
@@ -28,7 +28,7 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 
 ## 2. What other parties can see
 
-**Unreleased connection checks.** Only pressing **Test these settings** starts a check.
+**Connection checks (0.1.13).** Only pressing **Test these settings** starts a check.
 It opens a temporary UDP endpoint and checks local addresses without starting a call,
 registering a room or opening router ports. Outside Local only it resolves configured
 server names and attempts encrypted QUIC connections pinned to their public keys. DNS
@@ -39,13 +39,14 @@ reach you. Saved Local only still restricts an unsaved draft. Changing a checked
 invalidates its result; server reachability is displayed for at most five minutes and is
 not kept between runs. The Home summary never treats a reachable server as verified hosting.
 
-**Unreleased local networking additions.** Saved **Local only** mode prevents call sockets
+**Local networking (0.1.13).** Saved **Local only** mode prevents call sockets
 from sending to or receiving from addresses outside loopback and directly connected
 non-point-to-point subnets, including replies and migrated paths. It ignores configured
 internet helpers, public address overrides and router port opening; update requests are
 disabled. Enable it, save and restart for a session without any earlier in-flight request.
-Virtual or bridged interfaces can belong to these subnets: this is not proof of physical
-proximity. The mode does not configure or restrict other applications on the computer.
+Recognised virtual and overlay adapters are excluded by name. Unrecognised or renamed
+adapters and bridges carrying the LAN can still belong to these subnets: this is not proof
+of physical proximity. The mode does not configure or restrict other applications on the computer.
 
 Nearby discovery is off by default and only runs with Local only on, so the invitation it
 hands out names local addresses only. The host's screen shows a six-digit nearby code, and

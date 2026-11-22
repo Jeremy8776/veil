@@ -72,7 +72,8 @@ Screenshots are from the demo call. The people in them are simulated.
 ## Download
 
 Builds are on the [latest release](https://github.com/Jeremy8776/veil/releases/latest).
-For 0.1.12, update every device in a call: older versions cannot read the new chat messages.
+For 0.1.13, update every participant and `veil-node` together: older releases cannot use
+the new call-port handshake and control/forwarder messages. Copy fresh invitations afterwards.
 
 | System | File | Notes |
 |---|---|---|

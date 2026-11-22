@@ -2,16 +2,26 @@
 
 Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
-## Current work, 20/11/2026
+## Current work, 22/11/2026
 
 - User guides: [Getting started](GETTING_STARTED.md), [Self-hosting](SELF_HOSTING.md) and
   [Releasing](RELEASING.md). [Architecture](ARCHITECTURE.md) now distinguishes current app
   behaviour from planned 4K, cascade and enterprise features.
-- Release line: **v0.1.12**, dated 20/11/2026, includes the integration below. Check GitHub
-  Releases for publication status before creating another tag. The previous release,
-  v0.1.11, was published 19/11 at 22:27 UTC; its workflow passed on retry.
-- Since that release: pre-join sections, remembered choices and the Home update card (#62),
-  chosen-host node access (#72), and raised-hand sync (#64).
+- Release line: **v0.1.13**, dated 22/11/2026. Check GitHub Releases for publication status
+  before creating another tag. The previous release, v0.1.12, was published 20/11 at 13:41 UTC.
+- This line includes the Home tools and native icons (#75), microphone Auto volume and
+  steadier speaking border (#76), local networking and recovery (#77), and responsive Home /
+  Connection layouts, saved setups, explicit connection checks and native log-folder fixes (#78).
+- Upgrade every participant and `veil-node` together. Earlier copies cannot use the new
+  call-port key-knowledge handshake and control/forwarder messages. Use fresh invitations.
+- Local only excludes recognised virtual/overlay adapter names; unrecognised or renamed
+  adapters and bridges carrying the LAN can still count. This is an on-link IP boundary,
+  not a physical-proximity guarantee. Saved Local only also restricts an unsaved test draft.
+- Existing Connection fields become Default. Setups apply to the next call; a recent
+  server check is not proof of permission to host or incoming reachability. Log opener
+  startup delays release the UI request after five seconds while reaping continues.
+- Earlier integration includes pre-join sections, remembered choices and the Home update
+  card (#62), chosen-host node access (#72), and raised-hand sync (#64).
 - The integration of #63 and #65–71 adds continuous picture numbering after encoder
   reopens, media redial, chat reactions, lobby alerts, labelled pair and group codes, local
   noise suppression, and Wayland sharing (KWin picker on KDE, desktop chooser elsewhere).
