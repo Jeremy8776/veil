@@ -680,6 +680,39 @@ const HIDE_HELP: &str = "When you join a call, reach everyone through the call's
      everyone's. Slightly slower, and the call fails if the relay cannot be reached. Has no \
      effect when you host: your invite carries your addresses. Off by default.";
 
+/// Label, hint and tooltip for each field.
+fn text(field: Field) -> (&'static str, &'static str, &'static str) {
+    match field {
+        Field::Rendezvous => (
+            "Rendezvous and relay",
+            "KEY@HOST:PORT",
+            "A veil-node that helps guests find you, and relays when a direct link fails. It \
+             sees IP addresses and timing, never your call. HOST is an IP or a DNS name; the \
+             key stops any other server answering. Blank: Veil runs one on your computer for \
+             each call you host.",
+        ),
+        Field::Forwarder => (
+            "Forwarder",
+            "KEY@HOST:PORT",
+            "A veil-node that carries calls of 5 or more people, so your upload does not grow \
+             with each person. It sees sealed frames only. HOST is an IP or a DNS name. Blank: \
+             your own, which only people on your network can reach.",
+        ),
+        Field::Advertise => (
+            "Public addresses",
+            "IP:PORT, IP:PORT",
+            "Addresses guests can dial you on directly, such as your router's public IP with \
+             a port forwarded to this computer. Veil puts them first in every invite.",
+        ),
+        Field::Port => (
+            "Call port",
+            "Any",
+            "A fixed UDP port for the calls you host. Needed if you forward a port on your \
+             router. Blank: any free port.",
+        ),
+    }
+}
+
 #[cfg(test)]
 mod flow_tests {
     use super::*;
@@ -737,39 +770,6 @@ mod flow_tests {
         assert!(form.save(&mut store));
         assert!(!form.dirty());
         assert!(store.saved.local_only && !store.saved.hide_address);
-    }
-}
-
-/// Label, hint and tooltip for each field.
-fn text(field: Field) -> (&'static str, &'static str, &'static str) {
-    match field {
-        Field::Rendezvous => (
-            "Rendezvous and relay",
-            "KEY@HOST:PORT",
-            "A veil-node that helps guests find you, and relays when a direct link fails. It \
-             sees IP addresses and timing, never your call. HOST is an IP or a DNS name; the \
-             key stops any other server answering. Blank: Veil runs one on your computer for \
-             each call you host.",
-        ),
-        Field::Forwarder => (
-            "Forwarder",
-            "KEY@HOST:PORT",
-            "A veil-node that carries calls of 5 or more people, so your upload does not grow \
-             with each person. It sees sealed frames only. HOST is an IP or a DNS name. Blank: \
-             your own, which only people on your network can reach.",
-        ),
-        Field::Advertise => (
-            "Public addresses",
-            "IP:PORT, IP:PORT",
-            "Addresses guests can dial you on directly, such as your router's public IP with \
-             a port forwarded to this computer. Veil puts them first in every invite.",
-        ),
-        Field::Port => (
-            "Call port",
-            "Any",
-            "A fixed UDP port for the calls you host. Needed if you forward a port on your \
-             router. Blank: any free port.",
-        ),
     }
 }
 
