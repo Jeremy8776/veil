@@ -272,6 +272,11 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
                                         &back,
                                         if dirty { Help::Cancel } else { Help::Back },
                                     );
+                                    if !show_help {
+                                        back.clone().on_hover_text(
+                                            if dirty { Help::Cancel } else { Help::Back }.text().1,
+                                        );
+                                    }
                                     if back.clicked() {
                                         stay = false;
                                     }
@@ -288,6 +293,11 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
                                         })
                                         .inner;
                                     help.track(&save, Help::Save);
+                                    if !show_help {
+                                        save.clone()
+                                            .on_hover_text(Help::Save.text().1)
+                                            .on_disabled_hover_text(Help::Save.text().1);
+                                    }
                                     if save.clicked() && form.save(&mut app.connection) {
                                         app.updates.set_network_allowed(!form.draft.local_only);
                                         app.data_use.set(app.connection.saved.data_use);
@@ -491,7 +501,7 @@ fn settings(
             if !show_tooltips {
                 ui.set_min_height(378.0);
             }
-            setups::controls(ui, form, store, help);
+            setups::controls(ui, form, store, help, show_tooltips);
             ui.add_space(8.0);
             ui.separator();
             ui.add_space(8.0);

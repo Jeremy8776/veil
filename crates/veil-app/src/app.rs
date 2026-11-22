@@ -42,6 +42,7 @@ pub struct VeilApp {
     pub name: String,
     pub invite: String,
     pub home_error: Option<String>,
+    pub log_opener: crate::log::FolderOpener,
     pub media: LocalMedia,
     /// Sharing your screen (`share.rs`).
     pub share: crate::share::ScreenShare,
@@ -104,6 +105,7 @@ impl VeilApp {
                 .unwrap_or_default(),
             invite: String::new(),
             home_error: None,
+            log_opener: crate::log::FolderOpener::default(),
             media,
             share: crate::share::ScreenShare::new(ctx.clone()),
             share_view: None,

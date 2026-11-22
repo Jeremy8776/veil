@@ -7,6 +7,7 @@ pub(super) fn controls(
     form: &mut Form,
     store: &mut Store,
     help: &mut HelpState<Help>,
+    show_tooltips: bool,
 ) {
     let edited = form.edited();
     let mut selected = form.setup_id;
@@ -37,7 +38,7 @@ pub(super) fn controls(
                 })
                 .inner
                 .on_disabled_hover_text("Save or discard edits before loading another setup.");
-            help.track(&response, Help::Setup);
+            track_setup_help(&response, help, show_tooltips);
         });
         columns[1].with_layout(Layout::top_down(Align::Center), |ui| {
             let label = ui.label(RichText::new("Setup name").color(MUTED));
@@ -54,7 +55,7 @@ pub(super) fn controls(
                 form.saved = false;
                 form.save_error = None;
             }
-            help.track(&response, Help::Setup);
+            track_setup_help(&response, help, show_tooltips);
         });
     });
     if selected != form.setup_id
@@ -103,7 +104,7 @@ pub(super) fn controls(
                 !edited && store.setups().len() < crate::connection::MAX_SETUPS,
                 egui::Button::new("New setup").min_size(egui::vec2(112.0, 32.0)),
             );
-            help.track(&add, Help::Setup);
+            track_setup_help(&add, help, show_tooltips);
             if add.clicked() {
                 form.setup_id = None;
                 form.setup_name.clear();
@@ -120,7 +121,7 @@ pub(super) fn controls(
                 .on_disabled_hover_text(
                     "Load an inactive setup with no unsaved edits to remove it.",
                 );
-            help.track(&remove, Help::Setup);
+            track_setup_help(&remove, help, show_tooltips);
             if remove.clicked() {
                 form.remove_confirm = !form.remove_confirm;
             }
@@ -131,7 +132,14 @@ pub(super) fn controls(
             if discard.clicked() {
                 form.load_setup(store, form.setup_id.unwrap_or(store.active_id()));
             }
-            help.track(&discard, Help::Setup);
+            track_setup_help(&discard, help, show_tooltips);
         },
     );
+}
+
+fn track_setup_help(response: &egui::Response, help: &mut HelpState<Help>, show_tooltips: bool) {
+    help.track(response, Help::Setup);
+    if show_tooltips {
+        response.clone().on_hover_text(Help::Setup.text().1);
+    }
 }

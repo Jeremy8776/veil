@@ -73,6 +73,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked
       - name: Build
         run: cargo build --locked -p veil-app -p veil-node -p veil-probe
+      - name: Log folder tests
+        run: cargo test --locked -p veil-app log::tests
 
   supply-chain:
     runs-on: ubuntu-latest

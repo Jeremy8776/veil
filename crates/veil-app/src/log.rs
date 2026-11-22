@@ -157,15 +157,73 @@ fn civil(days: i64) -> (i64, u32, u32) {
     (y, m, d)
 }
 
-/// Opens the log folder in the file manager, creating it first. Failures reach the UI.
-pub fn open_folder() -> Result<(), String> {
-    let dir = folder().ok_or("Cannot find this device's log folder.")?;
-    fs::create_dir_all(&dir)
+/// Opens the log folder without blocking the UI. Unix children are waited and reaped.
+#[derive(Default)]
+pub struct FolderOpener {
+    pending: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+}
+
+impl FolderOpener {
+    pub fn start(&mut self, ctx: &eframe::egui::Context) -> Result<(), String> {
+        if self.pending.is_some() {
+            return Ok(());
+        }
+        let dir = folder().ok_or("Cannot find this device's log folder.")?;
+        #[cfg(windows)]
+        {
+            let _ = ctx;
+            // Explorer may hand off to an existing process; its exit code is unreliable.
+            spawn_folder(&dir).map(|_| ())
+        }
+        #[cfg(not(windows))]
+        self.start_worker(ctx.clone(), move || {
+            let child = spawn_folder(&dir)?;
+            wait_for_opener(child, &dir)
+        })
+    }
+
+    #[cfg(any(not(windows), test))]
+    fn start_worker(
+        &mut self,
+        ctx: eframe::egui::Context,
+        job: impl FnOnce() -> Result<(), String> + Send + 'static,
+    ) -> Result<(), String> {
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("open-log-folder".into())
+            .spawn(move || {
+                let result = job();
+                if let Err(problem) = &result {
+                    note(problem);
+                }
+                let _ = send.send(result);
+                ctx.request_repaint();
+            })
+            .map_err(|why| format!("Cannot start log folder opener: {why}"))?;
+        self.pending = Some(receive);
+        Ok(())
+    }
+
+    pub fn poll(&mut self) -> Option<Result<(), String>> {
+        let result = match self.pending.as_ref()?.try_recv() {
+            Ok(result) => result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return None,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err(String::from(
+                "The log folder opener stopped before reporting a result.",
+            )),
+        };
+        self.pending = None;
+        Some(result)
+    }
+}
+
+fn spawn_folder(dir: &Path) -> Result<std::process::Child, String> {
+    fs::create_dir_all(dir)
         .map_err(|why| format!("Cannot create log folder {}: {why}", dir.display()))?;
     let mut command = folder_command(
         std::env::consts::OS,
         std::env::var_os("SystemRoot").as_deref(),
-        &dir,
+        dir,
     );
     #[cfg(windows)]
     {
@@ -178,13 +236,26 @@ pub fn open_folder() -> Result<(), String> {
     let opened = match opened {
         Err(why) if why.kind() == std::io::ErrorKind::NotFound => std::process::Command::new("gio")
             .arg("open")
-            .arg(&dir)
+            .arg(dir)
             .spawn(),
         other => other,
     };
-    opened
-        .map(|_| ())
-        .map_err(|why| format!("Cannot open log folder {}: {why}", dir.display()))
+    opened.map_err(|why| format!("Cannot open log folder {}: {why}", dir.display()))
+}
+
+#[cfg(any(not(windows), test))]
+fn wait_for_opener(mut child: std::process::Child, dir: &Path) -> Result<(), String> {
+    let status = child
+        .wait()
+        .map_err(|why| format!("Cannot wait for log folder opener {}: {why}", dir.display()))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Cannot open log folder {}: file manager exited with {status}.",
+            dir.display()
+        ))
+    }
 }
 
 /// Each native opener receives the folder as one argument, without a shell.
@@ -229,6 +300,58 @@ mod tests {
     use super::*;
 
     #[test]
+    fn opener_exit_status_is_checked_after_waiting_for_the_child() {
+        for code in [0, 7] {
+            #[cfg(windows)]
+            let mut command = {
+                use std::os::windows::process::CommandExt;
+                let mut command = std::process::Command::new("cmd.exe");
+                command.args(["/c", &format!("exit {code}")]);
+                command.creation_flags(0x0800_0000);
+                command
+            };
+            #[cfg(not(windows))]
+            let mut command = {
+                let mut command = std::process::Command::new("/bin/sh");
+                command.args(["-c", &format!("exit {code}")]);
+                command
+            };
+            let result = wait_for_opener(command.spawn().unwrap(), Path::new("test logs"));
+            assert_eq!(result.is_ok(), code == 0);
+            if let Err(problem) = result {
+                assert!(problem.contains("test logs") && problem.contains("file manager exited"));
+            }
+        }
+    }
+
+    #[test]
+    fn opener_error_arrives_asynchronously_for_the_ui() {
+        let mut opener = FolderOpener::default();
+        let (release, wait) = std::sync::mpsc::channel();
+        opener
+            .start_worker(eframe::egui::Context::default(), move || {
+                wait.recv().unwrap();
+                Err(String::from("file manager failed"))
+            })
+            .unwrap();
+        assert!(opener.poll().is_none(), "waiting must not block the UI");
+        release.send(()).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let result = loop {
+            if let Some(result) = opener.poll() {
+                break result;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "worker did not report completion"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(result, Err(String::from("file manager failed")));
+        assert!(opener.poll().is_none(), "the error is delivered once");
+    }
+
+    #[test]
     fn log_folder_uses_the_native_user_location() {
         let base = PathBuf::from("test user");
         assert_eq!(
@@ -255,12 +378,13 @@ mod tests {
     #[test]
     fn native_folder_openers_keep_the_path_as_one_argument() {
         let dir = Path::new("test user's log folder");
+        let root = std::ffi::OsStr::new(r"D:\Windows");
         for (os, expected) in [
-            ("windows", PathBuf::from(r"D:\Windows").join("explorer.exe")),
+            ("windows", PathBuf::from(root).join("explorer.exe")),
             ("macos", PathBuf::from("/usr/bin/open")),
             ("linux", PathBuf::from("xdg-open")),
         ] {
-            let command = folder_command(os, Some(std::ffi::OsStr::new(r"D:\Windows\")), dir);
+            let command = folder_command(os, Some(root), dir);
             assert_eq!(command.get_program(), expected.as_os_str());
             assert_eq!(
                 command.get_args().collect::<Vec<_>>(),

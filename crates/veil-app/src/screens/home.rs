@@ -131,6 +131,9 @@ pub(super) fn track_help(response: &egui::Response, help: HomeHelp, state: &mut 
 }
 
 pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
+    if let Some(Err(problem)) = app.log_opener.poll() {
+        app.home_error = Some(problem);
+    }
     let mut help_state = HomeHelpState::default();
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::PAGE).inner_margin(32))
@@ -170,7 +173,7 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
                                         Layout::top_down(Align::Center),
                                         |ui| {
                                             ui.spacing_mut().item_spacing.x = theme::GAP;
-                                            home_form(app, ui, FORM_WIDTH, &mut help_state)
+                                            home_form(app, ui, FORM_WIDTH, &mut help_state, false)
                                         },
                                     );
                                     helper_rect = Some(
@@ -182,7 +185,7 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
                                     );
                                 });
                             } else {
-                                home_form(app, ui, width, &mut help_state);
+                                home_form(app, ui, width, &mut help_state, true);
                                 ui.add_space(8.0);
                                 egui::CollapsingHeader::new("Your setup").show(ui, |ui| {
                                     if let Some(action) = super::home_setup::summary(
@@ -242,6 +245,7 @@ fn home_form(
     ui: &mut egui::Ui,
     width: f32,
     help: &mut HomeHelpState,
+    show_tooltips: bool,
 ) -> egui::Response {
     card()
         .show(ui, |ui| {
@@ -256,13 +260,14 @@ fn home_form(
                         .desired_width(ui.available_width().min(FORM_CONTROL_WIDTH)),
                 )
                 .labelled_by(label.id);
-            track_help(&name, HomeHelp::Name, help);
+            track_form_help(&name, HomeHelp::Name, help, show_tooltips);
+            track_form_help(&label, HomeHelp::Name, help, show_tooltips);
             ui.add_space(12.0);
-            start_section(app, ui, help);
+            start_section(app, ui, help, show_tooltips);
             ui.add_space(20.0);
             ui.separator();
             ui.add_space(12.0);
-            join_section(app, ui, help);
+            join_section(app, ui, help, show_tooltips);
             if let Some(error) = &app.home_error {
                 ui.add_space(8.0);
                 ui.label(RichText::new(error).color(theme::DANGER_HOVER));
@@ -280,7 +285,12 @@ fn home_form(
         .response
 }
 
-fn start_section(app: &mut VeilApp, ui: &mut egui::Ui, help: &mut HomeHelpState) {
+fn start_section(
+    app: &mut VeilApp,
+    ui: &mut egui::Ui,
+    help: &mut HomeHelpState,
+    show_tooltips: bool,
+) {
     let button = pill(
         ui,
         Some(Icon::Video),
@@ -288,14 +298,19 @@ fn start_section(app: &mut VeilApp, ui: &mut egui::Ui, help: &mut HomeHelpState)
         Tone::Primary,
         ui.available_width().min(FORM_CONTROL_WIDTH),
     );
-    track_help(&button, HomeHelp::NewCall, help);
+    track_form_help(&button, HomeHelp::NewCall, help, show_tooltips);
     if button.clicked() {
         app.demo = false;
         start(app, true);
     }
 }
 
-fn join_section(app: &mut VeilApp, ui: &mut egui::Ui, help: &mut HomeHelpState) {
+fn join_section(
+    app: &mut VeilApp,
+    ui: &mut egui::Ui,
+    help: &mut HomeHelpState,
+    show_tooltips: bool,
+) {
     let label = ui.label(RichText::new("Join a call").font(theme::bold(18.0)));
     ui.add_space(4.0);
     let field = ui
@@ -306,7 +321,7 @@ fn join_section(app: &mut VeilApp, ui: &mut egui::Ui, help: &mut HomeHelpState) 
                 .desired_width(ui.available_width().min(FORM_CONTROL_WIDTH)),
         )
         .labelled_by(label.id);
-    track_help(&field, HomeHelp::Join, help);
+    track_form_help(&field, HomeHelp::Join, help, show_tooltips);
     let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
     ui.add_space(8.0);
     let button = pill(
@@ -316,7 +331,7 @@ fn join_section(app: &mut VeilApp, ui: &mut egui::Ui, help: &mut HomeHelpState) 
         Tone::Quiet,
         ui.available_width().min(FORM_CONTROL_WIDTH),
     );
-    track_help(&button, HomeHelp::Join, help);
+    track_form_help(&button, HomeHelp::Join, help, show_tooltips);
     if button.clicked() || entered {
         match check_invite(&app.invite) {
             Ok(invite) => {
@@ -331,6 +346,18 @@ fn join_section(app: &mut VeilApp, ui: &mut egui::Ui, help: &mut HomeHelpState) 
                 app.home_error = Some(problem);
             }
         }
+    }
+}
+
+fn track_form_help(
+    response: &egui::Response,
+    topic: HomeHelp,
+    help: &mut HomeHelpState,
+    show_tooltips: bool,
+) {
+    track_help(response, topic, help);
+    if show_tooltips {
+        response.clone().on_hover_text(topic.text().1);
     }
 }
 

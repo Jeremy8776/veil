@@ -87,7 +87,7 @@ fn logs(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHelpState) {
     );
     track_help(&response, HomeHelp::Logs, help);
     if response.clicked()
-        && let Err(problem) = crate::log::open_folder()
+        && let Err(problem) = app.log_opener.start(ui.ctx())
     {
         app.home_error = Some(problem);
     }
