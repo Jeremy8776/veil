@@ -162,6 +162,8 @@ pub struct Call {
     pub status: CallStatus,
     pub router: RouterPort,
     pub reach: Reachable,
+    /// For a host: the rendezvous server it uses is not answering, and Veil keeps trying.
+    pub server_down: bool,
     /// Decisions and chat not yet handed to the engine. Always empty in a demo.
     pub outbox: Vec<Action>,
     /// Chat messages not yet seen with the chat panel open.
@@ -203,6 +205,7 @@ impl Call {
             status: CallStatus::Connecting,
             router: RouterPort::Off,
             reach: Reachable::Unknown,
+            server_down: false,
             outbox: Vec::new(),
             unread: 0,
             next_id: 1,

@@ -1,8 +1,10 @@
 //! Choosing this epoch's routes: mesh, or a forwarder every member has checked.
 //!
 //! Invariants:
-//! - A forwarder is only activated after every current member answered the current request
-//!   with success before the deadline. A failure, a late answer or a replan drops the proposal.
+//! - A forwarder is activated only when the host's own check and a strict majority of current
+//!   members succeed for the current request. One member failing, or never answering, cannot
+//!   hold a large call on the mesh; it only waits for the deadline. A replan drops the proposal.
+//! - The decision waits until every member answered or the deadline passed, whichever is first.
 //! - A call already on the forwarder stays on it; its new roster ticket drops removed members.
 //! - Mesh routes are published before any forwarder is proposed, so a failed check never
 //!   leaves the call without routes.
@@ -22,40 +24,75 @@ use super::super::session::Session;
 /// answer from an old membership epoch or old address set cannot activate a replacement.
 pub(super) struct PlanChecks {
     request: u64,
+    /// The host. Its own check must succeed: it chose the forwarder and carries the call.
+    host: PublicId,
     required: HashSet<PublicId>,
     ready: HashSet<PublicId>,
-    failed: bool,
+    failed: HashSet<PublicId>,
     deadline: Instant,
 }
 
+/// What to do with a proposed forwarder.
+#[derive(Debug, PartialEq, Eq)]
+enum Verdict {
+    /// Not every member has answered and the deadline has not passed.
+    Waiting,
+    /// Switch to the forwarder. `left_out` members failed or never answered.
+    Activate { left_out: usize },
+    /// Keep the mesh.
+    Keep,
+}
+
 impl PlanChecks {
-    fn new(request: u64, members: impl IntoIterator<Item = PublicId>, now: Instant) -> Self {
+    fn new(
+        request: u64,
+        host: PublicId,
+        members: impl IntoIterator<Item = PublicId>,
+        now: Instant,
+    ) -> Self {
         Self {
             request,
+            host,
             required: members.into_iter().collect(),
             ready: HashSet::new(),
-            failed: false,
+            failed: HashSet::new(),
             deadline: now + Duration::from_secs(12),
         }
     }
 
+    /// A member's first answer to the current request counts; later ones are ignored.
     pub(super) fn report(&mut self, device: PublicId, request: u64, ok: bool) {
-        if request != self.request || !self.required.contains(&device) {
+        if request != self.request
+            || !self.required.contains(&device)
+            || self.ready.contains(&device)
+            || self.failed.contains(&device)
+        {
             return;
         }
         if ok {
             self.ready.insert(device);
         } else {
-            self.failed = true;
+            self.failed.insert(device);
         }
     }
 
-    fn ready(&self) -> bool {
-        !self.failed && !self.required.is_empty() && self.ready == self.required
-    }
-
-    fn expired(&self, now: Instant) -> bool {
-        now >= self.deadline
+    fn verdict(&self, now: Instant) -> Verdict {
+        let answered = self.ready.len() + self.failed.len();
+        if self.failed.contains(&self.host) {
+            return Verdict::Keep;
+        }
+        if answered < self.required.len() && now < self.deadline {
+            return Verdict::Waiting;
+        }
+        // shortcut: members left out get no media until a plan can mix mesh and forwarder
+        // routes. Upgrade when `veil-topology` plans per-member routes.
+        if self.ready.contains(&self.host) && self.ready.len() * 2 > self.required.len() {
+            Verdict::Activate {
+                left_out: self.required.len() - self.ready.len(),
+            }
+        } else {
+            Verdict::Keep
+        }
     }
 }
 
@@ -162,6 +199,7 @@ pub(super) async fn checked_plan(
     Some(PendingPlan {
         checks: PlanChecks::new(
             request,
+            me,
             roster.iter().map(|(_, device)| *device),
             Instant::now(),
         ),
@@ -192,15 +230,15 @@ pub(super) async fn finish_checked_plan(
     let Some(candidate) = pending.as_ref() else {
         return;
     };
-    // Expiry wins even if the final answer arrived late in this tick.
-    if candidate.checks.failed || candidate.checks.expired(Instant::now()) {
-        crate::note!("forwarder not reachable by every member; keeping mesh routes");
-        pending.take();
-        return;
-    }
-    if !candidate.checks.ready() {
-        return;
-    }
+    let left_out = match candidate.checks.verdict(Instant::now()) {
+        Verdict::Waiting => return,
+        Verdict::Keep => {
+            crate::note!("forwarder not reachable by most members; keeping mesh routes");
+            pending.take();
+            return;
+        }
+        Verdict::Activate { left_out } => left_out,
+    };
     let Some(candidate) = pending.take() else {
         return;
     };
@@ -209,7 +247,13 @@ pub(super) async fn finish_checked_plan(
         .await
     {
         Ok(routes) => {
-            crate::note!("every member checked the forwarder; changing media routes");
+            if left_out > 0 {
+                crate::note!(
+                    "{left_out} member(s) could not check the forwarder; changing media routes anyway"
+                );
+            } else {
+                crate::note!("every member checked the forwarder; changing media routes");
+            }
             *forwarded = true;
             session.on_routes(routes).await;
         }
@@ -225,44 +269,66 @@ mod tests {
         PublicId([byte; 32])
     }
 
+    fn five(request: u64, now: Instant) -> PlanChecks {
+        PlanChecks::new(request, key(1), (1..=5).map(key), now)
+    }
+
     #[test]
-    fn a_forwarder_needs_every_members_own_current_answer() {
-        let mut checks = PlanChecks::new(12, [key(1), key(2), key(3)], Instant::now());
+    fn duplicates_old_answers_and_strangers_count_for_nothing() {
+        let now = Instant::now();
+        let mut checks = five(12, now);
         checks.report(key(1), 12, true);
         checks.report(key(1), 12, true);
         checks.report(key(2), 11, true);
         checks.report(key(99), 12, true);
-        assert!(
-            !checks.ready(),
-            "duplicates, old answers and strangers cannot fill the roster"
+        assert_eq!(checks.verdict(now), Verdict::Waiting);
+        assert_eq!(
+            checks.verdict(now + Duration::from_secs(12)),
+            Verdict::Keep,
+            "one real success out of five is not a majority"
         );
-        checks.report(key(2), 12, true);
-        assert!(!checks.ready(), "the final participant must check too");
-        checks.report(key(3), 12, true);
-        assert!(checks.ready());
     }
 
     #[test]
-    fn a_failure_cannot_be_overwritten_by_a_later_success() {
-        let mut checks = PlanChecks::new(7, [key(1), key(2)], Instant::now());
-        checks.report(key(1), 7, true);
-        checks.report(key(2), 7, false);
-        checks.report(key(2), 7, true);
-        assert!(!checks.ready());
-        assert!(checks.failed);
-    }
-
-    #[test]
-    fn replanning_requires_fresh_answers_and_has_a_deadline() {
+    fn every_member_checking_activates_at_once() {
         let now = Instant::now();
-        let mut checks = PlanChecks::new(8, [key(1), key(2)], now);
-        checks.report(key(1), 7, true);
-        checks.report(key(2), 7, true);
-        assert!(
-            !checks.ready(),
-            "the previous roster's batch must not activate this one"
+        let mut checks = five(3, now);
+        (1..=5).for_each(|k| checks.report(key(k), 3, true));
+        assert_eq!(checks.verdict(now), Verdict::Activate { left_out: 0 });
+    }
+
+    #[test]
+    fn one_member_failing_cannot_hold_the_call_on_the_mesh() {
+        let now = Instant::now();
+        let mut checks = five(4, now);
+        (1..=4).for_each(|k| checks.report(key(k), 4, true));
+        checks.report(key(5), 4, false);
+        checks.report(key(5), 4, true);
+        assert_eq!(checks.verdict(now), Verdict::Activate { left_out: 1 });
+    }
+
+    #[test]
+    fn a_silent_member_only_delays_the_switch_to_the_deadline() {
+        let now = Instant::now();
+        let mut checks = five(5, now);
+        (1..=4).for_each(|k| checks.report(key(k), 5, true));
+        assert_eq!(checks.verdict(now + Duration::from_secs(11)), Verdict::Waiting);
+        assert_eq!(
+            checks.verdict(now + Duration::from_secs(12)),
+            Verdict::Activate { left_out: 1 }
         );
-        assert!(!checks.expired(now + Duration::from_secs(11)));
-        assert!(checks.expired(now + Duration::from_secs(12)));
+    }
+
+    #[test]
+    fn the_host_failing_or_most_members_failing_keeps_the_mesh() {
+        let now = Instant::now();
+        let mut checks = five(6, now);
+        checks.report(key(1), 6, false);
+        assert_eq!(checks.verdict(now), Verdict::Keep);
+
+        let mut checks = five(7, now);
+        (1..=2).for_each(|k| checks.report(key(k), 7, true));
+        (3..=5).for_each(|k| checks.report(key(k), 7, false));
+        assert_eq!(checks.verdict(now), Verdict::Keep);
     }
 }

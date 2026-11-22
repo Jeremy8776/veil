@@ -215,6 +215,9 @@ mod tests {
                 "[fe80::9]:5000".parse().unwrap(),
                 "81.2.69.160:5001".parse().unwrap(),
                 "8.8.8.8:53".parse().unwrap(),
+                // Another port on the LAN is someone else's service, not this member.
+                "192.168.1.1:53".parse().unwrap(),
+                "192.168.1.20:8080".parse().unwrap(),
                 "127.0.0.1:5000".parse().unwrap(),
                 "203.0.113.5:5000".parse().unwrap(),
             ],
@@ -232,6 +235,12 @@ mod tests {
         );
         let many = vec!["192.168.1.9:5000".parse().unwrap(); MAX_HINTS + 1];
         assert!(member_hints(many, seen).is_none());
+        // A member on a privileged port gets no local hints, only its observed address.
+        let low: SocketAddr = "192.168.1.9:53".parse().unwrap();
+        assert_eq!(
+            member_hints(vec!["192.168.1.30:53".parse().unwrap(), low], low).unwrap(),
+            vec![low]
+        );
     }
 
     #[tokio::test]

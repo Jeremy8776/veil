@@ -12,7 +12,8 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   turn it off under Audio settings > Auto volume.
 
 - **Local only.** Restricts call sockets to loopback and connected non-point-to-point
-  subnets, including replies and path migration. Ignores configured internet helpers,
+  subnets, including replies and path migration. Virtual and overlay networks (VPNs,
+  ZeroTier, Tailscale, VM and container switches) do not count as local. Ignores configured internet helpers,
   advertised public addresses and router port opening. Disables update checks/download
   starts; restart after enabling it for a clean session without an earlier in-flight check.
   Local joining uses the full signed invitation. Local only never turns off Hide my address:
@@ -28,16 +29,21 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   internet route. Local only invitations list local scope interface addresses; other
   invitations keep the short list. In a Local only call, admitted participants send local
   scope address hints over their authenticated host connection, at most one update per 5 s reaching the host. The host
-  keeps a public hint only if it is the address the link comes from.
+  keeps a public hint only if it is the address the link comes from, and a local one only
+  on the port the link comes from (1024 or above), so a member cannot point others at
+  another device's service.
 - **Connection recovery.** Rendezvous registrations reconnect with backoff and restore
-  current permissions. Brief unexpected host-control interruptions have a bounded resume
+  current permissions. While a host's rendezvous is not answering, People shows "Server
+  not answering". Brief unexpected host-control interruptions have a bounded resume
   window and bounded MLS commit replay; deliberate leave, removal and host shutdown remain
   distinct. Host restart and host handover are not supported.
-- **Forwarder checks.** Every member checks the proposed forwarder and signed admission
-  ticket before a mesh switches. A call already on the forwarder stays on it when people
-  join or leave; its ticket is updated instead. Failed or expired checks retain mesh routes. A failed
+- **Forwarder checks.** Members check the proposed forwarder and signed admission
+  ticket before a mesh switches. The switch needs the host and more than half the members;
+  one member failing or staying silent cannot keep a large call on the mesh, and loses
+  media itself. A call already on the forwarder stays on it when people
+  join or leave; its ticket is updated instead. Checks that fall short retain mesh routes. A failed
   forwarder join retains existing media links. Checks do not reserve capacity; a forwarder
-  failing after unanimous checks can still interrupt the transition. Network-wide rollback
+  failing after passing checks can still interrupt the transition. Network-wide rollback
   and automatic recovery after a later forwarder outage are not implemented.
 
 ### Changed

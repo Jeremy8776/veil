@@ -134,8 +134,11 @@ pub async fn run(
              Send its owner your device key (Copy device key on Home).",
         ));
     }
-    if !call.has_rendezvous() {
-        crate::note!("rendezvous {rendezvous} did not answer; direct links only");
+    // The presence keeps retrying a rendezvous that is down (`veil-call/src/presence.rs`).
+    // The host sees it in People and the log notes each change, so it is never silent.
+    let mut server_down = !call.has_rendezvous();
+    if server_down {
+        crate::note!("rendezvous {rendezvous} did not answer; direct links only, still trying");
     }
     let mut addrs = advertised(&config, v6, lan, port);
     publish_addresses(&host, &addrs).await;
@@ -198,6 +201,7 @@ pub async fn run(
     }
     shared.update(|view| {
         view.status = CallStatus::Live;
+        view.server_down = server_down;
         view.router = ports.view();
         if checking {
             view.reach = reach.shown();
@@ -301,6 +305,15 @@ pub async fn run(
                 finish_checked_plan(&mut pending_plan, &host, &mut session, &mut forwarded).await;
             }
             _ = refresh.tick() => {
+                if call.has_rendezvous() == server_down {
+                    server_down = !server_down;
+                    if server_down {
+                        crate::note!("rendezvous {rendezvous} stopped answering; still trying");
+                    } else {
+                        crate::note!("rendezvous {rendezvous} answering again");
+                    }
+                    shared.update(|view| view.server_down = server_down);
+                }
                 finish_checked_plan(&mut pending_plan, &host, &mut session, &mut forwarded).await;
                 if replan {
                     replan = false;

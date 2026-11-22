@@ -2,7 +2,8 @@
 //!
 //! Invariants:
 //! - A member's hints never aim other members' packets at a third party: a public address is
-//!   kept only when it is the address the member's link comes from ([`member_hints`]).
+//!   kept only on the IP the member's link comes from, and a local one only on the link's own
+//!   port ([`member_hints`]).
 //! - At most one update per member per [`HINT_GAP`] reaches the engine; the newest waits.
 //! - Hints are connection hints, never proof that an address belongs to a peer.
 
@@ -78,8 +79,14 @@ pub(crate) fn checked_candidates(
 
 /// What a member may say about its own addresses. These go into every member's directory and
 /// are dialled, so a member must not be able to aim other members' packets anywhere it likes:
-/// a public address must be the one this host sees the member's link come from, and local
-/// scope addresses (private, link-local, unique local) stay hints for devices on that network.
+/// - A public address must be the IP this host sees the member's link come from.
+/// - A local scope address (private, link-local, unique local) must carry the port the link
+///   comes from. A member binds one socket for the whole call, so its real addresses all share
+///   that port, and hints are only used in Local only calls, where no NAT changes it. Without
+///   this, a member could point every other member at any service on the LAN.
+/// - Local scope hints on a privileged port (below 1024) are dropped, so a member that bound
+///   such a port cannot aim other members at well-known services (DNS, SNMP) on the LAN.
+///
 /// Loopback and documentation addresses are dropped. Too many drops the whole update.
 pub(crate) fn member_hints(
     addrs: Vec<SocketAddr>,
@@ -101,7 +108,8 @@ pub(crate) fn member_hints(
         if ip.is_loopback() || documentation {
             continue;
         }
-        if local_scope || ip == seen {
+        let own_port = addr.port() == observed.port() && addr.port() >= 1024;
+        if ip == seen || (local_scope && own_port) {
             result.push(addr);
         }
     }

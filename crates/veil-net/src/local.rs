@@ -1,8 +1,9 @@
 //! Interface discovery and the Local only boundary. No route probe or network request.
 //!
 //! A private-looking address alone is insufficient: it must belong to a connected subnet.
-//! Point-to-point interfaces and zero-length prefixes are excluded. Bridged/TAP adapters can
-//! still represent a connected subnet; this is an on-link IP boundary, not a physical-distance
+//! Point-to-point interfaces, short prefixes and virtual or overlay networks (VPNs, ZeroTier,
+//! Tailscale, VM and container switches, matched by name) are excluded. A bridge that carries
+//! the real LAN still counts; this is an on-link IP boundary, not a physical-distance
 //! guarantee. The boundary also wraps the actual QUIC UDP
 //! socket, covering replies and migration as well as initial dials.
 
@@ -17,12 +18,54 @@ use quinn::udp::{RecvMeta, Transmit};
 use quinn::{AsyncUdpSocket, UdpPoller};
 
 /// The system's current usable interfaces; failure is deliberately closed (loopback only).
+/// Virtual networks ([`is_virtual`]) are left out, so Local only, address hints and nearby
+/// discovery stay on the networks a person can see around them.
 fn interfaces() -> Vec<Interface> {
     if_addrs::get_if_addrs()
         .unwrap_or_default()
         .into_iter()
-        .filter(|i| i.is_oper_up() && !i.is_p2p())
+        .filter(|i| i.is_oper_up() && !i.is_p2p() && !is_virtual(&i.name))
         .collect()
+}
+
+/// Parts of Windows' friendly adapter names that mark a virtual or overlay network.
+/// Hyper-V's own switches are named; an external switch (`vEthernet (External)`, which
+/// carries the real LAN once Hyper-V takes over the network card) is not.
+const VIRTUAL_NAME_PARTS: &[&str] = &[
+    "vethernet (default switch)",
+    "vethernet (wsl",
+    "zerotier",
+    "tailscale",
+    "virtualbox",
+    "vmware",
+    "wireguard",
+    "openvpn",
+    "nordlynx",
+    "hamachi",
+    "radmin vpn",
+    "npcap",
+];
+
+/// Starts of Linux and macOS interface names for virtual or overlay networks. A plain bridge
+/// (`br0`, often the real LAN on a VM host) is kept; Docker's `br-<id>` bridges are not.
+const VIRTUAL_NAME_STARTS: &[&str] = &[
+    "zt", "tailscale", "docker", "br-", "veth", "virbr", "vboxnet", "vmnet", "vmenet", "wg",
+    "tun", "tap", "utun", "feth", "lxcbr", "lxdbr", "cni", "flannel", "podman", "bridge1",
+];
+
+/// Whether an interface name marks a virtual or overlay network (a VPN, ZeroTier, Tailscale,
+/// a VM or container switch) rather than one the device is physically on.
+///
+/// shortcut: matched by name, since no system reports "virtual" reliably (Hyper-V and
+/// ZeroTier adapters both report Ethernet). An unlisted or renamed adapter still counts as
+/// local. Upgrade by letting the person choose networks in Connection if that turns up.
+pub fn is_virtual(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    // Unix interface names have no spaces; Windows friendly names often do, and
+    // `vEthernet (External)` must not match Linux's `veth`.
+    let unix = !name.contains(char::is_whitespace);
+    VIRTUAL_NAME_PARTS.iter().any(|part| name.contains(part))
+        || (unix && VIRTUAL_NAME_STARTS.iter().any(|start| name.starts_with(start)))
 }
 
 /// All usable interface addresses at `port`, without needing a default route or DNS.
@@ -272,6 +315,34 @@ mod tests {
             assert!(!allowed(other.parse().unwrap(), &interfaces));
         }
     }
+    #[test]
+    fn virtual_and_overlay_networks_are_not_local() {
+        for name in [
+            "vEthernet (Default Switch)",
+            "vEthernet (WSL (Hyper-V firewall))",
+            "ZeroTier One [8056c2e21c000001]",
+            "Tailscale",
+            "VirtualBox Host-Only Network",
+            "VMware Network Adapter VMnet8",
+            "zt5u4y6ejv",
+            "tailscale0",
+            "docker0",
+            "br-3f2a9c1d",
+            "veth12ab",
+            "virbr0",
+            "wg0",
+            "utun3",
+            "bridge100",
+        ] {
+            assert!(is_virtual(name), "{name}");
+        }
+        for name in ["Wi-Fi", "Ethernet", "Ethernet 2", "vEthernet (External)", "wlan0",
+            "eth0", "enp3s0", "wlp2s0", "br0", "en0", "en1"]
+        {
+            assert!(!is_virtual(name), "{name}");
+        }
+    }
+
     #[test]
     fn zero_prefix_never_opens_the_internet() {
         assert!(!allowed(

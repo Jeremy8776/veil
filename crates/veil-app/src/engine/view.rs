@@ -90,6 +90,8 @@ pub struct View {
     pub lobby: Vec<Knocker>,
     pub router: RouterPort,
     pub reach: Reachable,
+    /// See `Call::server_down`.
+    pub server_down: bool,
 }
 
 /// Marks a picture key as someone's shared screen rather than their camera.
@@ -159,6 +161,7 @@ impl Shared {
                 lobby: Vec::new(),
                 router: RouterPort::Off,
                 reach: Reachable::Unknown,
+                server_down: false,
             }),
             pictures: Mutex::default(),
             heard: Mutex::default(),
@@ -315,6 +318,7 @@ pub fn apply(
     call.invite_until_end = view.invite_until_end;
     call.router.clone_from(&view.router);
     call.reach.clone_from(&view.reach);
+    call.server_down = view.server_down;
     call.epoch = view.epoch;
     call.group.clone_from(&view.group);
     call.participants.retain(|p| p.is_you);
@@ -411,6 +415,7 @@ mod tests {
             }],
             router: RouterPort::Off,
             reach: Reachable::Unknown,
+            server_down: false,
         }
     }
 
