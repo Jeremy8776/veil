@@ -307,21 +307,33 @@ fn connection_section(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
 /// For a host: whether guests can reach you, and the button that lets them.
 fn firewall(app: &VeilApp, ui: &mut egui::Ui) {
     let state = app.firewall.state();
-    let (note, button, profile) = match &state {
+    // The button needs the kind of network a rule is for. A failed check never guesses it: a
+    // Private rule clicked on a Public network would change nothing and keep failing.
+    let (note, profile) = match &state {
         State::Unknown | State::Allowed => return,
-        State::Checking => ("Checking your firewall…", false, Profile::Private),
-        State::Asking => ("Confirm in the Windows prompt", false, Profile::Private),
-        State::Blocked(Profile::Public) => ("This network is set to Public", true, Profile::Public),
-        State::Blocked(profile) => ("Your firewall may block guests", true, *profile),
-        State::Failed(_) => ("Could not allow Veil", true, Profile::Private),
+        State::Checking => ("Checking your firewall…", None),
+        State::Asking => ("Confirm in the Windows prompt", None),
+        State::Blocked(Profile::Public) => ("This network is set to Public", Some(Profile::Public)),
+        State::Blocked(profile) => ("Your firewall may block guests", Some(*profile)),
+        State::Failed(_) => ("Could not allow Veil", app.firewall.profile()),
     };
+    let warn = matches!(state, State::Blocked(_) | State::Failed(_));
     ui.add_space(8.0);
-    let colour = if button { theme::WARN } else { MUTED };
+    let colour = if warn { theme::WARN } else { MUTED };
     let label = ui.label(RichText::new(note).small().color(colour));
-    if let State::Failed(why) = app.firewall.state() {
-        label.on_hover_text(why);
+    if let State::Failed(why) = &state {
+        let help = if profile.is_some() {
+            why.clone()
+        } else {
+            format!(
+                "{why}. Veil could not tell which kind of network this is. In Windows \
+                 Defender Firewall, allow inbound UDP for Veil on the network type shown in \
+                 Windows Settings > Network."
+            )
+        };
+        label.on_hover_text(help);
     }
-    if button {
+    if let Some(profile) = profile {
         let (text, tip) = if profile == Profile::Public {
             (
                 "Allow on Public networks",

@@ -338,7 +338,9 @@ fn serve(
         let mut serving = JoinSet::new();
         let mut sources = std::collections::HashMap::new();
         let mut served = 0;
-        while let Some(Ok(link)) = node.accept().await {
+        // One failed accept must not end the service while the beacon and code stay up.
+        while let Some(accepted) = node.accept().await {
+            let Ok(link) = accepted else { continue };
             while serving.try_join_next().is_some() {}
             let source = link.remote_addr().ip().to_canonical();
             if !admit_source(&mut sources, &mut served, source, std::time::Instant::now()) {

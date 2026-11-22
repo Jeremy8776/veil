@@ -79,17 +79,26 @@ impl Profile {
 #[derive(Clone)]
 pub struct Firewall {
     state: Arc<Mutex<State>>,
+    /// The kind of network the last successful check found blocked. A failed check or change
+    /// keeps it, so a retry asks for the same kind instead of guessing.
+    profile: Arc<Mutex<Option<Profile>>>,
 }
 
 impl Firewall {
     pub fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(State::Unknown)),
+            profile: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn state(&self) -> State {
         lock(&self.state).clone()
+    }
+
+    /// The kind of network a rule is needed for, if a check has found it.
+    pub fn profile(&self) -> Option<Profile> {
+        *lock(&self.profile)
     }
 
     /// Looks for a rule, unless a check or change is already running.
@@ -129,8 +138,21 @@ impl Firewall {
     }
 
     fn finish(&self, state: State, ctx: &egui::Context) {
+        let mut profile = lock(&self.profile);
+        *profile = remember(*profile, &state);
+        drop(profile);
         *lock(&self.state) = state;
         ctx.request_repaint();
+    }
+}
+
+/// The profile to keep after `state`: a blocked check names it, an allowed one clears it,
+/// and anything else (a failure, a check still running) keeps the last one known.
+fn remember(last: Option<Profile>, state: &State) -> Option<Profile> {
+    match state {
+        State::Blocked(profile) => Some(*profile),
+        State::Allowed => None,
+        _ => last,
     }
 }
 
@@ -342,6 +364,15 @@ mod tests {
         assert_eq!(parse_check("0\n"), None);
         assert_eq!(parse_check("everywhere 1"), None);
         assert_eq!(parse_check("nothing"), None);
+    }
+
+    #[test]
+    fn a_failure_keeps_the_last_known_network_kind() {
+        let public = Some(Profile::Public);
+        assert_eq!(remember(None, &State::Blocked(Profile::Public)), public);
+        assert_eq!(remember(public, &State::Failed(String::from("declined"))), public);
+        assert_eq!(remember(None, &State::Failed(String::from("no PowerShell"))), None);
+        assert_eq!(remember(public, &State::Allowed), None);
     }
 
     #[test]
