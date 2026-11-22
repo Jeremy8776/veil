@@ -77,6 +77,15 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
             if let Some(error) = &app.home_error {
                 ui.label(RichText::new(error).color(theme::DANGER_HOVER));
             }
+            let keys = app.keys.clone();
+            let verified = move |key: &veil_security::PublicId| {
+                keys.lock().is_ok_and(|keys| keys.is_verified(key))
+            };
+            if let Some(invite) = app.nearby.ui(ui, verified) {
+                app.joining = Some(invite);
+                app.demo = false;
+                start(app, false);
+            }
         });
         ui.add_space(16.0);
         crate::screens::home_tools::show(app, ui, COLUMN);
@@ -173,6 +182,7 @@ pub(crate) fn start(app: &mut VeilApp, host: bool) {
         return;
     }
     app.home_error = None;
+    app.nearby.stop();
     app.go_pre_join(host);
 }
 

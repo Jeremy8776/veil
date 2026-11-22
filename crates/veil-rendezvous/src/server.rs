@@ -41,12 +41,12 @@ use veil_security::PublicId;
 
 use crate::invites::{MAX_FETCHES_PER_LINK, Shelf};
 use crate::limit::{Bucket, FairShare, TOTAL_RATE};
+use crate::protocol::{
+    Ask, ClientMsg, MAX_ADDRS, MAX_PASSES, Refusal, STREAM_HEADER, ServerMsg, parse_stream_header,
+    split_session,
+};
 use crate::reach::{self, LinkChecks};
 use crate::room::{Member, Room, RoomKey};
-use crate::protocol::{
-    Ask, ClientMsg, MAX_ADDRS, MAX_PASSES, Refusal, STREAM_HEADER, ServerMsg,
-    parse_stream_header, split_session,
-};
 use crate::sessions::{End, Sessions};
 pub use crate::sessions::{
     MAX_SESSIONS, MAX_SESSIONS_PER_BLOCK, MAX_SESSIONS_PER_MEMBER, SESSION_IDLE,
@@ -105,7 +105,8 @@ impl State {
     /// Drops `key`'s relay sessions and requests.
     fn forget(&mut self, key: PublicId) {
         self.sessions.forget(key);
-        self.requests.retain(|(from, to, _), _| *from != key && *to != key);
+        self.requests
+            .retain(|(from, to, _), _| *from != key && *to != key);
     }
 }
 
@@ -126,6 +127,8 @@ pub struct RendezvousServer {
 
 impl RendezvousServer {
     pub fn new(node: Node) -> Self {
+        // Short invite links are fetched by guests who cannot know this server's key.
+        node.admit_strangers();
         Self {
             node,
             state: Shared::default(),
@@ -186,13 +189,38 @@ impl RendezvousServer {
         self.node.local_addr()
     }
 
-    /// Serves until the node is closed.
+    /// Serves until the node is closed. Cancelling this future closes its endpoint and all
+    /// member handlers, so a restart cannot leave old registrations or relay sessions alive.
     pub async fn run(self) {
-        while let Some(incoming) = self.node.accept().await {
-            if let Ok(link) = incoming {
-                let (state, checks) = (self.state.clone(), self.checks.clone());
-                tokio::spawn(serve(link, state, checks, self.unregistered_wait));
+        let mut members = tokio::task::JoinSet::new();
+        loop {
+            tokio::select! {
+                incoming = self.node.accept() => match incoming {
+                    Some(Ok(link)) => {
+                        let (state, checks) = (self.state.clone(), self.checks.clone());
+                        members.spawn(serve(link, state, checks, self.unregistered_wait));
+                    }
+                    Some(Err(_)) => {}
+                    None => break,
+                },
+                _ = members.join_next(), if !members.is_empty() => {}
             }
+        }
+    }
+}
+
+impl Drop for RendezvousServer {
+    fn drop(&mut self) {
+        self.node.close();
+    }
+}
+
+/// Aborting a member handler must also stop its writer and packet workers.
+struct LinkTasks(Vec<tokio::task::AbortHandle>);
+impl Drop for LinkTasks {
+    fn drop(&mut self) {
+        for task in &self.0 {
+            task.abort();
         }
     }
 }
@@ -213,8 +241,18 @@ async fn serve(link: Link, state: Shared, checks: Arc<Semaphore>, unregistered_w
     let me = link.peer();
     let conn = link.quic().clone();
     let buckets = Buckets::default();
-    let datagrams = tokio::spawn(forward_datagrams(conn.clone(), me, state.clone(), buckets.clone()));
+    let datagrams = tokio::spawn(forward_datagrams(
+        conn.clone(),
+        me,
+        state.clone(),
+        buckets.clone(),
+    ));
     let streams = tokio::spawn(forward_streams(conn, me, state.clone(), buckets));
+    let _workers = LinkTasks(vec![
+        writer.abort_handle(),
+        datagrams.abort_handle(),
+        streams.abort_handle(),
+    ]);
 
     let mut room: Option<RoomKey> = None;
     let mut mine = LinkChecks::default();
@@ -333,7 +371,9 @@ fn handle(
             }
             // A key on the allow list needs no pass, and keeps none it might have shown.
             let pass = pass.filter(|_| !is_host && !r.allowed.contains(&me));
-            if !r.entitled(host, me, pass.as_ref()) || pass.as_ref().is_some_and(|p| r.pass_taken(p)) {
+            if !r.entitled(host, me, pass.as_ref())
+                || pass.as_ref().is_some_and(|p| r.pass_taken(p))
+            {
                 return refuse(Refusal::NotAllowed);
             }
             if r.members.len() >= MAX_MEMBERS_PER_ROOM {
@@ -363,7 +403,11 @@ fn handle(
         // Taken by `serve` before it gets here.
         ClientMsg::CheckReach { .. } => Vec::new(),
 
-        ClientMsg::PutInvite { room_tag, id, sealed } => {
+        ClientMsg::PutInvite {
+            room_tag,
+            id,
+            sealed,
+        } => {
             // The key is part of the room's name, so this finds only a room `me` hosts.
             let key = (room_tag, me);
             if !s.rooms.contains_key(&key) {
@@ -420,7 +464,9 @@ fn ask(
     if kind == Ask::Relay && s.relay_disabled {
         return refuse(Refusal::RelayDisabled);
     }
-    let Some(r) = room.and_then(|key| s.rooms.get(&key)).filter(|r| r.members.contains_key(&me))
+    let Some(r) = room
+        .and_then(|key| s.rooms.get(&key))
+        .filter(|r| r.members.contains_key(&me))
     else {
         return refuse(Refusal::NotRegistered);
     };
@@ -431,7 +477,8 @@ fn ask(
     // Every check below depends on the asker alone, and a request to an absent key is
     // recorded like any other, so no reply or limit tells the asker whether `peer` is here.
     let now = Instant::now();
-    s.requests.retain(|_, at| now.duration_since(*at) < REQUEST_TTL);
+    s.requests
+        .retain(|_, at| now.duration_since(*at) < REQUEST_TTL);
     let mine = s.requests.keys().filter(|(from, ..)| *from == me).count();
     if mine >= MAX_REQUESTS_PER_MEMBER {
         return refuse(Refusal::Full);
@@ -442,7 +489,9 @@ fn ask(
     s.requests.insert((me, peer, kind), now);
     // An absent key gets no request and the asker no answer: the same as a member that
     // declines by staying silent.
-    their_box.map_or_else(Vec::new, |to| vec![(to, ServerMsg::Request { from: me, kind })])
+    their_box.map_or_else(Vec::new, |to| {
+        vec![(to, ServerMsg::Request { from: me, kind })]
+    })
 }
 
 /// `me` agrees to `from`'s request: now the introduction or relay session goes ahead.
@@ -510,8 +559,20 @@ fn accept(
                 return vec![(asker_box, ServerMsg::Refused(Refusal::Full))];
             };
             vec![
-                (asker_box, ServerMsg::RelayReady { session: id, peer: me }),
-                (my_box, ServerMsg::RelayReady { session: id, peer: from }),
+                (
+                    asker_box,
+                    ServerMsg::RelayReady {
+                        session: id,
+                        peer: me,
+                    },
+                ),
+                (
+                    my_box,
+                    ServerMsg::RelayReady {
+                        session: id,
+                        peer: from,
+                    },
+                ),
             ]
         }
     }
@@ -540,7 +601,9 @@ fn within_limit(buckets: &Buckets, session: u32, bytes: usize) -> bool {
         return false;
     };
     map.retain(|_, b| !b.idle(now));
-    map.entry(session).or_insert_with(|| Bucket::new(now)).take(bytes, now)
+    map.entry(session)
+        .or_insert_with(|| Bucket::new(now))
+        .take(bytes, now)
 }
 
 async fn forward_datagrams(conn: quinn::Connection, me: PublicId, state: Shared, buckets: Buckets) {

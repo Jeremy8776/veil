@@ -31,15 +31,15 @@ use veil_call::{
 };
 use veil_forward::Wanted;
 use veil_media::{AudioHeader, AudioSettings, OpusEncoder};
-use veil_security::{Identity, PublicId};
 use veil_security::frame::{FrameSender, frame_layer};
 use veil_security::group_code::group_number;
 use veil_security::safety::{safety_number, side};
+use veil_security::{Identity, PublicId};
 
 use super::audio_out::AudioIn;
+use super::auto_step::AutoStep;
 use super::names::{Announcer, Names};
 use super::screen_proof;
-use super::auto_step::AutoStep;
 use super::stats::{Sampler, link_path};
 use super::video_in::VideoIn;
 use super::video_out::{Encoded, VideoControl};
@@ -209,6 +209,16 @@ impl Session {
     }
 
     /// Links up with the members this epoch's plan names.
+    pub fn reconnecting(&self, recovering: bool) {
+        self.shared.update(|view| {
+            view.status = if recovering {
+                crate::model::CallStatus::Reconnecting
+            } else {
+                crate::model::CallStatus::Live
+            }
+        });
+    }
+
     pub async fn on_routes(&mut self, routes: Routes) {
         let started = Instant::now();
         for (peer, e) in self.media.apply(routes).await {
@@ -346,9 +356,12 @@ impl Session {
         let links = self.media.link_stats();
         let decoded = self.shared.decoded();
         let others = &self.others;
-        let person = |device: &PublicId| others.iter().find(|(_, d)| d == device).map(|(id, _)| *id);
+        let person =
+            |device: &PublicId| others.iter().find(|(_, d)| d == device).map(|(id, _)| *id);
         let stats = self.sampler.sample(links, &decoded, person, Instant::now());
-        self.pipes.data.set_auto_saving(self.auto.update(&stats.links));
+        self.pipes
+            .data
+            .set_auto_saving(self.auto.update(&stats.links));
         self.shared.set_stats(stats);
     }
 
@@ -362,8 +375,13 @@ impl Session {
         let signed;
         let payload = if screen_proof::is_screen(&encoded.payload) {
             let (binding, id) = (sender.binding(), sender.next_frame_id());
-            let proof =
-                screen_proof::sign(&self.identity, binding, &id, encoded.layer, &encoded.payload);
+            let proof = screen_proof::sign(
+                &self.identity,
+                binding,
+                &id,
+                encoded.layer,
+                &encoded.payload,
+            );
             let Some(proof) = proof else { return };
             signed = proof;
             signed.as_slice()
@@ -524,7 +542,8 @@ impl Session {
             }
             AppMessage::Chat(text) => self.shared.push_said(device, Said::Chat { id: None, text }),
             AppMessage::Post { id, text } => {
-                self.shared.push_said(device, Said::Chat { id: Some(id), text });
+                self.shared
+                    .push_said(device, Said::Chat { id: Some(id), text });
             }
             AppMessage::React { id, emoji, on } => {
                 self.shared.push_said(device, Said::React { id, emoji, on });

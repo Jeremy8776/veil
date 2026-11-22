@@ -38,7 +38,9 @@ Motto: **modular, agnostic, shared.**
 
 **Current implementation:** desktop participants, peer-hosted or self-hosted rendezvous,
 relay and one forwarder per room, local device keys and safety codes, and local policy.
-LAN mDNS, enterprise directories, identity attestations, signed organisation policy,
+Unreleased: opt-in nearby discovery uses a bounded IPv4 multicast protocol with temporary
+service keys; selecting a beacon fetches the signed full invite over local-only QUIC.
+Standard LAN mDNS, enterprise directories, identity attestations, signed organisation policy,
 recording and forwarder clusters/cascades are **planned**.
 
 ## 3. Bandwidth
@@ -115,8 +117,11 @@ choice, and why the design lets anyone supply one.
 8. **Congestion control (partial).** QUIC uses quinn's loss-based default. Auto reacts to bad
    links; delay-based transport control and measured recovery probes remain planned. Lost
    video recovers through keyframes; audio uses FEC and concealment.
-9. **Locality (built addresses, planned discovery).** Direct LAN addresses work today. mDNS
-   discovery is planned. The node you configure determines where fallback traffic goes.
+9. **Locality.** Unreleased interface enumeration includes IPv4, ULA and scoped IPv6 LAN
+   candidates without requiring an internet default route. Authenticated members report
+   updated addresses to the host. Nearby IPv4 multicast discovery is opt-in; mDNS remains
+   planned. Local only applies an on-link subnet policy to actual UDP sends and receives,
+   ignores internet configuration and avoids router mappings and update checks.
 10. **Graceful degradation (partial).** The planner can degrade a supplied layout. The desktop
     currently uses the two-step Auto policy above, rather than the full 4K-to-audio design.
 
@@ -263,8 +268,20 @@ IPv4 following after 250 ms. Forwarder connections currently have no relay fallb
 A missing media link is redialled on the session tick by the designated side, with waits
 of 1, 2, 4, 8 and then 16 seconds after failures. A result is adopted only while its target
 and ticket still match the plan and the session still wants the peer. A returned link
-refreshes subscriptions, keyframes and name/hand announcements. This repairs media links;
-losing the host's control link can still end membership and require a fresh invite.
+refreshes subscriptions, keyframes and name/hand announcements.
+
+Unreleased: an unexpected host-control interruption has a 20-second recovery window.
+The same transport identity can resume only while still in the current MLS roster; the
+host replays at most 64 retained commits and the latest plan. Deliberate departures and
+removal are immediate. Lost state, host restart, an expired recovery window or unavailable
+commit history still require fresh admission. This does not implement host handover.
+Rendezvous presence reconnects with exponential backoff and restores current permissions.
+
+Forwarded plans are preflighted by every member, including the host, without registering
+media connections on the forwarder. Only a unanimous response to the current request permits
+the switch; failed checks and timeouts preserve mesh routes. Media applies a forwarder join
+before discarding working links. Preflight is a reachability check at that instant, not a
+reservation or an availability guarantee for the rest of a call.
 
 ### Implementation boundaries
 

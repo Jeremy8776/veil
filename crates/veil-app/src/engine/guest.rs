@@ -42,9 +42,18 @@ pub async fn run(
     pipes: Pipes,
     mut commands: UnboundedReceiver<Command>,
 ) -> Result<(), String> {
+    let config = config.enforce_policy();
+    if let Some(why) = config.conflict() {
+        return Err(why.into());
+    }
     // A short link names where the invite is, so it is fetched before anything else.
     let invite = match link {
         InviteLink::Full(invite) => invite,
+        InviteLink::Short(_) if config.local_only => {
+            return Err(String::from(
+                "Local only needs the full invitation. Ask the host to use Copy full link or show its QR code.",
+            ));
+        }
         InviteLink::Short(short) => tokio::select! {
             fetched = fetch_invite(&short, invites::now_unix()) => {
                 fetched.map_err(|e| e.to_string())?
@@ -53,13 +62,26 @@ pub async fn run(
         },
     };
     // Dual-stack where the system allows it, so a host's IPv6 address is dialled first.
-    let node =
-        Node::bind_any(&identity, 0).map_err(|e| format!("Cannot open the network: {e}"))?;
+    let node = if config.local_only {
+        Node::bind_local(&identity, 0)
+    } else {
+        Node::bind_any(&identity, 0)
+    }
+    .map_err(|e| format!("Cannot open the network: {e}"))?;
+    // A rendezvous you chose is not swapped for the host's when it cannot be found: that
+    // node would see your address, which matters most with Hide my address. Local only has
+    // none configured (`enforce_policy`), so this never blocks a local call.
     let rendezvous = resolve(config.rendezvous.as_ref(), "rendezvous").await?;
     // Registering with the rendezvous and finding a path to the host can take half a minute
     // over the internet, so Leave is honoured throughout, not only in the lobby.
     let start = async {
         match rendezvous {
+            _ if config.local_only => {
+                // Full invite stays signed and unchanged; this override bypasses even an
+                // internet helper supplied inside it. Peer addresses arrive over the
+                // authenticated host connection after admission.
+                CallNode::for_invite_via(&identity, node, &invite, None).await
+            }
             // A configured rendezvous wins over the invite's, for networks the host's cannot
             // reach.
             Some(addr) => CallNode::for_invite_via(&identity, node, &invite, Some(addr)).await,
@@ -83,12 +105,26 @@ pub async fn run(
     };
     shared.update(|view| view.status = CallStatus::Live);
     let media = call.media().map_err(|e| e.to_string())?;
-    let mut session = Session::new(media, &identity, invite.host, your_name, shared.clone(), pipes);
+    let mut session = Session::new(
+        media,
+        &identity,
+        invite.host,
+        your_name,
+        shared.clone(),
+        pipes,
+    );
     let mut held = Held::default();
     loop {
         // What arrived during a link-up comes first, so nothing overtakes it.
         let flow = if let Some(event) = held.events.pop_front() {
-            on_event(event, &mut session, &mut member.events, &mut commands, &mut held).await?
+            on_event(
+                event,
+                &mut session,
+                &mut member.events,
+                &mut commands,
+                &mut held,
+            )
+            .await?
         } else if let Some(said) = held.chat.pop_front() {
             session.say(&said).await;
             Flow::Stay
@@ -146,9 +182,16 @@ struct Held {
 fn ending(event: &MemberEvent) -> Option<String> {
     match event {
         MemberEvent::Removed => Some("The host removed you from the call.".into()),
+        MemberEvent::ConnectionLost => {
+            Some("The connection to the host could not be restored. Join with a new invite.".into())
+        }
         MemberEvent::Failed(e) => Some(format!("The call failed: {e}")),
         MemberEvent::Closed => Some("The host ended the call.".into()),
-        MemberEvent::Keys(_) | MemberEvent::Routes(_) | MemberEvent::PlanRefused(_) => None,
+        MemberEvent::Keys(_)
+        | MemberEvent::Routes(_)
+        | MemberEvent::PlanRefused(_)
+        | MemberEvent::Reconnecting
+        | MemberEvent::Reconnected => None,
     }
 }
 
@@ -168,8 +211,13 @@ async fn on_event(
             return link_up(session.on_routes(routes), events, commands, held).await;
         }
         MemberEvent::PlanRefused(e) => crate::note!("refused the host's plan: {e}"),
+        MemberEvent::Reconnecting => session.reconnecting(true),
+        MemberEvent::Reconnected => session.reconnecting(false),
         // `ending` has already returned for these.
-        MemberEvent::Removed | MemberEvent::Closed | MemberEvent::Failed(_) => {}
+        MemberEvent::Removed
+        | MemberEvent::Closed
+        | MemberEvent::ConnectionLost
+        | MemberEvent::Failed(_) => {}
     }
     Ok(Flow::Stay)
 }
@@ -273,13 +321,19 @@ mod tests {
         let (event_tx, mut events, _command_tx, mut commands) = channels();
         event_tx.send(MemberEvent::Removed).unwrap();
         let result = link_up(pending(), &mut events, &mut commands, &mut Held::default()).await;
-        assert_eq!(result, Err("The host removed you from the call.".to_string()));
+        assert_eq!(
+            result,
+            Err("The host removed you from the call.".to_string())
+        );
     }
 
     #[tokio::test]
     async fn leaving_interrupts_a_link_up() {
         let (_event_tx, mut events, command_tx, mut commands) = channels();
-        command_tx.send(Command::Leave).map_err(|_| "closed").unwrap();
+        command_tx
+            .send(Command::Leave)
+            .map_err(|_| "closed")
+            .unwrap();
         let result = link_up(pending(), &mut events, &mut commands, &mut Held::default()).await;
         assert_eq!(result, Ok(Flow::Leave));
     }
@@ -287,8 +341,12 @@ mod tests {
     #[tokio::test]
     async fn other_arrivals_wait_in_order_until_the_link_up_ends() {
         let (event_tx, mut events, command_tx, mut commands) = channels();
-        event_tx.send(MemberEvent::PlanRefused(CallError::Closed)).unwrap();
-        event_tx.send(MemberEvent::PlanRefused(CallError::Timeout)).unwrap();
+        event_tx
+            .send(MemberEvent::PlanRefused(CallError::Closed))
+            .unwrap();
+        event_tx
+            .send(MemberEvent::PlanRefused(CallError::Timeout))
+            .unwrap();
         for text in ["first", "second"] {
             let chat = Command::Act(Action::Chat(1, text.into()));
             command_tx.send(chat).map_err(|_| "closed").unwrap();
@@ -306,7 +364,10 @@ mod tests {
         ));
         assert_eq!(
             held.chat,
-            [Action::Chat(1, "first".into()), Action::Chat(1, "second".into())]
+            [
+                Action::Chat(1, "first".into()),
+                Action::Chat(1, "second".into())
+            ]
         );
     }
 
@@ -316,7 +377,10 @@ mod tests {
         assert!(join_error(&CallError::Closed).starts_with("Could not reach the call"));
         let unreachable = CallError::Net(veil_net::NetError::Timeout);
         let text = join_error(&unreachable);
-        assert!(text.contains("press Allow guests"), "one space at the line join: {text}");
+        assert!(
+            text.contains("press Allow guests"),
+            "one space at the line join: {text}"
+        );
     }
 
     #[test]

@@ -44,6 +44,29 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
         ui.add_space(16.0);
         card().show(ui, |ui| {
             ui.set_width(WIDTH);
+            if ui.checkbox(&mut form.draft.local_only, "Local only").on_hover_text(
+                "Call only devices on connected local networks. Ignores internet servers and router port opening, and disables update checks. Use a full invitation. A request already in flight may finish; restart Veil for a clean local-only session.",
+            ).changed() {
+                form.saved = false;
+            }
+            let local = form.draft.local_only;
+            let nearby = ui.add_enabled(
+                local,
+                egui::Checkbox::new(&mut form.draft.nearby_discovery, "Discoverable nearby"),
+            );
+            if nearby.on_hover_text(
+                "Needs Local only. Devices on this network can find your call and ask for its invitation. The host still decides who may join.",
+            ).on_disabled_hover_text("Turn on Local only first: the invitation then names local addresses only.").changed() {
+                form.saved = false;
+            }
+            if local && form.draft.hide_address {
+                ui.label(
+                    RichText::new("Hide my address needs a relay. Turn it off to join with Local only.")
+                        .small()
+                        .color(theme::DANGER_HOVER),
+                );
+            }
+            ui.add_space(8.0);
             for field in Field::ALL {
                 let (label, hint, help) = text(field);
                 ui.label(RichText::new(label).color(MUTED))
@@ -93,6 +116,7 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
                 if pill(ui, None, "Save", Tone::Primary, half).clicked() {
                     match app.connection.save(form.draft.clone()) {
                         Ok(()) => {
+                            app.updates.set_network_allowed(!form.draft.local_only);
                             form.problems.clear();
                             form.saved = true;
                         }

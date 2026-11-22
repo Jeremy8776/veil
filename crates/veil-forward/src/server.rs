@@ -41,6 +41,7 @@
 //! shortcut: no forwarder-to-forwarder cascade yet; one forwarder serves a whole room.
 
 mod budget;
+mod fan_out;
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
@@ -48,19 +49,17 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use bytes::Bytes;
 use tokio::sync::mpsc;
 use veil_net::accept::block;
-use veil_net::control::MAX_APP_LEN;
 use veil_net::{FramedSend, Link, NetError, Node};
 use veil_security::PublicId;
-use veil_security::frame::frame_layer;
 
 use crate::protocol::{ClientMsg, Refusal, ServerMsg};
 use crate::subscribe::{Subscriptions, Wanted};
 use crate::ticket::RosterTicket;
-use budget::{Budgets, Reservation, reserve_all};
 pub use budget::QueueMonitor;
+use budget::{Budgets, Reservation};
+use fan_out::{fan_out_app, fan_out_audio, fan_out_video};
 
 /// Frames waiting for one receiver, counted in frames. The byte budget usually binds first.
 const VIDEO_QUEUE: usize = 256;
@@ -150,7 +149,9 @@ impl Room {
         self.members.retain(|device, member| {
             let keep = roster.contains(device);
             if !keep {
-                member.conn.close(quinn::VarInt::from_u32(1), b"not on the roster");
+                member
+                    .conn
+                    .close(quinn::VarInt::from_u32(1), b"not on the roster");
             }
             keep
         });
@@ -177,7 +178,9 @@ struct State {
 
 impl State {
     fn remove_room(&mut self, key: &RoomKey) {
-        let Some(room) = self.rooms.remove(key) else { return };
+        let Some(room) = self.rooms.remove(key) else {
+            return;
+        };
         if let Some(count) = self.blocks.get_mut(&room.owner) {
             *count = count.saturating_sub(1);
             if *count == 0 {
@@ -309,11 +312,64 @@ fn join(
     if room.members.len() >= limits.max_members_per_room {
         return Err(Refusal::RoomFull);
     }
-    let Joining { video, queued, source, conn, control } = joining;
+    let Joining {
+        video,
+        queued,
+        source,
+        conn,
+        control,
+    } = joining;
     let subs = Subscriptions::default();
-    room.members.insert(me, Member { id, video, queued, source, conn, control, subs });
+    room.members.insert(
+        me,
+        Member {
+            id,
+            video,
+            queued,
+            source,
+            conn,
+            control,
+            subs,
+        },
+    );
     room.recount();
     Ok((u16::try_from(room.members.len()).unwrap_or(u16::MAX), id))
+}
+
+/// A non-mutating admission snapshot. In particular a probe with a future epoch must not
+/// drop the old roster or take a slot from an active call while its replacement is tested.
+fn check_available(
+    state: &Shared,
+    limits: &Limits,
+    ticket: &RosterTicket,
+    me: PublicId,
+    source: IpAddr,
+) -> Result<(), Refusal> {
+    if !ticket.lists(&me) {
+        return Err(Refusal::NotListed);
+    }
+    if ticket.members.len() > limits.max_members_per_room {
+        return Err(Refusal::RoomFull);
+    }
+    let s = lock(state).ok_or(Refusal::Full)?;
+    match s.rooms.get(&(ticket.room_tag, ticket.host)) {
+        Some(room) => {
+            if ticket.epoch < room.epoch {
+                return Err(Refusal::StaleTicket);
+            }
+            if !room.members.contains_key(&me) && room.members.len() >= limits.max_members_per_room
+            {
+                return Err(Refusal::RoomFull);
+            }
+        }
+        None => {
+            let owned = s.blocks.get(&source).copied().unwrap_or(0);
+            if s.rooms.len() >= limits.max_rooms || owned >= limits.max_rooms_per_block {
+                return Err(Refusal::Full);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A member's newer ticket for its own room. Anything else is ignored.
@@ -360,23 +416,6 @@ fn request_keyframe(state: &Shared, key: &RoomKey, me: PublicId, id: u64, sender
     }
 }
 
-/// Passes a sealed app message from member `me` (this link `id`) to everyone else in the
-/// room. Too large, or from a replaced link, it is dropped; a full control queue drops it
-/// for that receiver only.
-fn fan_out_app(state: &Shared, key: &RoomKey, me: PublicId, id: u64, sealed: Vec<u8>) {
-    if sealed.len() > MAX_APP_LEN {
-        return;
-    }
-    let Some(s) = lock(state) else { return };
-    let Some(room) = s.rooms.get(key) else { return };
-    if !room.members.get(&me).is_some_and(|m| m.id == id) {
-        return;
-    }
-    for (_, member) in room.members.iter().filter(|(device, _)| **device != me) {
-        let _ = member.control.try_send(ServerMsg::App(sealed.clone()));
-    }
-}
-
 fn leave(state: &Shared, key: &RoomKey, me: PublicId, id: u64) {
     if let Some(mut s) = lock(state)
         && let Some(room) = s.rooms.get_mut(key)
@@ -393,15 +432,31 @@ fn leave(state: &Shared, key: &RoomKey, me: PublicId, id: u64) {
 
 /// Whether member `me` (this link `id`) has been alone in its room for `grace`. `None` once the
 /// member has left, so the watcher can stop.
-fn alone_too_long(state: &Shared, key: &RoomKey, me: PublicId, id: u64, grace: Duration) -> Option<bool> {
+fn alone_too_long(
+    state: &Shared,
+    key: &RoomKey,
+    me: PublicId,
+    id: u64,
+    grace: Duration,
+) -> Option<bool> {
     let s = lock(state)?;
     let room = s.rooms.get(key)?;
     room.members.get(&me).filter(|m| m.id == id)?;
-    Some(room.alone_since.is_some_and(|since| since.elapsed() >= grace))
+    Some(
+        room.alone_since
+            .is_some_and(|since| since.elapsed() >= grace),
+    )
 }
 
 /// Ends this member's link once it has been alone in its room for `limits.alone_grace`.
-async fn watch_alone(link: Arc<Link>, state: Shared, key: RoomKey, me: PublicId, id: u64, grace: Duration) {
+async fn watch_alone(
+    link: Arc<Link>,
+    state: Shared,
+    key: RoomKey,
+    me: PublicId,
+    id: u64,
+    grace: Duration,
+) {
     let step = (grace / 4).max(Duration::from_millis(50));
     loop {
         tokio::time::sleep(step).await;
@@ -416,39 +471,31 @@ async fn watch_alone(link: Arc<Link>, state: Shared, key: RoomKey, me: PublicId,
     }
 }
 
-/// Everyone in the room except the sender.
-fn others<T>(state: &Shared, key: &RoomKey, me: PublicId, pick: impl Fn(&Member) -> T) -> Vec<T> {
-    lock(state)
-        .and_then(|s| {
-            s.rooms.get(key).map(|room| {
-                room.members
-                    .iter()
-                    .filter(|(device, _)| **device != me)
-                    .map(|(_, m)| pick(m))
-                    .collect()
-            })
-        })
-        .unwrap_or_default()
-}
-
 async fn refuse(link: &Link, out: &mut FramedSend, refusal: Refusal) {
     let _ = out.send(&ServerMsg::Refused(refusal)).await;
     // Closing at once can discard the refusal in flight; let the member hang up first.
     let _ = tokio::time::timeout(REFUSAL_LINGER, link.quic().closed()).await;
 }
 
-async fn serve(link: Link, state: Shared, budgets: Arc<Budgets>, limits: Limits, hosts: Option<Arc<HashSet<PublicId>>>) {
+async fn serve(
+    link: Link,
+    state: Shared,
+    budgets: Arc<Budgets>,
+    limits: Limits,
+    hosts: Option<Arc<HashSet<PublicId>>>,
+) {
     let link = Arc::new(link);
     // A link that does not join promptly is dropped, so idle links cannot pile up.
     let joined = tokio::time::timeout(JOIN_WAIT, async {
         let (out, mut input) = link.accept_control().await.ok()?.split();
         match input.recv::<ClientMsg>().await.ok()? {
-            ClientMsg::Join { ticket } => Some((out, input, ticket)),
+            ClientMsg::Join { ticket } => Some((out, input, ticket, false)),
+            ClientMsg::Probe { ticket } => Some((out, input, ticket, true)),
             _ => None,
         }
     })
     .await;
-    let Ok(Some((mut out, mut input, ticket))) = joined else {
+    let Ok(Some((mut out, mut input, ticket, probe))) = joined else {
         return;
     };
     let Ok(ticket) = RosterTicket::open(&ticket) else {
@@ -461,6 +508,19 @@ async fn serve(link: Link, state: Shared, budgets: Arc<Budgets>, limits: Limits,
     }
     let key = (ticket.room_tag, ticket.host);
     let me = link.peer();
+    if probe {
+        let checked = check_available(&state, &limits, &ticket, me, block(link.remote_addr().ip()));
+        match checked {
+            Ok(()) => {
+                // Keep the response alive until its receiver closes the link. This branch
+                // never registers a member and never advances an existing room's epoch.
+                let _ = tokio::time::timeout(JOIN_WAIT, out.send(&ServerMsg::Available)).await;
+                let _ = tokio::time::timeout(REFUSAL_LINGER, link.quic().closed()).await;
+            }
+            Err(why) => refuse(&link, &mut out, why).await,
+        }
+        return;
+    }
     let (video_tx, mut video_rx) = mpsc::channel::<Frame>(VIDEO_QUEUE);
     let queued = Arc::new(AtomicUsize::new(0));
     let (control_tx, mut control_rx) = mpsc::channel::<ServerMsg>(CONTROL_QUEUE);
@@ -503,7 +563,12 @@ async fn serve(link: Link, state: Shared, budgets: Arc<Budgets>, limits: Limits,
                 // On timeout the send future is dropped; `send_frame` resets the frame's QUIC
                 // stream then, discarding its buffered bytes. The receiver sees one lost frame
                 // and later frames are unaffected, because each frame has a stream of its own.
-                match tokio::time::timeout(limits.send_deadline, link.send_frame(frame.id, &frame.sealed)).await {
+                match tokio::time::timeout(
+                    limits.send_deadline,
+                    link.send_frame(frame.id, &frame.sealed),
+                )
+                .await
+                {
                     Ok(Ok(())) | Err(_) => {}
                     Ok(Err(_)) => break,
                 }
@@ -527,7 +592,14 @@ async fn serve(link: Link, state: Shared, budgets: Arc<Budgets>, limits: Limits,
             }
         })
     };
-    let alone = tokio::spawn(watch_alone(link.clone(), state.clone(), key, me, id, limits.alone_grace));
+    let alone = tokio::spawn(watch_alone(
+        link.clone(),
+        state.clone(),
+        key,
+        me,
+        id,
+        limits.alone_grace,
+    ));
 
     // Reading control messages also detects the link closing.
     while let Ok(message) = input.recv::<ClientMsg>().await {
@@ -536,7 +608,7 @@ async fn serve(link: Link, state: Shared, budgets: Arc<Budgets>, limits: Limits,
             ClientMsg::Subscribe(request) => subscribe(&state, &key, me, id, &request),
             ClientMsg::KeyframeRequest(sender) => request_keyframe(&state, &key, me, id, sender),
             ClientMsg::App(sealed) => fan_out_app(&state, &key, me, id, sealed),
-            ClientMsg::Join { .. } => {}
+            ClientMsg::Join { .. } | ClientMsg::Probe { .. } => {}
         }
     }
 
@@ -546,50 +618,4 @@ async fn serve(link: Link, state: Shared, budgets: Arc<Budgets>, limits: Limits,
     video.abort();
     audio.abort();
     alone.abort();
-}
-
-fn fan_out_video(
-    state: &Shared,
-    budgets: &Arc<Budgets>,
-    limits: &Limits,
-    key: &RoomKey,
-    me: PublicId,
-    frame_id: u32,
-    sealed: Vec<u8>,
-) {
-    let Ok(layer) = frame_layer(&sealed) else {
-        return;
-    };
-    let receivers: Vec<_> = lock(state)
-        .and_then(|mut s| {
-            s.rooms.get_mut(key).map(|room| {
-                room.members
-                    .iter_mut()
-                    .filter(|(device, _)| **device != me)
-                    .filter_map(|(_, m)| m.subs.pass(&me, layer).then(|| (m.video.clone(), m.queued.clone(), m.source)))
-                    .collect()
-            })
-        })
-        .unwrap_or_default();
-    let len = sealed.len();
-    let frame = Arc::new(sealed);
-    for (queue, queued, source) in receivers {
-        if let Some(reservation) = reserve_all(budgets, &queued, source, len, limits) {
-            // A full queue hands the frame back; dropping it releases the reservation.
-            let _ = queue.try_send(Frame {
-                id: frame_id,
-                sealed: frame.clone(),
-                enqueued: Instant::now(),
-                _reservation: reservation,
-            });
-        }
-    }
-}
-
-
-fn fan_out_audio(state: &Shared, key: &RoomKey, me: PublicId, packet: &Bytes) {
-    for conn in others(state, key, me, |m| m.conn.clone()) {
-        // Audio is loss tolerant: a full or too-small path drops the packet.
-        let _ = conn.send_datagram(packet.clone());
-    }
 }

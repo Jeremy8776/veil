@@ -116,12 +116,21 @@ impl CallNode {
             ..Consent::default()
         });
         let mut tasks = Tasks::default();
-        tasks.0.push(tokio::spawn(router.clone().accept_loop(node.clone())));
+        tasks
+            .0
+            .push(tokio::spawn(router.clone().accept_loop(node.clone())));
         let mut presence = None;
         let mut refusal = None;
         if let Some(server) = rendezvous {
-            match Presence::start(identity, node.clone(), &server, router, consent.clone(), seat)
-                .await
+            match Presence::start(
+                identity,
+                node.clone(),
+                &server,
+                router,
+                consent.clone(),
+                seat,
+            )
+            .await
             {
                 Ok((handle, task)) => {
                     presence = Some(handle);
@@ -180,6 +189,10 @@ impl CallNode {
         self.identity.public()
     }
 
+    pub(crate) fn redial_context(&self) -> (Arc<Node>, Option<Presence>, bool) {
+        (self.node.clone(), self.presence.clone(), self.relay_only)
+    }
+
     pub fn local_addr(&self) -> Result<SocketAddr, CallError> {
         Ok(self.node.local_addr()?)
     }
@@ -190,7 +203,7 @@ impl CallNode {
 
     /// True while registered with a rendezvous node.
     pub fn has_rendezvous(&self) -> bool {
-        self.presence.is_some()
+        self.presence.as_ref().is_some_and(Presence::is_connected)
     }
 
     /// Why the rendezvous refused this node at the start, if it answered with a refusal
@@ -213,7 +226,10 @@ impl CallNode {
 
     /// The media session for this call. There is one per node; a second call is refused.
     pub fn media(&mut self) -> Result<media::MediaSession, CallError> {
-        let inbox = self.media.take().ok_or(CallError::Protocol("one media session per node"))?;
+        let inbox = self
+            .media
+            .take()
+            .ok_or(CallError::Protocol("one media session per node"))?;
         Ok(media::MediaSession::new(
             self.node.clone(),
             self.identity.public(),
@@ -226,6 +242,20 @@ impl CallNode {
 
     /// Asks `server` to dial this node's public IP at `port` from outside, over a link of its
     /// own (`veil_rendezvous::reach`). Owns what it needs, so it can run on a task of its own.
+    /// Probes a proposed forwarder without replacing any existing media route.
+    pub fn probe_forwarder(
+        &self,
+        addr: NodeAddr,
+        ticket: Vec<u8>,
+    ) -> impl Future<Output = Result<(), CallError>> + Send + 'static {
+        let node = self.node.clone();
+        async move {
+            veil_forward::ForwarderClient::probe(&node, &[addr.addr], addr.key, &ticket)
+                .await
+                .map_err(CallError::Forward)
+        }
+    }
+
     pub fn check_reach(
         &self,
         server: NodeAddr,
@@ -271,7 +301,14 @@ impl CallNode {
         peer: PublicId,
         addrs: &[SocketAddr],
     ) -> Result<Dialled, CallError> {
-        dial(&self.node, self.presence.as_ref(), peer, addrs, self.relay_only).await
+        dial(
+            &self.node,
+            self.presence.as_ref(),
+            peer,
+            addrs,
+            self.relay_only,
+        )
+        .await
     }
 }
 

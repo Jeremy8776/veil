@@ -3,14 +3,17 @@
 //! Each side presents its device key as a 44-byte SubjectPublicKeyInfo instead of a
 //! certificate. Parsing is an exact match on that fixed encoding, so there is no X.509 parser
 //! to attack. Handshake signatures are checked with the key that was presented, and the
-//! dialler additionally requires that key to be the one it expected.
+//! dialler additionally requires that key to be the one it expected. The listener presents its
+//! key only after a valid knock (`knock.rs`), unless the node is marked open.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
+use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
 use rustls::{
     CertificateError, DigitallySignedStruct, DistinguishedName, Error, SignatureScheme,
@@ -18,7 +21,7 @@ use rustls::{
 use veil_security::{Identity, PublicId};
 use zeroize::Zeroizing;
 
-use crate::NetError;
+use crate::{NetError, knock};
 
 pub const ALPN: &[u8] = b"veil/1";
 
@@ -238,35 +241,66 @@ impl ClientCertVerifier for AnyDeviceKey {
     }
 }
 
-pub(crate) fn server_config(key: Arc<CertifiedKey>) -> Result<QuicServerConfig, NetError> {
+/// Listener side: shows the device key only to a dialler whose ClientHello carries a valid
+/// knock for it (`knock.rs`), or to anyone once `open` is set. Returning no key aborts the
+/// handshake before the server's key is sent.
+#[derive(Debug)]
+struct Door {
+    key: Arc<CertifiedKey>,
+    id: PublicId,
+    open: Arc<AtomicBool>,
+}
+
+impl ResolvesServerCert for Door {
+    fn resolve(&self, hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+        let knocked = || {
+            hello
+                .alpn()
+                .is_some_and(|mut entries| entries.any(|e| knock::valid(&self.id, e)))
+        };
+        (self.open.load(Ordering::Acquire) || knocked()).then(|| self.key.clone())
+    }
+
+    fn only_raw_public_keys(&self) -> bool {
+        true
+    }
+}
+
+pub(crate) fn server_config(
+    key: Arc<CertifiedKey>,
+    id: PublicId,
+    open: Arc<AtomicBool>,
+) -> Result<QuicServerConfig, NetError> {
     let mut config = rustls::ServerConfig::builder_with_provider(provider())
         .with_protocol_versions(&[&rustls::version::TLS13])
         .map_err(|e| NetError::Config(e.to_string()))?
         .with_client_cert_verifier(Arc::new(AnyDeviceKey))
-        .with_cert_resolver(Arc::new(
-            rustls::server::AlwaysResolvesServerRawPublicKeys::new(key),
-        ));
+        .with_cert_resolver(Arc::new(Door { key, id, open }));
     config.alpn_protocols = vec![ALPN.to_vec()];
     QuicServerConfig::try_from(config).map_err(|e| NetError::Config(e.to_string()))
 }
 
+/// A fresh config per dial: each carries its own knock nonce.
 pub(crate) fn client_config(
     key: Arc<CertifiedKey>,
     expected: PublicId,
 ) -> Result<QuicClientConfig, NetError> {
-    client_with(key, Arc::new(PinnedPeer { expected }))
+    let knock = knock::make(&expected)?;
+    client_with(key, Arc::new(PinnedPeer { expected }), Some(knock))
 }
 
-/// For [`crate::Node::connect_unverified`] only.
+/// For [`crate::Node::connect_unverified`] only. No knock: the dialler does not know the key,
+/// so only nodes marked open answer it.
 pub(crate) fn unverified_client_config(
     key: Arc<CertifiedKey>,
 ) -> Result<QuicClientConfig, NetError> {
-    client_with(key, Arc::new(AnyServerKey))
+    client_with(key, Arc::new(AnyServerKey), None)
 }
 
 fn client_with(
     key: Arc<CertifiedKey>,
     verifier: Arc<dyn ServerCertVerifier>,
+    knock: Option<Vec<u8>>,
 ) -> Result<QuicClientConfig, NetError> {
     let mut config = rustls::ClientConfig::builder_with_provider(provider())
         .with_protocol_versions(&[&rustls::version::TLS13])
@@ -277,6 +311,7 @@ fn client_with(
             rustls::client::AlwaysResolvesClientRawPublicKeys::new(key),
         ));
     config.alpn_protocols = vec![ALPN.to_vec()];
+    config.alpn_protocols.extend(knock);
     QuicClientConfig::try_from(config).map_err(|e| NetError::Config(e.to_string()))
 }
 

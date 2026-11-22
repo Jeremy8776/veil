@@ -16,6 +16,7 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 | Per-frame encryption with a layer marker | Signed organisation policy, OIDC or SAML identity |
 | QUIC links pinned to device keys | Metrics export (OpenTelemetry) |
 | Rendezvous, hole punching, relay | Compliance recording, federation, gateways |
+| Unreleased: Local only mode, opt-in IPv4 nearby discovery, full-invite QR display, bounded control/helper recovery | QR camera decoding, host handover, automatic fallback after an active forwarder outage |
 | Forwarder with layer subscriptions | Padding against size analysis |
 | `veil-node`, `veil-probe` | An independent security audit |
 | The desktop app in a real call: host, lobby, guest, video and sound both ways, names and chat | |
@@ -26,6 +27,54 @@ Veil is early and unaudited. Do not trust it with anything that matters yet.
 [SECURITY.md](../SECURITY.md).
 
 ## 2. What other parties can see
+
+**Unreleased local networking additions.** Saved **Local only** mode prevents call sockets
+from sending to or receiving from addresses outside loopback and directly connected
+non-point-to-point subnets, including replies and migrated paths. It ignores configured
+internet helpers, public address overrides and router port opening; update requests are
+disabled. Enable it, save and restart for a session without any earlier in-flight request.
+Virtual or bridged interfaces can belong to these subnets: this is not proof of physical
+proximity. The mode does not configure or restrict other applications on the computer.
+
+Nearby discovery is off by default and only runs with Local only on, so the invitation it
+hands out names local addresses only. The host's screen shows a six-digit nearby code, and
+the invitation is sent only to a device that gives that code. A wrong code gets the same
+answer as a closed call. Each device can try once every 10 seconds, and the host answers
+at most 64 tries per call, so a stranger has at most 64 guesses at a million codes; using
+up those tries can stop nearby discovery for that call, but not the full link or QR. An advertising host broadcasts a temporary service
+key and port on IPv4 multicast, revealing that Veil is offering a call on that network.
+It broadcasts no display name, permanent device key or invitation. Selecting a result
+fetches the full signed invitation, after the code is typed, over encrypted, key-pinned
+local QUIC using a throwaway client identity. The fetched invitation identifies the host and its addresses. QR display
+encodes that same full invitation on the device; anyone who can read it holds the invite.
+There is no built-in camera decoder. Discovery is currently a Veil-specific protocol,
+not mDNS, and may fail on networks that block multicast or communication between clients.
+
+In a Local only call, and outside relay-only mode, authenticated members report local
+scope interface addresses (private and link-local IPv4, unique local and link-local IPv6)
+to the host. In any other call members report none, and the host ignores any it gets:
+those members may be across the internet, and a full address list fingerprints a machine
+(a link-local IPv6 address can carry the network card's MAC address). The host keeps
+a public address only when it is the one the member's link comes from, and passes the hints
+to other current members in signed mesh plans. Members on the same network can therefore
+see each other's local addresses, including virtual adapters in those ranges. Invitations
+outside Local only list the configured, public IPv6 and main LAN address, as before.
+No company service or central directory is introduced by these changes. Host-control
+recovery retains only a bounded, in-memory commit journal; it does not persist call history.
+
+**Strangers who find a port.** While you host or join, Veil's call port is open, and with
+"Open a port on my router" on it is open to the internet. From 22/11/2026 a Veil call port
+shows its device key only to a dialler that proves, in its first packet, that it already knows
+that key (a "knock": a fresh random number and a hash of it with the key,
+`crates/veil-net/src/knock.rs`). Everyone who should reach you knows it already, from the
+invite, the roster or a nearby beacon. A port scanner does not, so its handshake is refused
+before your key is sent and it cannot follow your device from call to call. It can still see
+that something answers QUIC on that port. Rendezvous servers stay open to everyone, because
+short invite links are fetched by guests who do not know the server's key; the one the app
+runs for a call has a throwaway key of its own. Known limit: someone who watches a real dial
+on the wire (your network, your ISP) can copy its knock and learn the key; there is no replay
+protection yet. Copies from before 22/11/2026 send no knock, so they cannot reach copies from
+this date on: everyone in a call needs the newer version.
 
 Media, display names and chat are encrypted on the sender's device and opened only on
 members' devices. Relays, forwarders and rendezvous nodes never hold these keys. They can still
@@ -254,13 +303,18 @@ code are from the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113
 
 **Your firewall.** The Windows MSI adds the rule below for the installed `veil-app.exe` when
 you install it (you confirm Windows' prompt for the install), and removes it when you
-uninstall. On Windows, before you host, the app reads the firewall rules (PowerShell,
-`Get-NetFirewallApplicationFilter`, read only) to see whether guests can reach it. If not, it
-shows an "Allow guests" button. Only that button changes anything: it runs
+uninstall. That rule covers **Private networks only**. On Windows, before you host, the app
+reads which kind of network you are on (`Get-NetConnectionProfile`) and the firewall rules
+(`Get-NetFirewallApplicationFilter`), both read only, to see whether guests can reach it on
+this kind of network. If not, it shows a button. Only that button changes anything: it runs
 `netsh advfirewall firewall add rule name="Veil"` through Windows' administrator prompt, which
-you confirm or decline. The rule allows inbound UDP to this `veil-app.exe` only, on Private and
-Public networks. Remove it in Windows Defender Firewall (Inbound Rules, "Veil") at any time.
-The code is `crates/veil-app/src/firewall.rs`.
+you confirm or decline. The rule allows inbound UDP to this `veil-app.exe` only, on the kind of
+network you are on now. On a Public network (a café, a hotel, or any network Windows was not
+told is home) the button reads "Allow on Public networks", and its tooltip says that this lets
+anyone on any Public network try to reach Veil while you host, and that a home network is
+better set to Private in Windows Settings. Remove a rule in Windows Defender Firewall (Inbound
+Rules, "Veil") at any time. The code is `crates/veil-app/src/firewall.rs`.
+Before 22/11/2026 the MSI and the button covered Private and Public together.
 
 **Your router.** Off until you say yes: Veil asks once, before the first call you host, and
 the choice is under Settings > Connection ("Open a port on my router"). When it is on and you

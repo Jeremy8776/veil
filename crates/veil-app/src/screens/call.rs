@@ -109,7 +109,10 @@ impl CallView {
             crate::demo::tick(&mut self.call, now);
         }
         if let Some(engine) = &self.engine {
-            let was_live = self.call.status == CallStatus::Live;
+            let was_live = matches!(
+                self.call.status,
+                CallStatus::Live | CallStatus::Reconnecting
+            );
             for action in self.call.outbox.drain(..) {
                 engine.act(action);
             }
@@ -123,6 +126,7 @@ impl CallView {
             }
         }
         if matches!(self.call.status, CallStatus::Ended(_)) {
+            crate::invite_qr::clear(ui.ctx());
             return false;
         }
         if self.panel == Some(Panel::Chat) {
@@ -155,8 +159,14 @@ impl CallView {
             self.picker = Some(picker);
         }
         share_bar::show(app, ui.ctx());
+        if self.call.is_host && !self.call.demo {
+            crate::invite_qr::show(ui.ctx(), &self.call.invite_full);
+        }
         // The timer and the demo speakers move on their own.
         ui.ctx().request_repaint_after(Duration::from_millis(250));
+        if !stay {
+            crate::invite_qr::clear(ui.ctx());
+        }
         stay
     }
 
@@ -288,6 +298,7 @@ impl CallView {
                 Some(("Reaching the host. This can take up to 30 seconds.", MUTED))
             }
             CallStatus::Lobby => Some(("Waiting for the host to let you in.", MUTED)),
+            CallStatus::Reconnecting => Some(("Reconnecting to the host…", MUTED)),
             CallStatus::Live if alone && self.call.is_host => None,
             CallStatus::Live if alone => Some(("Connecting to the others…", MUTED)),
             CallStatus::Live | CallStatus::Ended(_) => None,

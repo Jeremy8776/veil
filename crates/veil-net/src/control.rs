@@ -17,7 +17,10 @@ pub const MAX_APP_LEN: usize = 16 * 1024;
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum Control {
     /// Joiner to host: the room and one-time token from the invite link.
-    Hello { room_id: [u8; 16], join_token: [u8; 16] },
+    Hello {
+        room_id: [u8; 16],
+        join_token: [u8; 16],
+    },
     /// Host to joiner: admitted from the lobby. Group keys follow separately.
     Admitted,
     /// Host to joiner: not admitted.
@@ -33,7 +36,9 @@ pub enum Control {
     Commit(Vec<u8>),
     /// Member to member, first message: this link carries the call's media. The receiver
     /// still checks that the link's pinned key belongs to a member.
-    Media { room_id: [u8; 16] },
+    Media {
+        room_id: [u8; 16],
+    },
     /// Host to members, after each epoch's commit: the signed layout for that epoch.
     Plan(Vec<u8>),
     /// Member to member on a media link: the receiver cannot decode the sender until its
@@ -42,6 +47,29 @@ pub enum Control {
     /// Member to member on a media link: an app message (a name or chat) sealed with the
     /// sender's frame key for this epoch. At most [`MAX_APP_LEN`] bytes.
     App(Vec<u8>),
+    /// Admitted member to host: refreshed direct candidates, over its authenticated link.
+    Addresses(Vec<std::net::SocketAddr>),
+    /// Host to member: test the signed proposed route before replacing the live route.
+    ProbePlan {
+        request: u64,
+        sealed: Vec<u8>,
+    },
+    /// Member to host: outcome for exactly that proposed plan.
+    PlanChecked {
+        request: u64,
+        ok: bool,
+    },
+    /// Existing member reconnects with its pinned identity and last applied MLS epoch.
+    Resume {
+        room_id: [u8; 16],
+        epoch: u64,
+    },
+    /// Host accepts recovery; commits through this epoch follow before the newest plan.
+    Resumed {
+        epoch: u64,
+    },
+    /// Host intentionally ends this call; clients must not attempt recovery.
+    Ended,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,7 +106,10 @@ pub fn decode<T: DeserializeOwned>(body: &[u8]) -> Result<T, NetError> {
     postcard::from_bytes(body).map_err(|_| NetError::Protocol("decode"))
 }
 
-pub async fn write<T: Serialize>(stream: &mut quinn::SendStream, message: &T) -> Result<(), NetError> {
+pub async fn write<T: Serialize>(
+    stream: &mut quinn::SendStream,
+    message: &T,
+) -> Result<(), NetError> {
     let bytes = encode(message)?;
     stream
         .write_all(&bytes)
