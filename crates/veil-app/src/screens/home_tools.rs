@@ -1,5 +1,5 @@
-//! The home screen's tools under the main card: demo call, connection, device key, logs and
-//! the update check, as a grid of framed buttons, then the version.
+//! The home screen's tools under the main card: connection, logs, device key, demo call and
+//! the update check, as a grid of framed buttons. The update switch also shows the version.
 //!
 //! Invariants:
 //! - "New device key" asks once before it replaces the key: the first click arms it (shown in
@@ -12,6 +12,7 @@ use eframe::egui::{
     StrokeKind, Ui, WidgetInfo, pos2, vec2,
 };
 
+use super::home::{HomeHelp, HomeHelpState, track_help};
 use crate::app::VeilApp;
 use crate::icons::Icon;
 use crate::theme::{ACCENT, LINE, MUTED, RADIUS, RAISED, SURFACE, TEXT, WARN};
@@ -19,77 +20,122 @@ use crate::theme::{ACCENT, LINE, MUTED, RADIUS, RAISED, SURFACE, TEXT, WARN};
 const HEIGHT: f32 = 40.0;
 const GAP: f32 = 8.0;
 
-/// The tools grid and the version line, `width` wide.
-pub fn show(app: &mut VeilApp, ui: &mut Ui, width: f32) {
-    let half = (width - GAP) / 2.0;
+/// The tools grid, `width` wide.
+pub(super) fn show(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHelpState) {
+    let wide = width >= 700.0;
+    let columns = if wide { 3.0 } else { 2.0 };
+    let cell = (width - GAP * (columns - 1.0)) / columns;
     let mut problem = None;
     ui.vertical(|ui| {
         ui.set_width(width);
         ui.spacing_mut().item_spacing = vec2(GAP, GAP);
         ui.horizontal(|ui| {
-            let demo = button(ui, Icon::Play, "Demo call", false, half)
-                .on_hover_text("Try the interface with simulated people. Nothing is sent.");
-            if demo.clicked() {
-                app.demo = true;
-                crate::screens::home::start(app, true);
-            }
-            let connection = button(ui, Icon::Signal, "Connection", false, half)
-                .on_hover_text("Your own servers and a fixed port, for calls across the internet.");
-            if connection.clicked() {
-                let form = crate::screens::connection::Form::new(&app.connection);
-                app.screen = crate::app::Screen::Connection(Box::new(form));
+            connection(app, ui, cell, help);
+            logs(app, ui, cell, help);
+            if wide {
+                problem = copy_device_key(app, ui, cell, help);
             }
         });
-        ui.horizontal(|ui| problem = device_key(app, ui, half));
         ui.horizontal(|ui| {
-            let logs = button(ui, Icon::Folder, "Logs", false, half).on_hover_text(
-                "Opens the folder with Veil's log files. If something goes wrong, send veil.log, \
-                 or veil.previous.log if Veil froze or closed. They hold states, timings and \
-                 errors: no names, chat or invite links.",
-            );
-            if logs.clicked() {
-                crate::log::open_folder();
-            }
-            let on = app.updates.enabled();
-            let toggle = switch(ui, Icon::Refresh, "Check for updates", on, half).on_hover_text(
-                "Asks GitHub once per start whether a newer Veil is out. GitHub sees your IP \
-                 address. Nothing is downloaded unless you choose Install.",
-            );
-            if toggle.clicked() {
-                app.updates.set_enabled(!on, ui.ctx());
+            if wide {
+                new_device_key(app, ui, cell, help);
+                demo(app, ui, cell, help);
+                updates(app, ui, cell, help);
+            } else {
+                problem = copy_device_key(app, ui, cell, help);
+                new_device_key(app, ui, cell, help);
             }
         });
+        if !wide {
+            ui.horizontal(|ui| {
+                demo(app, ui, cell, help);
+                updates(app, ui, cell, help);
+            });
+        }
     });
     if let Some(problem) = problem {
         ui.label(RichText::new(problem).small().color(WARN));
     }
-    ui.add_space(10.0);
-    let mut text = format!("Veil {}", crate::update::VERSION);
-    if app.updates.status() == crate::update::Status::UpToDate {
-        text.push_str(" · up to date");
-    }
-    ui.label(RichText::new(text).small().color(MUTED));
 }
 
-/// Copy the device key, and replace it after a second click. Returns any trouble saving it.
-fn device_key(app: &mut VeilApp, ui: &mut Ui, width: f32) -> Option<String> {
-    let (short, full, problem) = {
+fn demo(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHelpState) {
+    let response = button(ui, Icon::Play, "Demo call", false, width)
+        .on_hover_text("Try the interface with simulated people. Nothing is sent.");
+    track_help(&response, HomeHelp::Demo, help);
+    if response.clicked() {
+        app.demo = true;
+        super::home::start(app, true);
+    }
+}
+
+fn connection(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHelpState) {
+    let response = button(ui, Icon::Signal, "Connection", false, width)
+        .on_hover_text("Your own servers and a fixed port, for calls across the internet.");
+    track_help(&response, HomeHelp::Connection, help);
+    if response.clicked() {
+        let form = super::connection::Form::new(&app.connection);
+        app.screen = crate::app::Screen::Connection(Box::new(form));
+    }
+}
+
+fn logs(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHelpState) {
+    let response = button(ui, Icon::Folder, "Logs", false, width).on_hover_text(
+        "Opens the folder with Veil's log files. If something goes wrong, send veil.log, \
+         or veil.previous.log if Veil froze or closed. They hold states, timings and \
+         errors: no names, chat or invite links.",
+    );
+    track_help(&response, HomeHelp::Logs, help);
+    if response.clicked() {
+        if let Err(problem) = crate::log::open_folder() {
+            app.home_error = Some(problem);
+        }
+    }
+}
+
+fn updates(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHelpState) {
+    let on = app.updates.enabled();
+    let mut detail = format!("v{}", crate::update::VERSION);
+    if app.updates.status() == crate::update::Status::UpToDate {
+        detail.push_str(" · up to date");
+    }
+    let response = switch(ui, Icon::Refresh, "Check for updates", &detail, on, width)
+        .on_hover_text(
+            "Asks GitHub once per start whether a newer Veil is out. GitHub sees your IP \
+         address. Nothing is downloaded unless you choose Install.",
+        );
+    track_help(&response, HomeHelp::Updates, help);
+    if response.clicked() {
+        app.updates.set_enabled(!on, ui.ctx());
+    }
+}
+
+/// Copy the public device key. Returns any trouble saving the device key.
+fn copy_device_key(
+    app: &mut VeilApp,
+    ui: &mut Ui,
+    width: f32,
+    help: &mut HomeHelpState,
+) -> Option<String> {
+    let (full, problem) = {
         let keys = crate::media::lock(&app.keys);
         let public = keys.public();
-        (
-            crate::engine::short(&public),
-            veil_net::node_addr::key_text(&public),
-            keys.problem.clone(),
-        )
+        (veil_net::node_addr::key_text(&public), keys.problem.clone())
     };
     let copy = button(ui, Icon::Copy, "Copy device key", false, width).on_hover_text(
         "Puts this device's key on the clipboard. Send it to someone who runs a veil-node, \
          so they can let you host calls through it. It is public: it identifies this device, \
          and cannot be used to sign in as you.",
     );
+    track_help(&copy, HomeHelp::DeviceKey, help);
     if copy.clicked() {
         ui.ctx().copy_text(full);
     }
+    problem
+}
+
+/// Replace the device key only after the existing two-click confirmation.
+fn new_device_key(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHelpState) {
+    let short = crate::engine::short(&crate::media::lock(&app.keys).public());
     let armed = app.confirm_new_key;
     let label = if armed {
         "Confirm new key"
@@ -100,13 +146,13 @@ fn device_key(app: &mut VeilApp, ui: &mut Ui, width: f32) -> Option<String> {
         "This device is {short}. A new key means people who verified you see a new \
          device. Use it if you think your key was copied."
     ));
+    track_help(&renew, HomeHelp::NewKey, help);
     if renew.clicked() {
         if armed {
             crate::media::lock(&app.keys).renew();
         }
         app.confirm_new_key = !armed;
     }
-    problem
 }
 
 /// A framed button with an icon and a label. `warn` draws it in the warning colour.
@@ -122,12 +168,13 @@ fn button(ui: &mut Ui, icon: Icon, label: &str, warn: bool, width: f32) -> Respo
 
 /// A framed button with an icon, a label and an on/off switch at the right. The caller flips
 /// the setting on click.
-fn switch(ui: &mut Ui, icon: Icon, label: &str, on: bool, width: f32) -> Response {
+fn switch(ui: &mut Ui, icon: Icon, label: &str, detail: &str, on: bool, width: f32) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(width, HEIGHT), Sense::click());
-    response.widget_info(|| WidgetInfo::selected(Role::Switch, true, on, label));
+    response
+        .widget_info(|| WidgetInfo::selected(Role::Switch, true, on, format!("{label}, {detail}")));
     if ui.is_rect_visible(rect) {
         let (fg, icon_colour) = frame(ui, rect, &response, false);
-        label_with_icon(ui, rect, icon, label, fg, icon_colour);
+        label_with_icon(ui, rect, icon, detail, fg, icon_colour);
         let track =
             Rect::from_center_size(pos2(rect.right() - 26.0, rect.center().y), vec2(28.0, 16.0));
         let (fill, knob_x) = if on {
@@ -179,17 +226,23 @@ fn label_with_icon(
     icon_colour: Color32,
 ) {
     let painter = ui.painter();
+    let font = FontId::proportional(13.5);
+    let text_width = painter
+        .layout_no_wrap(label.to_owned(), font.clone(), fg)
+        .size()
+        .x;
+    let left = rect.center().x - (24.0 + text_width) / 2.0;
     icon.paint(
         painter,
-        pos2(rect.left() + 20.0, rect.center().y),
+        pos2(left + 7.5, rect.center().y),
         15.0,
         icon_colour,
     );
     painter.text(
-        pos2(rect.left() + 38.0, rect.center().y),
+        pos2(left + 24.0, rect.center().y),
         Align2::LEFT_CENTER,
         label,
-        FontId::proportional(13.5),
+        font,
         fg,
     );
 }

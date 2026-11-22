@@ -18,6 +18,41 @@ use crate::icons::Icon;
 use crate::media::LocalMedia;
 use crate::theme::{self, ACCENT, DANGER, MUTED, RADIUS, RAISED, RAISED_HOVER, TEXT};
 
+/// Collect control help in draw order, preferring pointer hover over keyboard focus.
+#[derive(Default)]
+pub struct HelpState<T> {
+    hovered: Option<T>,
+    focused: Option<T>,
+}
+
+impl<T: Copy + Default> HelpState<T> {
+    pub fn track(&mut self, response: &Response, topic: T) {
+        if response.hovered() {
+            self.hovered = Some(topic);
+        }
+        if response.has_focus() {
+            self.focused = Some(topic);
+        }
+    }
+
+    pub fn active(&self) -> T {
+        self.hovered.or(self.focused).unwrap_or_default()
+    }
+}
+
+/// A help card matching the adjacent form's measured height, with overflow scrolling.
+pub fn help_card(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui)) {
+    card().show(ui, |ui| {
+        ui.set_width(theme::HELP_WIDTH - 42.0);
+        let inner_height = (height - 42.0).max(0.0);
+        ui.set_height(inner_height);
+        egui::ScrollArea::vertical()
+            .max_height(inner_height)
+            .auto_shrink([false, false])
+            .show(ui, add);
+    });
+}
+
 /// How a call-bar button looks.
 #[derive(Clone, Copy, Default)]
 pub struct ControlState {
@@ -174,6 +209,66 @@ pub fn pill(ui: &mut Ui, icon: Option<Icon>, label: &str, tone: Tone, width: f32
         );
     }
     response
+}
+
+/// A settings row with a labelled switch. The whole row is clickable and keyboard focusable.
+pub fn toggle_row(ui: &mut Ui, value: &mut bool, label: &str, detail: &str) -> Response {
+    let width = ui.available_width();
+    // Reserve the switch's space on both sides so the text stays on the card's centre line.
+    let text_width = (width - 144.0).max(1.0);
+    let mut title_job =
+        egui::text::LayoutJob::simple(label.to_owned(), theme::bold(14.0), TEXT, text_width);
+    title_job.halign = egui::Align::Center;
+    let title = ui.painter().layout_job(title_job);
+    let mut detail_job = egui::text::LayoutJob::simple(
+        detail.to_owned(),
+        FontId::proportional(13.0),
+        MUTED,
+        text_width,
+    );
+    detail_job.halign = egui::Align::Center;
+    let detail = ui.painter().layout_job(detail_job);
+    let height = (title.size().y + detail.size().y + 6.0).max(48.0) + 16.0;
+    let (rect, mut response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+    if response.clicked() {
+        *value = !*value;
+        response.mark_changed();
+    }
+    response.widget_info(|| WidgetInfo::selected(Role::Switch, ui.is_enabled(), *value, label));
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        let top = rect.top() + 8.0;
+        let detail_y = top + title.size().y + 6.0;
+        painter.galley(pos2(rect.center().x, top), title, TEXT);
+        painter.galley(pos2(rect.center().x, detail_y), detail, MUTED);
+        let track =
+            Rect::from_center_size(pos2(rect.right() - 22.0, rect.center().y), vec2(44.0, 24.0));
+        let fill = match (*value, response.hovered()) {
+            (true, true) => theme::ACCENT_HOVER,
+            (true, false) => ACCENT,
+            (false, true) => RAISED_HOVER,
+            (false, false) => RAISED,
+        };
+        painter.rect_filled(track, 12, fill);
+        if !*value {
+            painter.rect_stroke(track, 12, Stroke::new(1.0, MUTED), StrokeKind::Inside);
+        }
+        let thumb_x = if *value {
+            track.right() - 12.0
+        } else {
+            track.left() + 12.0
+        };
+        painter.circle_filled(pos2(thumb_x, track.center().y), 8.0, TEXT);
+        if response.has_focus() {
+            painter.rect_stroke(
+                track.expand(3.0),
+                15,
+                Stroke::new(2.0, TEXT),
+                StrokeKind::Outside,
+            );
+        }
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// A small icon-only button with a tooltip and an accessible label.

@@ -34,10 +34,17 @@ static SINK: OnceLock<Mutex<Option<Sink>>> = OnceLock::new();
 /// Where the logs live: `%LOCALAPPDATA%\Veil\logs` on Windows, `~/Library/Logs/Veil` on
 /// macOS, `$XDG_STATE_HOME/veil` (or `~/.local/state/veil`) elsewhere.
 pub fn folder() -> Option<PathBuf> {
-    let var = |name| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
-    if cfg!(windows) {
+    folder_for(std::env::consts::OS, |name| {
+        std::env::var_os(name)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    })
+}
+
+fn folder_for(os: &str, var: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    if os == "windows" {
         var("LOCALAPPDATA").map(|base| base.join("Veil").join("logs"))
-    } else if cfg!(target_os = "macos") {
+    } else if os == "macos" {
         var("HOME").map(|home| home.join("Library").join("Logs").join("Veil"))
     } else {
         var("XDG_STATE_HOME")
@@ -70,9 +77,16 @@ fn open(dir: &Path) -> std::io::Result<Sink> {
         // Best effort: if the rename fails the new run appends to the old log instead.
         let _ = fs::rename(&current, dir.join(PREVIOUS));
     }
-    let file = OpenOptions::new().create(true).append(true).open(&current)?;
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&current)?;
     let written = file.metadata().map_or(0, |m| m.len());
-    Ok(Sink { file, written, full: false })
+    Ok(Sink {
+        file,
+        written,
+        full: false,
+    })
 }
 
 /// Writes one line to the log and to stderr. Use the [`note!`](crate::note) macro.
@@ -80,7 +94,9 @@ pub fn note(text: &str) {
     let line = format!("{} {text}\n", clock(SystemTime::now()));
     eprint!("{line}");
     let Some(sink) = SINK.get() else { return };
-    let mut guard = sink.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut guard = sink
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(sink) = guard.as_mut() else { return };
     if sink.full {
         return;
@@ -88,7 +104,9 @@ pub fn note(text: &str) {
     let bytes = line.as_bytes();
     if sink.written + bytes.len() as u64 > MAX_BYTES {
         sink.full = true;
-        let _ = sink.file.write_all(b"(log full: later lines are not written)\n");
+        let _ = sink
+            .file
+            .write_all(b"(log full: later lines are not written)\n");
         return;
     }
     // Written straight through, so the line is on disk even if the app is then killed.
@@ -139,29 +157,52 @@ fn civil(days: i64) -> (i64, u32, u32) {
     (y, m, d)
 }
 
-/// Opens the log folder in the file manager, creating it first.
-pub fn open_folder() {
-    let Some(dir) = folder() else { return };
-    let _ = fs::create_dir_all(&dir);
+/// Opens the log folder in the file manager, creating it first. Failures reach the UI.
+pub fn open_folder() -> Result<(), String> {
+    let dir = folder().ok_or("Cannot find this device's log folder.")?;
+    fs::create_dir_all(&dir)
+        .map_err(|why| format!("Cannot create log folder {}: {why}", dir.display()))?;
+    let mut command = folder_command(
+        std::env::consts::OS,
+        std::env::var("SystemRoot").ok().as_deref(),
+        &dir,
+    );
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        /// No console window flashes up.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let explorer = crate::firewall::system_program(
-            std::env::var("SystemRoot").ok().as_deref(),
-            "explorer.exe",
-        );
-        // The path is Veil's own folder, passed as one argument: no shell reads it.
-        let _ = std::process::Command::new(explorer)
-            .arg(&dir)
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn();
+        // No console window flashes up when Explorer starts.
+        command.creation_flags(0x0800_0000);
     }
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("/usr/bin/open").arg(&dir).spawn();
+    let opened = command.spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
-    let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
+    let opened = match opened {
+        Err(why) if why.kind() == std::io::ErrorKind::NotFound => std::process::Command::new("gio")
+            .arg("open")
+            .arg(&dir)
+            .spawn(),
+        other => other,
+    };
+    opened
+        .map(|_| ())
+        .map_err(|why| format!("Cannot open log folder {}: {why}", dir.display()))
+}
+
+/// Each native opener receives the folder as one argument, without a shell.
+fn folder_command(os: &str, system_root: Option<&str>, dir: &Path) -> std::process::Command {
+    let program = match os {
+        "windows" => {
+            // Explorer lives in the Windows folder, unlike tools in System32.
+            let root = system_root
+                .filter(|root| !root.is_empty())
+                .unwrap_or(r"C:\Windows");
+            format!(r"{}\explorer.exe", root.trim_end_matches('\\'))
+        }
+        "macos" => String::from("/usr/bin/open"),
+        _ => String::from("xdg-open"),
+    };
+    let mut command = std::process::Command::new(program);
+    command.arg(dir);
+    command
 }
 
 /// Writes a line to Veil's log file and stderr, like `eprintln!`.
@@ -180,6 +221,58 @@ mod tests {
     use super::*;
 
     #[test]
+    fn log_folder_uses_the_native_user_location() {
+        let base = PathBuf::from("test user");
+        assert_eq!(
+            folder_for("windows", |key| (key == "LOCALAPPDATA")
+                .then(|| base.clone())),
+            Some(base.join("Veil").join("logs")),
+        );
+        assert_eq!(
+            folder_for("macos", |key| (key == "HOME").then(|| base.clone())),
+            Some(base.join("Library").join("Logs").join("Veil")),
+        );
+        assert_eq!(
+            folder_for("linux", |key| (key == "XDG_STATE_HOME")
+                .then(|| base.clone())),
+            Some(base.join("veil")),
+        );
+        assert_eq!(
+            folder_for("linux", |key| (key == "HOME").then(|| base.clone())),
+            Some(base.join(".local").join("state").join("veil")),
+        );
+        assert_eq!(folder_for("linux", |_| None), None);
+    }
+
+    #[test]
+    fn native_folder_openers_keep_the_path_as_one_argument() {
+        let dir = Path::new("test user's log folder");
+        for (os, expected) in [
+            ("windows", r"D:\Windows\explorer.exe"),
+            ("macos", "/usr/bin/open"),
+            ("linux", "xdg-open"),
+        ] {
+            let command = folder_command(os, Some(r"D:\Windows\"), dir);
+            assert_eq!(command.get_program(), std::ffi::OsStr::new(expected));
+            assert_eq!(
+                command.get_args().collect::<Vec<_>>(),
+                vec![dir.as_os_str()]
+            );
+        }
+    }
+
+    #[test]
+    fn explorer_falls_back_to_the_windows_folder_not_system32() {
+        for root in [None, Some("")] {
+            let command = folder_command("windows", root, Path::new("logs"));
+            assert_eq!(
+                command.get_program(),
+                std::ffi::OsStr::new(r"C:\Windows\explorer.exe")
+            );
+        }
+    }
+
+    #[test]
     fn clock_reads_in_utc() {
         let at = UNIX_EPOCH + Duration::from_millis(1_795_445_569_123);
         assert_eq!(clock(at), "2026-11-23 14:52:49.123Z");
@@ -189,7 +282,10 @@ mod tests {
 
     #[test]
     fn an_exit_error_is_named_and_handed_back() {
-        assert_eq!(exit_line(&"no system UI font found"), "Veil stopped: no system UI font found");
+        assert_eq!(
+            exit_line(&"no system UI font found"),
+            "Veil stopped: no system UI font found"
+        );
         assert_eq!(record_exit(Err::<(), _>("no display")), Err("no display"));
         assert_eq!(record_exit(Ok::<_, &str>(7)), Ok(7));
     }
@@ -203,7 +299,10 @@ mod tests {
         drop(first);
         let second = open(&dir).unwrap();
         assert_eq!(second.written, 0, "the new log starts empty");
-        assert_eq!(fs::read_to_string(dir.join(PREVIOUS)).unwrap(), "first run\n");
+        assert_eq!(
+            fs::read_to_string(dir.join(PREVIOUS)).unwrap(),
+            "first run\n"
+        );
         drop(second);
         let _ = fs::remove_dir_all(&dir);
     }
