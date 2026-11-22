@@ -4,7 +4,21 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+## 0.1.13, 22/11/2026
+
+**Upgrade every call participant and `veil-node` together.** Older releases cannot use the
+new call-port handshake and control/forwarder messages. Copy fresh invitations after updating.
+
 ### Added
+
+- **Saved connection setups.** Keep up to sixteen named setups for different networks or
+  VPSs, with one active setup. Existing settings become Default. Home shows the active
+  setup, call scope, joining privacy and server status; selecting another setup applies it
+  to the next call. Connection supports naming, copying, editing and removing inactive setups.
+- **Connection checks.** Explicitly test the draft's UDP port, local addresses and configured
+  servers with a throwaway identity and pinned server keys. Saved Local only still restricts
+  an unsaved draft. Server reachability is not permission to host or proof of incoming
+  reachability; a second device is still needed to verify hosting.
 
 - **Auto volume.** Veil now turns your voice up or down to a steady level, so a quiet
   microphone is easy to hear. It learns only from speech, so silence and background noise are
@@ -12,12 +26,14 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   turn it off under Audio settings > Auto volume.
 
 - **Local only.** Restricts call sockets to loopback and connected non-point-to-point
-  subnets, including replies and path migration. Virtual and overlay networks (VPNs,
-  ZeroTier, Tailscale, VM and container switches) do not count as local. Ignores configured internet helpers,
+  subnets, including replies and path migration. Recognised virtual and overlay adapters
+  (VPNs, ZeroTier, Tailscale, VM and container switches) are excluded by name. Unrecognised
+  or renamed adapters and bridges carrying the LAN can still count as local. Ignores configured internet helpers,
   advertised public addresses and router port opening. Disables update checks/download
   starts; restart after enabling it for a clean session without an earlier in-flight check.
   Local joining uses the full signed invitation. Local only never turns off Hide my address:
-  with both on, joining stops with a message, since Local only has no relay.
+  saving both on is rejected, since Local only has no relay. Incompatible hand-edited
+  settings stop calls without removing either privacy choice.
 - **Nearby calls and QR invitations.** Explicit scanning, and opt-in advertising on IPv4
   LANs while Local only is on. One invitation per device every 10 s, 64 per call. A found
   call shows whether its host is a device you verified before you continue; beacons contain a
@@ -48,6 +64,14 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ### Changed
 
+- **Home and Connection layouts.** Centered, responsive forms use compact inputs and action
+  buttons, paired switches and matching helper cards. Contextual help follows hover and
+  keyboard focus. Home's setup summary stays visible, tools span both columns, and small
+  windows retain tooltip help. The updater shows its version and status in one control.
+- **Call-port key privacy.** A dialler must prove it already knows a call endpoint's key
+  before that endpoint reveals the key in a handshake. Public rendezvous endpoints remain
+  reachable. This does not prevent an on-path observer from copying a valid knock.
+
 - **Steadier speaking border.** The border now stays on for a moment between words instead of
   flickering with each syllable.
 - Noise suppression, Auto volume and Remove noise from others are remembered between runs.
@@ -60,6 +84,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   from lines, which looked rough, the raised hand most of all. Windows keeps its own icons.
 
 ### Fixed
+
+- **Logs on each desktop.** Opens the native log folder on Windows, macOS and Linux. Unix
+  opener failures reach Home without blocking it; a slow opener allows retry after five
+  seconds while process cleanup continues in the background.
+- **Connection editing.** Saving validates conflicting privacy choices, preserves separate
+  setups and clears stale removal prompts. Unsaved edits and test scope are explicit.
 
 - **Emoji in colour everywhere in chat.** The picker, reactions and message box drew most
   emoji in one colour, because Segoe UI Symbol came before the emoji font. Chat now asks

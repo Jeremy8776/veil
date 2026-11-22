@@ -1,6 +1,6 @@
 # Getting started
 
-For the unreleased networking changes, enable **Local only** in **Connection**, save, then
+For Local only calls in 0.1.13, enable **Local only** in **Connection**, save, then
 restart Veil before an offline session. Saved internet server fields and router mappings
 are ignored in this mode. Use **Copy full link** or **Show full invite QR**; decoding a QR currently
 requires another QR reader and pasting the resulting link. Nearby scanning is explicit;
@@ -10,13 +10,15 @@ multicast. Full invitations remain available if multicast is blocked. Wi-Fi clie
 isolation can prevent all local connections even when devices share a network name.
 
 The Local only boundary follows directly connected subnets reported by the operating
-system. Non-point-to-point virtual/bridged interfaces can be included; it does not prove
-physical proximity. No internet service is required for admission or media in this mode.
+system, excluding recognised virtual/overlay adapters by name. Unrecognised or renamed
+adapters and bridges carrying the LAN can still be included; it does not prove physical
+proximity. No internet service is required for admission or media in this mode.
 
 
 Veil makes private desktop calls without accounts. Get the same version on every device
-from [Releases](https://github.com/Jeremy8776/veil/releases/latest). In 0.1.12, older devices
-can join but cannot read the new chat messages or use reactions.
+from [Releases](https://github.com/Jeremy8776/veil/releases/latest). For 0.1.13, update every
+participant and `veil-node` together: older releases cannot use the new call-port handshake
+and control/forwarder messages. Copy fresh invitations after updating.
 
 ## Make your first call
 
@@ -38,7 +40,7 @@ network call; it does not verify that another device can reach you.
 
 ## Save and check connection setups
 
-The unreleased **Your setup** summary on Home shows the active connection setup, call
+The **Your setup** summary on Home shows the active connection setup, call
 scope, joining privacy, server status and whether incoming hosting has been verified.
 Hover or focus a status for its explanation. Use the selector to switch setups; the
 selected setup applies to your next call.
