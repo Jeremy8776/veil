@@ -89,6 +89,7 @@ impl Form {
                 self.problems.clear();
                 self.save_error = None;
                 self.saved = true;
+                self.remove_confirm = false;
                 true
             }
             Err(SaveError::Fields(problems)) => {
@@ -726,6 +727,29 @@ fn text(field: Field) -> (&'static str, &'static str, &'static str) {
 #[cfg(test)]
 mod flow_tests {
     use super::*;
+
+    #[test]
+    fn activating_a_loaded_setup_clears_its_pending_removal() {
+        let mut store = Store::open(None);
+        let original = store.active_id();
+        assert!(
+            store
+                .save_setup(None, "Work VPS", Settings::default())
+                .is_ok()
+        );
+        let selected = store.active_id();
+        assert!(store.activate(original).is_ok());
+        let mut form = Form::new(&store);
+        form.load_setup(&store, selected);
+        assert!(form.dirty() && !form.edited());
+        form.remove_confirm = true;
+
+        assert!(form.save(&mut store));
+        assert_eq!(store.active_id(), selected);
+        assert!(!form.remove_confirm);
+        assert!(!form.dirty());
+        assert_eq!(store.setups().len(), 2);
+    }
 
     #[test]
     fn loading_a_setup_is_only_a_draft_until_saved() {

@@ -144,7 +144,7 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
             let top = ((ui.available_height() - last_height) * 0.5).max(0.0);
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(top);
-                let show_help = ui.available_width() >= 900.0;
+                let show_help = ui.available_width() >= FORM_WIDTH + PAGE_COLUMN_GAP + HELP_WIDTH;
                 let width = ui.available_width().min(if show_help {
                     FORM_WIDTH + PAGE_COLUMN_GAP + HELP_WIDTH
                 } else {
