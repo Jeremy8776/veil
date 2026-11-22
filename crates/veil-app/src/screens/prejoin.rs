@@ -6,7 +6,7 @@
 use eframe::egui::{self, Align, Layout, Rect, RichText, Sense, UiBuilder, Vec2, vec2};
 
 use crate::app::VeilApp;
-use crate::firewall::State;
+use crate::firewall::{Profile, State};
 use crate::icons::Icon;
 use crate::screens::controls::MIRROR_HINT;
 use crate::theme::{self, MUTED};
@@ -306,12 +306,14 @@ fn connection_section(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
 
 /// For a host: whether guests can reach you, and the button that lets them.
 fn firewall(app: &VeilApp, ui: &mut egui::Ui) {
-    let (note, button) = match app.firewall.state() {
+    let state = app.firewall.state();
+    let (note, button, profile) = match &state {
         State::Unknown | State::Allowed => return,
-        State::Checking => ("Checking your firewall…", false),
-        State::Asking => ("Confirm in the Windows prompt", false),
-        State::Blocked => ("Your firewall may block guests", true),
-        State::Failed(_) => ("Could not allow Veil", true),
+        State::Checking => ("Checking your firewall…", false, Profile::Private),
+        State::Asking => ("Confirm in the Windows prompt", false, Profile::Private),
+        State::Blocked(Profile::Public) => ("This network is set to Public", true, Profile::Public),
+        State::Blocked(profile) => ("Your firewall may block guests", true, *profile),
+        State::Failed(_) => ("Could not allow Veil", true, Profile::Private),
     };
     ui.add_space(8.0);
     let colour = if button { theme::WARN } else { MUTED };
@@ -320,13 +322,26 @@ fn firewall(app: &VeilApp, ui: &mut egui::Ui) {
         label.on_hover_text(why);
     }
     if button {
-        let tip = "Adds one Windows firewall rule so guests can reach this call: Veil only, \
-                   network calls only. Windows asks you to confirm.";
-        if pill(ui, Some(Icon::Shield), "Allow guests", Tone::Quiet, 280.0)
+        let (text, tip) = if profile == Profile::Public {
+            (
+                "Allow on Public networks",
+                "Windows treats this network as Public, like a café or hotel. If it is your \
+                 home or office, set it to Private in Windows Settings > Network instead. \
+                 Allowing Public lets anyone on any Public network try to reach Veil while \
+                 you host. Windows asks you to confirm.",
+            )
+        } else {
+            (
+                "Allow guests",
+                "Adds one Windows firewall rule so guests can reach this call: Veil only, \
+                 network calls only, this kind of network only. Windows asks you to confirm.",
+            )
+        };
+        if pill(ui, Some(Icon::Shield), text, Tone::Quiet, 280.0)
             .on_hover_text(tip)
             .clicked()
         {
-            app.firewall.allow(ui.ctx());
+            app.firewall.allow(profile, ui.ctx());
         }
     }
 }

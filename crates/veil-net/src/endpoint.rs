@@ -16,11 +16,16 @@
 //! as a burst of datagrams lost about 15% of its fragments even on localhost). Audio frames
 //! are small and loss-tolerant, so they travel as single datagrams.
 //!
+//! A listener shows its device key only to diallers that already know it (`knock.rs`), so a
+//! port scan finds no key to follow across calls. [`Node::admit_strangers`] opens a public
+//! service to everyone.
+//!
 //! Invariant: what a peer can make this node hold on one link without the application reading
 //! it is a small constant (`LINK_WINDOW` plus `DATAGRAM_BUFFER`), whatever streams it opens.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -97,6 +102,8 @@ pub struct Node {
     id: PublicId,
     mtu: u16,
     local_policy: Arc<crate::local::Policy>,
+    /// Whether the listener answers diallers that sent no knock (`knock.rs`).
+    open: Arc<AtomicBool>,
     local_refresh: tokio::task::JoinHandle<()>,
     ready: tokio::sync::Mutex<mpsc::Receiver<Link>>,
     acceptor: tokio::task::JoinHandle<()>,
@@ -145,8 +152,12 @@ impl Node {
         local_only: bool,
     ) -> Result<Self, NetError> {
         let key = tls::certified_key(identity)?;
-        let mut server =
-            quinn::ServerConfig::with_crypto(Arc::new(tls::server_config(key.clone())?));
+        let open = Arc::new(AtomicBool::new(false));
+        let mut server = quinn::ServerConfig::with_crypto(Arc::new(tls::server_config(
+            key.clone(),
+            identity.public(),
+            open.clone(),
+        )?));
         server.transport_config(transport(INITIAL_MTU)?);
         let local_policy = Arc::new(crate::local::Policy::default());
         local_policy.set(local_only);
@@ -167,6 +178,7 @@ impl Node {
             identity.public(),
             INITIAL_MTU,
             local_policy,
+            open,
         ))
     }
 
@@ -176,6 +188,7 @@ impl Node {
         id: PublicId,
         mtu: u16,
         local_policy: Arc<crate::local::Policy>,
+        open: Arc<AtomicBool>,
     ) -> Self {
         let (ready, acceptor) = accept::start(endpoint.clone());
         let policy = local_policy.clone();
@@ -194,6 +207,7 @@ impl Node {
             id,
             mtu,
             local_policy,
+            open,
             local_refresh,
             ready: tokio::sync::Mutex::new(ready),
             acceptor,
@@ -213,8 +227,12 @@ impl Node {
             policy: local_policy.clone(),
         });
         let key = tls::certified_key(identity)?;
-        let mut server =
-            quinn::ServerConfig::with_crypto(Arc::new(tls::server_config(key.clone())?));
+        let open = Arc::new(AtomicBool::new(false));
+        let mut server = quinn::ServerConfig::with_crypto(Arc::new(tls::server_config(
+            key.clone(),
+            identity.public(),
+            open.clone(),
+        )?));
         server.transport_config(transport(RELAYED_MTU)?);
         let endpoint = quinn::Endpoint::new_with_abstract_socket(
             quinn::EndpointConfig::default(),
@@ -228,11 +246,19 @@ impl Node {
             identity.public(),
             RELAYED_MTU,
             local_policy,
+            open,
         ))
     }
 
     pub fn id(&self) -> PublicId {
         self.id
+    }
+
+    /// Lets diallers that do not know this node's key complete a handshake and see it. Only
+    /// for public services whose clients may not know the key (a rendezvous serving short
+    /// invite links). Call nodes stay closed: a stranger who finds their port gets no key.
+    pub fn admit_strangers(&self) {
+        self.open.store(true, Ordering::Release);
     }
 
     /// Restricts this endpoint to loopback and connected non-point-to-point subnets.

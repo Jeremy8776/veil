@@ -127,6 +127,8 @@ pub struct RendezvousServer {
 
 impl RendezvousServer {
     pub fn new(node: Node) -> Self {
+        // Short invite links are fetched by guests who cannot know this server's key.
+        node.admit_strangers();
         Self {
             node,
             state: Shared::default(),

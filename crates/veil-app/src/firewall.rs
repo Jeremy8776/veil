@@ -3,13 +3,16 @@
 //! Purpose: a host must accept the first packet of each guest (and of its own rendezvous).
 //! Windows Defender Firewall drops unasked inbound UDP for a program with no rule, which a
 //! guest sees as "could not reach the host". [`Firewall::check`] looks for an enabled inbound
-//! Allow rule for this very `veil-app.exe` that covers Public networks (or every profile).
-//! [`Firewall::allow`] adds one: `netsh advfirewall firewall add rule`, UDP only, this program
-//! only, Private and Public, started through Windows' own administrator prompt (UAC), so the
-//! person sees and confirms the change.
+//! Allow rule for this very `veil-app.exe` that covers the kind of network this computer is on
+//! now (Private, Public or Domain). [`Firewall::allow`] adds one for that kind only:
+//! `netsh advfirewall firewall add rule`, UDP only, this program only, started through Windows'
+//! own administrator prompt (UAC), so the person sees and confirms the change.
 //!
 //! Invariants:
 //! - Nothing changes without that prompt; declining it changes nothing.
+//! - The installer never allows Public networks (cafés, hotels, and any network Windows was not
+//!   told is home). The app asks for Public only while on one, with a warning: such a rule lets
+//!   everyone on every Public network try to reach Veil while it hosts.
 //! - The rule names this executable's own path and UDP only: it opens nothing else.
 //! - Scripts go to PowerShell on standard input, never on the command line, so the path
 //!   needs quoting only inside a single-quoted PowerShell string.
@@ -35,13 +38,42 @@ pub enum State {
     Unknown,
     Checking,
     Allowed,
-    /// No rule lets calls in.
+    /// No rule lets calls in on this kind of network.
     #[cfg_attr(not(windows), allow(dead_code, reason = "Windows firewall only"))]
-    Blocked,
+    Blocked(Profile),
     /// Waiting for the person to answer Windows' prompt.
     Asking,
     /// The check or the change did not work; the text says why.
     Failed(String),
+}
+
+/// A Windows firewall profile: the kind of network a rule applies to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Profile {
+    Private,
+    Public,
+    Domain,
+}
+
+#[cfg_attr(not(windows), allow(dead_code, reason = "Windows firewall only"))]
+impl Profile {
+    /// The name `netsh` and `Get-NetFirewallRule` use.
+    fn name(self) -> &'static str {
+        match self {
+            Profile::Private => "private",
+            Profile::Public => "public",
+            Profile::Domain => "domain",
+        }
+    }
+
+    fn parse(text: &str) -> Option<Self> {
+        match text {
+            "private" => Some(Profile::Private),
+            "public" => Some(Profile::Public),
+            "domain" => Some(Profile::Domain),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -72,14 +104,14 @@ impl Firewall {
         });
     }
 
-    /// Asks Windows to add the rule, then checks again.
-    pub fn allow(&self, ctx: &egui::Context) {
+    /// Asks Windows to add the rule for `profile`, then checks again.
+    pub fn allow(&self, profile: Profile, ctx: &egui::Context) {
         if !self.start(State::Asking) {
             return;
         }
         let (me, ctx) = (self.clone(), ctx.clone());
         std::thread::spawn(move || {
-            let state = match sys::allow() {
+            let state = match sys::allow(profile) {
                 Ok(()) => sys::check(),
                 Err(why) => State::Failed(why),
             };
@@ -108,29 +140,36 @@ fn ps_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "''"))
 }
 
-/// Prints how many enabled inbound Allow rules name `exe` and cover Public networks.
+/// Prints the kind of network guests would arrive on (the most exposed of those connected:
+/// public, then domain, then private) and how many enabled inbound Allow rules name `exe` and
+/// cover it, as `<profile> <count>`.
 #[cfg_attr(not(windows), allow(dead_code, reason = "Windows firewall only"))]
 fn check_script(exe: &str) -> String {
     format!(
         "$exe = {}\n\
+         $cats = @(Get-NetConnectionProfile | ForEach-Object {{ $_.NetworkCategory.ToString() }})\n\
+         $need = if ($cats -contains 'Public') {{ 'public' }} \
+         elseif ($cats -contains 'DomainAuthenticated') {{ 'domain' }} else {{ 'private' }}\n\
          $n = @(Get-NetFirewallApplicationFilter | Where-Object {{ $_.Program -eq $exe }} | \
          Get-NetFirewallRule | Where-Object {{ $_.Direction -eq 'Inbound' -and \
          $_.Action -eq 'Allow' -and $_.Enabled -eq 'True' -and \
-         ($_.Profile -eq 'Any' -or $_.Profile.ToString() -match 'Public') }}).Count\n\
-         Write-Output $n\n",
+         ($_.Profile -eq 'Any' -or $_.Profile.ToString() -match $need) }}).Count\n\
+         Write-Output \"$need $n\"\n",
         ps_quote(exe)
     )
 }
 
-/// `netsh` arguments that add the rule for `exe`. `None` if the path cannot be quoted.
+/// `netsh` arguments that add the rule for `exe` on `profile` only. `None` if the path cannot
+/// be quoted.
 #[cfg_attr(not(windows), allow(dead_code, reason = "Windows firewall only"))]
-fn netsh_args(exe: &str) -> Option<String> {
+fn netsh_args(exe: &str, profile: Profile) -> Option<String> {
     if exe.contains('"') || exe.contains('\n') || exe.contains('\r') {
         return None;
     }
     Some(format!(
         "advfirewall firewall add rule name=\"{RULE_NAME}\" dir=in action=allow \
-         program=\"{exe}\" protocol=udp profile=private,public enable=yes"
+         program=\"{exe}\" protocol=udp profile={} enable=yes",
+        profile.name()
     ))
 }
 
@@ -158,10 +197,13 @@ pub(crate) fn system_program(system_root: Option<&str>, relative: &str) -> Strin
     format!(r"{root}\System32\{relative}")
 }
 
-/// Reads the rule count `check_script` prints.
+/// Reads the `<profile> <count>` line `check_script` prints last.
 #[cfg_attr(not(windows), allow(dead_code, reason = "Windows firewall only"))]
-fn parse_count(output: &str) -> Option<usize> {
-    output.lines().rev().find_map(|line| line.trim().parse().ok())
+fn parse_check(output: &str) -> Option<(Profile, usize)> {
+    output.lines().rev().find_map(|line| {
+        let (profile, count) = line.trim().split_once(' ')?;
+        Some((Profile::parse(profile)?, count.trim().parse().ok()?))
+    })
 }
 
 #[cfg(windows)]
@@ -170,7 +212,9 @@ mod sys {
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
 
-    use super::{State, allow_script, check_script, netsh_args, parse_count, system_program};
+    use super::{
+        Profile, State, allow_script, check_script, netsh_args, parse_check, system_program,
+    };
 
     /// No console window flashes up for PowerShell.
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -208,8 +252,8 @@ mod sys {
     pub fn check() -> State {
         let result = exe().and_then(|exe| powershell(&check_script(&exe)));
         match result {
-            Ok(out) => match parse_count(&String::from_utf8_lossy(&out.stdout)) {
-                Some(0) => State::Blocked,
+            Ok(out) => match parse_check(&String::from_utf8_lossy(&out.stdout)) {
+                Some((profile, 0)) => State::Blocked(profile),
                 Some(_) => State::Allowed,
                 None => State::Failed(String::from("could not read the firewall rules")),
             },
@@ -217,9 +261,9 @@ mod sys {
         }
     }
 
-    pub fn allow() -> Result<(), String> {
+    pub fn allow(profile: Profile) -> Result<(), String> {
         let exe = exe()?;
-        let args = netsh_args(&exe).ok_or("Veil's path cannot be used in a rule")?;
+        let args = netsh_args(&exe, profile).ok_or("Veil's path cannot be used in a rule")?;
         let out = powershell(&allow_script(&system("netsh.exe"), &args))?;
         match out.status.code() {
             Some(0) => Ok(()),
@@ -231,13 +275,13 @@ mod sys {
 
 #[cfg(not(windows))]
 mod sys {
-    use super::State;
+    use super::{Profile, State};
 
     pub fn check() -> State {
         State::Allowed
     }
 
-    pub fn allow() -> Result<(), String> {
+    pub fn allow(_profile: Profile) -> Result<(), String> {
         Ok(())
     }
 }
@@ -257,12 +301,15 @@ mod tests {
 
     #[test]
     fn the_rule_is_inbound_udp_for_this_program_only() {
-        let args = netsh_args(EXE).unwrap_or_default();
+        let args = netsh_args(EXE, Profile::Private).unwrap_or_default();
         assert!(args.contains(&format!("program=\"{EXE}\"")));
-        for part in ["dir=in", "action=allow", "protocol=udp", "profile=private,public"] {
+        for part in ["dir=in", "action=allow", "protocol=udp", "profile=private "] {
             assert!(args.contains(part), "{part}");
         }
-        assert_eq!(netsh_args("C:\\a\"b.exe"), None);
+        assert!(!args.contains("public"), "a Private rule never covers Public networks");
+        let public = netsh_args(EXE, Profile::Public).unwrap_or_default();
+        assert!(public.contains("profile=public ") && !public.contains("private"));
+        assert_eq!(netsh_args("C:\\a\"b.exe", Profile::Private), None);
         let script = allow_script(r"C:\Windows\System32\netsh.exe", &args);
         assert!(script.contains("-Verb RunAs"));
         assert!(script.contains(r"-FilePath 'C:\Windows\System32\netsh.exe'"));
@@ -284,13 +331,23 @@ mod tests {
     fn firewall_check_reads_this_machines_rules() {
         let state = sys::check();
         println!("firewall: {state:?}");
-        assert!(matches!(state, State::Allowed | State::Blocked), "{state:?}");
+        assert!(matches!(state, State::Allowed | State::Blocked(_)), "{state:?}");
     }
 
     #[test]
-    fn the_count_is_the_last_number_printed() {
-        assert_eq!(parse_count("2\r\n"), Some(2));
-        assert_eq!(parse_count("warning\n0\n"), Some(0));
-        assert_eq!(parse_count("nothing"), None);
+    fn the_check_is_the_last_profile_and_count_printed() {
+        assert_eq!(parse_check("private 2\r\n"), Some((Profile::Private, 2)));
+        assert_eq!(parse_check("warning\npublic 0\n"), Some((Profile::Public, 0)));
+        assert_eq!(parse_check("domain 1"), Some((Profile::Domain, 1)));
+        assert_eq!(parse_check("0\n"), None);
+        assert_eq!(parse_check("everywhere 1"), None);
+        assert_eq!(parse_check("nothing"), None);
+    }
+
+    #[test]
+    fn the_check_asks_about_the_current_network() {
+        let script = check_script(EXE);
+        assert!(script.contains("Get-NetConnectionProfile"));
+        assert!(script.contains("-match $need"));
     }
 }

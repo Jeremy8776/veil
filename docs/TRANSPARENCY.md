@@ -62,6 +62,20 @@ outside Local only list the configured, public IPv6 and main LAN address, as bef
 No company service or central directory is introduced by these changes. Host-control
 recovery retains only a bounded, in-memory commit journal; it does not persist call history.
 
+**Strangers who find a port.** While you host or join, Veil's call port is open, and with
+"Open a port on my router" on it is open to the internet. From 22/11/2026 a Veil call port
+shows its device key only to a dialler that proves, in its first packet, that it already knows
+that key (a "knock": a fresh random number and a hash of it with the key,
+`crates/veil-net/src/knock.rs`). Everyone who should reach you knows it already, from the
+invite, the roster or a nearby beacon. A port scanner does not, so its handshake is refused
+before your key is sent and it cannot follow your device from call to call. It can still see
+that something answers QUIC on that port. Rendezvous servers stay open to everyone, because
+short invite links are fetched by guests who do not know the server's key; the one the app
+runs for a call has a throwaway key of its own. Known limit: someone who watches a real dial
+on the wire (your network, your ISP) can copy its knock and learn the key; there is no replay
+protection yet. Copies from before 22/11/2026 send no knock, so they cannot reach copies from
+this date on: everyone in a call needs the newer version.
+
 Media, display names and chat are encrypted on the sender's device and opened only on
 members' devices. Relays, forwarders and rendezvous nodes never hold these keys. They can still
 see this:
@@ -289,13 +303,18 @@ code are from the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113
 
 **Your firewall.** The Windows MSI adds the rule below for the installed `veil-app.exe` when
 you install it (you confirm Windows' prompt for the install), and removes it when you
-uninstall. On Windows, before you host, the app reads the firewall rules (PowerShell,
-`Get-NetFirewallApplicationFilter`, read only) to see whether guests can reach it. If not, it
-shows an "Allow guests" button. Only that button changes anything: it runs
+uninstall. That rule covers **Private networks only**. On Windows, before you host, the app
+reads which kind of network you are on (`Get-NetConnectionProfile`) and the firewall rules
+(`Get-NetFirewallApplicationFilter`), both read only, to see whether guests can reach it on
+this kind of network. If not, it shows a button. Only that button changes anything: it runs
 `netsh advfirewall firewall add rule name="Veil"` through Windows' administrator prompt, which
-you confirm or decline. The rule allows inbound UDP to this `veil-app.exe` only, on Private and
-Public networks. Remove it in Windows Defender Firewall (Inbound Rules, "Veil") at any time.
-The code is `crates/veil-app/src/firewall.rs`.
+you confirm or decline. The rule allows inbound UDP to this `veil-app.exe` only, on the kind of
+network you are on now. On a Public network (a café, a hotel, or any network Windows was not
+told is home) the button reads "Allow on Public networks", and its tooltip says that this lets
+anyone on any Public network try to reach Veil while you host, and that a home network is
+better set to Private in Windows Settings. Remove a rule in Windows Defender Firewall (Inbound
+Rules, "Veil") at any time. The code is `crates/veil-app/src/firewall.rs`.
+Before 22/11/2026 the MSI and the button covered Private and Public together.
 
 **Your router.** Off until you say yes: Veil asks once, before the first call you host, and
 the choice is under Settings > Connection ("Open a port on my router"). When it is on and you
