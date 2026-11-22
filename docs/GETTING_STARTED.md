@@ -36,6 +36,27 @@ The host decides who joins, even when a device is already marked verified. Leavi
 host ends the call for everyone. **Demo call** on Home shows simulated people without a
 network call; it does not verify that another device can reach you.
 
+## Save and check connection setups
+
+The unreleased **Your setup** summary on Home shows the active connection setup, call
+scope, joining privacy, server status and whether incoming hosting has been verified.
+Hover or focus a status for its explanation. Use the selector to switch setups; the
+selected setup applies to your next call.
+
+Open **Manage connections** to name the current setup or create one for another network
+or VPS. **New setup** copies the current fields. **Save changes** validates the choices
+and makes that setup active. Loading another setup in Connection only loads a draft until
+you save it. Discard edits before loading another draft. Only inactive setups can be removed.
+Existing settings become **Default**. Setup persistence has the same platform limitations
+as other Connection settings; see [Transparency](TRANSPARENCY.md).
+
+**Test these settings** checks the draft without saving it: it tries the chosen UDP port,
+looks for local addresses, and verifies connections to configured servers. A reachable
+server does not prove permission to host or that guests can reach you. Use a second device
+to test an incoming call. Home's server result lasts five minutes in the current session
+and applies only to the checked effective settings. Saved Local only remains a restriction
+until a different setup or mode is saved; internet tests stay disabled until then.
+
 ## Sound, video and screen sharing
 
 - The arrows beside the microphone and camera controls open their settings. Windows remembers

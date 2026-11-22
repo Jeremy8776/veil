@@ -11,6 +11,7 @@ use veil_net::nearby::{self, Found};
 use veil_security::short_invite::InviteLink;
 
 use crate::theme::{self, MUTED};
+use crate::widgets::{Tone, pill};
 
 type Rows = Arc<Mutex<Vec<(Found, Instant)>>>;
 type Answer = Arc<Mutex<Option<Result<veil_security::invite::Invite, String>>>>;
@@ -120,7 +121,11 @@ impl Nearby {
                 .map_err(|e| e.to_string())
                 .and_then(|runtime| {
                     runtime
-                        .block_on(nearby::fetch(&found, code, crate::screens::invite::now_unix()))
+                        .block_on(nearby::fetch(
+                            &found,
+                            code,
+                            crate::screens::invite::now_unix(),
+                        ))
                         .map_err(|e| e.to_string())
                 });
             if let Ok(mut answer) = answer.lock()
@@ -167,20 +172,26 @@ impl Nearby {
             .as_ref()
             .is_some_and(|s| !s.load(Ordering::Relaxed));
         ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if searching {
-                ui.spinner();
-                ui.label("Looking on this local network…");
-                if ui.small_button("Stop").clicked() {
-                    self.stop();
-                }
-            } else if ui
-                .add_enabled(!self.fetching, egui::Button::new("Find nearby calls"))
-                .clicked()
-            {
+        if searching {
+            if search_control(ui).clicked() {
+                self.stop();
+            }
+        } else {
+            let find = ui
+                .add_enabled_ui(!self.fetching, |ui| {
+                    pill(
+                        ui,
+                        Some(crate::icons::Icon::Signal),
+                        "Find nearby calls",
+                        Tone::Quiet,
+                        ui.available_width().min(theme::FORM_CONTROL_WIDTH),
+                    )
+                })
+                .inner;
+            if find.clicked() {
                 self.search(ui.ctx().clone());
             }
-        });
+        }
         let rows = self
             .rows
             .lock()
@@ -231,6 +242,30 @@ impl Nearby {
     }
 }
 
+/// Keep the running search on the same centred, 40-point control row as its idle button.
+fn search_control(ui: &mut egui::Ui) -> egui::Response {
+    let width = ui.available_width().min(theme::FORM_CONTROL_WIDTH);
+    let stop_width = 88.0_f32.min(width * 0.4);
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, 40.0),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = theme::GAP;
+            ui.allocate_ui_with_layout(
+                egui::vec2(width - stop_width - theme::GAP, 40.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.add(egui::Spinner::new().size(16.0).color(MUTED));
+                    ui.label(RichText::new("Searching nearby").small().color(MUTED));
+                },
+            );
+            pill(ui, None, "Stop", Tone::Quiet, stop_width)
+                .on_hover_text("Stop looking for calls on this local network.")
+        },
+    )
+    .inner
+}
+
 impl Nearby {
     /// Asks for the code on the host's screen. Without it the host's service sends nothing.
     fn code_ui(&mut self, ui: &mut egui::Ui, found: Found) {
@@ -252,7 +287,10 @@ impl Nearby {
             );
             let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             let get = ui
-                .add_enabled(code.is_some() && !self.fetching, egui::Button::new("Get invite"))
+                .add_enabled(
+                    code.is_some() && !self.fetching,
+                    egui::Button::new("Get invite"),
+                )
                 .clicked();
             if (get || enter)
                 && !self.fetching
@@ -295,7 +333,9 @@ impl Nearby {
         ui.horizontal(|ui| {
             if ui
                 .button("Continue")
-                .on_hover_text("Go to the pre-join screen for this call. The host still admits you.")
+                .on_hover_text(
+                    "Go to the pre-join screen for this call. The host still admits you.",
+                )
                 .clicked()
             {
                 chosen = Some(InviteLink::Full(invite.clone()));

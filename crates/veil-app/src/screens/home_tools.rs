@@ -86,10 +86,10 @@ fn logs(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHelpState) {
          errors: no names, chat or invite links.",
     );
     track_help(&response, HomeHelp::Logs, help);
-    if response.clicked() {
-        if let Err(problem) = crate::log::open_folder() {
-            app.home_error = Some(problem);
-        }
+    if response.clicked()
+        && let Err(problem) = crate::log::open_folder()
+    {
+        app.home_error = Some(problem);
     }
 }
 

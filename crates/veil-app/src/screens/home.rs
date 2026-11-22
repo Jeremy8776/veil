@@ -33,11 +33,53 @@ pub(super) enum HomeHelp {
     NewKey,
     Logs,
     Updates,
+    SetupSelector,
+    SetupCalls(bool),
+    SetupJoining(bool),
+    SetupServers,
+    SetupHosting(bool),
+    SetupManage,
 }
 
 impl HomeHelp {
-    fn text(self) -> (&'static str, &'static str) {
+    pub(super) fn text(self) -> (&'static str, &'static str) {
         match self {
+            Self::SetupSelector => (
+                "Active setup",
+                "Switch to a saved setup for your next call. Manage connections to add or edit setups.",
+            ),
+            Self::SetupCalls(true) => (
+                "Local calls",
+                "Calls stay on connected local networks. Internet servers and router port opening are disabled.",
+            ),
+            Self::SetupCalls(false) => (
+                "Internet and local calls",
+                "Internet and local calls are enabled. This shows your settings; it does not confirm reachability.",
+            ),
+            Self::SetupJoining(true) => (
+                "Address hidden when joining",
+                "The relay hides your IP from participants when joining. The relay still sees it. Hosting is unaffected.",
+            ),
+            Self::SetupJoining(false) => (
+                "Direct joining",
+                "Direct connections are allowed when joining. Other participants may see your IP address.",
+            ),
+            Self::SetupServers => (
+                "Connection servers",
+                "Built-in helpers start when you host. A server check verifies reachability, not permission to host.",
+            ),
+            Self::SetupHosting(true) => (
+                "Check local hosting",
+                "Local hosting has not been verified. Join from another device on this network to check it.",
+            ),
+            Self::SetupHosting(false) => (
+                "Check hosting",
+                "Hosting has not been verified. Join from a second device to check the incoming path.",
+            ),
+            Self::SetupManage => (
+                "Manage connections",
+                "Add, rename, remove or test saved setups. Saving a setup makes it active for your next call.",
+            ),
             Self::Welcome => (
                 "Veil",
                 "Video calls, screen sharing and chat, with no accounts or telemetry. Your device creates the keys, and the people in your call hold them.",
@@ -93,6 +135,7 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::PAGE).inner_margin(32))
         .show(ui, |ui| {
+            let compact_height = ui.available_height() < 800.0;
             let height_key = ui.make_persistent_id("home-content-height");
             let last_height: f32 = ui.ctx().data(|d| d.get_temp(height_key)).unwrap_or(0.0);
             let top = ((ui.available_height() - last_height) * 0.5).max(0.0);
@@ -110,9 +153,13 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
                         Layout::top_down(Align::Center),
                         |ui| {
                             ui.with_layout(Layout::top_down(Align::Center), |ui| {
-                                crate::logo::show(ui, 160.0, theme::PAGE);
+                                crate::logo::show(
+                                    ui,
+                                    if compact_height { 128.0 } else { 160.0 },
+                                    theme::PAGE,
+                                );
                             });
-                            ui.add_space(24.0);
+                            ui.add_space(if compact_height { 16.0 } else { 24.0 });
                             update_banner(app, ui, width - 42.0);
                             let mut helper_rect = None;
                             if show_help {
@@ -136,6 +183,17 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
                                 });
                             } else {
                                 home_form(app, ui, width, &mut help_state);
+                                ui.add_space(8.0);
+                                egui::CollapsingHeader::new("Your setup").show(ui, |ui| {
+                                    if let Some(action) = super::home_setup::summary(
+                                        ui,
+                                        &app.connection,
+                                        &mut help_state,
+                                        true,
+                                    ) {
+                                        super::home_setup::apply(app, action);
+                                    }
+                                });
                             }
                             ui.add_space(20.0);
                             ui.label(RichText::new("Tools").font(theme::bold(16.0)));
@@ -150,7 +208,14 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
                                         .max_rect(rect)
                                         .layout(Layout::top_down(Align::Center)),
                                 );
-                                helper_card(&mut helper, help_state.active(), rect.height());
+                                if let Some(action) = super::home_setup::helper_card(
+                                    &mut helper,
+                                    &mut help_state,
+                                    rect.height(),
+                                    &app.connection,
+                                ) {
+                                    super::home_setup::apply(app, action);
+                                }
                             }
                         },
                     );
@@ -164,11 +229,7 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
         });
 }
 
-fn helper_card(ui: &mut egui::Ui, help: HomeHelp, height: f32) {
-    crate::widgets::help_card(ui, height, |ui| helper_text(ui, help));
-}
-
-fn helper_text(ui: &mut egui::Ui, help: HomeHelp) {
+pub(super) fn helper_text(ui: &mut egui::Ui, help: HomeHelp) {
     let (title, detail) = help.text();
     let welcome = matches!(help, HomeHelp::Welcome);
     ui.label(RichText::new(title).font(theme::bold(if welcome { 28.0 } else { 20.0 })));
