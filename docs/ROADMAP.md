@@ -282,7 +282,7 @@ its own reviewable increment; no milestone requires a single enormous implementa
 | ID | Capability or test | State and evidence | Scope still open |
 |---|---|---|---|
 | BASE-01 | Desktop calling and self-hosted nodes | v0.1.13 published on 22 November 2026; [release](https://github.com/Jeremy8776/veil/releases/tag/v0.1.13) | Broad real-device and network coverage |
-| AND-01 | Shared Android app and native integration | Implemented locally as `0.1.13-mobile.3`; touch layouts, camera, audio, Keystore and foreground call service; [mobile notes](../mobile/README.md) | Review, integration and automated Android packaging |
+| AND-01 | Shared Android app and native integration | Committed preview `0.1.13-mobile.4`; shared bento layouts, full portrait camera, audio, Keystore and foreground call service; [mobile notes](../mobile/README.md) | Final candidate CI/integration; sustained mobile validation remains separate |
 | TEST-LAN-01 | Phone and desktop exchange encrypted media | Hardware test on 22 November: phone video decoded, phone Opus received, desktop synthetic video and silence sent | Subjective audio quality and sustained calls |
 | TEST-5G-01 | A phone on 5G connects to a desktop host | Successful test reported by Jeremy on 23 November 2026 | Test date, builds, route, duration and detailed media checks were not recorded in the report |
 
@@ -290,8 +290,8 @@ TEST-5G-01 is completed evidence for that connection scenario. It does not estab
 the route was direct, punched or relayed, nor whether changing networks during a call works.
 Recording those details extends the evidence; it does not undo the successful test.
 
-The Android work is local and uncommitted in the inspected checkout. The handoff now includes
-this mobile snapshot. [Architecture](ARCHITECTURE.md) describes implementation and design;
+The reviewed Android candidate is committed in [PR #86](https://github.com/Jeremy8776/veil/pull/86).
+The [integration review](ANDROID_INTEGRATION_REVIEW.md) records actual build, CI and device evidence. [Architecture](ARCHITECTURE.md) describes implementation and design;
 [Transparency](TRANSPARENCY.md) defines current protection limits. This roadmap owns future
 priority and completion criteria; [Handoff](HANDOFF.md) owns the current session snapshot.
 

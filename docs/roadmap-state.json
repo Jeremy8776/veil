@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "revision": 18,
-  "updated_at": "2026-11-23T13:32:07+00:00",
+  "revision": 20,
+  "updated_at": "2026-11-23T14:07:25+00:00",
   "next_step": {
     "capability": "AND-02",
     "title": "Integrate the reviewed Android candidate and verify CI/lifecycle",
@@ -22,10 +22,12 @@
       "updated_at": "2026-11-23T13:16:05+00:00"
     },
     "MOB-01": {
-      "status": "planned",
-      "note": "Full capability acceptance gate remains open.",
-      "evidence": [],
-      "updated_at": "2026-11-23T12:57:42+00:00"
+      "status": "in_progress",
+      "note": "Hardware-found pre-join background microphone retention fixed. Short foreground/background/service and destroy/relaunch checks passed on Android 17; sustained calls, lock/permission/network transitions and recovery gates remain open.",
+      "evidence": [
+        "docs/ANDROID_INTEGRATION_REVIEW.md connected-device increment; original settings restored exactly and identity retained. Solo call only; no new remote media/soak claim."
+      ],
+      "updated_at": "2026-11-23T14:07:25+00:00"
     },
     "MOB-02": {
       "status": "planned",
@@ -216,11 +218,21 @@
       "title": "Reach the 0.1.14 integration and provider-design milestone",
       "status": "active",
       "started_at": "2026-11-23T13:05:24+00:00",
-      "updated_at": "2026-11-23T13:32:07+00:00",
-      "note": "Reading the roadmap and current evidence."
+      "updated_at": "2026-11-23T14:07:25+00:00",
+      "note": "SDK-01 design committed. Verifying the user-requested full portrait bento canvas and join/reflow animation on desktop and connected Android, including the hardware-found background pre-join microphone fix; final CI follows."
     }
   },
   "activity": [
+    {
+      "at": "2026-11-23T14:07:25+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "MOB-01: in_progress — Hardware-found pre-join background microphone retention fixed. Short foreground/background/service and destroy/relaunch checks passed on Android 17; sustained calls, lock/permission/network transitions and recovery gates remain open."
+    },
+    {
+      "at": "2026-11-23T13:53:42+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "SDK-01 design committed. Verifying the user-requested full portrait bento canvas and join/reflow animation on desktop and connected Android, including the hardware-found background pre-join microphone fix; final CI follows."
+    },
     {
       "at": "2026-11-23T13:32:07+00:00",
       "session": "codex-continue-20261123-a",

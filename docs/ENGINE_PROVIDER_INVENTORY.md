@@ -47,6 +47,7 @@ Every row below starts under `crates/veil-app/src/engine/`.
 | App dependency | Current behaviour | Required boundary |
 |---|---|---|
 | `app.rs`, `model.rs`, `screens/`, `mobile.rs`, `mobile/widgets.rs` | Screen state/actions, roster/chat rendering and permission/control gestures | App-owned presentation; request IDs plus generation-scoped provider handles replace UI indices |
+| `layout.rs`, `layout/motion.rs`, `screens/bento.rs` | Shared portrait-aware bento cells, whole-image fitting and keyed join/reflow motion | Remain in the presentation layer; engine sees explicit final receive demand, not egui geometry/animation state |
 | `keystore.rs`, `json_file.rs` | Protected key/verified-list files, persistence/recovery, config paths | Scoped engine identity/trust store; native protection adapters; explicit failure/reset instead of hidden replacement |
 | `media.rs`, `media/mic.rs` | Capture workers, taps, blur/noise/gain and bounded UI wait on drop | Consent/source leases and joinable/quarantined workers; core owns media sequencing, host owns UI intent |
 | `devices.rs`, `volume.rs` | Selected devices, gain, speaker route and atomics | Platform enumeration/device lease/output adapter; explicit requested/effective state |

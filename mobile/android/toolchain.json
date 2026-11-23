@@ -5,5 +5,6 @@
   "buildTools": "36.0.0",
   "ndk": "27.0.12077973",
   "gradle": "8.13",
-  "gradleSha256": "20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78"
+  "gradleSha256": "20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78",
+  "preview": { "versionName": "0.1.13-mobile.4", "versionCode": 16 }
 }

@@ -84,6 +84,9 @@ try {
     [ordered]@{
         revision = $revision
         dirty = $dirty
+        packageId = 'io.github.jeremy8776.veil.preview'
+        preview = $pins.preview
+        abi = 'arm64-v8a'
         toolchain = $pins
         sha256 = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path (Split-Path $apk) 'build-info.json') -Encoding utf8

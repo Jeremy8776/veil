@@ -31,6 +31,13 @@ also receive an opaque monochrome silhouette for themed launchers. The desktop l
 
 ## Android build on Windows
 
+`0.1.13-mobile.4` (version code 16) adds full portrait frames, a shared responsive bento call
+canvas and smooth joins/reflows on desktop and phone. Captions sit below the whole camera
+image. It also releases pre-join microphone capture while backgrounded; an explicitly started
+call may keep audio with the visible foreground service. This does not establish long-call
+or locked-screen reliability. The [integration review](../docs/ANDROID_INTEGRATION_REVIEW.md)
+records the short hardware checks and their scope.
+
 Install JDK 17, Rust 1.98.1, and these exact Android SDK components. The pins live in
 [`android/toolchain.json`](android/toolchain.json); AGP remains pinned to 8.11.0 in
 `android/build.gradle`. This matches the [AGP compatibility requirements](https://developer.android.com/build/releases/agp-8-11-0-release-notes).
@@ -75,6 +82,11 @@ The debug package is `io.github.jeremy8776.veil.preview` and appears as **Veil P
 It can coexist with a later production package. Android 10 or later is required.
 
 ## Native boundaries
+
+`-Install` stops the previous NativeActivity before replacing the debug package and preserves
+its data. One no-focused-window ANR occurred after an ADB replacement; a stale task is
+suspected. Clean stop/launch and repeated task removal/relaunch passed. Signed production
+upgrade behaviour remains a separate DIST-01 gate.
 
 - `crates/veil-android` supplies the Android NativeActivity entry point.
 - `crates/veil-app` exposes its existing application as a library. Desktop keeps its layout;

@@ -1,6 +1,7 @@
 # Android integration review — 23 November 2026
 
-AND-02 review of the local `0.1.13-mobile.3` candidate. This is an engineering review and
+AND-02 review of the Android candidate, initially `0.1.13-mobile.3` and now `0.1.13-mobile.4`.
+This is an engineering review and
 build record, not a mobile security audit or a claim that every lifecycle scenario passes.
 
 ## Source and integration boundary
@@ -13,7 +14,8 @@ or edited. Remote CI results are recorded as they become available below.
 
 The existing desktop main function now delegates to the `veil-app` library. The Android
 `cdylib` delegates to `run_android`; both use the app's existing private engine and protocol
-crates. This is application reuse, not completion of SDK-01/SDK-02 or a headless provider.
+crates. This is application reuse, not an implemented headless provider. SDK-01's separate
+design is [ADR 0006](adr/0006-shared-engine-provider-contract.md); extraction remains SDK-02.
 Desktop eframe/X11/Wayland/accessibility and xcap dependencies remain target-gated; Android
 uses NativeActivity, Camera2, AAudio, OpenH264 and the same Rust call/security stack.
 
@@ -77,12 +79,55 @@ for this review. SDK-01 remains the next design slice after the integration gate
   confirmed that all eight scoped variables were restored exactly, including absent entries.
 
 Native lifecycle disposition for AND-02: the dedicated-process ownership and one-second
-worker wait/quarantine limitation are explained above. This is a foreground engineering
+worker wait/possible detached-thread limitation are explained above. This is a foreground engineering
 preview; reliable background/locked-screen service operation and graceful reusable provider
 teardown are not supported claims. Remaining device stress/denial/storage checks stay in
-MOB-01/MOB-02/DIST-01 and the SDK-02 migration gates. No connected Android device was available
-in this milestone session. These findings are recorded limitations, not fabricated test passes.
+MOB-01/MOB-02/DIST-01 and the SDK-02 migration gates. A device was subsequently connected;
+the bounded hardware observations below extend this review without claiming soak coverage.
 
 AND-02 stays **in progress** until the committed candidate's Android and existing desktop CI
-pass and the integration is complete. No new phone install or real call was performed here.
+pass and the integration is complete. The short solo-call test below exchanged no remote media.
 The earlier LAN test and Jeremy's successful 5G report remain valid, separately scoped evidence.
+
+## Connected-device and requested layout increment
+
+Samsung SM-S9260, Android 17, connected by USB on 23 November. The candidate was installed
+with the existing local debug signer. The protected device-identity file's digest remained
+identical before/after replacement and all tested relaunches. No key bytes were copied or
+published; there was no verified-contact file on this device to test.
+
+- **Full portrait preview:** visually checked the entire 480×640 portrait camera frame in
+  pre-join. UV cropping was replaced by aspect-preserving containment on desktop and mobile;
+  captions occupy a separate footer. Existing encoder ladder sizing preserves source aspect.
+- **Bento/join UI:** desktop's capture-free simulated call displayed five and then six
+  participants after explicit demo admission; opening/closing People also reflowed the canvas.
+  Shared geometry tests cover mixed portrait/landscape streams, tiny/phone/desktop areas and
+  1–32 cells with no overlap/out-of-bounds. Motion tests verify new-member fade, keyed identity,
+  mid-animation retarget continuity and animation-disabled snapping. This is not a real
+  six-device media/capacity test.
+- **Pre-join capture:** Android AppOps confirmed microphone capture was running, released
+  after backgrounding, resumed in foreground, and closed on Veil Home. This exposed and fixed
+  the old retained background pre-join microphone stream. Camera closes on background;
+  video is restarted explicitly after returning.
+- **Explicit solo call:** with a temporary Local only configuration and no remote guests,
+  the call foreground service and microphone were active. After Home/background, camera
+  capture stopped while the explicitly started call's microphone and foreground service
+  remained active. Activity task removal stopped service and both capture sources.
+- **Teardown/relaunch:** three additional task-removal/cold-launch cycles ended the old
+  process and retained identity. The final Home screen rendered successfully.
+- **Restoration:** the temporary-policy test's `finally` block stopped the test app, restored
+  both original connection and preference files byte-for-byte, and verified identity retention.
+  The original permissions, network and display settings were not changed.
+- **Upgrade observation:** one no-focused-window ANR occurred after an earlier ADB package
+  replacement; a stale Activity/task is suspected, not proven as its cause. Clean force-stop
+  and relaunch recovered. The development `-Install` path now explicitly stops the old
+  NativeActivity before replacement; subsequent install/relaunch and teardown cycles passed.
+  This does not close the stable signed-upgrade or sustained-lifecycle gates.
+
+Local full workspace validation after the main UI increment: **811 passed, 20 ignored**.
+The final geometry refinement's targeted tests and desktop Clippy passed. Android build,
+Clippy and APK checks passed. [CI 199](https://github.com/Jeremy8776/veil/actions/runs/45184913795)
+and [Android preview 2](https://github.com/Jeremy8776/veil/actions/runs/45184913798) passed for
+`74cbedc` before the requested bento/microphone increment. The final candidate's checks are
+tracked on [PR #86](https://github.com/Jeremy8776/veil/pull/86); earlier green runs are not
+substituted for checks on a changed head.
