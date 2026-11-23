@@ -51,6 +51,10 @@ This exercises admission, raised hands, chat/reactions, screen changes and call 
 localhost. It does not replace a call between separate devices or networks. Do not run all
 ignored tests casually: other tests can capture the camera or microphone or map router ports.
 
+For a desktop UI-only demo, build with `--features dev-ui`, set `VEIL_START=call` and
+`VEIL_DEV_NO_CAPTURE=1`. The latter keeps real camera/microphone capture off while inspecting
+layouts and simulated joins. Both variables are development features, ignored by normal builds.
+
 CI runs the full workspace tests on Windows, Clippy on all three operating systems, and
 debug builds on Linux/macOS. The release workflow builds and packages optimised binaries.
 Normal CI does not run the ignored hardware or real-network tests.

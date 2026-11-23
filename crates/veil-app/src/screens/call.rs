@@ -19,17 +19,17 @@ use eframe::egui::{
 };
 
 use crate::app::VeilApp;
-use crate::engine::{Engine, screen_key};
+use crate::engine::Engine;
 use crate::icons::Icon;
 use crate::layout;
-use crate::model::{Call, CallStatus, Participant};
+use crate::model::{Call, CallStatus};
 use crate::screens::panels::{self, Panel};
 use crate::screens::security_panel::Verifying;
-use crate::screens::share::{self, SharePicker};
+use crate::screens::share::SharePicker;
 use crate::screens::share_bar;
 use crate::screens::{call_top, controls, invite, stats};
 use crate::theme::{self, GAP, MUTED, PAGE, SURFACE};
-use crate::widgets::{self, ControlState, Tile, Tone, control, pill};
+use crate::widgets::{ControlState, Tone, control, pill};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -53,7 +53,8 @@ pub struct CallView {
     /// The Share picker, while it is open.
     pub picker: Option<SharePicker>,
     /// Who is sharing their screen, by participant id.
-    sharers: Vec<u32>,
+    pub(super) sharers: Vec<u32>,
+    pub(crate) tile_motion: layout::Motion,
     /// The real call; `None` in a demo. Dropping it leaves the call.
     engine: Option<Engine>,
 }
@@ -73,11 +74,16 @@ impl CallView {
             stats: false,
             picker: None,
             sharers: Vec::new(),
+            tile_motion: layout::Motion::default(),
         }
     }
 
     pub fn notify(&mut self, text: &str) {
         self.notice = Some((text.to_string(), Instant::now()));
+    }
+
+    pub(crate) fn watch_tiles(&self, tiles: Vec<(u32, f32)>) {
+        if let Some(engine) = &self.engine { engine.watch(tiles); }
     }
 
     /// Puts the invite link on the clipboard and says so.
@@ -216,58 +222,8 @@ impl CallView {
         if let Some((text, colour)) = self.banner_text() {
             area.min.y += banner(ui, area, text, colour) + GAP;
         }
-        let people = &self.call.participants;
-        // Each other person's tile width, so the engine asks only for the layers it needs.
-        let scale = ui.ctx().pixels_per_point();
-        let mut tiles: Vec<(u32, f32)> = Vec::new();
-        let mut show = |person: &Participant, rect: Rect| {
-            if !person.is_you {
-                tiles.push((person.id, rect.width() * scale));
-            }
-            draw(app, ui, rect, person);
-        };
-        // A shared screen takes the stage, and everyone moves to the strip below it. Someone
-        // else's comes first; your own is what you are sending, so it always stays in view.
-        let theirs = self.sharers.iter().find_map(|id| {
-            let person = people.iter().find(|p| p.id == *id)?;
-            let label = format!("{} is sharing", person.name);
-            Some((label, app.remote_video(screen_key(*id))?))
-        });
-        let yours = app.share_video();
-        let corner = yours.filter(|_| theirs.is_some());
-        let shown = theirs.or_else(|| Some(("You are sharing".to_string(), yours?)));
-        match (shown, self.view) {
-            (Some((label, video)), _) => {
-                let (stage, strip) = layout::speaker(people.len(), area, GAP);
-                share::stage(ui, stage, video, &label);
-                if let Some(own) = corner {
-                    share::own_view(ui, stage, own);
-                }
-                for (person, rect) in people.iter().zip(strip) {
-                    show(person, rect);
-                }
-            }
-            (None, View::Gallery) => {
-                for (person, rect) in people.iter().zip(layout::gallery(people.len(), area, GAP)) {
-                    show(person, rect);
-                }
-            }
-            (None, View::Speaker) => {
-                let focus = self.call.focus().map(|p| p.id);
-                let others: Vec<&Participant> =
-                    people.iter().filter(|p| Some(p.id) != focus).collect();
-                let (stage, strip) = layout::speaker(others.len(), area, GAP);
-                if let Some(person) = people.iter().find(|p| Some(p.id) == focus) {
-                    show(person, stage);
-                }
-                for (person, rect) in others.iter().zip(strip) {
-                    show(person, rect);
-                }
-            }
-        }
-        if let Some(engine) = &self.engine {
-            engine.watch(tiles);
-        }
+        let waiting = self.waiting_for_guests();
+        let waiting_area = super::bento::show(self, app, ui, area, waiting);
         if self.stats {
             let (measured, levels) = self.engine.as_ref().map(Engine::stats).unwrap_or_default();
             let shown = stats::Shown {
@@ -278,8 +234,8 @@ impl CallView {
             };
             stats::overlay(ui, area, &shown);
         }
-        if self.waiting_for_guests() {
-            invite::card(self, ui, area);
+        if let Some(invite_area) = waiting_area {
+            invite::card(self, ui, invite_area);
         }
         if let Some((text, at)) = &self.notice {
             if now.duration_since(*at) < Duration::from_secs(3) {
@@ -309,23 +265,6 @@ impl CallView {
             CallStatus::Live | CallStatus::Ended(_) => None,
         }
     }
-}
-
-fn draw(app: &VeilApp, ui: &egui::Ui, rect: Rect, person: &Participant) {
-    let video = match (person.is_you, person.camera) {
-        (true, true) => app.preview_video(),
-        (false, true) => app.remote_video(person.id),
-        (_, false) => None,
-    };
-    let tile = Tile {
-        name: &person.name,
-        video,
-        muted: person.muted,
-        speaking: person.speaking,
-        hand_raised: person.hand_raised,
-        is_you: person.is_you,
-    };
-    widgets::tile(ui, rect, &tile);
 }
 
 /// A notice across the top of the stage: the demo warning, or where the call stands.

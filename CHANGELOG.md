@@ -15,11 +15,15 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 - Headless engine/provider architecture decision and complete extraction inventory, covering
   capture consent, scoped identity, lifecycle, bounded commands/events and host migration.
   This designs the SDK; a consumable provider API remains future implementation.
+- Shared desktop/mobile bento call stage with aspect-aware cells, full portrait camera frames,
+  and smooth identity-preserving join/reflow animations. Names sit below the picture.
 
 ### Fixed
 
 - Prevent a camera callback from queuing a frame after Android capture was closed or switched.
 - Restore absent build environment variables as absent after an Android build.
+- Close the Android pre-join microphone stream when the app backgrounds; only an explicitly
+  started call can keep microphone capture active in the background.
 
 ## 0.1.13, 22/11/2026
 

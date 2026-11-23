@@ -12,14 +12,13 @@ use crate::screens::{
 use crate::theme;
 use crate::widgets::{self as shared, Tile, Tone};
 use eframe::egui::{
-    self, Align, Align2, Color32, Layout, Margin, Rect, Sense, Stroke, StrokeKind, UiBuilder, pos2,
+    self, Align, Align2, Layout, Margin, Rect, Sense, Stroke, UiBuilder,
     vec2,
 };
 use std::time::{Duration, Instant};
 use widgets as w;
 
 const EDGE: i8 = 20;
-const GAP: f32 = 8.0;
 
 #[cfg(target_os = "android")]
 pub fn apply_style(ctx: &egui::Context, scale: f32) {
@@ -312,9 +311,8 @@ pub fn prejoin(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
         });
     page(ui, "mobile-prejoin", |ui| {
         let available = ui.available_size();
-        let height = (available.y - 176.0)
-            .clamp(128.0, 400.0)
-            .min(available.x * 1.1);
+        let aspect = app.preview_video().map_or(0.75, |(_, size)| size[0] as f32 / size[1].max(1) as f32);
+        let height = (available.x / aspect).min((available.y - 176.0).max(128.0)).clamp(128.0, 560.0);
         let (rect, _) = ui.allocate_exact_size(vec2(available.x, height), Sense::hover());
         shared::tile(
             ui,
@@ -658,155 +656,27 @@ fn invitation(view: &mut CallView, ui: &mut egui::Ui) {
 
 fn stage(view: &mut CallView, app: &VeilApp, ui: &mut egui::Ui) {
     let size = ui.available_size();
-    let (rect, _) = ui.allocate_exact_size(vec2(size.x, size.y.max(1.0)), Sense::hover());
-    let others: Vec<_> = view
-        .call
-        .participants
-        .iter()
-        .filter(|person| !person.is_you)
-        .cloned()
-        .collect();
-    let shared_screen = others.iter().find_map(|person| {
-        app.remote_video(crate::engine::screen_key(person.id))
-            .map(|video| (person, video))
-    });
-    if let Some((person, (texture, dimensions))) = shared_screen {
-        ui.painter().rect_filled(rect, 12, theme::TILE);
-        let ratio = dimensions[0] as f32 / dimensions[1].max(1) as f32;
-        let fit = vec2(
-            rect.width().min(rect.height() * ratio),
-            rect.height().min(rect.width() / ratio),
-        );
-        ui.painter().image(
-            texture,
-            Rect::from_center_size(rect.center(), fit),
-            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-            Color32::WHITE,
-        );
-        ui.painter().text(
-            rect.left_bottom() + vec2(12.0, -12.0),
-            Align2::LEFT_BOTTOM,
-            format!("{} · Screen", person.name),
-            w::font(ui, 13.0, false),
-            theme::TEXT,
-        );
-    } else if others.len() == 1 {
-        person_tile(ui, rect, &others[0], app);
-    } else if others.len() > 1 {
-        let columns = if size.x >= 320.0 { 2 } else { 1 };
-        let rows = others.len().div_ceil(columns);
-        let width = (rect.width() - GAP * (columns - 1) as f32) / columns as f32;
-        let height = (rect.height() - GAP * (rows - 1) as f32) / rows as f32;
-        for (index, person) in others.iter().enumerate() {
-            let tile = Rect::from_min_size(
-                rect.min
-                    + vec2(
-                        (index % columns) as f32 * (width + GAP),
-                        (index / columns) as f32 * (height + GAP),
-                    ),
-                vec2(width, height),
-            );
-            person_tile(ui, tile, person, app);
-        }
-    } else {
-        ui.painter().rect_filled(rect, 16, theme::TILE);
-        let compact = rect.height() < 340.0;
-        let width = if compact {
-            (rect.width() - 144.0).max(1.0)
-        } else {
-            (rect.width() - 32.0).clamp(1.0, 420.0)
-        };
-        let height = if compact {
-            rect.height() - 24.0
-        } else {
-            (320.0 * egui::TextStyle::Body.resolve(ui.style()).size / 16.0)
-                .min(rect.height() - 24.0)
-        };
-        let content = if compact {
-            Rect::from_min_size(rect.min + vec2(16.0, 12.0), vec2(width, height.max(1.0)))
-        } else {
-            Rect::from_center_size(rect.center(), vec2(width, height.max(1.0)))
-        };
-        ui.scope_builder(
-            UiBuilder::new()
-                .max_rect(content)
-                .layout(Layout::top_down(Align::Center)),
-            |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("mobile-waiting")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        if !compact {
-                            let (logo, _) = ui.allocate_exact_size(
-                                vec2(ui.available_width(), 64.0),
-                                Sense::hover(),
-                            );
-                            crate::logo::mark(
-                                ui.painter(),
-                                Rect::from_center_size(logo.center(), vec2(56.0, 56.0)),
-                                theme::TILE,
-                            );
-                            ui.add_space(12.0);
-                        }
-                        let title = if view.call.is_host {
-                            "Your call is ready"
-                        } else if view.call.status == CallStatus::Lobby {
-                            "Waiting for the host"
-                        } else {
-                            "Reaching the host"
-                        };
-                        w::label(ui, title, 22.0, true, theme::TEXT);
-                        ui.add_space(8.0);
-                        if view.call.is_host && !view.mobile_invite {
-                            invitation(view, ui);
-                        } else if !view.call.is_host {
-                            ui.spinner();
-                            w::label(
-                                ui,
-                                if view.call.status == CallStatus::Lobby {
-                                    "The host will decide when to let you in."
-                                } else {
-                                    "Finding a connection to your call…"
-                                },
-                                14.0,
-                                false,
-                                theme::MUTED,
-                            );
-                        }
-                    });
-            },
-        );
+    let (area, _) = ui.allocate_exact_size(vec2(size.x, size.y.max(1.0)), Sense::hover());
+    let waiting = view.call.participants.iter().all(|person| person.is_you);
+    if let Some(rect) = crate::screens::bento::show(view, app, ui, area, waiting) {
+        let content = rect.shrink(16.0);
+        ui.scope_builder(UiBuilder::new().max_rect(content).layout(Layout::top_down(Align::Center)), |ui| {
+            egui::ScrollArea::vertical().id_salt("mobile-waiting").auto_shrink([false, false]).show(ui, |ui| {
+                let title = if view.call.is_host { "Your call is ready" }
+                    else if view.call.status == CallStatus::Lobby { "Waiting for the host" }
+                    else { "Reaching the host" };
+                w::label(ui, title, 22.0, true, theme::TEXT);
+                ui.add_space(8.0);
+                if view.call.is_host && !view.mobile_invite { invitation(view, ui); }
+                else if !view.call.is_host {
+                    ui.spinner();
+                    w::label(ui, if view.call.status == CallStatus::Lobby {
+                        "The host will decide when to let you in."
+                    } else { "Finding a connection to your call…" }, 14.0, false, theme::MUTED);
+                }
+            });
+        });
     }
-    if let Some(you) = view.call.participants.iter().find(|person| person.is_you) {
-        let width = (rect.width() * 0.27).clamp(64.0, 104.0);
-        let height = (width * 1.25).min(rect.height() * 0.4);
-        let pip = Rect::from_min_size(
-            rect.right_top() + vec2(-width - 12.0, 12.0),
-            vec2(width, height),
-        );
-        person_tile(ui, pip, you, app);
-        ui.painter()
-            .rect_stroke(pip, 8, Stroke::new(1.0, theme::LINE), StrokeKind::Inside);
-    }
-}
-
-fn person_tile(ui: &egui::Ui, rect: Rect, person: &crate::model::Participant, app: &VeilApp) {
-    shared::tile(
-        ui,
-        rect,
-        &Tile {
-            name: &person.name,
-            video: if person.is_you {
-                app.preview_video()
-            } else {
-                app.remote_video(person.id)
-            },
-            muted: person.muted,
-            speaking: person.speaking,
-            hand_raised: person.hand_raised,
-            is_you: person.is_you,
-        },
-    );
 }
 
 pub fn ended(app: &mut VeilApp, ui: &mut egui::Ui) {

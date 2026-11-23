@@ -341,10 +341,15 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
         Some((texture, size)) => {
             // A textured rounded rect, so the picture itself has round corners on any
             // background.
-            let uv = cover_uv(size, rect.size());
+            // Keep the complete sensor frame, including portrait video. Reserve a footer
+            // so names and mute controls cannot obscure the bottom of the picture.
+            let picture = crate::layout::contain(size, Rect::from_min_max(
+                rect.min + vec2(4.0, 4.0),
+                pos2((rect.right() - 4.0).max(rect.left() + 4.0), (rect.bottom() - 36.0).max(rect.top() + 4.0)),
+            ));
             painter.add(
-                egui::epaint::RectShape::filled(rect, radius, Color32::WHITE)
-                    .with_texture(texture, uv),
+                egui::epaint::RectShape::filled(picture, radius, Color32::WHITE)
+                    .with_texture(texture, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0))),
             );
         }
         None => {
@@ -397,19 +402,6 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
         painter.rect_filled(mark, CornerRadius::same(6), theme::WARN);
         Icon::Hand.paint(&painter, mark.center(), 15.0, theme::PAGE);
     }
-}
-
-/// The part of a `size` picture that fills a tile of `tile` size without stretching, centred.
-pub fn cover_uv(size: [usize; 2], tile: egui::Vec2) -> Rect {
-    let picture = size[0] as f32 / size[1].max(1) as f32;
-    let target = tile.x / tile.y.max(1.0);
-    let (w, h) = if picture > target {
-        (target / picture, 1.0)
-    } else {
-        (1.0, picture / target)
-    };
-    let (x0, y0) = ((1.0 - w) / 2.0, (1.0 - h) / 2.0);
-    Rect::from_min_max(pos2(x0, y0), pos2(x0 + w, y0 + h))
 }
 
 /// A row of segments lighting up with the microphone level, 0 to 1.

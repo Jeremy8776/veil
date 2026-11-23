@@ -469,20 +469,6 @@ pub fn stage(ui: &Ui, rect: Rect, (texture, size): (TextureId, [usize; 2]), labe
     painter.galley(at - vec2(0.0, galley.size().y / 2.0), galley, Color32::WHITE);
 }
 
-/// What you are sending, small in the corner while someone else's share has the stage.
-pub fn own_view(ui: &Ui, stage: Rect, (texture, size): (TextureId, [usize; 2])) {
-    let width = (stage.width() * 0.22).clamp(160.0, 300.0);
-    let corner = Rect::from_min_size(
-        stage.right_bottom() - vec2(width + 10.0, width * 9.0 / 16.0 + 10.0),
-        vec2(width, width * 9.0 / 16.0),
-    );
-    let painter = ui.painter_at(stage);
-    painter.rect_filled(corner, CornerRadius::same(6), Color32::BLACK);
-    painter.image(texture, contain(size, corner), WHOLE, Color32::WHITE);
-    let line = Stroke::new(1.5, theme::ACCENT);
-    painter.rect_stroke(corner, CornerRadius::same(6), line, egui::StrokeKind::Outside);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
