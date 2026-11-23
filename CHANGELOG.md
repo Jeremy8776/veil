@@ -4,6 +4,31 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Added
+
+- Android ARM64 development preview using the same call engine and protocol as desktop,
+  with Camera2 video, AAudio sound, Android Keystore, touch layouts and a visible call service.
+  This is a development package; sustained background calls, audio routes and signed upgrades
+  still need the checks listed in `mobile/README.md`.
+- Pinned Android build tools and a CI preview APK with source revision, toolchain and checksum
+  metadata. The build verifies its debug signature and 16 KiB ZIP alignment.
+- Headless engine/provider architecture decision and complete extraction inventory, covering
+  capture consent, scoped identity, lifecycle, bounded commands/events and host migration.
+  This designs the SDK; a consumable provider API remains future implementation.
+- Shared desktop/mobile bento call stage with aspect-aware cells, full portrait camera frames,
+  and smooth identity-preserving join/reflow animations. Names sit below the picture.
+- Remembered **Mirror my camera** control before joining and during calls on desktop and
+  Android. It flips both your preview and the video others receive; screen shares stay normal.
+
+### Fixed
+
+- Prevent a camera callback from queuing a frame after Android capture was closed or switched.
+- Restore absent build environment variables as absent after an Android build.
+- Close the Android pre-join microphone stream when the app backgrounds; only an explicitly
+  started call can keep microphone capture active in the background.
+- Avoid starting an Android capture service for receive-only calls when camera and microphone
+  permissions are both denied.
+
 ## 0.1.13, 22/11/2026
 
 **Upgrade every call participant and `veil-node` together.** Older releases cannot use the

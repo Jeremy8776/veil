@@ -149,6 +149,12 @@ pub enum Tone {
 
 /// A rounded button with an optional icon, `width` wide (or fitted to its text for 0).
 pub fn pill(ui: &mut Ui, icon: Option<Icon>, label: &str, tone: Tone, width: f32) -> Response {
+    if cfg!(target_os = "android") {
+        let width = if width > 0.0 { width } else {
+            ui.painter().layout_no_wrap(label.to_owned(), crate::mobile::widgets::font(ui, 14.0, true), TEXT).size().x + if icon.is_some() { 60.0 } else { 32.0 }
+        };
+        return crate::mobile::widgets::action(ui, icon, label, tone, width);
+    }
     let font = theme::bold(14.0);
     let text_w = ui
         .painter()
@@ -279,6 +285,7 @@ pub fn toggle_row(ui: &mut Ui, value: &mut bool, label: &str, detail: &str) -> R
 
 /// A small icon-only button with a tooltip and an accessible label.
 pub fn icon_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
+    if cfg!(target_os = "android") { return crate::mobile::widgets::icon(ui, icon, label, false); }
     let (rect, response) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
     let response = response.on_hover_text(label);
     response.widget_info(|| WidgetInfo::labeled(Role::Button, true, label));
@@ -334,10 +341,15 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
         Some((texture, size)) => {
             // A textured rounded rect, so the picture itself has round corners on any
             // background.
-            let uv = cover_uv(size, rect.size());
+            // Keep the complete sensor frame, including portrait video. Reserve a footer
+            // so names and mute controls cannot obscure the bottom of the picture.
+            let picture = crate::layout::contain(size, Rect::from_min_max(
+                rect.min + vec2(4.0, 4.0),
+                pos2((rect.right() - 4.0).max(rect.left() + 4.0), (rect.bottom() - 36.0).max(rect.top() + 4.0)),
+            ));
             painter.add(
-                egui::epaint::RectShape::filled(rect, radius, Color32::WHITE)
-                    .with_texture(texture, uv),
+                egui::epaint::RectShape::filled(picture, radius, Color32::WHITE)
+                    .with_texture(texture, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0))),
             );
         }
         None => {
@@ -390,19 +402,6 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
         painter.rect_filled(mark, CornerRadius::same(6), theme::WARN);
         Icon::Hand.paint(&painter, mark.center(), 15.0, theme::PAGE);
     }
-}
-
-/// The part of a `size` picture that fills a tile of `tile` size without stretching, centred.
-pub fn cover_uv(size: [usize; 2], tile: egui::Vec2) -> Rect {
-    let picture = size[0] as f32 / size[1].max(1) as f32;
-    let target = tile.x / tile.y.max(1.0);
-    let (w, h) = if picture > target {
-        (target / picture, 1.0)
-    } else {
-        (1.0, picture / target)
-    };
-    let (x0, y0) = ((1.0 - w) / 2.0, (1.0 - h) / 2.0);
-    Rect::from_min_max(pos2(x0, y0), pos2(x0 + w, y0 + h))
 }
 
 /// A row of segments lighting up with the microphone level, 0 to 1.

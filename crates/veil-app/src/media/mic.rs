@@ -86,6 +86,30 @@ pub(super) fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, 
     let mut scaled = Vec::new();
     let mut chain = Chain::new();
     while !stop.load(Ordering::Relaxed) {
+        #[cfg(target_os = "android")]
+        if !veil_media::ffi::android::microphone_allowed() {
+            // No call was started: release the native stream even when the UI event loop
+            // is paused. Keep only the worker/selection so foreground preview can resume.
+            drop(mic);
+            shared.level.store(0, Ordering::Relaxed);
+            while !stop.load(Ordering::Relaxed)
+                && !veil_media::ffi::android::microphone_allowed()
+            {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            if stop.load(Ordering::Relaxed) {
+                break;
+            }
+            mic = match Microphone::open(&AudioSettings::voice(), id) {
+                Ok(mic) => mic,
+                Err(error) => {
+                    *lock(&shared.mic_error) = Some(error.to_string());
+                    ctx.request_repaint();
+                    return;
+                }
+            };
+            chain = Chain::new();
+        }
         match mic.read() {
             Ok(frame) => {
                 scaled.clear();

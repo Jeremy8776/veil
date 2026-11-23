@@ -11,6 +11,9 @@ license.workspace = true
 # For tools/dev-ui.ps1: lets VEIL_START choose the first screen. Never on in releases.
 dev-ui = []
 
+[lib]
+name = "veil_app"
+
 [dependencies]
 tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "sync"] }
 veil-call = { path = "../veil-call" }
@@ -35,16 +38,20 @@ serde_json = "1.0.154"
 # No default features: egui's bundled fonts carry licences outside the allow list
 # (tools/licences.py), so the app loads the operating system's own fonts at start-up.
 eframe = { version = "0.37", default-features = false, features = [
-    "accesskit",
     "clipboard",
     "wgpu",
-    "wayland",
-    "x11",
 ] }
 # Colour emoji in chat: draws the system emoji font's COLR (Windows), sbix (macOS) or CBDT
 # (Linux) glyphs. The same epaint eframe uses; this only turns the feature on.
 epaint = { version = "0.37", default-features = false, features = ["color_fonts"] }
 qrcodegen = "1.8.0"
+
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "wayland", "x11"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { version = "0.37", default-features = false, features = ["android-native-activity"] }
+winit = { version = "0.30.13", default-features = false, features = ["android-native-activity"] }
 
 [build-dependencies]
 # Windows version information (build.rs). MIT; the same crate as ArtCraft uses.

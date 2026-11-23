@@ -29,6 +29,11 @@ pub fn opened(mut app: VeilApp) -> VeilApp {
     let start = parse(std::env::var("VEIL_START").ok().as_deref());
     if start != Start::Home {
         app.demo = true;
+        // UI layout checks can run without opening real capture devices.
+        if std::env::var("VEIL_DEV_NO_CAPTURE").as_deref() == Ok("1") {
+            app.want_camera = false;
+            app.want_mic = false;
+        }
         app.go_pre_join(true);
     }
     if start == Start::Call {

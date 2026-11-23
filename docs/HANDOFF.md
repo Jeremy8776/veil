@@ -2,13 +2,68 @@
 
 Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
-## Current work, 22/11/2026
+## Current work, 23/11/2026
+
+- The 0.1.14 engineering milestone candidate is [PR #86](https://github.com/Jeremy8776/veil/pull/86),
+  in `main/` on `codex/android-preview-integration`, based on main's `264640f`. Commits separate
+  Android integration, pinned packaging/CI, live roadmap tooling, provider design, native
+  background-capture fixes and the user-requested bento/portrait/join-animation and saved
+  camera-mirror controls.
+  The older `source/` checkout has not been synchronised or edited. No release tag is published.
+- SDK-01's engineering design is complete: [ADR 0006](adr/0006-shared-engine-provider-contract.md)
+  specifies ownership, consent, scoped identity, cancellation, queues/events and migration;
+  [the inventory](ENGINE_PROVIDER_INVENTORY.md) covers all 20 engine modules. A consumable
+  headless engine remains SDK-02; Android's launcher is still the application UI.
+- Android preview `0.1.13-mobile.4` has full portrait frames, shared desktop/mobile bento cells
+  and identity-keyed join/reflow animation. Pre-join microphone capture now releases while
+  backgrounded; only an explicitly started call can retain it. Build tools are pinned, APK
+  signing/alignment is checked, and CI uploads a development artifact with build metadata.
+  Mirror my camera is visible before joining and in the mobile call's More menu; Jeremy
+  explicitly chose mirroring for both the preview and video others receive. Windows and
+  Android retain the choice; screen sharing is unaffected.
+- [Android integration review](ANDROID_INTEGRATION_REVIEW.md) records JNI/lifecycle ownership,
+  native limitations and verification. Windows workspace validation passed 811 tests (20
+  ignored), desktop/Android Clippy and an empty-output candidate-source Android build passed.
+  All five desktop/supply-chain and Android checks passed at `c5721b4`. Later review fixes
+  guard receive-only service startup and explicitly lint the app/media crates. The final
+  mirror increment requires its own exact-head checks; PR #86 is the integration source of truth.
+- Connected Samsung SM-S9260 / Android 17: same-signer installation and three Activity
+  destroy/relaunch cycles retained identity. AppOps verified preview background release,
+  foreground resume, explicit solo-call foreground-service/audio retention with camera off
+  in background, and capture/service stop on task destruction. Original connection/preferences
+  were restored byte-for-byte. These short checks are not sustained audio/locked-screen or
+  multi-device media proof; see the review for an observed ADB upgrade-start ANR and limits.
+  Both-permissions-denied solo calling stayed live without capture/service. The mobile mirror
+  switch flipped the picture, survived a cold restart and remained selected in the call menu;
+  test settings were restored exactly and identity was retained.
+- Every Veil session starts from the live roadmap under `AGENTS.md`. Shared state is
+  `docs/roadmap-state.json`; the page refreshes recorded state every two seconds. The current
+  action is final AND-02 integration/CI; keep sessions active/idle truthful.
+- [Roadmap](ROADMAP.md) now owns future priorities: outcome-based capabilities, stable IDs,
+  dependencies, completion evidence and proposed version milestones from preview integration
+  through 1.0. The milestone versions are planning targets, not tags or package bumps.
+- Mission reminder: **Modular, Agnostic, Shared** video/audio calling, local first and peer to
+  peer by default, useful over a surviving local network when internet fails. Devices own
+  identities/contacts/conversations; chosen replaceable helpers hold no conversation keys.
+  Easier discovery/recovery must preserve admission, pinning, revocation and bounded exposure.
+- On 23/11 Jeremy clarified the shared-product goal: other applications should be able to use
+  Veil as their call provider (Mailcraft, Discord and Slack were examples). The roadmap now
+  includes a headless engine/SDK, provider contract, scoped host identity, local bridge and
+  reference integration. Third-party platform adapter feasibility must be checked separately.
+- Android integration is committed in the milestone candidate. [Mobile notes](../mobile/README.md) record the hardware interoperability check
+  and touch-layout review. Jeremy reported a successful phone-on-5G connection to his desktop
+  host on 23/11; route, builds, duration and detailed media checks were not specified.
+- Next after the AND-02 integration gate:
+  TRUST-02 convenience-path review, LOCAL-01 WAN/DNS-off hardware proof and DIAG-01 evidence.
+  Then sustained mobile calls, interruption/audio checks and signed preview distribution.
+  The reported 5G connection is completed evidence, not an untested prerequisite.
 
 - User guides: [Getting started](GETTING_STARTED.md), [Self-hosting](SELF_HOSTING.md) and
   [Releasing](RELEASING.md). [Architecture](ARCHITECTURE.md) now distinguishes current app
   behaviour from planned 4K, cascade and enterprise features.
-- Release line: **v0.1.13**, dated 22/11/2026. Check GitHub Releases for publication status
-  before creating another tag. The previous release, v0.1.12, was published 20/11 at 13:41 UTC.
+- Release line: **v0.1.13**, published 22/11/2026 at 14:11 UTC, verified against GitHub Releases.
+  Check existing releases before allocating another tag. The previous release, v0.1.12,
+  was published 20/11 at 13:41 UTC.
 - This line includes the Home tools and native icons (#75), microphone Auto volume and
   steadier speaking border (#76), local networking and recovery (#77), and responsive Home /
   Connection layouts, saved setups, explicit connection checks and native log-folder fixes (#78).
@@ -37,8 +92,8 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   remain to be built. A node host allow-list on those systems needs a new key after restart.
   Standard Linux/macOS runs also lack persisted settings because the config path currently
   comes only from `LOCALAPPDATA`; add native config directories as well as keychain support.
-- Next: test the combined changes in a real call, repeat Wi-Fi off/on and cropped-share size
-  changes, and measure Auto on a slow mobile link. KDE capture has been tested on Plasma 6.8;
+- Remaining desktop checks: test the combined changes in a real call, repeat Wi-Fi off/on
+  and cropped-share size changes, and measure Auto on a slow mobile link. KDE capture has been tested on Plasma 6.8;
   remote delivery, GNOME and older Plasma need coverage. TCP/TLS relay fallback and fully
   stopping incoming video remain future work.
 

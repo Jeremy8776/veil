@@ -61,19 +61,27 @@ pub const ICON_FAMILY: &str = "icons";
 /// Where each operating system usually keeps a UI font, best first. Linux distributions vary,
 /// so [`crate::system_fonts`] searches their font folders when these are missing.
 const UI_FONTS: &[&str] = &[
+    "/system/fonts/Roboto-Regular.ttf",
+    "/system/fonts/RobotoStatic-Regular.ttf",
+    "/system/fonts/Roboto[wdth,wght].ttf",
     r"C:\Windows\Fonts\segoeui.ttf",
     "/System/Library/Fonts/SFNS.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/TTF/DejaVuSans.ttf",
 ];
 /// Semibold, for headings and names, if present.
-const BOLD_FONTS: &[&str] = &[r"C:\Windows\Fonts\seguisb.ttf"];
+const BOLD_FONTS: &[&str] = &[
+    "/system/fonts/Roboto-Bold.ttf",
+    "/system/fonts/RobotoStatic-Bold.ttf",
+    r"C:\Windows\Fonts\seguisb.ttf",
+];
 /// Symbols the UI font lacks (the raised hand).
 const SYMBOL_FONTS: &[&str] = &[r"C:\Windows\Fonts\seguisym.ttf"];
 /// Colour emoji for chat, drawn by epaint's `color_fonts`: Segoe UI Emoji (COLR) on Windows,
 /// Apple Color Emoji (sbix, a collection read at face 0) on macOS. Linux distributions vary,
 /// so [`system_fonts::EMOJI_FONT_FILES`] are searched there (Noto Color Emoji is CBDT).
 const EMOJI_FONTS: &[&str] = &[
+    "/system/fonts/NotoColorEmoji.ttf",
     r"C:\Windows\Fonts\seguiemj.ttf",
     "/System/Library/Fonts/Apple Color Emoji.ttc",
 ];
