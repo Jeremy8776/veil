@@ -34,6 +34,9 @@ pub use crate::v4l_camera::{CameraInfo, V4lCamera as Camera, cameras};
 #[cfg(target_os = "macos")]
 pub use crate::ffi::macos::{AvCamera as Camera, CameraInfo, cameras};
 
+#[cfg(target_os = "android")]
+pub use crate::ffi::android::{Camera, CameraInfo, cameras};
+
 /// The H.264 simulcast encoder for `ladder`. On Windows a GPU encoder is tried first.
 pub fn video_encoder(ladder: &Ladder) -> Result<Box<dyn VideoEncoder>, MediaError> {
     #[cfg(windows)]
@@ -52,5 +55,10 @@ pub fn video_decoder() -> Result<Box<dyn VideoDecoder>, MediaError> {
     Ok(Box::new(decoder))
 }
 
-#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-compile_error!("Veil's media back end is built for Windows, Linux and macOS only");
+#[cfg(not(any(
+    windows,
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "android"
+)))]
+compile_error!("No Veil media back end for this operating system");

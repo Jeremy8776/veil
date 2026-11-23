@@ -35,6 +35,7 @@ pub const SETTLE: Duration = Duration::from_millis(600);
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
+    pub display_name: String,
     pub camera: Option<String>,
     pub mic: Option<String>,
     pub speaker: Option<String>,
@@ -90,6 +91,7 @@ impl Prefs {
     pub fn current(media: &LocalMedia, saved: &Prefs, lists: &DeviceLists) -> Self {
         let choice = media.choice();
         Self {
+            display_name: saved.display_name.clone(),
             camera: kept(&saved.camera, &choice.camera, &lists.cameras),
             mic: kept(&saved.mic, &choice.mic, &lists.mics),
             speaker: kept(&saved.speaker, &choice.speaker, &lists.speakers),
@@ -262,6 +264,7 @@ mod tests {
 
     fn chosen() -> Prefs {
         Prefs {
+            display_name: String::from("Alex"),
             camera: Some(String::from("cam-2")),
             mic: Some(String::from("mic-1")),
             speaker: None,

@@ -34,6 +34,9 @@ static SINK: OnceLock<Mutex<Option<Sink>>> = OnceLock::new();
 /// Where the logs live: `%LOCALAPPDATA%\Veil\logs` on Windows, `~/Library/Logs/Veil` on
 /// macOS, `$XDG_STATE_HOME/veil` (or `~/.local/state/veil`) elsewhere.
 pub fn folder() -> Option<PathBuf> {
+    #[cfg(target_os = "android")]
+    return crate::keystore::default_dir().map(|dir| dir.join("logs"));
+    #[cfg(not(target_os = "android"))]
     folder_for(std::env::consts::OS, |name| {
         std::env::var_os(name)
             .filter(|v| !v.is_empty())
@@ -41,6 +44,7 @@ pub fn folder() -> Option<PathBuf> {
     })
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 fn folder_for(os: &str, var: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
     if os == "windows" {
         var("LOCALAPPDATA").map(|base| base.join("Veil").join("logs"))

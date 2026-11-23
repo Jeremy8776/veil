@@ -184,7 +184,7 @@ impl Nearby {
                         Some(crate::icons::Icon::Signal),
                         "Find nearby calls",
                         Tone::Quiet,
-                        ui.available_width().min(theme::FORM_CONTROL_WIDTH),
+                        if cfg!(target_os = "android") { ui.available_width() } else { ui.available_width().min(theme::FORM_CONTROL_WIDTH) },
                     )
                 })
                 .inner;
@@ -211,6 +211,13 @@ impl Nearby {
                     .color(MUTED),
             );
             for found in rows {
+                if cfg!(target_os = "android") {
+                    if ui.add_enabled_ui(!self.fetching, |ui| crate::mobile::action(ui, None, &format!("Request invite · {}", found.label()), Tone::Quiet)).inner {
+                        self.chosen = Some(found);
+                        self.code.clear();
+                    }
+                    continue;
+                }
                 if ui
                     .add_enabled(
                         !self.fetching,
@@ -244,6 +251,15 @@ impl Nearby {
 
 /// Keep the running search on the same centred, 40-point control row as its idle button.
 fn search_control(ui: &mut egui::Ui) -> egui::Response {
+    if cfg!(target_os = "android") {
+        return ui.horizontal(|ui| {
+            ui.allocate_ui_with_layout(egui::vec2((ui.available_width() - 96.0).max(1.0), 48.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.spinner();
+                ui.label(RichText::new("Searching nearby").small().color(MUTED));
+            });
+            crate::mobile::widgets::action(ui, None, "Stop", Tone::Quiet, 88.0)
+        }).inner;
+    }
     let width = ui.available_width().min(theme::FORM_CONTROL_WIDTH);
     let stop_width = 88.0_f32.min(width * 0.4);
     ui.allocate_ui_with_layout(
@@ -278,6 +294,21 @@ impl Nearby {
             .color(MUTED),
         );
         let code = nearby::Code::parse(&self.code);
+        if cfg!(target_os = "android") {
+            let field = ui.add_sized([ui.available_width(), 48.0], egui::TextEdit::singleline(&mut self.code).hint_text("123 456").char_limit(7));
+            let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let mut get = false;
+            ui.columns(2, |columns| {
+                get = columns[0].add_enabled_ui(code.is_some() && !self.fetching, |ui| crate::mobile::action(ui, None, "Get invite", Tone::Primary)).inner;
+                if crate::mobile::action(&mut columns[1], None, "Cancel", Tone::Quiet) { self.chosen = None; self.code.clear(); }
+            });
+            if (get || enter) && !self.fetching && let Some(code) = code {
+                self.chosen = None;
+                self.code.clear();
+                self.fetch(found, code, ui.ctx().clone());
+            }
+            return;
+        }
         ui.horizontal(|ui| {
             let field = ui.add(
                 egui::TextEdit::singleline(&mut self.code)
@@ -330,6 +361,14 @@ impl Nearby {
         };
         ui.label(RichText::new(text).small().color(colour));
         let mut chosen = None;
+        if cfg!(target_os = "android") {
+            ui.columns(2, |columns| {
+                if crate::mobile::action(&mut columns[0], None, "Continue", Tone::Primary) { chosen = Some(InviteLink::Full(invite.clone())); }
+                if crate::mobile::action(&mut columns[1], None, "Cancel", Tone::Quiet) { self.confirm = None; }
+            });
+            if chosen.is_some() { self.confirm = None; }
+            return chosen;
+        }
         ui.horizontal(|ui| {
             if ui
                 .button("Continue")

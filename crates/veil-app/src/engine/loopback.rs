@@ -437,3 +437,73 @@ fn loopback_a_shared_area_that_changes_size_keeps_moving() {
 fn fresh_keys() -> std::sync::Arc<std::sync::Mutex<crate::keystore::KeyStore>> {
     std::sync::Arc::new(std::sync::Mutex::new(crate::keystore::KeyStore::open(None)))
 }
+
+/// Real-device interoperability check. Auto-admission exists only in this ignored test.
+/// Run on a trusted test LAN, then use Nearby and the printed code on the phone.
+#[test]
+#[ignore = "needs a connected Android phone and a trusted local network"]
+fn android_device_exchanges_voice_and_video_with_desktop() {
+    let config = NetConfig {
+        local_only: true,
+        nearby_discovery: true,
+        ..Default::default()
+    };
+    let host = Engine::start(
+        Role::Host,
+        config,
+        "Desktop test".into(),
+        Default::default(),
+        fresh_keys(),
+        Default::default(),
+        egui::Context::default(),
+    )
+    .unwrap();
+    let mut call = Call::live("Mobile test".into(), "Desktop test", true, Instant::now());
+    wait_for("nearby invitation", &host, &mut call, |c| {
+        !c.nearby_code.is_empty()
+    });
+    println!("MOBILE_TEST_NEARBY_CODE={}", call.nearby_code);
+    if let Ok(path) = std::env::var("VEIL_MOBILE_INVITE_FILE") {
+        std::fs::write(path, &call.invite_full).unwrap();
+    }
+    let wait = std::env::var("VEIL_MOBILE_TEST_WAIT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(180)
+        .min(900);
+    let until = Instant::now() + Duration::from_secs(wait);
+    let tap = host.taps();
+    let mut frames = 0;
+    let mut live_since = None;
+    let mut saw_video = false;
+    let mut saw_audio = false;
+    while Instant::now() < until {
+        host.sync(&mut call, Instant::now());
+        if let Some(guest) = call.lobby.first() {
+            host.act(Action::Admit(guest.id));
+        }
+        if call.participants.len() > 1 {
+            live_since.get_or_insert_with(Instant::now);
+            let _ = tap.video.try_send(picture(frames));
+            let _ = tap.audio.try_send(vec![0.0; 960]);
+            frames += 1;
+            saw_video |= !host.take_pictures().is_empty();
+            saw_audio |= call.participants.iter().any(|p| !p.is_you && !p.muted);
+            if saw_video
+                && saw_audio
+                && live_since.is_some_and(|at| at.elapsed() > Duration::from_secs(15))
+            {
+                println!(
+                    "MOBILE_TEST_PASS: phone video decoded, phone Opus received, desktop video and Opus sent; epoch {}",
+                    call.epoch
+                );
+                return;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(33));
+    }
+    panic!(
+        "phone interoperability incomplete: decoded_video={saw_video}, received_audio={saw_audio}, participants={}",
+        call.participants.len()
+    );
+}
