@@ -4,6 +4,20 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Added
+
+- Android ARM64 development preview using the same call engine and protocol as desktop,
+  with Camera2 video, AAudio sound, Android Keystore, touch layouts and a visible call service.
+  This is a development package; sustained background calls, audio routes and signed upgrades
+  still need the checks listed in `mobile/README.md`.
+- Pinned Android build tools and a CI preview APK with source revision, toolchain and checksum
+  metadata. The build verifies its debug signature and 16 KiB ZIP alignment.
+
+### Fixed
+
+- Prevent a camera callback from queuing a frame after Android capture was closed or switched.
+- Restore absent build environment variables as absent after an Android build.
+
 ## 0.1.13, 22/11/2026
 
 **Upgrade every call participant and `veil-node` together.** Older releases cannot use the
