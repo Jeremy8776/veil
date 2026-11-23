@@ -89,7 +89,11 @@ try {
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path (Split-Path $apk) 'build-info.json') -Encoding utf8
     Write-Output "Built: $apk"
     if ($Install) {
-        & (Join-Path $AndroidSdk 'platform-tools\adb.exe') install -r $apk
+        $adb = Join-Path $AndroidSdk 'platform-tools\adb.exe'
+        # End the old NativeActivity before replacing its library; retain all app data.
+        & $adb shell am force-stop io.github.jeremy8776.veil.preview
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot stop the existing preview before upgrade.' }
+        & $adb install -r $apk
         if ($LASTEXITCODE -ne 0) { throw 'Phone installation failed.' }
     }
 } finally {

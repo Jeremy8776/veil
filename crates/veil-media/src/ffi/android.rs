@@ -131,6 +131,21 @@ pub fn background() {
     });
 }
 
+/// A pre-join preview cannot retain the microphone while its Activity is hidden.
+/// Only an explicitly started call may keep audio capture in the background.
+pub fn microphone_allowed() -> bool {
+    activity(|env, object| {
+        env.call_method(
+            object,
+            jni_str!("veilMicrophoneAllowed"),
+            jni_sig!(() -> boolean),
+            &[],
+        )?
+        .z()
+    })
+    .unwrap_or(false)
+}
+
 pub fn insets() -> (u32, u32) {
     let packed = activity(|env, object| {
         env.call_method(object, jni_str!("veilInsets"), jni_sig!(() -> long), &[])?

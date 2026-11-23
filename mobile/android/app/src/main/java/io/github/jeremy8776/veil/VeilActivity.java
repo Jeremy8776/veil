@@ -29,6 +29,7 @@ public final class VeilActivity extends NativeActivity {
     private ImageReader reader;
     private volatile int generation = 0;
     private volatile boolean resumed = false;
+    private volatile boolean callActive = false;
     private volatile boolean backRequested = false;
     private volatile int topInset = 0, bottomInset = 0, leftInset = 0, rightInset = 0;
     private final AtomicReference<String> pendingInvite = new AtomicReference<>("");
@@ -68,6 +69,7 @@ public final class VeilActivity extends NativeActivity {
         super.onPause();
     }
     @Override public void onDestroy() {
+        callActive = false;
         veilCloseCamera();
         stopService(new Intent(this, CallService.class));
         if (cameraThread != null) cameraThread.quitSafely();
@@ -91,6 +93,7 @@ public final class VeilActivity extends NativeActivity {
     public void veilBackground() { runOnUiThread(() -> moveTaskToBack(true)); }
     public boolean veilBackRequested() { boolean value = backRequested; backRequested = false; return value; }
     public boolean veilResumed() { return resumed; }
+    public boolean veilMicrophoneAllowed() { return resumed || callActive; }
     public boolean veilPermissionsReady() {
         return veilPermissionState() == 3;
     }
@@ -125,6 +128,7 @@ public final class VeilActivity extends NativeActivity {
         runOnUiThread(() -> {
             Intent intent = new Intent(this, CallService.class);
             if (active) startForegroundService(intent); else stopService(intent);
+            callActive = active;
             AudioManager audio = getSystemService(AudioManager.class);
             audio.setMode(active ? AudioManager.MODE_IN_COMMUNICATION : AudioManager.MODE_NORMAL);
         });
