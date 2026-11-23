@@ -156,3 +156,20 @@ Two older automated findings were checked against actual source and resolved wit
 changes: pinned egui 0.37's `Id::unique(source)` hashes its source with fixed seeds (so the
 leave-prompt and font-cache IDs are stable), and `docs/roadmap.html` is already a tracked
 file in the PR. These were false positives, not defects hidden by a review dismissal.
+
+## Remembered camera mirror control
+
+Jeremy explicitly requested mirroring for **everyone's camera view**, rather than self-preview
+only. The existing shared capture pipeline already mirrors NV12 before both the preview
+conversion and the engine video tap. That behaviour is preserved; screen sharing has a separate
+capture path. Android now exposes **Mirror my camera** before joining and in the call's More
+menu, backed by the same `preferences.json` store as the desktop control. Help text states
+that everyone sees the reflected camera picture and the choice is remembered.
+
+On the connected Android 17 phone, the switch visibly reflected the whole portrait image.
+After a force-stop/cold restart it remained selected, and a Local only solo call's More menu
+showed the same selected state. The test restored both original settings files exactly and
+verified identity retention. No new remote-media delivery was claimed from this solo check;
+the shared NV12 mirror's existing padding/chroma and invalid-buffer tests both passed, and
+all six preference tests passed. The Android build, expanded Clippy and same-signer install
+also passed with the new control.

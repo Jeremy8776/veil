@@ -17,6 +17,8 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   This designs the SDK; a consumable provider API remains future implementation.
 - Shared desktop/mobile bento call stage with aspect-aware cells, full portrait camera frames,
   and smooth identity-preserving join/reflow animations. Names sit below the picture.
+- Remembered **Mirror my camera** control before joining and during calls on desktop and
+  Android. It flips both your preview and the video others receive; screen shares stay normal.
 
 ### Fixed
 

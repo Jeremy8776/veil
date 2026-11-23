@@ -7,7 +7,8 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 - The 0.1.14 engineering milestone candidate is [PR #86](https://github.com/Jeremy8776/veil/pull/86),
   in `main/` on `codex/android-preview-integration`, based on main's `264640f`. Commits separate
   Android integration, pinned packaging/CI, live roadmap tooling, provider design, native
-  background-capture fixes and the user-requested bento/portrait/join-animation increment.
+  background-capture fixes and the user-requested bento/portrait/join-animation and saved
+  camera-mirror controls.
   The older `source/` checkout has not been synchronised or edited. No release tag is published.
 - SDK-01's engineering design is complete: [ADR 0006](adr/0006-shared-engine-provider-contract.md)
   specifies ownership, consent, scoped identity, cancellation, queues/events and migration;
@@ -17,17 +18,24 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   and identity-keyed join/reflow animation. Pre-join microphone capture now releases while
   backgrounded; only an explicitly started call can retain it. Build tools are pinned, APK
   signing/alignment is checked, and CI uploads a development artifact with build metadata.
+  Mirror my camera is visible before joining and in the mobile call's More menu; Jeremy
+  explicitly chose mirroring for both the preview and video others receive. Windows and
+  Android retain the choice; screen sharing is unaffected.
 - [Android integration review](ANDROID_INTEGRATION_REVIEW.md) records JNI/lifecycle ownership,
   native limitations and verification. Windows workspace validation passed 811 tests (20
   ignored), desktop/Android Clippy and an empty-output candidate-source Android build passed.
-  All desktop/supply-chain and Android CI passed on the initial `74cbedc` candidate; the final
-  requested UI/capture increment is receiving its own checks before integration.
+  All five desktop/supply-chain and Android checks passed at `c5721b4`. Later review fixes
+  guard receive-only service startup and explicitly lint the app/media crates. The final
+  mirror increment requires its own exact-head checks; PR #86 is the integration source of truth.
 - Connected Samsung SM-S9260 / Android 17: same-signer installation and three Activity
   destroy/relaunch cycles retained identity. AppOps verified preview background release,
   foreground resume, explicit solo-call foreground-service/audio retention with camera off
   in background, and capture/service stop on task destruction. Original connection/preferences
   were restored byte-for-byte. These short checks are not sustained audio/locked-screen or
   multi-device media proof; see the review for an observed ADB upgrade-start ANR and limits.
+  Both-permissions-denied solo calling stayed live without capture/service. The mobile mirror
+  switch flipped the picture, survived a cold restart and remained selected in the call menu;
+  test settings were restored exactly and identity was retained.
 - Every Veil session starts from the live roadmap under `AGENTS.md`. Shared state is
   `docs/roadmap-state.json`; the page refreshes recorded state every two seconds. The current
   action is final AND-02 integration/CI; keep sessions active/idle truthful.

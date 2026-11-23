@@ -40,7 +40,7 @@ const AUTO_GAIN_HINT: &str = "Turns your voice up or down to a steady level, so 
 const CLEAN_OTHERS_HINT: &str = "Removes background sound from everyone else, on this computer. \
      Uses a little more processor for each person in the call.";
 /// Shown wherever mirroring can be turned on or off.
-pub const MIRROR_HINT: &str = "Flips your video left to right, for you and everyone in the call.";
+pub const MIRROR_HINT: &str = "Flips your camera left to right, for you and everyone in the call. Your choice is remembered.";
 /// The Auto row while Auto is saving data because the connection is slow.
 const AUTO_SAVING: &str = "Auto: saving data";
 const AUTO_SAVING_HINT: &str = "Your connection is slow, so Veil sends and asks for a smaller \
@@ -229,7 +229,7 @@ fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
     call_menus::filter_swatches(ui, &app.media);
     call_menus::divider(ui);
     let mirrored = app.media.mirror();
-    let mirror = call_menus::toggle_button(ui, Icon::Mirror, "Mirror video", mirrored);
+    let mirror = call_menus::toggle_button(ui, Icon::Mirror, "Mirror my camera", mirrored);
     if mirror.on_hover_text(MIRROR_HINT).clicked() {
         app.media.set_mirror(!mirrored);
     }

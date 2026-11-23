@@ -312,7 +312,7 @@ pub fn prejoin(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
     page(ui, "mobile-prejoin", |ui| {
         let available = ui.available_size();
         let aspect = app.preview_video().map_or(0.75, |(_, size)| size[0] as f32 / size[1].max(1) as f32);
-        let height = (available.x / aspect).min((available.y - 176.0).max(128.0)).clamp(128.0, 560.0);
+        let height = (available.x / aspect).min((available.y - 260.0).max(128.0)).clamp(128.0, 560.0);
         let (rect, _) = ui.allocate_exact_size(vec2(available.x, height), Sense::hover());
         shared::tile(
             ui,
@@ -362,6 +362,8 @@ pub fn prejoin(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
             }
         });
         ui.add_space(8.0);
+        mirror_choice(app, ui);
+        ui.add_space(8.0);
         ui.horizontal(|ui| {
             w::label(ui, "Microphone", 13.0, false, theme::MUTED);
             shared::level_meter(ui, app.level, ui.available_width());
@@ -383,6 +385,13 @@ pub fn prejoin(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
         data_picker(app, ui);
         ui.ctx().request_repaint_after(Duration::from_millis(100));
     });
+}
+
+fn mirror_choice(app: &VeilApp, ui: &mut egui::Ui) {
+    let mut mirrored = app.media.mirror();
+    if w::switch(ui, &mut mirrored, "Mirror my camera", controls::MIRROR_HINT).changed() {
+        app.media.set_mirror(mirrored);
+    }
 }
 
 fn flip(app: &mut VeilApp) {
@@ -480,6 +489,7 @@ pub fn call(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
                         view.panel = Some(Panel::Security);
                         ui.close();
                     }
+                    mirror_choice(app, ui);
                     data_picker(app, ui);
                 });
             });

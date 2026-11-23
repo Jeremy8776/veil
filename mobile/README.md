@@ -38,6 +38,10 @@ call may keep audio with the visible foreground service. This does not establish
 or locked-screen reliability. The [integration review](../docs/ANDROID_INTEGRATION_REVIEW.md)
 records the short hardware checks and their scope.
 
+**Mirror my camera** is available before joining and in the call's More menu. It flips
+both your own preview and the camera video others receive, keeps screen shares in their
+normal orientation, and remembers the choice across app restarts.
+
 Install JDK 17, Rust 1.98.1, and these exact Android SDK components. The pins live in
 [`android/toolchain.json`](android/toolchain.json); AGP remains pinned to 8.11.0 in
 `android/build.gradle`. This matches the [AGP compatibility requirements](https://developer.android.com/build/releases/agp-8-11-0-release-notes).
