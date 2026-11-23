@@ -4,8 +4,9 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
 ## Current work, 23/11/2026
 
-- The 0.1.14 engineering milestone candidate is [PR #86](https://github.com/Jeremy8776/veil/pull/86),
-  in `main/` on `codex/android-preview-integration`, based on main's `264640f`. Commits separate
+- The **0.1.14 engineering milestone is complete**: [PR #86](https://github.com/Jeremy8776/veil/pull/86)
+  merged to main as `f2a01a3` on 23 November at 15:50 UTC. Work was done in `main/` on
+  `codex/android-preview-integration`, now fast-forwarded to that merge. Commits separate
   Android integration, pinned packaging/CI, live roadmap tooling, provider design, native
   background-capture fixes and the user-requested bento/portrait/join-animation and saved
   camera-mirror controls.
@@ -24,9 +25,11 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 - [Android integration review](ANDROID_INTEGRATION_REVIEW.md) records JNI/lifecycle ownership,
   native limitations and verification. Windows workspace validation passed 811 tests (20
   ignored), desktop/Android Clippy and an empty-output candidate-source Android build passed.
-  All five desktop/supply-chain and Android checks passed at `c5721b4`. Later review fixes
-  guard receive-only service startup and explicitly lint the app/media crates. The final
-  mirror increment requires its own exact-head checks; PR #86 is the integration source of truth.
+  Final head `07e1689` passed all five desktop/supply-chain and Android checks: CI run
+  `45206628226` and Android run `45206628111`. The merged source tree matches the verified
+  CI tree exactly. The downloaded APK's checksum, signature, 16 KiB alignment and package/ABI
+  were independently checked. Review fixes guard receive-only service startup and explicitly
+  lint the app/media crates.
 - Connected Samsung SM-S9260 / Android 17: same-signer installation and three Activity
   destroy/relaunch cycles retained identity. AppOps verified preview background release,
   foreground resume, explicit solo-call foreground-service/audio retention with camera off
@@ -36,9 +39,12 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   Both-permissions-denied solo calling stayed live without capture/service. The mobile mirror
   switch flipped the picture, survived a cold restart and remained selected in the call menu;
   test settings were restored exactly and identity was retained.
+  The actual mobile Leave button also stopped both capture sources, the foreground service
+  and engine on the Ended screen; microphone stayed closed after backgrounding. The review's
+  reported leave leak was a false positive: the shared screen transition calls `app.leave`.
 - Every Veil session starts from the live roadmap under `AGENTS.md`. Shared state is
   `docs/roadmap-state.json`; the page refreshes recorded state every two seconds. The current
-  action is final AND-02 integration/CI; keep sessions active/idle truthful.
+  next action is TRUST-02's convenience-path review; keep sessions active/idle truthful.
 - [Roadmap](ROADMAP.md) now owns future priorities: outcome-based capabilities, stable IDs,
   dependencies, completion evidence and proposed version milestones from preview integration
   through 1.0. The milestone versions are planning targets, not tags or package bumps.

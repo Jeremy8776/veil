@@ -254,7 +254,7 @@ capacity and continuity**. Security review, test evidence and diagnostics accomp
 
 | Priority | Work | Reason |
 |---|---|---|
-| Now | AND-02, SDK-01, TRUST-02, LOCAL-01, DIAG-01 and immediate TRUST-01 design | Capture the existing work, define the provider boundary, defend expanded exposure, and prove the offline premise |
+| Now | TRUST-02, LOCAL-01, DIAG-01 and immediate TRUST-01 design | Android integration and provider design are complete; defend expanded exposure and prove the offline premise |
 | Next | MOB-01, MOB-02, INVITE-01, DIST-01 | Turn a successful connection into a usable repeatable phone/local experience |
 | Then | SDK-02, NET-01, NET-02, NET-03, DATA-01, OPS-01 | Expose the shared engine and widen permitted reach while preserving privacy choices |
 | Alongside platform work | DESK-01, ID-01, TEST-01, BIND-01, EMBED-01 | Stable identities, a cross-language boundary and a reference host prove shared use |
@@ -316,12 +316,20 @@ plus READY-01. It does not require iOS, 4K or enterprise features. Any reduction
 must be recorded here before a release candidate. The conditional iOS milestone can proceed after mobile
 lifecycle and call behaviour are understood, without waiting for every desktop/group feature.
 
+The **0.1.14 engineering milestone completed on 23 November 2026** with
+[PR #86](https://github.com/Jeremy8776/veil/pull/86), merged as `f2a01a3`. Final head `07e1689`
+passed Android, Windows, Linux, macOS and supply-chain CI; the merged tree matches the
+verified CI tree. [The review](ANDROID_INTEGRATION_REVIEW.md) records clean-source build,
+device checks and remaining limits; ADR 0006 completes SDK-01's design. This is milestone
+evidence, not a 0.1.14 release tag or a stable SDK.
+
 ## Capability backlog
 
 ### AND-02 Integrate the Android preview
 
 **Outcome:** Another developer can build the preview without recreating a local session.
-**Status:** Reviewed integration candidate; committed build/CI gate is being verified.
+**Status:** Complete: reviewed integration merged in PR #86, with clean-checkout Android
+artifact and all five final-head CI checks passing. See the integration review for evidence.
 **Target:** 0.1.14. **Depends on:** AND-01.
 
 - Review the shared library extraction, Android JNI/media boundaries, key storage, permissions

@@ -85,8 +85,8 @@ teardown are not supported claims. Remaining device stress/denial/storage checks
 MOB-01/MOB-02/DIST-01 and the SDK-02 migration gates. A device was subsequently connected;
 the bounded hardware observations below extend this review without claiming soak coverage.
 
-AND-02 stays **in progress** until the committed candidate's Android and existing desktop CI
-pass and the integration is complete. The short solo-call test below exchanged no remote media.
+AND-02's integration gate is now complete; final CI/merge evidence is recorded below.
+The short solo-call test below exchanged no remote media.
 The earlier LAN test and Jeremy's successful 5G report remain valid, separately scoped evidence.
 
 ## Connected-device and requested layout increment
@@ -173,3 +173,46 @@ verified identity retention. No new remote-media delivery was claimed from this 
 the shared NV12 mirror's existing padding/chroma and invalid-buffer tests both passed, and
 all six preference tests passed. The Android build, expanded Clippy and same-signer install
 also passed with the new control.
+
+## Completed integration evidence
+
+[PR #86](https://github.com/Jeremy8776/veil/pull/86) merged on 23 November 2026 at 15:50 UTC
+as `f2a01a364f4f7004113bbb273c92d389a4cbda25`. Final tested head is
+`07e1689558f6805e15d40418bca107d692231428`. Actual checkout is
+`C:\Users\jerem\Documents\ChatGPT\Veil\main`, branch `codex/android-preview-integration`,
+fast-forwarded to that merge. The older `source/` worktree remains untouched.
+
+- [CI 203](https://github.com/Jeremy8776/veil/actions/runs/45206628226): Windows tests,
+  Linux build, macOS build and supply-chain jobs all **passed**.
+- [Android preview 6](https://github.com/Jeremy8776/veil/actions/runs/45206628111): pinned
+  clean-checkout ARM64 build, expanded app/media Clippy, APK checks and artifact upload **passed**.
+  Artifact `14833298677` contains the APK and build metadata, retained until 7 December.
+- Downloaded CI APK independently passed SHA-256, `apksigner verify`, `zipalign -c -P 16 4`
+  and package/version/ABI inspection. APK SHA-256:
+  `7affc030328350614f30ff27dde92d3ecac09579f3559779403ed31cf05c6dcc`.
+  Metadata reports clean synthetic PR merge `798d3a69756bbff7f2d820069273504331f90a6f`, whose
+  parents are main `264640f` and final head `07e1689`. Its tree
+  `714b88f1e01f5df609720c6bf5f7e8cacf61cc44` exactly matches the actual merged tree.
+- Final local full workspace regression **811 passed, 20 ignored, zero failed** with
+  loopback networking permitted; desktop Clippy and all six roadmap tests passed. The
+  sandboxed regression had timed out on its own loopback UDP server; the permitted rerun
+  passed without source changes.
+- Final local same-signer APK is mobile.4/version 16, built from `07e1689`; its metadata
+  marks dirty because live roadmap JSON/HTML were changing. `git status` confirmed those
+  were the only source-tree differences. APK SHA-256:
+  `11192e09c606fa92475e1d3a9b2e7253690d2ddc6af9ae790578fe8819998d48`.
+  It is installed on the phone; original identity/settings were verified retained. The CI
+  debug signer differs and its APK was not installed over the user's local identity.
+
+The final automated leave-leak finding was checked against the complete control flow:
+`VeilApp` calls `self.leave(&view.call)` whenever `CallView::show` returns false. Mobile
+Leave and its confirmation dialog, as well as engine-ended status, use that shared path.
+A hardware test first confirmed a live Local only solo call with both captures and the
+foreground service active, then pressed the actual Leave button. On the Ended screen,
+AppOps showed both captures closed, the service was stopped and the engine logged closure.
+The microphone stayed closed after backgrounding. Original settings were restored exactly
+and identity retained. The finding was a false positive; no code change was needed. One
+earlier attempt while the phone was asleep reached no call and was not counted as a pass.
+
+AND-02 and SDK-01 therefore meet the 0.1.14 **engineering** milestone. No release/tag was
+published. MOB-01/MOB-02, DIST-01, TRUST-02, LOCAL-01 and SDK-02 retain their separate gates.

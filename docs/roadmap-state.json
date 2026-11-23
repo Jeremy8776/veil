@@ -1,25 +1,27 @@
 {
   "schema_version": 1,
-  "revision": 20,
-  "updated_at": "2026-11-23T14:07:25+00:00",
+  "revision": 30,
+  "updated_at": "2026-11-23T15:52:11+00:00",
   "next_step": {
-    "capability": "AND-02",
-    "title": "Integrate the reviewed Android candidate and verify CI/lifecycle",
-    "why": "Local build repeatability is proven; committed cross-platform CI and explicit native lifecycle disposition are still needed before closing AND-02.",
+    "capability": "TRUST-02",
+    "title": "Review convenience paths against admission and privacy rules",
+    "why": "The reproducible Android/provider-design milestone is complete; trust review must precede broader local/mobile convenience and outage claims.",
     "checks": [
-      "Integrate the reviewed source in coherent changes, preserving the existing unrelated work.",
-      "Run Android artifact and Windows/Linux/macOS CI against the committed candidate.",
-      "Verify or explicitly disposition teardown, permission denial, service/background and Keystore failure cases from the review."
+      "Trace discovery, invites, address hints, resume, helper registration and forwarding with explicit trust/size/time/rate limits.",
+      "Run negative tests for replay, spoofing, removed members, key substitution, arbitrary dial targets and queue exhaustion; record a disposition for each surface.",
+      "Preserve pinning, admission, Local only and relay-only privacy on every recovery/failure path; keep exploitable details private."
     ]
   },
   "capabilities": {
     "AND-02": {
-      "status": "in_progress",
-      "note": "Reviewed native ownership; fixed camera frame publication after close; pinned Android build and CI added. Fresh candidate-source ARM64 build/APK checks, Android Clippy and 810 Windows tests passed. Integration, remote desktop/Android CI and device lifecycle evidence remain open.",
+      "status": "done",
+      "note": "Reviewed Android integration merged as f2a01a3 in PR #86. Final head 07e1689 passed Android clean-checkout artifact plus Windows/Linux/macOS/supply-chain CI. Native ownership/limitations explicitly reviewed; bounded Android capture, denial, leave, identity/settings and mirror-persistence checks passed. AND-02 and SDK-01 complete the 0.1.14 engineering milestone; no release published.",
       "evidence": [
-        "main/ on codex/release-0.1.13, base c032a89; docs/ANDROID_INTEGRATION_REVIEW.md records scope, findings and actual verification. Fresh validation checkout: main/target/and-02-source-check (detached candidate overlay); no generated build inputs copied."
+        "main/ on codex/release-0.1.13, base c032a89; docs/ANDROID_INTEGRATION_REVIEW.md records scope, findings and actual verification. Fresh validation checkout: main/target/and-02-source-check (detached candidate overlay); no generated build inputs copied.",
+        "docs/ANDROID_INTEGRATION_REVIEW.md; PR https://github.com/Jeremy8776/veil/pull/86; final CI runs 45206628226 and 45206628111. No production release or full background/soak claim.",
+        "main/ on codex/android-preview-integration, fast-forwarded to f2a01a364f4f7004113bbb273c92d389a4cbda25; source/ untouched. docs/ANDROID_INTEGRATION_REVIEW.md; PR https://github.com/Jeremy8776/veil/pull/86; CI 45206628226 and Android 45206628111 all five jobs success. CI APK checksum/signature/16KiB alignment verified; merged tree matches tested CI tree. Final local suite 811 passed, 20 ignored, zero failed."
       ],
-      "updated_at": "2026-11-23T13:16:05+00:00"
+      "updated_at": "2026-11-23T15:51:33+00:00"
     },
     "MOB-01": {
       "status": "in_progress",
@@ -216,13 +218,63 @@
     },
     "codex-continue-20261123-a": {
       "title": "Reach the 0.1.14 integration and provider-design milestone",
-      "status": "active",
+      "status": "idle",
       "started_at": "2026-11-23T13:05:24+00:00",
-      "updated_at": "2026-11-23T14:07:25+00:00",
-      "note": "SDK-01 design committed. Verifying the user-requested full portrait bento canvas and join/reflow animation on desktop and connected Android, including the hardware-found background pre-join microphone fix; final CI follows."
+      "updated_at": "2026-11-23T15:52:11+00:00",
+      "note": "0.1.14 engineering milestone complete: AND-02 and SDK-01 done; PR #86 merged as f2a01a3, final 07e1689 five-job CI green, verified CI APK and matching merged tree. Full portrait/bento/join animation and remembered camera mirroring installed and checked on Android. 811 tests passed; identity/settings retained; Leave stops capture/service. Completion evidence updated in main/ on codex/android-preview-integration; source/ untouched. Next: TRUST-02 convenience-path review, then offline and sustained mobile gates. No release tag published."
     }
   },
   "activity": [
+    {
+      "at": "2026-11-23T15:52:11+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "0.1.14 engineering milestone complete: AND-02 and SDK-01 done; PR #86 merged as f2a01a3, final 07e1689 five-job CI green, verified CI APK and matching merged tree. Full portrait/bento/join animation and remembered camera mirroring installed and checked on Android. 811 tests passed; identity/settings retained; Leave stops capture/service. Completion evidence updated in main/ on codex/android-preview-integration; source/ untouched. Next: TRUST-02 convenience-path review, then offline and sustained mobile gates. No release tag published."
+    },
+    {
+      "at": "2026-11-23T15:51:33+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "Next step: TRUST-02 — Review convenience paths against admission and privacy rules"
+    },
+    {
+      "at": "2026-11-23T15:51:33+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "AND-02: done — Reviewed Android integration merged as f2a01a3 in PR #86. Final head 07e1689 passed Android clean-checkout artifact plus Windows/Linux/macOS/supply-chain CI. Native ownership/limitations explicitly reviewed; bounded Android capture, denial, leave, identity/settings and mirror-persistence checks passed. AND-02 and SDK-01 complete the 0.1.14 engineering milestone; no release published."
+    },
+    {
+      "at": "2026-11-23T15:45:13+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "Final 07e1689 CI: Windows tests, Linux build and supply-chain checks passed. macOS runner started; clean-checkout Android preview still building. Phone final install retained identity and original settings; mirror persistence and both-denied receive-only tests passed. Waiting for final two jobs before normal PR merge."
+    },
+    {
+      "at": "2026-11-23T15:34:57+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "AND-02: in_progress — Reviewed integration committed as PR #86 head 07e1689 in main/ on codex/android-preview-integration. Full final Windows regression: 811 passed, 20 ignored; desktop/Android Clippy, clean-source APK build and bounded Android lifecycle, permission-denial, identity/settings and mirror-persistence checks passed. Awaiting final exact-head five-job CI and merge."
+    },
+    {
+      "at": "2026-11-23T15:33:22+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "User chose mirroring for preview and outgoing camera. Android pre-join/in-call switch verified visually; choice survived cold restart. Original settings restored, identity retained. Android build/expanded lint, mirror pixel and preference tests passed. Final regression rerun uses permitted loopback networking; pushing mirror increment for CI."
+    },
+    {
+      "at": "2026-11-23T15:27:40+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "Adding the requested visible mobile mirror control with saved preference, using desktop's existing mirror store. Checking whether the user's choice should affect only self-preview or also outgoing camera frames; integration CI will follow the final increment."
+    },
+    {
+      "at": "2026-11-23T15:25:23+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "Final review follow-up passed: both-denied receive-only live call, no capture/service, permissions/settings restored and identity retained. Expanded Android app/media Clippy and APK build passed. Pushing final service guard and awaiting exact-head CI before merge."
+    },
+    {
+      "at": "2026-11-23T15:17:32+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "Final mobile.4 install recheck passed on reconnected Android: version 16, identity retained, original settings unchanged, no capture/service active on Home. CI artifact independently verified. macOS-only rerun is running; all other final-head checks passed."
+    },
+    {
+      "at": "2026-11-23T15:14:49+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "Final c5721b4 candidate passed Android, Windows, Linux and supply-chain CI; retrying macOS job cancelled before execution. Final phone post-install recheck awaits device reconnect; earlier hardware lifecycle and identity evidence remains valid."
+    },
     {
       "at": "2026-11-23T14:07:25+00:00",
       "session": "codex-continue-20261123-a",
