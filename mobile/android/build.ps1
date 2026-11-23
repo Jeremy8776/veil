@@ -55,7 +55,7 @@ try {
         cargo "+$($pins.rust)" build --locked -p veil-android --target aarch64-linux-android
         if ($LASTEXITCODE -ne 0) { throw 'Rust Android build failed.' }
         if ($Check) {
-            cargo "+$($pins.rust)" clippy --locked -p veil-android --target aarch64-linux-android -- -D warnings
+            cargo "+$($pins.rust)" clippy --locked -p veil-android -p veil-app -p veil-media --lib --target aarch64-linux-android -- -D warnings
             if ($LASTEXITCODE -ne 0) { throw 'Android Clippy failed.' }
         }
     } finally { Pop-Location }

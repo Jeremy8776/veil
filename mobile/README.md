@@ -62,7 +62,8 @@ The script scopes its environment changes to the build, uses `Cargo.lock`, build
 library for ARM64, packages the matching NDK C++ runtime, and makes the debug APK:
 `mobile/android/app/build/outputs/apk/debug/app-debug.apk`.
 It verifies the APK's signature and 16 KiB ZIP alignment. `-Check` additionally runs Android
-Clippy with warnings denied. `build-info.json` beside the APK records the Git base revision,
+Clippy for the Android launcher, shared app and media libraries with warnings denied.
+`build-info.json` beside the APK records the Git base revision,
 whether the source was dirty, toolchain pins and APK SHA-256. A dirty build's revision alone
 does not identify its changes; retain the candidate diff/review with the artifact.
 

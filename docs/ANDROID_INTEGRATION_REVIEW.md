@@ -131,3 +131,28 @@ and [Android preview 2](https://github.com/Jeremy8776/veil/actions/runs/45184913
 `74cbedc` before the requested bento/microphone increment. The final candidate's checks are
 tracked on [PR #86](https://github.com/Jeremy8776/veil/pull/86); earlier green runs are not
 substituted for checks on a changed head.
+
+## Final review follow-up
+
+The final permission-denial review identified an unnecessary service start for a receive-only
+call. `veilCallActive` now starts the capture foreground service only when at least one
+camera/microphone permission is granted; receive-only calls retain communication audio mode
+without starting that service. The service's no-permission early stop remains defensive;
+it must not attempt foreground promotion with an unpermitted capture type.
+
+On the same Android 17 phone, a bounded test temporarily denied both permissions (including
+user-fixed denial), started a Local only solo call, observed `call: Live`, and verified the
+same process was alive after a further eight seconds. AppOps reported neither capture source
+running, and no foreground capture service was present. The call screen rendered correctly.
+The test's `finally` block restored both permission grants/flags and both original settings
+files exactly, and verified the protected identity digest. This tests the new path; it does
+not establish that the old service-stop path reproduced the review's predicted crash.
+
+`build.ps1 -Check -Install` passed after the guard. Android Clippy now explicitly includes
+`veil-android`, `veil-app` and `veil-media` as primary packages with warnings denied, rather
+than relying on dependency compilation to lint the app/media crates.
+
+Two older automated findings were checked against actual source and resolved without code
+changes: pinned egui 0.37's `Id::unique(source)` hashes its source with fixed seeds (so the
+leave-prompt and font-cache IDs are stable), and `docs/roadmap.html` is already a tracked
+file in the PR. These were false positives, not defects hidden by a review dismissal.

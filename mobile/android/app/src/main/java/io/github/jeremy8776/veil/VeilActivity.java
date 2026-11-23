@@ -127,8 +127,11 @@ public final class VeilActivity extends NativeActivity {
     public void veilCallActive(boolean active) {
         runOnUiThread(() -> {
             Intent intent = new Intent(this, CallService.class);
-            if (active) startForegroundService(intent); else stopService(intent);
-            callActive = active;
+            // Receive-only joining needs no capture service. Do not start a service that
+            // has no permitted microphone/camera type to promote to the foreground.
+            boolean backgroundCapture = active && veilPermissionState() != 0;
+            if (backgroundCapture) startForegroundService(intent); else stopService(intent);
+            callActive = backgroundCapture;
             AudioManager audio = getSystemService(AudioManager.class);
             audio.setMode(active ? AudioManager.MODE_IN_COMMUNICATION : AudioManager.MODE_NORMAL);
         });

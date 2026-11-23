@@ -24,6 +24,8 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 - Restore absent build environment variables as absent after an Android build.
 - Close the Android pre-join microphone stream when the app backgrounds; only an explicitly
   started call can keep microphone capture active in the background.
+- Avoid starting an Android capture service for receive-only calls when camera and microphone
+  permissions are both denied.
 
 ## 0.1.13, 22/11/2026
 
