@@ -62,8 +62,9 @@ does not identify its changes; retain the candidate diff/review with the artifac
 The **Android preview** GitHub Actions workflow builds from a fresh checkout without a Rust
 build cache and uploads the APK plus build info as `veil-android-arm64-preview` for 14 days.
 It runs on pull requests, pushes to `main`, and manual dispatch. Existing Windows tests and
-Linux/macOS checks remain separate required evidence. Until this local integration is pushed,
-the new workflow has not run remotely.
+Linux/macOS checks remain separate required evidence. The integration is reviewed in
+[PR #86](https://github.com/Jeremy8776/veil/pull/86); check its exact commit and workflow
+results before treating an artifact as verified.
 
 Debug APKs are signed with the build machine's development key. A CI artifact generally
 cannot upgrade a locally signed preview; Android rejects the different signer. Keep using
@@ -127,6 +128,13 @@ adb shell run-as io.github.jeremy8776.veil.preview cat files/logs/veil.log
 ```
 
 ## Remaining platform work
+
+This package is a foreground development preview for engineering tests with cooperating
+participants. Background/locked-screen speech and receive-only background operation are
+experimental. Activity destruction ends the dedicated app process; relaunch starts a fresh
+runtime. Do not rely on this preview for unattended background calls or untrusted forwarded
+group calls. A distributable supported release must resolve the roadmap's lifecycle and
+forwarded-sender attribution gates; the CI artifact is not that release.
 
 The current integration review, native ownership findings and proposed PR split are in
 [`docs/ANDROID_INTEGRATION_REVIEW.md`](../docs/ANDROID_INTEGRATION_REVIEW.md).

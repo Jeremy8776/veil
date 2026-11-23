@@ -12,6 +12,9 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   still need the checks listed in `mobile/README.md`.
 - Pinned Android build tools and a CI preview APK with source revision, toolchain and checksum
   metadata. The build verifies its debug signature and 16 KiB ZIP alignment.
+- Headless engine/provider architecture decision and complete extraction inventory, covering
+  capture consent, scoped identity, lifecycle, bounded commands/events and host migration.
+  This designs the SDK; a consumable provider API remains future implementation.
 
 ### Fixed
 

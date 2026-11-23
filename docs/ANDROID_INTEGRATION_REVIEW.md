@@ -76,7 +76,13 @@ for this review. SDK-01 remains the next design slice after the integration gate
 - Final `build.ps1 -Check` rerun: **passed**. A surrounding process-environment comparison
   confirmed that all eight scoped variables were restored exactly, including absent entries.
 
-AND-02 stays **in progress** until the candidate is integrated, Android CI and existing
-Linux/macOS CI have run successfully, and the remaining native-lifecycle findings have
-appropriate verification/disposition. No new phone install or real call was performed here.
+Native lifecycle disposition for AND-02: the dedicated-process ownership and one-second
+worker wait/quarantine limitation are explained above. This is a foreground engineering
+preview; reliable background/locked-screen service operation and graceful reusable provider
+teardown are not supported claims. Remaining device stress/denial/storage checks stay in
+MOB-01/MOB-02/DIST-01 and the SDK-02 migration gates. No connected Android device was available
+in this milestone session. These findings are recorded limitations, not fabricated test passes.
+
+AND-02 stays **in progress** until the committed candidate's Android and existing desktop CI
+pass and the integration is complete. No new phone install or real call was performed here.
 The earlier LAN test and Jeremy's successful 5G report remain valid, separately scoped evidence.

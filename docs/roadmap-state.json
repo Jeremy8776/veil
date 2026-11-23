@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "revision": 17,
-  "updated_at": "2026-11-23T13:25:12+00:00",
+  "revision": 18,
+  "updated_at": "2026-11-23T13:32:07+00:00",
   "next_step": {
     "capability": "AND-02",
     "title": "Integrate the reviewed Android candidate and verify CI/lifecycle",
@@ -82,10 +82,12 @@
       "updated_at": "2026-11-23T12:57:42+00:00"
     },
     "SDK-01": {
-      "status": "in_progress",
-      "note": "Designing the provider lifecycle, bounded commands/events, consent/storage adapters and migration inventory for the 0.1.14 milestone",
-      "evidence": [],
-      "updated_at": "2026-11-23T13:25:12+00:00"
+      "status": "done",
+      "note": "ADR 0006 and 20-module extraction inventory define the host/engine boundary, key custody, scoped storage/media consent, cancellable lifecycle, bounded commands/events, errors and desktop/Android/headless migration. Create/join/admit/mute/verify/reconnect/end traced against current code; SDK implementation is SDK-02.",
+      "evidence": [
+        "docs/adr/0006-shared-engine-provider-contract.md and docs/ENGINE_PROVIDER_INVENTORY.md; inventory checked against all 20 existing engine .rs modules. Design only; no stable or implemented public provider API claimed."
+      ],
+      "updated_at": "2026-11-23T13:32:07+00:00"
     },
     "SDK-02": {
       "status": "planned",
@@ -214,11 +216,16 @@
       "title": "Reach the 0.1.14 integration and provider-design milestone",
       "status": "active",
       "started_at": "2026-11-23T13:05:24+00:00",
-      "updated_at": "2026-11-23T13:25:12+00:00",
+      "updated_at": "2026-11-23T13:32:07+00:00",
       "note": "Reading the roadmap and current evidence."
     }
   },
   "activity": [
+    {
+      "at": "2026-11-23T13:32:07+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "SDK-01: done — ADR 0006 and 20-module extraction inventory define the host/engine boundary, key custody, scoped storage/media consent, cancellable lifecycle, bounded commands/events, errors and desktop/Android/headless migration. Create/join/admit/mute/verify/reconnect/end traced against current code; SDK implementation is SDK-02."
+    },
     {
       "at": "2026-11-23T13:25:12+00:00",
       "session": "codex-continue-20261123-a",

@@ -321,7 +321,8 @@ lifecycle and call behaviour are understood, without waiting for every desktop/g
 ### AND-02 Integrate the Android preview
 
 **Outcome:** Another developer can build the preview without recreating a local session.
-**Status:** Next. **Target:** 0.1.14. **Depends on:** AND-01.
+**Status:** Reviewed integration candidate; committed build/CI gate is being verified.
+**Target:** 0.1.14. **Depends on:** AND-01.
 
 - Review the shared library extraction, Android JNI/media boundaries, key storage, permissions
   and lifecycle; keep unrelated generated files and credentials outside the change.
@@ -334,6 +335,10 @@ lifecycle and call behaviour are understood, without waiting for every desktop/g
 the UI launcher a public SDK. Inspect JNI reference ownership, permission prompts, Activity
 teardown, capture shutdown and Keystore behaviour. Review one coherent extraction/platform
 change at a time; do not publish the large local working tree as an unexplained snapshot.
+
+The [integration review](ANDROID_INTEGRATION_REVIEW.md) records native ownership and preview
+limits. Sustained background/lifecycle behaviour and stable signed upgrades remain MOB-01,
+MOB-02 and DIST-01 acceptance work; AND-02 does not claim those tests from a successful build.
 
 ### MOB-01 Keep a mobile call usable through interruptions
 
@@ -507,7 +512,9 @@ IOS-01 is optional.
 ### SDK-01 Design the shared engine and provider contract
 
 **Outcome:** An app author knows how to add Veil calling without copying its private app engine.
-**Status:** Core libraries exist; higher-level provider contract is not designed.
+**Status:** Engineering design and source inventory recorded in
+[ADR 0006](adr/0006-shared-engine-provider-contract.md) and the
+[extraction inventory](ENGINE_PROVIDER_INVENTORY.md); implementation remains SDK-02.
 **Target:** 0.1.14. **Depends on:** BASE-01.
 
 Write an ADR identifying the engine/UI boundary, runtime ownership, storage and media adapters,
