@@ -20,6 +20,15 @@ in the call hold them, and nothing else can read the call: not a relay, not a fo
 us. Servers are optional: a participant's computer or a `veil-node` you choose can carry a
 call. The desktop app and node are built for Windows, macOS and Linux.
 
+An [Android development preview](mobile/README.md) shares the desktop call engine and adds
+phone camera, audio, private key storage and touch layouts. iPhone support is not built yet.
+
+The direction is **Modular, Agnostic, Shared**: Veil as both a standalone video/audio calling
+app and a reusable call engine/provider for other applications. Protocol libraries exist;
+the documented headless SDK, provider contract and host-app integrations are planned in the
+[roadmap](docs/roadmap.html). Local operation, user-owned identity and strict admission remain
+requirements for both standalone and embedded calls.
+
 > [!WARNING]
 > Veil is early and has had no independent security audit. Do not trust it with anything that
 > matters yet. [docs/TRANSPARENCY.md](docs/TRANSPARENCY.md) lists what it does not protect.
@@ -167,6 +176,7 @@ UDP ports, IPv6 and the difference between listening and public addresses.
 
 ## Documents
 
+- [Roadmap](docs/roadmap.html) ([Markdown](docs/ROADMAP.md)): outcomes, proposed version milestones and completion criteria.
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md): the design, including the planned parts.
 - [GETTING_STARTED.md](docs/GETTING_STARTED.md): make a first call and resolve common problems.
 - [SELF_HOSTING.md](docs/SELF_HOSTING.md): run a node for chosen hosts.

@@ -56,6 +56,15 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, panel: Panel, now: Instant) 
         });
 }
 
+/// On phones the selected panel replaces the stage instead of squeezing it sideways.
+pub fn mobile_content(view: &mut CallView, ui: &mut egui::Ui, panel: Panel, now: Instant) {
+    match panel {
+        Panel::People => people(view, ui, now),
+        Panel::Chat => chat_panel::show(view, ui, now),
+        Panel::Security => security_panel::show(view, ui),
+    }
+}
+
 /// For a host who asked for it: whether the router opened the call's port, with the address
 /// or the guide in the tooltip.
 fn router(ui: &mut egui::Ui, port: &RouterPort) {
