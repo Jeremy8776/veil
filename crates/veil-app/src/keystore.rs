@@ -37,6 +37,9 @@ const MAX_ASIDE: u32 = 20;
 
 /// Where Veil keeps its files, if anywhere.
 pub fn default_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "android")]
+    return veil_media::ffi::android::data_dir().ok();
+    #[cfg(not(target_os = "android"))]
     std::env::var_os("LOCALAPPDATA")
         .filter(|v| !v.is_empty())
         .map(|base| PathBuf::from(base).join("Veil"))
@@ -260,14 +263,24 @@ fn unseal(bytes: &[u8], label: &[u8]) -> Result<Vec<u8>, String> {
 
 // shortcut: no sealing off Windows, so nothing is saved there. Add the platform's keychain
 // with the macOS and Linux back ends.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 fn seal(_: &[u8], _: &[u8]) -> Result<Vec<u8>, String> {
     Err(String::from("saving keys is built for Windows only"))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 fn unseal(_: &[u8], _: &[u8]) -> Result<Vec<u8>, String> {
     Err(String::from("saving keys is built for Windows only"))
+}
+
+#[cfg(target_os = "android")]
+fn seal(bytes: &[u8], label: &[u8]) -> Result<Vec<u8>, String> {
+    veil_media::ffi::android::protect(bytes, label, true).map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "android")]
+fn unseal(bytes: &[u8], label: &[u8]) -> Result<Vec<u8>, String> {
+    veil_media::ffi::android::protect(bytes, label, false).map_err(|e| e.to_string())
 }
 
 #[cfg(all(test, windows))]

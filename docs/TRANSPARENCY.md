@@ -384,9 +384,11 @@ macOS. The code is `crates/veil-portmap` and `crates/veil-app/src/engine/router.
 ## 5. Code Rust cannot check
 
 **Today:** the workspace sets `unsafe_code = "forbid"`, so the compiler refuses `unsafe` in
-every crate except `veil-media`. That crate sets `deny` instead, and only its `ffi` modules allow
-it: one per operating system (Windows, macOS), plus libopus and OpenH264. The rest of
-`veil-media` is safe Rust.
+every crate except `veil-media` and the Android launcher. `veil-media` sets `deny` instead,
+and only its `ffi` modules allow it: one per operating system (Windows, macOS, Android), plus
+libopus and OpenH264. The rest of `veil-media` is safe Rust. The development Android launcher
+also uses `deny`, with a function-scoped exception for the required exported `android_main`
+symbol's `unsafe(no_mangle)` attribute; it contains no unsafe block or platform calls.
 
 **Native code in dependencies:** `ring` (used by `rustls` and `quinn` for TLS) is written partly
 in C and assembly. It is licensed Apache-2.0 and ISC. The desktop app (`veil-app`) draws with
@@ -411,11 +413,12 @@ licence. On Windows, `build.rs` embeds it in the exe with `winresource`.
 
 **In `veil-media`:**
 - Camera capture is only available through each operating system's own APIs: Media Foundation
-  (Windows), AVFoundation (macOS), Video4Linux2 (Linux, through the `v4l` crate). Hardware
+  (Windows), AVFoundation (macOS), Video4Linux2 (Linux, through the `v4l` crate), or Camera2
+  (Android, through the Java/JNI bridge). Hardware
   video encoding is used on Windows (Media Foundation). Calling them needs `unsafe`
   foreign-function calls. These libraries ship with the operating system; Veil does not
   bundle them.
-- H.264 on Linux and macOS is Cisco's OpenH264 (BSD-2-Clause), compiled from source by the
+- H.264 on Linux, macOS and the Android preview is Cisco's OpenH264 (BSD-2-Clause), compiled from source by the
   `openh264-sys2` crate. **Patents:** Cisco pays the H.264 patent pool's royalties only for its
   own prebuilt binary downloaded at install time, so a build from source has no such cover. This
   is a `shortcut:` for an early release. Before a wide release, move to VideoToolbox (macOS) and
@@ -426,8 +429,9 @@ licence. On Windows, `build.rs` embeds it in the exe with `winresource`.
   check against xiph.org's release tarball in `VENDORED.md`),
   and `build.rs` compiles them with the `cc` crate. The deep-learning features are not built.
 - Rules for that code:
-  - `unsafe` is allowed only in `veil-media`, and only inside one `ffi` module per platform,
-    plus `ffi/opus.rs` for libopus and `ffi/openh264.rs` for OpenH264.
+  - Unsafe platform calls are allowed only in `veil-media`, inside one `ffi` module per
+    platform, plus `ffi/opus.rs` for libopus and `ffi/openh264.rs` for OpenH264.
+    The sole launcher exception is the exported Android entry point described above.
     Every other crate keeps `forbid`.
   - Every `unsafe` block has a `// SAFETY:` comment saying why it is sound.
     `clippy::undocumented_unsafe_blocks` is set to deny, so a missing comment fails the build.
@@ -435,6 +439,8 @@ licence. On Windows, `build.rs` embeds it in the exe with `winresource`.
 
 | Module | Calls | Why |
 |---|---|---|
+| `veil-android/src/lib.rs::android_main` | Exported `unsafe(no_mangle)` attribute only | NativeActivity's required symbol delegates to `veil-app`; no unsafe blocks or independent call engine |
+| `veil-media/src/ffi/android.rs` | `JavaVM::from_raw`, `JObject::from_raw`, then owned JNI global references and thread attachments through `jni` | Copies the live Activity reference before the event loop, avoiding its lifecycle lock on media workers. Java owns Camera2 resources and Keystore operations; Rust receives bounded copied NV12 frames. The global reference lasts for the dedicated Android process; Activity destruction terminates that process. See the Android integration review for shutdown limits |
 | `veil-media/src/ffi/windows` (`mod.rs`, `enumerate.rs`, `sample.rs`) | COM start-up (`CoInitializeEx`, `CoCreateInstance`, `CoTaskMemFree`); Media Foundation (`MFStartup`, `MFTEnumEx`, the H.264 encoder transform `IMFTransform` and its `ICodecAPI` settings, media types, samples and buffers) | Hardware H.264 encoding on Windows, one encoder per simulcast rung, with Microsoft's software encoder as the fallback. Both ship with Windows |
 | `veil-media/src/ffi/windows/decoder.rs` | Microsoft's H.264 decoder transform (`CoCreateInstance` of `CLSID_MSH264DecoderMFT`, `IMFTransform`, `ICodecAPI` low latency, media types, `GetBlob` for the display area) and the shared NV12 copy in `sample.rs` | Decoding other members' video on Windows, on the CPU. The bitstream comes from another member and is parsed by Windows' decoder, so that decoder is part of the attack surface. Veil refuses any decoded size above 4K before allocating for it, and copies each picture out of the locked buffer within the bounds Windows reports |
 | `veil-media/src/ffi/windows/audio.rs`, `audio_devices.rs` | WASAPI (`IMMDeviceEnumerator` `EnumAudioEndpoints`, `GetDevice`, `GetDefaultAudioEndpoint`, each device's `GetId` and friendly name through `OpenPropertyStore`, `PropVariantToStringAlloc`, `PropVariantClear`, `CoTaskMemFree`, `IAudioClient` and `IAudioClient2` in shared, event-driven mode, `IAudioCaptureClient`, `IAudioRenderClient`, `CreateEventW`, `WaitForSingleObject`, `CloseHandle`) | Microphone and speakers on Windows, 48 kHz float, converted by Windows. Samples are copied byte by byte within the frame count WASAPI gives. The streams use the communications category, so Windows may apply the device's own echo cancellation and noise suppression. Device names and ids stay on this device; nothing about them is sent |

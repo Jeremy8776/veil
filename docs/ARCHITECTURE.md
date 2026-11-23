@@ -11,6 +11,17 @@ below distinguish it from what can be used today. Test coverage and security lim
 
 Motto: **modular, agnostic, shared.**
 
+The product goal includes both the standalone video/audio calling app and an embeddable
+engine/provider for other applications, clarified on 23 November 2026. Existing protocol
+crates are reusable, but the higher-level engine remains inside `veil-app`; its Android
+library entry points launch the app UI. [ADR 0006](adr/0006-shared-engine-provider-contract.md)
+defines the proposed headless engine/provider contract and its
+[extraction inventory](ENGINE_PROVIDER_INVENTORY.md). A consumable SDK, cross-language bridge
+and reference host integration remain planned, not available interfaces.
+The [roadmap](ROADMAP.md#embeddable-call-platform) defines the proposed separation, endpoint
+trust boundary and release gates. Both modes must preserve local operation, user-owned
+identities, strict admission and chosen replaceable infrastructure.
+
 ## 1. Principles
 
 - **Modular.** Every piece of infrastructure is a *role* behind one interface: discovery, relay,

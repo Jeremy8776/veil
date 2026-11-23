@@ -1,3 +1,15 @@
 /target
+/mobile/android/.gradle/
+/mobile/android/app/build/
+/mobile/android/build/
+/mobile/android/app/src/main/jniLibs/
+/mobile/android/local.properties
 # Icon working files (concept rounds); the chosen icon ships in crates/veil-app/assets.
 /design/
+# Local live-roadmap runtime; the shared state JSON and HTML are tracked artifacts.
+/.roadmap-runtime.json
+/.roadmap-server.log
+/docs/roadmap-state.lock
+/docs/roadmap-state.json.*.tmp
+/docs/roadmap.html.*.tmp
+/tools/__pycache__/
