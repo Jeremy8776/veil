@@ -44,7 +44,8 @@ pub struct CallView {
     pub draft: String,
     /// The person being checked in the Security panel.
     pub verifying: Option<Verifying>,
-    notice: Option<(String, Instant)>,
+    pub(crate) notice: Option<(String, Instant)>,
+    pub(crate) mobile_invite: bool,
     /// Whether the blur-off notice has been shown as a toast, so it shows once.
     blur_notice_shown: bool,
     /// The call stats overlay is on.
@@ -67,6 +68,7 @@ impl CallView {
             draft: String::new(),
             verifying: None,
             notice: None,
+            mobile_invite: false,
             blur_notice_shown: false,
             stats: false,
             picker: None,
@@ -136,6 +138,9 @@ impl CallView {
             self.notify("Screen sharing stopped.");
         }
         self.sync_you(app);
+        if cfg!(target_os = "android") {
+            return crate::mobile::call(self, app, ui);
+        }
         self.shortcuts(app, ui);
         call_top::show(self, ui, now);
         let stay = control_bar(self, app, ui);

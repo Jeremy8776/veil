@@ -91,18 +91,19 @@ impl VeilApp {
         let updates = crate::update::Updates::start_with_network(
             keystore::default_dir(),
             ctx,
-            !connection.saved.local_only,
+            !connection.saved.local_only && !cfg!(target_os = "android"),
         );
         let data_use = Arc::new(crate::data_use::DataUseCell::new(connection.saved.data_use));
         let prefs = crate::preferences::Store::open(keystore::default_dir());
         let media = LocalMedia::new(ctx.clone());
         prefs.saved.apply(&media);
+        #[cfg(target_os = "android")]
+        let name = prefs.saved.display_name.clone();
+        #[cfg(not(target_os = "android"))]
+        let name = std::env::var("USERNAME").ok().filter(|n| !n.trim().is_empty()).unwrap_or_default();
         Self {
             screen: Screen::Home,
-            name: std::env::var("USERNAME")
-                .ok()
-                .filter(|n| !n.trim().is_empty())
-                .unwrap_or_default(),
+            name,
             invite: String::new(),
             home_error: None,
             log_opener: crate::log::FolderOpener::default(),
@@ -133,14 +134,26 @@ impl VeilApp {
 
     /// Opens the pre-join screen with your devices on, as you last chose.
     pub fn go_pre_join(&mut self, host: bool) {
+        #[cfg(target_os = "android")]
+        veil_media::ffi::android::request_permissions();
         self.devices = crate::devices::DeviceLists::load();
         // Before the devices open, so the saved ones open first time.
         let saved = self.prefs.saved.devices(&self.devices);
         self.media.choose_camera(saved.camera);
         self.media.choose_mic(saved.mic);
         self.media.choose_speaker(saved.speaker);
-        self.media.set_camera(self.want_camera);
-        self.media.set_mic(self.want_mic);
+        let (camera_ready, mic_ready) = {
+            #[cfg(target_os = "android")]
+            {
+                veil_media::ffi::android::permission_state()
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                (true, true)
+            }
+        };
+        self.media.set_camera(self.want_camera && camera_ready);
+        self.media.set_mic(self.want_mic && mic_ready);
         if host && !self.demo {
             self.firewall.check(&self.ctx);
         }
@@ -200,6 +213,8 @@ impl VeilApp {
         }
         self.remote.clear();
         self.screen = Screen::Call(Box::new(CallView::new(call, engine)));
+        #[cfg(target_os = "android")]
+        veil_media::ffi::android::call_active(true);
     }
 
     /// Uses `choice` from now on, in the running call too, and saves it. Audio only also
@@ -214,6 +229,8 @@ impl VeilApp {
     }
 
     pub fn leave(&mut self, call: &Call) {
+        #[cfg(target_os = "android")]
+        veil_media::ffi::android::call_active(false);
         self.stop_sharing();
         self.media.set_taps(None);
         self.media.set_camera(false);
@@ -272,6 +289,8 @@ impl VeilApp {
     }
 
     pub fn go_home(&mut self) {
+        #[cfg(target_os = "android")]
+        veil_media::ffi::android::call_active(false);
         self.stop_sharing();
         self.media.set_taps(None);
         self.media.set_camera(false);
@@ -327,6 +346,8 @@ impl VeilApp {
     /// Saves device, filter, blur, mirror and volume changes from any screen, once settled.
     fn remember_prefs(&mut self, ctx: &egui::Context) {
         let now = crate::preferences::Prefs::current(&self.media, &self.prefs.saved, &self.devices);
+        #[cfg(target_os = "android")]
+        let now = crate::preferences::Prefs { display_name: self.name.clone(), ..now };
         if self.prefs.observe(now, Instant::now()) {
             ctx.request_repaint_after(crate::preferences::SETTLE);
         }
@@ -363,15 +384,70 @@ impl VeilApp {
 impl eframe::App for VeilApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        #[cfg(target_os = "android")]
+        {
+            let (top, bottom) = veil_media::ffi::android::insets();
+            let scale = ctx.pixels_per_point();
+            let font_scale = veil_media::ffi::android::font_scale();
+            let font_id = egui::Id::unique("android-font-scale");
+            if ctx.data(|data| data.get_temp::<f32>(font_id)) != Some(font_scale) {
+                crate::mobile::apply_style(&ctx, font_scale);
+                ctx.data_mut(|data| data.insert_temp(font_id, font_scale));
+            }
+            let (left, right) = veil_media::ffi::android::side_insets();
+            if left > 0 {
+                egui::Panel::left("android-left-inset").exact_size(left as f32 / scale)
+                    .frame(egui::Frame::new().fill(crate::theme::PAGE)).show(ui, |_| {});
+            }
+            if right > 0 {
+                egui::Panel::right("android-right-inset").exact_size(right as f32 / scale)
+                    .frame(egui::Frame::new().fill(crate::theme::PAGE)).show(ui, |_| {});
+            }
+            egui::Panel::top("android-status-bar")
+                .exact_size(top as f32 / scale)
+                .frame(egui::Frame::new().fill(crate::theme::PAGE))
+                .show(ui, |_| {});
+            egui::Panel::bottom("android-navigation-bar")
+                .exact_size(bottom as f32 / scale)
+                .frame(egui::Frame::new().fill(crate::theme::PAGE))
+                .show(ui, |_| {});
+            if matches!(self.screen, Screen::Home)
+                && let Some(invite) = veil_media::ffi::android::take_invite()
+            {
+                self.invite = invite;
+            }
+        }
+        #[cfg(target_os = "android")]
+        if veil_media::ffi::android::back_requested() {
+            match &mut self.screen {
+                Screen::Call(view) if view.mobile_invite => view.mobile_invite = false,
+                Screen::Call(view) if view.panel.is_some() => view.panel = None,
+                Screen::Call(_) => {
+                    ctx.data_mut(|data| {
+                        data.insert_temp(egui::Id::unique("mobile-leave"), true);
+                    });
+                }
+                Screen::Home => veil_media::ffi::android::background(),
+                _ => self.go_home(),
+            }
+        }
         self.update_media(&ctx);
         match std::mem::replace(&mut self.screen, Screen::Home) {
             Screen::Home => {
                 self.screen = Screen::Home;
-                crate::screens::home::show(self, ui);
+                if cfg!(target_os = "android") {
+                    crate::mobile::home(self, ui);
+                } else {
+                    crate::screens::home::show(self, ui);
+                }
             }
             Screen::PreJoin { host } => {
                 self.screen = Screen::PreJoin { host };
-                crate::screens::prejoin::show(self, ui, host);
+                if cfg!(target_os = "android") {
+                    crate::mobile::prejoin(self, ui, host);
+                } else {
+                    crate::screens::prejoin::show(self, ui, host);
+                }
             }
             Screen::Call(mut view) => {
                 if view.show(self, ui) {
@@ -395,7 +471,8 @@ impl eframe::App for VeilApp {
                     lasted,
                     reason,
                 };
-                crate::screens::home::ended(self, ui);
+                if cfg!(target_os = "android") { crate::mobile::ended(self, ui); }
+                else { crate::screens::home::ended(self, ui); }
             }
         }
         self.alert_lobby(&ctx);

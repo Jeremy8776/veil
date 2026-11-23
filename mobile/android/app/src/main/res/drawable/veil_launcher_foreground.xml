@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Veil's existing disc, V and signal rings, centered in Android's 66dp safe zone.
+     The 57.6dp mark leaves room for circular and squircle launcher masks.
+     The V is a real transparent cutout, so it also works when the system tints it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.38" android:strokeWidth="3.1392"
+        android:pathData="M54,26.7552 A27.2448,27.2448 0,1 1,54,81.2448 A27.2448,27.2448 0,1 1,54,26.7552 Z" />
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.65" android:strokeWidth="3.1392"
+        android:pathData="M54,32.7168 A21.2832,21.2832 0,1 1,54,75.2832 A21.2832,21.2832 0,1 1,54,32.7168 Z" />
+    <path android:fillColor="#FFFFFF" android:fillType="evenOdd"
+        android:pathData="M54,38.6496 A15.3504,15.3504 0,1 1,54,69.3504 A15.3504,15.3504 0,1 1,54,38.6496 Z M45.731,50.953 L51.693,61.293 A2.664,2.664 0,0 0,56.307,61.293 L62.269,50.953 A2.664,2.664 0,0 0,57.655,48.291 L54,54.633 L50.345,48.291 A2.664,2.664 0,0 0,45.731,50.953 Z" />
+</vector>

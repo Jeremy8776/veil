@@ -14,6 +14,8 @@
 //! - `window` is the main window's title; only this process's window of that name is
 //!   touched.
 
+#[cfg(target_os = "android")]
+use crate::ffi::android as imp;
 #[cfg(windows)]
 use crate::ffi::windows as imp;
 #[cfg(target_os = "linux")]

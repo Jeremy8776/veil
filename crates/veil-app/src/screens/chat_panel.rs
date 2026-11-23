@@ -37,7 +37,7 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
              Relays and forwarders cannot read it. Not kept after the call.",
             );
     }
-    let input_h = 44.0;
+    let input_h = if cfg!(target_os = "android") { 48.0 } else { 44.0 };
     let list_h = (ui.available_height() - input_h - 8.0).max(80.0);
     let mut react = None;
     ScrollArea::vertical()
@@ -59,12 +59,15 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     }
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        let field = ui.add(
+        let input_width = (ui.available_width() - if cfg!(target_os = "android") { 112.0 } else { 76.0 }).max(1.0);
+        let field = ui.add_sized(
+            [input_width, if cfg!(target_os = "android") { 48.0 } else { 24.0 }],
             TextEdit::singleline(&mut view.draft)
                 .hint_text("Type a message")
                 .font(theme::chat_font(ui))
+                .align(egui::Align2::LEFT_CENTER)
                 .char_limit(veil_call::app_msg::MAX_CHAT_CHARS)
-                .desired_width(ui.available_width() - 76.0),
+                .desired_width(input_width),
         );
         let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
         let emoji = widgets::icon_button(ui, Icon::Emoji, "Emoji");
@@ -167,7 +170,7 @@ fn picker(button: &egui::Response) -> Option<&'static str> {
                         if emoji_button(ui, emoji, 18.0).clicked() {
                             chosen = Some(*emoji);
                         }
-                        if (i + 1) % PICKER_COLUMNS == 0 {
+                        if (i + 1) % if cfg!(target_os = "android") { 6 } else { PICKER_COLUMNS } == 0 {
                             ui.end_row();
                         }
                     }
@@ -178,7 +181,8 @@ fn picker(button: &egui::Response) -> Option<&'static str> {
 
 fn emoji_button(ui: &mut egui::Ui, emoji: &str, size: f32) -> egui::Response {
     let text = RichText::new(emoji).size(size).family(theme::chat_family());
-    ui.add(Button::new(text).frame(false))
+    let button = Button::new(text).frame(false);
+    if cfg!(target_os = "android") { ui.add_sized([48.0, 48.0], button) } else { ui.add(button) }
 }
 
 /// A reaction under a message: the emoji and how many chose it, highlighted if you did,

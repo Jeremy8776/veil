@@ -149,6 +149,12 @@ pub enum Tone {
 
 /// A rounded button with an optional icon, `width` wide (or fitted to its text for 0).
 pub fn pill(ui: &mut Ui, icon: Option<Icon>, label: &str, tone: Tone, width: f32) -> Response {
+    if cfg!(target_os = "android") {
+        let width = if width > 0.0 { width } else {
+            ui.painter().layout_no_wrap(label.to_owned(), crate::mobile::widgets::font(ui, 14.0, true), TEXT).size().x + if icon.is_some() { 60.0 } else { 32.0 }
+        };
+        return crate::mobile::widgets::action(ui, icon, label, tone, width);
+    }
     let font = theme::bold(14.0);
     let text_w = ui
         .painter()
@@ -279,6 +285,7 @@ pub fn toggle_row(ui: &mut Ui, value: &mut bool, label: &str, detail: &str) -> R
 
 /// A small icon-only button with a tooltip and an accessible label.
 pub fn icon_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
+    if cfg!(target_os = "android") { return crate::mobile::widgets::icon(ui, icon, label, false); }
     let (rect, response) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
     let response = response.on_hover_text(label);
     response.widget_info(|| WidgetInfo::labeled(Role::Button, true, label));

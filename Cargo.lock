@@ -4759,6 +4759,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "veil-android"
+version = "0.1.13"
+dependencies = [
+ "veil-app",
+ "winit",
+]
+
+[[package]]
 name = "veil-app"
 version = "0.1.13"
 dependencies = [
@@ -4779,6 +4787,7 @@ dependencies = [
  "veil-rendezvous",
  "veil-security",
  "veil-topology",
+ "winit",
  "winresource",
  "zeroize",
 ]
@@ -4840,11 +4849,13 @@ dependencies = [
 name = "veil-media"
 version = "0.1.13"
 dependencies = [
+ "android-activity",
  "ashpd",
  "block2 0.6.2",
  "cc",
  "cpal",
  "dispatch2",
+ "jni",
  "nnnoiseless",
  "objc2 0.6.5",
  "objc2-av-foundation",
