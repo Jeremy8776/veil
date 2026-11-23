@@ -1,0 +1,303 @@
+{
+  "schema_version": 1,
+  "revision": 17,
+  "updated_at": "2026-11-23T13:25:12+00:00",
+  "next_step": {
+    "capability": "AND-02",
+    "title": "Integrate the reviewed Android candidate and verify CI/lifecycle",
+    "why": "Local build repeatability is proven; committed cross-platform CI and explicit native lifecycle disposition are still needed before closing AND-02.",
+    "checks": [
+      "Integrate the reviewed source in coherent changes, preserving the existing unrelated work.",
+      "Run Android artifact and Windows/Linux/macOS CI against the committed candidate.",
+      "Verify or explicitly disposition teardown, permission denial, service/background and Keystore failure cases from the review."
+    ]
+  },
+  "capabilities": {
+    "AND-02": {
+      "status": "in_progress",
+      "note": "Reviewed native ownership; fixed camera frame publication after close; pinned Android build and CI added. Fresh candidate-source ARM64 build/APK checks, Android Clippy and 810 Windows tests passed. Integration, remote desktop/Android CI and device lifecycle evidence remain open.",
+      "evidence": [
+        "main/ on codex/release-0.1.13, base c032a89; docs/ANDROID_INTEGRATION_REVIEW.md records scope, findings and actual verification. Fresh validation checkout: main/target/and-02-source-check (detached candidate overlay); no generated build inputs copied."
+      ],
+      "updated_at": "2026-11-23T13:16:05+00:00"
+    },
+    "MOB-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "MOB-02": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "DIST-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "NET-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "DATA-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "DESK-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "TRUST-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "GROUP-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "IOS-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "READY-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "SDK-01": {
+      "status": "in_progress",
+      "note": "Designing the provider lifecycle, bounded commands/events, consent/storage adapters and migration inventory for the 0.1.14 milestone",
+      "evidence": [],
+      "updated_at": "2026-11-23T13:25:12+00:00"
+    },
+    "SDK-02": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "BIND-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "EMBED-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "LOCAL-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "TRUST-02": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "INVITE-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "DIAG-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "TEST-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "NET-02": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "NET-03": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "OPS-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "ID-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "MEDIA-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "HOST-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "NEAR-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "MSG-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "SCALE-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "PERF-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "ORG-01": {
+      "status": "planned",
+      "note": "Full capability acceptance gate remains open.",
+      "evidence": [],
+      "updated_at": "2026-11-23T12:57:42+00:00"
+    }
+  },
+  "sessions": {
+    "01a207ea-e141-7ce0-953c-df660a232d9b": {
+      "title": "Live roadmap and session startup",
+      "status": "idle",
+      "started_at": "2026-11-23T12:57:42+00:00",
+      "updated_at": "2026-11-23T13:02:20+00:00",
+      "note": "Configured roadmap-first session instructions and verified shared live updates, next-step selection, concurrency and browser behaviour. Next product step: AND-02 Android integration review/build repeatability."
+    },
+    "codex-continue-20261123-a": {
+      "title": "Reach the 0.1.14 integration and provider-design milestone",
+      "status": "active",
+      "started_at": "2026-11-23T13:05:24+00:00",
+      "updated_at": "2026-11-23T13:25:12+00:00",
+      "note": "Reading the roadmap and current evidence."
+    }
+  },
+  "activity": [
+    {
+      "at": "2026-11-23T13:25:12+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "SDK-01: in_progress — Designing the provider lifecycle, bounded commands/events, consent/storage adapters and migration inventory for the 0.1.14 milestone"
+    },
+    {
+      "at": "2026-11-23T13:23:45+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "Session opened: Reach the 0.1.14 integration and provider-design milestone"
+    },
+    {
+      "at": "2026-11-23T13:23:21+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "Session opened: Reach the 0.1.14 integration and provider-design milestone"
+    },
+    {
+      "at": "2026-11-23T13:18:02+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "AND-02 review/build increment verified: pinned Android tools/CI artifact, camera publication and environment-restoration fixes, fresh candidate-source APK build, Android/desktop Clippy and 810 Windows tests passed. Next: coherent integration, remote CI and lifecycle checks; see docs/ANDROID_INTEGRATION_REVIEW.md."
+    },
+    {
+      "at": "2026-11-23T13:16:06+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "Next step: AND-02 — Integrate the reviewed Android candidate and verify CI/lifecycle"
+    },
+    {
+      "at": "2026-11-23T13:16:05+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "AND-02: in_progress — Reviewed native ownership; fixed camera frame publication after close; pinned Android build and CI added. Fresh candidate-source ARM64 build/APK checks, Android Clippy and 810 Windows tests passed. Integration, remote desktop/Android CI and device lifecycle evidence remain open."
+    },
+    {
+      "at": "2026-11-23T13:09:09+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "Session opened: Android integration review and repeatable build"
+    },
+    {
+      "at": "2026-11-23T13:08:51+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "Session opened: Android integration review and repeatable build"
+    },
+    {
+      "at": "2026-11-23T13:05:58+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "AND-02: in_progress — Reviewing Android JNI/media ownership and reproducible build/CI requirements"
+    },
+    {
+      "at": "2026-11-23T13:05:24+00:00",
+      "session": "codex-continue-20261123-a",
+      "note": "Session opened: Continue the next Veil roadmap task"
+    },
+    {
+      "at": "2026-11-23T13:02:20+00:00",
+      "session": "01a207ea-e141-7ce0-953c-df660a232d9b",
+      "note": "Configured roadmap-first session instructions and verified shared live updates, next-step selection, concurrency and browser behaviour. Next product step: AND-02 Android integration review/build repeatability."
+    },
+    {
+      "at": "2026-11-23T13:01:08+00:00",
+      "session": "01a207ea-e141-7ce0-953c-df660a232d9b",
+      "note": "Browser verified live session refresh 1795438867918"
+    },
+    {
+      "at": "2026-11-23T13:01:02+00:00",
+      "session": "01a207ea-e141-7ce0-953c-df660a232d9b",
+      "note": "Session opened: Live roadmap and session startup"
+    },
+    {
+      "at": "2026-11-23T12:59:52+00:00",
+      "session": "01a207ea-e141-7ce0-953c-df660a232d9b",
+      "note": "Session startup and live-state tracking implemented; verifying concurrent writers and the browser refresh path."
+    },
+    {
+      "at": "2026-11-23T12:58:34+00:00",
+      "session": "01a207ea-e141-7ce0-953c-df660a232d9b",
+      "note": "Session opened: Live roadmap and session startup"
+    },
+    {
+      "at": "2026-11-23T12:57:42+00:00",
+      "session": "01a207ea-e141-7ce0-953c-df660a232d9b",
+      "note": "Session opened: Live roadmap and session startup"
+    }
+  ]
+}

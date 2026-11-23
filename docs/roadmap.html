@@ -1,0 +1,1650 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Veil’s Modular, Agnostic, Shared calling platform: local-first private calls, an embeddable engine/SDK, chosen infrastructure, version milestones and evidence gates.">
+<meta name="theme-color" content="#17161c"><meta name="roadmap-document-revision" content="d4e187425acc843846d8010a8f1cbbba10daa35e6ceee8140697db7dcb3bdb14"><title>Veil — Shared calling platform roadmap</title><style>
+:root{color-scheme:dark;--page:#17161c;--surface:#222129;--raised:#2e2d37;--line:#3d3b47;--text:#f3f2f7;--muted:#b6b3c5;--accent:#a6a2ff;--purple:#6e6af0;--green:#70d5a4;--gold:#e8c47b;--sans:"Segoe UI Variable Text","Segoe UI",Arial,sans-serif;--display:"Segoe UI Variable Display","Segoe UI",Arial,sans-serif;--mono:Consolas,"Liberation Mono",monospace}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:28px}body{margin:0;background:var(--page);color:var(--text);font:16px/1.65 var(--sans)}a{color:var(--accent);text-underline-offset:4px}a:hover{color:#d1cfff}button,input,select{font:inherit}button,select{cursor:pointer}button{background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:9px 15px}button:hover{background:#3a3945}button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:4px}h1,h2,h3,p{margin-top:0}h1,h2,h3{font-family:var(--display);font-weight:600;line-height:1.15}h1{font-size:clamp(46px,6vw,78px);letter-spacing:-.055em;margin-bottom:24px;max-width:800px}h2{font-size:32px;letter-spacing:-.025em;margin-bottom:24px}h3{font-size:23px;letter-spacing:-.02em}p{margin-bottom:18px}strong{font-weight:600}code{font-family:var(--mono);font-size:.88em;background:var(--raised);padding:2px 5px;border-radius:4px}li{margin-bottom:10px}ul{padding-left:23px}section{scroll-margin-top:28px}svg{display:block}button[hidden],[hidden]{display:none!important}
+.skip{position:fixed;left:20px;top:-90px;z-index:10;padding:12px;background:var(--surface)}.skip:focus{top:10px}.layout{display:grid;grid-template-columns:228px minmax(0,1fr);max-width:1600px;margin:auto}.sidebar{position:sticky;top:0;height:100vh;padding:36px 25px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:38px}.brand{display:flex;gap:12px;align-items:center;color:var(--text);text-decoration:none;font-size:25px;font-weight:600;letter-spacing:-1px}.brand svg{width:42px;height:42px}.sidebar nav{display:flex;flex-direction:column;gap:3px}.sidebar nav a{color:var(--muted);text-decoration:none;font-size:14px;padding:10px 12px;border-left:2px solid transparent}.sidebar nav a:hover,.sidebar nav a[aria-current]{color:var(--text);background:var(--surface);border-left-color:var(--accent)}.sidebar-note{margin-top:auto;font-size:12px;color:var(--muted)}.sidebar-note b{display:block;color:var(--text);font-weight:500;font-size:13px;margin-bottom:8px}.sidebar-note p{margin-bottom:8px}.main{min-width:0;padding:0 6.5%}.topline{display:flex;justify-content:space-between;align-items:center;gap:20px;border-bottom:1px solid var(--line);padding:27px 0;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.topline a{text-transform:none;letter-spacing:0;font-size:14px}.hero{padding:62px 0 38px}.eyebrow{display:block;color:var(--accent);font:12px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin-bottom:22px}.hero-lead{font-size:20px;color:var(--muted);max-width:720px;line-height:1.6}.hero-lead strong{color:var(--text);font-weight:500}.hero-bottom{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-top:30px}.chip{border:1px solid var(--line);border-radius:30px;padding:5px 12px;font-size:12px;color:var(--muted)}.chip.live{color:var(--green)}.chip.live:before{content:"";display:inline-block;width:6px;height:6px;background:var(--green);border-radius:100%;margin-right:8px}.proof{display:grid;grid-template-columns:140px 1fr;background:#202b29;border:1px solid #3d6252;border-radius:10px;margin:6px 0 60px;overflow:hidden}.proof-label{padding:25px;color:var(--green);font:12px/1.6 var(--mono);border-right:1px solid #3d6252;display:flex;flex-direction:column;justify-content:center}.proof-main{padding:23px 28px}.proof-main h2{font-size:21px;letter-spacing:-.01em;margin-bottom:8px}.proof-main p{font-size:14px;color:#c1d0c9;margin:0}.proof-main a{color:#a2e7c2}.section-top{display:flex;justify-content:space-between;align-items:baseline;gap:16px}.section-top small{font:12px var(--mono);color:var(--muted)}.section-lead{color:var(--muted);max-width:760px}.milestones{margin:30px 0}.milestone{display:grid;grid-template-columns:140px minmax(0,1fr);border-top:1px solid var(--line);padding:29px 0;position:relative}.milestone:last-child{border-bottom:1px solid var(--line)}.version>span{font:26px/1.3 var(--mono);letter-spacing:-1px}.version small{display:block;color:var(--muted);font-size:11px;margin-top:7px}.milestone:first-child .version>span{color:var(--accent)}.milestone:first-child .version small{color:var(--accent)}.milestone-main h3{margin-bottom:10px}.outcome{color:var(--muted);margin-bottom:14px;font-size:15px}.exit{font-size:13px;color:var(--muted);margin:0 0 14px}.exit strong{color:var(--text);margin-right:6px}.id-links{display:flex;flex-wrap:wrap;gap:8px}.id-link{display:inline-flex;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font:11px/1.5 var(--mono);text-decoration:none}.id-link:hover{background:var(--raised)}.notes{font-size:14px;color:var(--muted)}.block{padding:34px 0 42px}.block+.block{border-top:1px solid var(--line)}.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:25px 0 12px}.field{display:flex;flex-direction:column;gap:6px;flex:1;min-width:180px}.field label{font-size:12px;color:var(--muted)}.field input,.field select{width:100%;padding:11px 12px;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:6px;min-height:46px}.field-select{flex:0 1 185px}.toolbar-actions{display:flex;align-items:flex-end;gap:8px}.toolbar-actions button{min-height:46px}.results{color:var(--muted);font-size:12px;display:flex;justify-content:space-between;align-items:center;margin:15px 0}.results button{border:0;background:transparent;font-size:12px;color:var(--accent);padding:4px}.capability{border:1px solid var(--line);border-radius:8px;margin-bottom:10px;background:var(--surface);overflow:hidden}.capability summary{list-style:none;display:grid;grid-template-columns:82px minmax(0,1fr) 58px 18px;align-items:center;gap:13px;padding:20px;cursor:pointer}.capability summary::-webkit-details-marker{display:none}.capability summary:hover{background:#292832}.cap-id{font:11px var(--mono);color:var(--accent)}.cap-name{font-size:15px;font-weight:500;line-height:1.45}.cap-version{font:11px var(--mono);color:var(--muted)}.disclosure{font-size:20px;line-height:1;text-align:center;color:var(--muted)}.capability[open] .disclosure{font-size:0}.capability[open] .disclosure:after{content:"−";font-size:20px}.cap-body{border-top:1px solid var(--line);padding:24px 28px;font-size:14px;color:var(--muted)}.cap-body strong{color:var(--text)}.cap-body>:last-child{margin-bottom:0}.capability:target{outline:2px solid var(--accent);outline-offset:3px}.empty{padding:30px;border:1px dashed var(--line);text-align:center;color:var(--muted)}.table-scroll{max-width:100%;overflow:auto;border:1px solid var(--line);border-radius:8px;margin:25px 0}table{width:100%;border-collapse:collapse;font-size:13px;min-width:660px}th{text-align:left;font-size:11px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.05em;background:var(--surface)}th,td{padding:16px;vertical-align:top;border-bottom:1px solid var(--line)}tr:last-child td{border-bottom:0}td:first-child{font:11px/1.7 var(--mono);color:var(--accent)}.evidence-copy,.prose{font-size:14px;color:var(--muted)}.prose strong{color:var(--text)}.prose h3{font-size:19px}.source-intro{border-bottom:1px solid var(--line);padding-bottom:15px;margin-bottom:25px}.source-intro p:first-child{color:var(--accent);font-size:12px}.footer{padding:30px 0 35px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:20px;font-size:12px;color:var(--muted)}.footer a{white-space:nowrap}.support-grid{display:grid;grid-template-columns:1fr 1fr;gap:36px}.support-grid h2{font-size:25px}.no-js{font-size:13px;color:var(--gold)}
+@media(min-width:1500px){.main{padding-right:10%}}@media(max-width:1000px){.layout{grid-template-columns:180px minmax(0,1fr)}.sidebar{padding:30px 15px}.main{padding:0 5%}.milestone{grid-template-columns:112px 1fr}.capability summary{grid-template-columns:73px minmax(0,1fr) 17px}.cap-version{display:none}.support-grid{grid-template-columns:1fr;gap:10px}}
+@media(max-width:700px){.layout{display:block}.sidebar{position:static;height:auto;padding:18px 6%;border-right:0;border-bottom:1px solid var(--line);gap:18px}.brand{font-size:22px}.brand svg{width:34px;height:34px}.sidebar nav{flex-direction:row;overflow:auto;gap:10px}.sidebar nav a{white-space:nowrap;font-size:12px;padding:5px 0;border:0}.sidebar-note{display:none}.main{padding:0 6%}.topline{padding:18px 0;font-size:10px;gap:12px}.topline a{font-size:12px}.hero{padding:42px 0 28px}h1{font-size:48px}.hero-lead{font-size:17px}.proof{grid-template-columns:1fr;margin-bottom:36px}.proof-label{padding:12px 18px;border-right:0;border-bottom:1px solid #3d6252;flex-direction:row;gap:12px;justify-content:flex-start;font-size:11px}.proof-main{padding:20px 18px}.proof-main h2{font-size:19px}.section-top{display:block}.section-top small{display:block;margin-bottom:20px}h2{font-size:27px}.milestone{grid-template-columns:92px 1fr;padding:24px 0}.version>span{font-size:21px}.milestone-main h3{font-size:20px}.outcome{font-size:14px}.capability summary{padding:16px 13px;gap:9px;grid-template-columns:67px minmax(0,1fr) 15px}.cap-name{font-size:14px}.cap-id{font-size:10px}.cap-body{padding:19px 17px}.toolbar-actions{width:100%}.field-select{flex:1}.section-top h2{margin-bottom:12px}.footer{flex-direction:column;gap:8px}.block{padding:25px 0 32px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@media print{:root{color-scheme:light;--page:#fff;--surface:#f4f4f7;--raised:#eee;--line:#ccc;--text:#181820;--muted:#454550;--accent:#4742a8;--green:#19643e}body{font-size:10pt}.layout{display:block}.sidebar,.toolbar,.results,.topline,.hero-bottom button,.skip,.no-js{display:none!important}.main{padding:0}.hero{padding:20px 0}h1{font-size:36pt}.proof{background:#f1f8f3;border-color:#8a9}.proof-label,.proof-main p{color:#234f36}.proof-label{border-color:#8a9}.proof-main a{color:#19643e}.milestone{break-inside:avoid}.capability{break-inside:avoid}.capability summary{padding:12px}.cap-body{padding:15px}.table-scroll{overflow:visible}table{min-width:0}.support-grid{display:block}.block{padding:20px 0}.footer{padding:16px 0}.id-link{color:#4742a8}a{color:#4742a8;text-decoration:none}.cap-version{display:block}.capability summary{grid-template-columns:75px 1fr 55px 15px}}
+
+.sidebar{gap:25px}.sidebar nav a{padding:8px 11px}.hero h1{font-size:clamp(48px,5.4vw,72px)}.hero-lead{max-width:780px}.hero-bottom .text-action{font-size:13px;margin-left:3px}.platform-map{margin:32px 0 42px;padding:26px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}.map-caption{font:11px var(--mono);color:var(--muted);margin-bottom:22px}.app-row,.role-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.map-node{border:1px solid var(--line);border-radius:6px;padding:16px;font-size:14px;text-align:center}.map-node small{display:block;font-size:11px;color:var(--muted);margin-top:4px}.map-core{margin:20px 0;padding:20px;text-align:center;background:#302d55;border:1px solid #6e6af0;border-radius:7px}.map-core strong{display:block;font-size:19px}.map-core span{font-size:12px;color:#d0cdef}.role-row .map-node{font-size:12px;padding:12px 6px}.map-foot{margin:18px 0 0;color:var(--muted);font-size:12px;text-align:center}.stream-label{display:block;font:10px var(--mono);color:var(--accent);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px}.prose blockquote{border-left:3px solid var(--purple);padding:10px 20px;margin:22px 0;background:var(--surface);color:var(--text);font-size:17px}.prose blockquote p:last-child{margin-bottom:0}.prose h3{margin-top:35px;margin-bottom:18px}.prose>h3:first-child{margin-top:0}.prose .table-scroll{margin-top:22px;margin-bottom:28px}.prose p,.prose li{max-width:880px}.prose .table-scroll p{margin-bottom:0}.cap-body a{overflow-wrap:anywhere}.field-stream{flex:0 1 205px}.main>.block{border-top:1px solid var(--line)}.reading-note{font-size:13px;color:var(--muted);border-left:2px solid var(--purple);padding-left:14px}.milestone-main .id-links{gap:6px}.proof{margin-bottom:35px}.source-intro{border-bottom:0}.strategy-section h2{max-width:800px}.strategy-section{padding-top:42px;padding-bottom:38px}
+@media(max-width:700px){.hero h1{font-size:48px}.platform-map{padding:18px 14px}.app-row{grid-template-columns:1fr;gap:8px}.app-row .map-node{padding:10px}.app-row .map-node small{display:inline;margin-left:6px}.role-row{grid-template-columns:1fr;gap:8px}.role-row .map-node{padding:8px}.map-core{margin:14px 0}.field-stream{flex:1 1 100%}.toolbar-actions{margin-top:2px}.strategy-section h2{font-size:26px}.prose blockquote{font-size:15px;padding:12px 15px}.sidebar nav{gap:18px}.sidebar nav a{padding:4px 0}.hero-bottom{gap:14px}.hero-bottom .text-action{width:100%;margin-top:8px}}
+@media print{.platform-map{break-inside:avoid;background:#fff}.map-core{background:#eeedff;color:#181820;border-color:#777}.map-core span{color:#454550}.app-row{grid-template-columns:repeat(3,1fr)}.role-row{grid-template-columns:repeat(3,1fr)}.prose blockquote{font-size:11pt}.hero h1{font-size:34pt}.strategy-section{padding:18px 0}}
+
+.live-panel{margin:24px 0 10px;border:1px solid var(--purple);border-left:5px solid var(--accent);border-radius:9px;padding:25px;background:#252238;scroll-margin-top:20px}.live-heading{display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:17px}.live-heading strong{color:var(--accent);font:12px var(--mono);letter-spacing:.06em}.live-panel h2{font-size:27px;line-height:1.25;margin-bottom:12px;max-width:780px}.live-panel .next-link{font:12px var(--mono)}.live-reason{font-size:14px;color:#d0cbe6;margin:10px 0 16px;max-width:820px}.next-checks{font-size:13px;color:var(--muted);padding-left:21px;margin-bottom:20px}.next-checks li{margin-bottom:6px}.live-totals{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 9px}.live-totals span{border:1px solid #514b6a;border-radius:5px;font-size:11px;padding:5px 9px}.live-footnote{font-size:11px;color:var(--muted);margin-bottom:0}.live-feed{margin-top:19px;border-top:1px solid #514b6a;padding-top:15px;font-size:12px;color:var(--muted)}.live-feed summary{cursor:pointer;color:var(--text)}.live-feed ul{padding-left:18px;margin-bottom:0}.live-feed time{font:10px var(--mono);color:var(--accent);margin-right:8px}.live-sessions{font-size:12px;color:var(--muted);margin-top:14px}.capability.is-next{border-color:var(--accent);box-shadow:inset 4px 0 0 var(--accent)}.capability.is-next .cap-id:after{content:'NEXT';display:block;font:9px var(--mono);color:var(--text);margin-top:7px}.cap-work-status{display:block;font:10px/1.5 var(--mono);color:var(--muted);margin-top:5px}.capability[data-state=done] .cap-work-status{color:var(--green)}.capability[data-state=blocked] .cap-work-status{color:var(--gold)}.capability[data-state=in_progress] .cap-work-status{color:var(--accent)}.work-record{background:var(--page);padding:14px;border:1px solid var(--line);border-radius:5px;margin-bottom:22px}.work-record p{margin:6px 0}.work-record ul:empty{display:none}.connection-ok{color:var(--green)}.connection-off{color:var(--gold)}.hero{padding-top:36px}.field-state{flex:0 1 155px}
+@media(max-width:700px){.live-panel{padding:19px 15px}.live-panel h2{font-size:22px}.live-heading{gap:9px}.field-state{flex:1}.live-heading span{font-size:10px}}@media print{.live-panel{background:#f3f1ff;break-inside:avoid}.live-reason{color:var(--muted)}.live-feed{display:none}.work-record{background:#f7f7f7}}
+</style></head>
+<body><a class="skip" href="#main">Skip to roadmap</a><div class="layout">
+<aside class="sidebar"><a class="brand" href="#main"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="-256 -256 512 512"><defs><mask id="v"><rect x="-256" y="-256" width="512" height="512" fill="#fff"/><polyline points="-51.4,-37.7 0.0,51.4 51.4,-37.7" fill="none" stroke="#000" stroke-width="45.9" stroke-linecap="round" stroke-linejoin="round"/></mask></defs><circle r="183.5" fill="none" stroke="#FFFFFF" stroke-width="27.1" stroke-opacity="0.65"/><circle r="234.9" fill="none" stroke="#FFFFFF" stroke-width="27.1" stroke-opacity="0.38"/><circle r="132.4" fill="#FFFFFF" mask="url(#v)"/></svg>
+<span>Veil</span></a>
+<nav aria-label="Roadmap sections"><a href="#live">Now and next</a><a href="#mission">Mission and decisions</a><a href="#platform">App integrations</a><a href="#priorities">Delivery sequence</a><a href="#milestones">Version milestones</a><a href="#capabilities">Capability explorer</a><a href="#ownership">Trust and data</a><a href="#validation">Evidence and testing</a><a href="#gates">Release gates</a><a href="#next">Next work slices</a></nav>
+<div class="sidebar-note"><b>Your app. Your devices.<br>Your infrastructure.</b><p>One shared call engine.<br>Local first. Peer to peer.<br>No company contact database.</p><a href="ROADMAP.md">Markdown source ↗</a></div></aside>
+<main id="main" class="main"><div class="topline"><span>Platform / Product roadmap</span><span>23 November 2026</span></div>
+<section id="live" class="live-panel" aria-labelledby="next-title"><div class="live-heading"><strong>Next step</strong><span id="live-connection">Saved snapshot · <a href="http://127.0.0.1:8766/#live">open live roadmap</a></span></div>
+<h2 id="next-title">Integrate the reviewed Android candidate and verify CI/lifecycle</h2><a id="next-capability" class="next-link" href="#AND-02">AND-02</a>
+<p id="next-reason" class="live-reason">Local build repeatability is proven; committed cross-platform CI and explicit native lifecycle disposition are still needed before closing AND-02.</p><ol id="next-checks" class="next-checks"><li>Integrate the reviewed source in coherent changes, preserving the existing unrelated work.</li><li>Run Android artifact and Windows/Linux/macOS CI against the committed candidate.</li><li>Verify or explicitly disposition teardown, permission denial, service/background and Keystore failure cases from the review.</li></ol>
+<div class="live-totals"><span><b data-total="in_progress">2</b> in progress</span><span><b data-total="blocked">0</b> blocked</span><span><b data-total="done">0</b> complete</span><span><b data-total="planned">29</b> planned gates</span></div>
+<p class="live-footnote"><span id="state-updated">2026-11-23T13:25:12+00:00</span>. Counts refer to full capability gates, not percentage of code implemented.</p>
+<details class="live-feed"><summary>Reported session activity and recent changes</summary><div class="live-sessions"><strong>Sessions</strong><ul id="session-list"></ul></div><ul id="activity-list"></ul></details></section>
+<header class="hero"><span class="eyebrow">Veil · Video and audio, under your control</span><h1>Modular.<br>Agnostic.<br>Shared.</h1>
+<p class="hero-lead">A <strong>calling app and embeddable call engine</strong>. Peer to peer by default. Useful on a surviving local network when internet fails. Your identities, your chosen helpers, the same protocol inside other apps.</p>
+<div class="hero-bottom"><span class="chip live">Desktop 0.1.13 released</span><span class="chip">Android development preview</span><button id="print" data-js hidden type="button">Print / save PDF</button><a class="text-action" href="#platform">Explore the provider architecture ↓</a></div></header>
+<figure class="platform-map" aria-label="Target architecture: standalone Veil, a reference host such as Mailcraft and other apps share the Veil engine, which uses local networks, direct peer paths or chosen helpers.">
+<figcaption class="map-caption">TARGET ARCHITECTURE · SDK and provider surface planned</figcaption>
+<div class="app-row"><div class="map-node">Standalone Veil<small>First-party client</small></div><div class="map-node">Reference host<small>e.g. Mailcraft</small></div><div class="map-node">Other apps / plugins<small>Platform-dependent adapters</small></div></div>
+<div class="map-core"><strong>One Veil engine + provider contract</strong><span>Identity · admission · membership · media · recovery · policy</span></div>
+<div class="role-row"><div class="map-node">Local network / hotspot</div><div class="map-node">Direct peer connection</div><div class="map-node">Chosen replaceable helpers</div></div>
+<p class="map-foot">A shared protocol. No shared company address book. Helpers receive no conversation keys.</p></figure>
+<div class="proof"><div class="proof-label"><span>TEST-5G-01</span><span>Connection passed</span></div><div class="proof-main"><h2>Phone on 5G → desktop host</h2><p>Successfully tested by Jeremy; reported 23 November. Route, duration and detailed media checks remain unspecified. <a href="#evidence">View evidence</a></p></div></div>
+<section id="mission" class="block strategy-section"><h2>Mission and session decisions</h2><div class="prose"><p>Our 20 November networking session established two requirements in Jeremy's own words:</p>
+<blockquote>
+<p>"Its supposed to be local, work when internet fails, peer to peer the whole shebang"</p>
+<p>"we must not lose sight over the mission and we must not compromise on security either"</p>
+</blockquote>
+<p>The same session rejected building a company that stores everyone's information on a VPS.
+The architecture already records the wider direction: modular roles, infrastructure of the
+user's choosing, and one shared protocol from personal calls to organisation-provided capacity.
+This roadmap carries those decisions forward. New release allocations and numerical test
+targets below are proposals; they are not additional decisions attributed to Jeremy.</p>
+<p>On 23 November, Jeremy clarified that other applications should be able to use Veil as their
+call provider, naming Mailcraft, Discord and Slack as examples. Embeddability is therefore a
+core product requirement. Compatibility with any particular third-party extension API is a
+separate adapter feasibility question, not something the existence of a Rust library proves.</p>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Product consequence</th>
+<th>What must not happen</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Local operation is a primary mode</td>
+<td>Starting and joining on a reachable LAN must work with WAN and DNS unavailable</td>
+<td>A saved internet hostname prevents a local call from starting</td>
+</tr>
+<tr>
+<td>Devices own identity and relationships</td>
+<td>Keys and verified contacts stay locally controlled; export/recovery needs its own design</td>
+<td>A central account or contact upload becomes necessary to call</td>
+</tr>
+<tr>
+<td>Helpers are optional and replaceable</td>
+<td>A home PC, chosen community node or organisation node can supply a role</td>
+<td>Veil's own infrastructure becomes a hidden dependency</td>
+</tr>
+<tr>
+<td>Connectivity and trust are separate</td>
+<td>Discovery and route recovery still enforce identity, admission and current membership</td>
+<td>Finding a device or resuming a socket silently grants access</td>
+</tr>
+<tr>
+<td>Security bounds convenience</td>
+<td>Limits, consent and understandable failures are part of every connection feature</td>
+<td>A fallback disables pinning, encryption, privacy choices or removal</td>
+</tr>
+<tr>
+<td>One protocol serves every deployment</td>
+<td>Add roles/adapters and capacity without splitting the personal and enterprise products</td>
+<td>An enterprise fork quietly changes the trust model</td>
+</tr>
+<tr>
+<td>Other apps can use Veil as their call provider</td>
+<td>Offer a documented engine/SDK and provider contract; the standalone app exercises the same path</td>
+<td>Every integration copies the app's private engine or creates a new call protocol</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="the-everyday-experience-we-are-building-toward">The everyday experience we are building toward</h3>
+<p>Alex starts a call on a laptop. Sam joins from a phone over 5G using an invitation and waits
+for admission. If they can connect directly they do; if they need a helper, it is one they
+chose. Sam sees a comprehensible connection state without having to understand QUIC or NAT.</p>
+<p>Later, both use a router with its WAN cable disconnected. Local only, a full invitation and
+opt-in nearby discovery let them call without DNS, an account or an external service. If a
+network changes, Veil attempts bounded recovery using the same authorised identity. Removal
+still takes effect immediately. A working path and a valid member are separate requirements.</p>
+<p>For a larger call, a willing participant or a chosen node can forward sealed media. Capacity
+and reachability determine whether that helps. Moving to a forwarder must not misrepresent
+who can still hear the call or allow a member to impersonate another person's media.</p>
+<h3 id="success-means">Success means</h3>
+<ul>
+<li>A new person can install, choose a name, share an invitation and reach the lobby without
+  creating an account. A known contact's verification state survives restart.</li>
+<li>A real multi-device local call works with WAN and DNS unavailable, with no attempted
+  internet traffic under the documented Local only policy.</li>
+<li>An internet call finds a permitted path where one exists, explains failure where none
+  exists, and never relaxes trust checks to improve its success rate.</li>
+<li>Sound and control remain usable before video is improved. Network recovery does not
+  create duplicate membership or revive removed people.</li>
+<li>Removing or replacing a helper does not destroy a user's identity or local relationships.</li>
+<li>The protection claims match the actual supported platforms and tested conditions.</li>
+</ul></div></section>
+<section id="platform" class="block strategy-section"><h2>Embeddable call platform</h2><div class="prose"><h3 id="what-modular-agnostic-shared-means-for-integrations">What Modular Agnostic Shared means for integrations</h3>
+<p><strong>Modular:</strong> identity/storage, transport, discovery, session coordination, media, forwarding,
+policy and UI have explicit interfaces. An application can supply its own UI and supported
+device/storage adapters without reimplementing admission, encryption or membership.</p>
+<p><strong>Agnostic:</strong> the engine is not coupled to Veil's window, one UI toolkit, one server operator
+or one host application's account model. Native Rust is the first integration surface;
+cross-language hosts need a deliberate binding or local process bridge. Browser support is
+a separate runtime/media design, not an automatic consequence of exporting an SDK.</p>
+<p><strong>Shared:</strong> standalone Veil, Mailcraft and other adapters use the same supported core and
+interoperable protocol. They can share a call without sharing account databases. Shared
+code does not mean automatically shared private keys, contacts, microphone access or history.</p>
+<h3 id="proposed-layers">Proposed layers</h3>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Owns</th>
+<th>Must not require</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Security and protocol core</td>
+<td>Device authentication, invitations, MLS membership, revocation, frame protection and replay checks</td>
+<td>A GUI, central login or host-managed cryptographic state</td>
+</tr>
+<tr>
+<td>Call engine and SDK</td>
+<td>Session lifecycle, route policy, media orchestration, bounded commands/events, resource teardown</td>
+<td><code>VeilApp</code>, egui screens, global application settings or an updater</td>
+</tr>
+<tr>
+<td>Platform adapters</td>
+<td>Permission-aware camera/audio, secure storage and lifecycle integration</td>
+<td>A separate wire protocol for each platform</td>
+</tr>
+<tr>
+<td>Provider adapter</td>
+<td>Maps the host's start/join/mute/admit/end actions and events into the SDK</td>
+<td>Access to another app's keys or exemption from admission rules</td>
+</tr>
+<tr>
+<td>Optional call UI</td>
+<td>Video surfaces, controls, roster, verification and connection states</td>
+<td>Replacement of the host's whole interface</td>
+</tr>
+<tr>
+<td>Host application</td>
+<td>Its user experience, authorised user actions, account mapping and data policy</td>
+<td>A Veil company account or automatic upload of its contacts</td>
+</tr>
+</tbody>
+</table></div>
+<p>Current <code>veil-call</code> already exposes reusable session components. However, the higher-level
+engine is private inside <code>veil-app</code> and coordinates app models/media; the Android library
+entry points launch the application UI. This is a foundation for an SDK, not a documented
+drop-in provider yet. Workspace packages are currently marked <code>publish = false</code>.</p>
+<h3 id="proposed-provider-contract">Proposed provider contract</h3>
+<p>These are responsibilities to design, not names of existing public SDK methods.</p>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Host request</th>
+<th>Engine obligation</th>
+<th>Observable result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Create a call or consume an invitation</td>
+<td>Validate configuration and policy; create isolated session state</td>
+<td>Connecting/lobby/live states, actionable error, opaque session handle</td>
+</tr>
+<tr>
+<td>Admit, decline or remove a person</td>
+<td>Check coordinator authority and current membership</td>
+<td>Roster/epoch update; removed devices remain revoked</td>
+</tr>
+<tr>
+<td>Enable/disable microphone, camera or share</td>
+<td>Enforce OS permissions and explicit capture intent</td>
+<td>Actual device/capture state and failure reason, not merely a toggled UI</td>
+</tr>
+<tr>
+<td>Select devices or a receive/data policy</td>
+<td>Apply bounded media changes without corrupting the session</td>
+<td>Routing/quality state, device error or confirmation</td>
+</tr>
+<tr>
+<td>Set Local only or relay-only privacy</td>
+<td>Enforce the policy on all discovery/control/media paths</td>
+<td>Permitted route information and explicit incompatibility errors</td>
+</tr>
+<tr>
+<td>Verify a device</td>
+<td>Bind verification to its actual key through a trusted comparison flow</td>
+<td>Verification state/key-change events scoped to that identity</td>
+</tr>
+<tr>
+<td>Subscribe to state and render media</td>
+<td>Provide ordered/versioned events and bounded queues/surfaces</td>
+<td>Roster, lobby, media, recovery, route and terminal events</td>
+</tr>
+<tr>
+<td>Cancel, leave, unload plugin or close host</td>
+<td>Stop capture/tasks, release resources and discard session secrets</td>
+<td>A bounded terminal transition; no orphan microphone or background service</td>
+</tr>
+</tbody>
+</table></div>
+<p>Commands need cancellation, idempotency rules and typed failures. Events need ordering,
+backpressure, resynchronisation and thread-affinity rules. The SDK must own frame counters
+and epoch transitions; adapters must not reuse session secrets or manufacture sequence state.
+Concurrent sessions need explicit device arbitration and separate identity/storage namespaces.</p>
+<h3 id="integration-modes-and-host-examples">Integration modes and host examples</h3>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Use</th>
+<th>Dependency and boundary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Native Rust SDK</td>
+<td>A host embeds the engine and supplies its own controls</td>
+<td>Host runs inside the trusted endpoint process and can access plaintext/memory</td>
+</tr>
+<tr>
+<td>Local provider process</td>
+<td>Another language talks to an isolated Veil engine using authenticated local IPC</td>
+<td>Authorise the caller, scope session handles, bound messages and clean up on host/provider crash</td>
+</tr>
+<tr>
+<td>Reusable UI surface</td>
+<td>Host uses supported call controls/video surfaces or opens the Veil call window</td>
+<td>Preserve visible capture, verification, membership and privacy indicators</td>
+</tr>
+<tr>
+<td>External app adapter</td>
+<td>Mailcraft or a platform-supported plugin maps its UX to the provider contract</td>
+<td>Verify that the host permits the required call actions, media surfaces and distribution</td>
+</tr>
+<tr>
+<td>Protocol gateway</td>
+<td>Interoperate with another call system when protocol bridging is necessary</td>
+<td>A decrypting bridge is a visible participant; preserve accurate end-to-end encryption claims</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Mailcraft reference journey:</strong> click Call inside the host, select/share a Veil invitation,
+reach the lobby, admit, talk, change devices and end the session. Join the same call from the
+standalone Veil app. Veil does not need the host's mailbox, address book or message history.
+The reference host is a proposed validation target, not an assertion that a Mailcraft
+integration is already authorised or implemented.</p>
+<p><strong>Discord/Slack-style integrations:</strong> evaluate three distinct outcomes: launch a Veil call
+from a link, embed Veil's own call experience, or bridge into a platform's native calls.
+They have different APIs and trust implications. Do not promise native call-provider
+replacement before checking the current platform's documented extension points and permissions.
+An invite-launch integration is useful but does not alone satisfy the embedded-provider goal.</p>
+<h3 id="embedding-security-and-compatibility">Embedding security and compatibility</h3>
+<p>An embedding app with media or process access is a participant endpoint, not a blind relay.
+It may observe or record plaintext; encryption cannot hide a user's call from software that
+captures or renders it. The SDK must document this trust boundary and avoid exposing secret
+keys when an opaque operation suffices. IPC limits authority but does not turn an untrusted
+application receiving decrypted media into a trusted one.</p>
+<p>Default identity stores should be scoped per host app. Reusing a person's Veil identity across
+apps requires explicit consent and a design for key custody, verification continuity and
+revocation; copying key files is not an integration strategy. Host account names are display
+metadata until explicitly bound to a verified device identity.</p>
+<p>Keep separate versions for the product milestone, public Rust API, IPC/binding schema and
+wire protocol. Publish a compatibility matrix and a deprecation window before calling the SDK
+stable. The 1.0 gate includes a supported provider contract and a standalone/embedded interop
+test. A third-party platform adapter need not be complete for every named example.</p></div></section>
+<section id="priorities" class="block strategy-section"><h2>Priority and delivery approach</h2><div class="prose"><p>The critical path is <strong>review the integrated preview → prove independent local operation and
+safe recovery → widen permitted reach → preserve identity everywhere → strengthen group
+capacity and continuity</strong>. Security review, test evidence and diagnostics accompany every step.</p>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Work</th>
+<th>Reason</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Now</td>
+<td><a href="#AND-02">AND-02</a>, <a href="#SDK-01">SDK-01</a>, <a href="#TRUST-02">TRUST-02</a>, <a href="#LOCAL-01">LOCAL-01</a>, <a href="#DIAG-01">DIAG-01</a> and immediate <a href="#TRUST-01">TRUST-01</a> design</td>
+<td>Capture the existing work, define the provider boundary, defend expanded exposure, and prove the offline premise</td>
+</tr>
+<tr>
+<td>Next</td>
+<td><a href="#MOB-01">MOB-01</a>, <a href="#MOB-02">MOB-02</a>, <a href="#INVITE-01">INVITE-01</a>, <a href="#DIST-01">DIST-01</a></td>
+<td>Turn a successful connection into a usable repeatable phone/local experience</td>
+</tr>
+<tr>
+<td>Then</td>
+<td><a href="#SDK-02">SDK-02</a>, <a href="#NET-01">NET-01</a>, <a href="#NET-02">NET-02</a>, <a href="#NET-03">NET-03</a>, <a href="#DATA-01">DATA-01</a>, <a href="#OPS-01">OPS-01</a></td>
+<td>Expose the shared engine and widen permitted reach while preserving privacy choices</td>
+</tr>
+<tr>
+<td>Alongside platform work</td>
+<td><a href="#DESK-01">DESK-01</a>, <a href="#ID-01">ID-01</a>, <a href="#TEST-01">TEST-01</a>, <a href="#BIND-01">BIND-01</a>, <a href="#EMBED-01">EMBED-01</a></td>
+<td>Stable identities, a cross-language boundary and a reference host prove shared use</td>
+</tr>
+<tr>
+<td>Before broad group claims</td>
+<td><a href="#TRUST-01">TRUST-01</a>, <a href="#GROUP-01">GROUP-01</a>, <a href="#MEDIA-01">MEDIA-01</a></td>
+<td>Fix attribution and explicitly handle members a forwarder cannot serve</td>
+</tr>
+<tr>
+<td>Conditional extensions</td>
+<td><a href="#IOS-01">IOS-01</a>, <a href="#HOST-01">HOST-01</a>, <a href="#NEAR-01">NEAR-01</a>, <a href="#MSG-01">MSG-01</a>, <a href="#SCALE-01">SCALE-01</a>, <a href="#PERF-01">PERF-01</a>, <a href="#ORG-01">ORG-01</a></td>
+<td>Extend the same model after feasibility, trust and resource limits are established</td>
+</tr>
+</tbody>
+</table></div>
+<p>This is a dependency order, not a rule that all work must be serial. Native storage can
+advance while transport designs are reviewed. No prerequisite should falsely imply that
+desktop networking requires an Android package. A small design/validation change belongs in
+its own reviewable increment; no milestone requires a single enormous implementation PR.</p></div></section>
+<section id="milestones" class="block"><div class="section-top"><h2>Version milestones</h2><small>Proposed sequence · no fixed dates</small></div>
+<p class="section-lead">Each version earns a concrete user outcome. Capability IDs connect the release to the work and evidence needed to complete it.</p>
+<div class="milestones"><article class="milestone" id="v-0.1.14">
+      <div class="version"><span>0.1.14</span><small>Next</small></div>
+      <div class="milestone-main"><h3>Capture the foundation</h3><p class="outcome">The preview is reproducible and the provider boundary is designed</p>
+      <p class="exit"><strong>Complete when</strong> Reviewed Android integration, clean-checkout build, green desktop CI and an agreed headless engine/provider design</p><div class="id-links"><a class="id-link" href="#AND-02">AND-02</a> <a class="id-link" href="#SDK-01">SDK-01</a></div></div>
+      </article><article class="milestone" id="v-0.2.0">
+      <div class="version"><span>0.2.0</span><small>Proposed</small></div>
+      <div class="milestone-main"><h3>Local first. Everyday usable.</h3><p class="outcome">I can make a safe everyday call, including without internet</p>
+      <p class="exit"><strong>Complete when</strong> WAN/DNS-off hardware call, admission/revocation checks, sustained mobile calls, usable audio and signed upgradeable preview</p><div class="id-links"><a class="id-link" href="#LOCAL-01">LOCAL-01</a> <a class="id-link" href="#TRUST-02">TRUST-02</a> <a class="id-link" href="#MOB-01">MOB-01</a> <a class="id-link" href="#MOB-02">MOB-02</a> <a class="id-link" href="#INVITE-01">INVITE-01</a> <a class="id-link" href="#DIAG-01">DIAG-01</a> <a class="id-link" href="#DIST-01">DIST-01</a> <a class="id-link" href="#TEST-01">TEST-01</a></div></div>
+      </article><article class="milestone" id="v-0.3.0">
+      <div class="version"><span>0.3.0</span><small>Proposed</small></div>
+      <div class="milestone-main"><h3>A shared engine. More reach.</h3><p class="outcome">Apps share a headless engine and calls find more permitted paths</p>
+      <p class="exit"><strong>Complete when</strong> Non-GUI SDK sample, full joining over TCP fallback, independent-helper failure tests and measured receive/data controls</p><div class="id-links"><a class="id-link" href="#SDK-02">SDK-02</a> <a class="id-link" href="#NET-01">NET-01</a> <a class="id-link" href="#NET-02">NET-02</a> <a class="id-link" href="#NET-03">NET-03</a> <a class="id-link" href="#DATA-01">DATA-01</a> <a class="id-link" href="#OPS-01">OPS-01</a></div></div>
+      </article><article class="milestone" id="v-0.4.0">
+      <div class="version"><span>0.4.0</span><small>Proposed</small></div>
+      <div class="milestone-main"><h3>Veil inside other apps</h3><p class="outcome">Other apps can provide Veil calls while identity stays locally controlled</p>
+      <p class="exit"><strong>Complete when</strong> Stable desktop identity/settings, scoped host storage, local IPC contract and standalone/reference-host interoperability</p><div class="id-links"><a class="id-link" href="#DESK-01">DESK-01</a> <a class="id-link" href="#ID-01">ID-01</a> <a class="id-link" href="#BIND-01">BIND-01</a> <a class="id-link" href="#EMBED-01">EMBED-01</a></div></div>
+      </article><article class="milestone" id="v-0.5.0">
+      <div class="version"><span>0.5.0</span><small>Proposed</small></div>
+      <div class="milestone-main"><h3>Trustworthy group calls</h3><p class="outcome">Group calls preserve attribution, reachability and usable media</p>
+      <p class="exit"><strong>Complete when</strong> Adversarial sender tests, measured five-person calls, visible partial failures and safe forwarding/recovery</p><div class="id-links"><a class="id-link" href="#GROUP-01">GROUP-01</a> <a class="id-link" href="#TRUST-01">TRUST-01</a> <a class="id-link" href="#MEDIA-01">MEDIA-01</a></div></div>
+      </article><article class="milestone" id="v-0.6.0">
+      <div class="version"><span>0.6.0</span><small>Conditional</small></div>
+      <div class="milestone-main"><h3>Bring Veil to iPhone</h3><p class="outcome">I can join from an iPhone</p>
+      <p class="exit"><strong>Complete when</strong> Signed hardware build and call/lifecycle coverage; requires Mac, Xcode and iPhone access</p><div class="id-links"><a class="id-link" href="#IOS-01">IOS-01</a></div></div>
+      </article><article class="milestone" id="v-1.0.0">
+      <div class="version"><span>1.0.0</span><small>Proposed</small></div>
+      <div class="milestone-main"><h3>A supported shared platform</h3><p class="outcome">People and integrators can rely on the supported shared platform</p>
+      <p class="exit"><strong>Complete when</strong> Independent security review, stable provider/API contracts, supported matrix, compatibility suite and verified distribution/update paths</p><div class="id-links"><a class="id-link" href="#READY-01">READY-01</a></div></div>
+      </article></div><div class="notes"><p>The patch immediately after 0.1.13 consolidates the existing preview. From 0.2 onward, each
+minor milestone represents a user outcome. These are proposed allocations and may be split
+or reordered when testing exposes a dependency.</p>
+<p>The proposed 1.0 baseline requires the capabilities allocated to 0.1.14 and 0.2 through 0.5,
+plus <a href="#READY-01">READY-01</a>. It does not require iOS, 4K or enterprise features. Any reduction of that baseline
+must be recorded here before a release candidate. The conditional iOS milestone can proceed after mobile
+lifecycle and call behaviour are understood, without waiting for every desktop/group feature.</p></div></section>
+<section id="capabilities" class="block"><div class="section-top"><h2>Capability explorer</h2><small>31 capabilities · stable IDs</small></div>
+<p class="section-lead">Outcomes, architecture boundaries, dependencies and completion criteria across the app, SDK and infrastructure. Open an item or follow a dependency. Future extensions have design gates rather than invented release dates.</p>
+<noscript><p class="no-js">All capability details are available below. Open each heading to read them.</p></noscript>
+<div class="toolbar" data-js hidden><div class="field"><label for="search">Search capabilities</label><input id="search" type="search" placeholder="Try recovery, audio or TRUST-01" autocomplete="off"></div>
+<div class="field field-select"><label for="version">Target version</label><select id="version"><option value="">All versions</option><option value="0.1.14">0.1.14</option><option value="0.2.0">0.2.0</option><option value="0.3.0">0.3.0</option><option value="0.4.0">0.4.0</option><option value="0.5.0">0.5.0</option><option value="0.6.0">0.6.0</option><option value="1.0.0">1.0.0</option><option value="Unassigned">Future / unassigned</option></select></div>
+<div class="field field-stream"><label for="stream">Workstream</label><select id="stream"><option value="">All workstreams</option><option>Engine and integrations</option><option>Evidence and release</option><option>Future messaging</option><option>Identity and security</option><option>Local and invitations</option><option>Media and groups</option><option>Networks and helpers</option><option>Platforms and experience</option></select></div>
+<div class="field field-state"><label for="work-state">Work state</label><select id="work-state"><option value="">All states</option><option value="planned">Planned gate</option><option value="in_progress">In progress</option><option value="blocked">Blocked</option><option value="done">Complete</option></select></div>
+<div class="toolbar-actions"><button id="expand" type="button" aria-expanded="false">Expand details</button></div></div>
+<div class="results" data-js hidden><span id="count" role="status" aria-live="polite">31 of 31 capabilities</span><button id="reset" type="button">Clear filters</button></div>
+<div id="capability-list"><details class="capability is-next" id="AND-02" data-version="0.1.14" data-stream="Platforms and experience" data-state="in_progress">
+      <summary><span class="cap-id">AND-02</span><span class="cap-name">Integrate the Android preview<small class="cap-work-status">In progress</small></span>
+      <span class="cap-version">0.1.14</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Reviewed native ownership; fixed camera frame publication after close; pinned Android build and CI added. Fresh candidate-source ARM64 build/APK checks, Android Clippy and 810 Windows tests passed. Integration, remote desktop/Android CI and device lifecycle evidence remain open.</p><ul class="work-evidence"><li>main/ on codex/release-0.1.13, base c032a89; docs/ANDROID_INTEGRATION_REVIEW.md records scope, findings and actual verification. Fresh validation checkout: main/target/and-02-source-check (detached candidate overlay); no generated build inputs copied.</li></ul></div><span class="stream-label">Platforms and experience</span><p><strong>Outcome:</strong> Another developer can build the preview without recreating a local session.
+<strong>Status:</strong> Next. <strong>Target:</strong> 0.1.14. <strong>Depends on:</strong> AND-01.</p>
+<ul>
+<li>Review the shared library extraction, Android JNI/media boundaries, key storage, permissions
+  and lifecycle; keep unrelated generated files and credentials outside the change.</li>
+<li>Add an Android CI build/check with pinned toolchain requirements and a downloadable preview
+  artifact. Keep existing desktop CI green after adding the Android workspace member.</li>
+<li>Document installation, exact build identity and known limitations. Maintain the mobile
+  test evidence with each preview. A fresh checkout must produce an installable ARM64 preview.</li>
+</ul>
+<p><strong>Integration boundary:</strong> Desktop and Android consume the existing engine without declaring
+the UI launcher a public SDK. Inspect JNI reference ownership, permission prompts, Activity
+teardown, capture shutdown and Keystore behaviour. Review one coherent extraction/platform
+change at a time; do not publish the large local working tree as an unexplained snapshot.</p></div></details><details class="capability" id="MOB-01" data-version="0.2.0" data-stream="Platforms and experience" data-state="planned">
+      <summary><span class="cap-id">MOB-01</span><span class="cap-name">Keep a mobile call usable through interruptions<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.2.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Platforms and experience</span><p><strong>Outcome:</strong> People understand what happens when their phone locks, backgrounds or changes network.
+<strong>Status:</strong> Partly implemented; validation and recovery work remain. <strong>Target:</strong> 0.2.0.
+<strong>Depends on:</strong> <a href="#AND-02">AND-02</a>, <a href="#TRUST-02">TRUST-02</a>, <a href="#DIAG-01">DIAG-01</a>.</p>
+<ul>
+<li>Test Wi-Fi to 5G and back, Wi-Fi off/on, brief loss, app background/foreground, screen lock,
+  permission denial and Activity recreation. Record which cases recover or end the call.</li>
+<li>Proposed recovery gate: after a network interruption of up to 10 seconds, or a Wi-Fi/5G
+  change while the app/service remains alive and the host remains reachable, restore media
+  within 20 seconds of usable connectivity returning, without duplicate participants or stale
+  routes. This is a target to validate, not a claim about current recovery behaviour.</li>
+<li>Backgrounding and screen lock with permissions intact must preserve audio. Revoked
+  permissions, Activity destruction and losses outside the supported recovery window must
+  produce a clear ended/rejoin state when automatic recovery is unavailable.</li>
+<li>Keep the documented background camera policy, notification and microphone behaviour
+  consistent with permissions. Leaving must stop capture and the foreground service.</li>
+<li>Pass three 30-minute real-media phone/desktop calls, covering LAN and 5G, plus a separate
+  30-minute background-audio check. Record device, build, route, interruptions and thermal/battery
+  observations. These durations are proposed acceptance targets, not results already obtained.</li>
+</ul>
+<p><strong>Failure discipline:</strong> A dropped transport is not a deliberate leave; removal is not a
+recoverable outage. Validate roster/epoch freshness after reconnection, including a removal
+that occurred while the phone was offline. Phone restart is fresh session admission, not
+automatic restoration of an in-memory MLS session.</p></div></details><details class="capability" id="MOB-02" data-version="0.2.0" data-stream="Platforms and experience" data-state="planned">
+      <summary><span class="cap-id">MOB-02</span><span class="cap-name">Make mobile speech comfortable<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.2.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Platforms and experience</span><p><strong>Outcome:</strong> Both people hear clear speech using the speaker or a headset.
+<strong>Status:</strong> Audio pipeline exists; listening and routing coverage remain. <strong>Target:</strong> 0.2.0.
+<strong>Depends on:</strong> <a href="#AND-02">AND-02</a>.</p>
+<ul>
+<li>Check two-way speech, double talk, speaker echo, mute, volume and default-device changes.</li>
+<li>Test the phone speaker, an available wired/USB headset and Bluetooth; verify unplugging or
+  disconnecting does not leave the call silent or using the wrong route.</li>
+<li>Add or integrate echo cancellation if device processing does not provide acceptable results.
+  For each tested route, record a pass/fail listening verdict from both ends: intelligible speech,
+  no disruptive echo or recurring dropout, and correct routing after device changes. Fix
+  blocking failures and record remaining defects alongside packet/codec checks.</li>
+</ul></div></details><details class="capability" id="DIST-01" data-version="0.2.0" data-stream="Platforms and experience" data-state="planned">
+      <summary><span class="cap-id">DIST-01</span><span class="cap-name">Distribute an upgradeable Android preview<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.2.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Platforms and experience</span><p><strong>Outcome:</strong> Testers can install a known build and keep their identity when updating it.
+<strong>Status:</strong> Debug APKs exist locally. <strong>Target:</strong> 0.2.0. <strong>Depends on:</strong> <a href="#AND-02">AND-02</a>.</p>
+<ul>
+<li>Establish release signing, monotonic Android <code>versionCode</code>, checksums and build provenance.
+  Keep signing credentials out of source and logs.</li>
+<li>Test a same-package signed upgrade preserving settings, device key and verified contacts.
+  Document the transition from the debug preview package; do not assume a production package
+  or different signing key can upgrade it in place.</li>
+<li>Publish installation, permission and known-limit guidance. Store submission is a separate
+  distribution decision and is not required to complete this preview milestone.</li>
+</ul></div></details><details class="capability" id="NET-01" data-version="0.3.0" data-stream="Networks and helpers" data-state="planned">
+      <summary><span class="cap-id">NET-01</span><span class="cap-name">Connect when UDP is blocked<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.3.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Networks and helpers</span><p><strong>Outcome:</strong> A user with an allowed node can call from a network that blocks QUIC/UDP.
+<strong>Status:</strong> Planned; current transport is QUIC/UDP. <strong>Target:</strong> 0.3.0. <strong>Depends on:</strong> <a href="#TRUST-02">TRUST-02</a>.</p>
+<ul>
+<li>Design TCP/TLS relay fallback with pinned identities and end-to-end media encryption intact.</li>
+<li>Verify direct, punched, relay-only and UDP-blocked paths separately, including wrong server
+  keys, unreachable nodes and hosts refused by a node allow-list.</li>
+<li>Show the selected route and a useful failure explanation without requiring packet analysis.
+  Repeat successful paths across two real external networks. TEST-5G-01 covers only its
+  reported scenario, not this full matrix.</li>
+</ul>
+<p><strong>End-to-end scope:</strong> TCP access must cover rendezvous registration/introduction, short-invite
+retrieval, control and media. A media-only tunnel fails if joining still needs UDP. Define
+framing, cancellation, queue/byte limits, stale video dropping and audio/control priority.
+Test IPv4/IPv6 resolution and connection failures without an external DNS requirement in Local
+only mode. Revalidate platform/library choices when the transport ADR is written.</p>
+<p><strong>Rollout:</strong> Initially permit an explicit restricted-network selection with clear trade-offs;
+add automatic fallback only after its timeout/resource/privacy behaviour is measured. Never
+claim TCP 443 is indistinguishable from permitted web traffic or guarantees an allow-list bypass.</p></div></details><details class="capability" id="DATA-01" data-version="0.3.0" data-stream="Media and groups" data-state="planned">
+      <summary><span class="cap-id">DATA-01</span><span class="cap-name">Let receivers control their data use<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.3.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Media and groups</span><p><strong>Outcome:</strong> Choosing audio only can actually stop incoming video, and small tiles avoid waste.
+<strong>Status:</strong> Partial; current Audio only stops the local camera but still receives video.
+<strong>Target:</strong> 0.3.0. <strong>Depends on:</strong> <a href="#DIAG-01">DIAG-01</a>.</p>
+<ul>
+<li>Add an explicit no-video receive choice and mesh subscriptions; distinguish it from turning
+  off the sender's camera. Define separately whether shared screens are received.</li>
+<li>Avoid redundant simulcast layers and propagate demand so unused layers can stop encoding.</li>
+<li>Measure bytes and speech continuity under sustained throttling/loss for Auto, Data saver
+  and Audio only. No-video mode must stop camera payload delivery in mesh and forwarded calls;
+  account separately for audio, control traffic and any explicitly requested shared screen.</li>
+</ul>
+<p><strong>Policy:</strong> Keep capture, send and receive controls distinct. The current Auto policy does not
+disable the camera automatically. Any extension toward audio/text-only operation needs clear
+consent and a visible state. Test adaptation hysteresis and measured step-up probes so a
+brief improvement cannot repeatedly overload the link. Report measured wire bytes rather
+than estimating usage from codec bitrate alone.</p></div></details><details class="capability" id="DESK-01" data-version="0.4.0" data-stream="Platforms and experience" data-state="planned">
+      <summary><span class="cap-id">DESK-01</span><span class="cap-name">Persist identity and validate native desktop behaviour<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.4.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Platforms and experience</span><p><strong>Outcome:</strong> Restarting Veil keeps a user's verified identity and setup on every desktop OS.
+<strong>Status:</strong> Partial; Windows persistence exists. <strong>Target:</strong> 0.4.0. <strong>Depends on:</strong> BASE-01.</p>
+<ul>
+<li>Use macOS Keychain and an appropriate Linux secret store, plus native config directories.
+  Handle locked/unavailable stores visibly without silently replacing a persisted identity.</li>
+<li>Verify restart, damaged storage, settings migration, verified contacts and node allow-lists.</li>
+<li>Test real camera, microphone, playback and screen-share delivery on all desktop platforms,
+  including GNOME Wayland and KDE. Check actual DMG/AppImage installation and update paths.</li>
+</ul></div></details><details class="capability" id="TRUST-01" data-version="0.5.0" data-stream="Identity and security" data-state="planned">
+      <summary><span class="cap-id">TRUST-01</span><span class="cap-name">Authenticate each forwarded media sender<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.5.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Identity and security</span><p><strong>Outcome:</strong> A malicious call member cannot place camera/audio in another person's tile or
+advance that person's replay state with forged media.
+<strong>Status:</strong> Known protection gap; see <a href="TRANSPARENCY.md#2-what-other-parties-can-see">Transparency</a>.
+<strong>Target:</strong> 0.5.0; design starts alongside integration, fixes ship as soon as ready.
+<strong>Depends on:</strong> Existing security and forwarded-media layers.</p>
+<ul>
+<li>Design sender authentication for camera/audio without trusting the forwarder or exposing
+  content. Include shared-screen replay disruption in the review.</li>
+<li>Reject forged attribution before it can mutate the claimed sender's replay/decoder state.</li>
+<li>Add adversarial mesh/forwarder tests, removed-member/rekey tests and realistic cost
+  measurements. Document protocol compatibility and update protection claims with the fix.</li>
+</ul>
+<p><strong>Review questions:</strong> Which data is signed/authenticated, what binds sender/room/epoch/frame,
+and can an invalid frame change replay state before verification? Test forged counters,
+reordered legitimate frames, cross-room/epoch reuse and intentionally malicious participants.
+Do not treat a safety-code comparison as a substitute for media attribution.</p></div></details><details class="capability" id="GROUP-01" data-version="0.5.0" data-stream="Media and groups" data-state="planned">
+      <summary><span class="cap-id">GROUP-01</span><span class="cap-name">Sustain calls beyond a small mesh<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.5.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Media and groups</span><p><strong>Outcome:</strong> Adding people or losing a forwarder does not silently strand the call.
+<strong>Status:</strong> One-forwarder calls exist; capacity and failure handling are partial.
+<strong>Target:</strong> 0.5.0. <strong>Depends on:</strong> <a href="#DATA-01">DATA-01</a>, <a href="#TRUST-01">TRUST-01</a>, <a href="#OPS-01">OPS-01</a>.</p>
+<ul>
+<li>Validate five-person calls across real networks, including membership changes, screen shares
+  and forwarding. Exercise a new guest unable to reach the active forwarder.</li>
+<li>Measure capacity instead of relying only on participant count. Keep session/control work
+  responsive while routes dial, with bounded queues and explicit failure states.</li>
+<li>Implement recovery after an active forwarder outage, or a clear bounded failure/rejoin path.
+  Test transitions, stale tickets and removal. Cascading is a later extension, not an exit gate.</li>
+</ul>
+<p><strong>Current policy to revisit:</strong> The actual implementation uses the host's successful preflight
+and a strict majority of members, not unanimous agreement. A failed member can lose media;
+an already forwarded call does not preflight every new joiner. Decide and test whether to use
+mixed routes, an explicit refusal, or another bounded fallback. Do not describe majority
+reachability as evidence that every participant can hear everyone.</p></div></details><details class="capability" id="IOS-01" data-version="0.6.0" data-stream="Platforms and experience" data-state="planned">
+      <summary><span class="cap-id">IOS-01</span><span class="cap-name">Bring the shared experience to iPhone<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.6.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Platforms and experience</span><p><strong>Outcome:</strong> An iPhone can join the same calls with native permissions and lifecycle behaviour.
+<strong>Status:</strong> Not implemented. <strong>Target:</strong> Conditional 0.6.0. <strong>Depends on:</strong> <a href="#MOB-01">MOB-01</a>, <a href="#MOB-02">MOB-02</a> and
+access to a Mac with Xcode and an iPhone.</p>
+<p>Implement the launcher, AVFoundation camera/audio, Keychain storage, invitation handling,
+permissions and signed distribution. Repeat the mobile call, audio and interruption checks
+on hardware. Reuse the call/security engine; do not create a separate protocol.</p></div></details><details class="capability" id="READY-01" data-version="1.0.0" data-stream="Evidence and release" data-state="planned">
+      <summary><span class="cap-id">READY-01</span><span class="cap-name">Establish a supported release<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">1.0.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Evidence and release</span><p><strong>Outcome:</strong> Users know which experience is supported and how its security was assessed.
+<strong>Status:</strong> Ongoing hardening; 1.0 gate not met. <strong>Target:</strong> 1.0.0.
+<strong>Depends on:</strong> The mandatory capability set in the 0.1.14 through 0.5.0 milestone table.
+<a href="#IOS-01">IOS-01</a> is optional.</p>
+<ul>
+<li>Resolve known security weaknesses as they are found. Before 1.0, obtain an independent
+  review of the supported protocol, identity/storage, native boundaries and update path;
+  fix release-blocking findings and publish the review scope and remaining limitations.</li>
+<li>Define and pass a supported OS/device/network matrix, soak checks and regression suite.</li>
+<li>Verify signed distribution and updates on supported platforms, including OS signing and
+  notarisation arrangements. Publish compatibility, security reporting and maintenance policy.</li>
+<li>Stabilise the documented SDK/provider surface, versioned events and local bridge, with a
+  compatibility/deprecation policy and a reference embedding app tested against standalone Veil.</li>
+</ul></div></details><details class="capability" id="SDK-01" data-version="0.1.14" data-stream="Engine and integrations" data-state="in_progress">
+      <summary><span class="cap-id">SDK-01</span><span class="cap-name">Design the shared engine and provider contract<small class="cap-work-status">In progress</small></span>
+      <span class="cap-version">0.1.14</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Designing the provider lifecycle, bounded commands/events, consent/storage adapters and migration inventory for the 0.1.14 milestone</p><ul class="work-evidence"></ul></div><span class="stream-label">Engine and integrations</span><p><strong>Outcome:</strong> An app author knows how to add Veil calling without copying its private app engine.
+<strong>Status:</strong> Core libraries exist; higher-level provider contract is not designed.
+<strong>Target:</strong> 0.1.14. <strong>Depends on:</strong> BASE-01.</p>
+<p>Write an ADR identifying the engine/UI boundary, runtime ownership, storage and media adapters,
+command/event model and supported host modes. Inventory which <code>veil-app::engine</code> dependencies
+must move or become interfaces. Specify capture consent, session cancellation, event ordering,
+backpressure and error taxonomy. Keep cryptographic state owned by the core.</p>
+<p><strong>Complete when:</strong> A reviewer can trace create/join/admit/mute/verify/reconnect/end through the
+contract, and identify everything the host can access. The plan includes migration steps for
+standalone desktop/Android and a non-GUI example. No new public API is called stable yet.</p></div></details><details class="capability" id="SDK-02" data-version="0.3.0" data-stream="Engine and integrations" data-state="planned">
+      <summary><span class="cap-id">SDK-02</span><span class="cap-name">Extract an engine that applications can consume<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.3.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Engine and integrations</span><p><strong>Outcome:</strong> A host can run a complete Veil call without launching Veil's window.
+<strong>Status:</strong> Reusable protocol crates exist; complete headless product engine remains work.
+<strong>Target:</strong> 0.3.0. <strong>Depends on:</strong> <a href="#SDK-01">SDK-01</a>, <a href="#TRUST-02">TRUST-02</a>, <a href="#TEST-01">TEST-01</a>.</p>
+<p>Implement the contract in a reusable Rust crate with injectable platform/storage/policy
+adapters. Remove assumptions about global app settings, egui models, singleton devices and
+the app updater. The SDK owns bounded workers, media sequencing, session secrets and teardown.</p>
+<p><strong>Complete when:</strong> A small non-GUI host can create/join, admit, exchange real audio/video and
+leave with a standalone peer. Desktop and Android consume the shared engine path. Tests cover
+cancellation at each lifecycle stage, slow event consumers, adapter failures and repeated
+start/stop without leaked tasks, ports or capture. Document integration and licence obligations.</p>
+<p>The consumer example must also build in a separate project outside the Veil workspace using
+only documented public interfaces and reproducibly obtained pinned source/artifacts. Record
+the dependency acquisition/build procedure; publication to crates.io is one distribution
+option, not a prerequisite. Workspace path dependencies alone do not establish SDK usability.</p></div></details><details class="capability" id="BIND-01" data-version="0.4.0" data-stream="Engine and integrations" data-state="planned">
+      <summary><span class="cap-id">BIND-01</span><span class="cap-name">Provide a bounded local bridge for other languages<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.4.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Engine and integrations</span><p><strong>Outcome:</strong> A non-Rust host can use Veil without reimplementing the engine.
+<strong>Status:</strong> Planned; select the initial host language/runtime before implementation.
+<strong>Target:</strong> 0.4.0. <strong>Depends on:</strong> <a href="#SDK-02">SDK-02</a>, <a href="#TRUST-02">TRUST-02</a>.</p>
+<p>Prefer a versioned authenticated local process interface as the initial cross-language mode;
+compare it with a native binding in the ADR. Define caller authorisation, message/frame limits,
+session-scoped handles, media surfaces, event resync and crash cleanup. Do not expose a local
+provider as an unauthenticated TCP service. A native FFI approach requires an explicit safety
+design consistent with Veil's existing restriction on owned <code>unsafe</code> outside media boundaries.</p>
+<p><strong>Complete when:</strong> A non-Rust sample can complete a call, an unauthorised process is rejected,
+malformed/oversized messages are bounded, host/provider crashes release capture, and schema
+version mismatch gives a useful error. Explain process isolation's actual trust limits.</p></div></details><details class="capability" id="EMBED-01" data-version="0.4.0" data-stream="Engine and integrations" data-state="planned">
+      <summary><span class="cap-id">EMBED-01</span><span class="cap-name">Prove Veil as another application&#x27;s call provider<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.4.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Engine and integrations</span><p><strong>Outcome:</strong> A host such as Mailcraft offers calls that interoperate with standalone Veil.
+<strong>Status:</strong> Core product requirement confirmed 23 November; no host integration implemented.
+<strong>Target:</strong> 0.4.0. <strong>Depends on:</strong> <a href="#SDK-02">SDK-02</a>, <a href="#BIND-01">BIND-01</a>, <a href="#ID-01">ID-01</a>, <a href="#DIAG-01">DIAG-01</a>.</p>
+<p>Choose an authorised reference host and implement provider selection, call launch/invitation,
+lobby/admission, roster/video/audio, device controls, verification, reconnection and teardown.
+Offer an optional supported call UI or a documented host-rendered path; neither requires
+importing Veil's entire app. Map host account labels to display metadata unless device identity
+binding is explicitly verified. Scope keys/settings to that host by default.</p>
+<p><strong>Complete when:</strong> Embedded and standalone users complete the same tested call journeys and
+compatibility suite. Unloading/disabling the provider stops capture. The reference app needs
+no mailbox/address-book export or central Veil account. Publish an adapter feasibility matrix
+for Mailcraft and Discord/Slack-style extension, launch and gateway modes; verified permissions
+determine which modes are actually offered for each host.</p></div></details><details class="capability" id="LOCAL-01" data-version="0.2.0" data-stream="Local and invitations" data-state="planned">
+      <summary><span class="cap-id">LOCAL-01</span><span class="cap-name">Prove a useful call with WAN and DNS unavailable<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.2.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Local and invitations</span><p><strong>Outcome:</strong> People on a reachable router/hotspot can talk when internet services fail.
+<strong>Status:</strong> Local only, interface enumeration, signed full invites and discovery exist;
+physical outage coverage remains open. <strong>Target:</strong> 0.2.0. <strong>Depends on:</strong> <a href="#TRUST-02">TRUST-02</a>, <a href="#DIAG-01">DIAG-01</a>.</p>
+<p>Test Windows/Android and additional desktop devices on a router with WAN disconnected and
+external DNS unavailable. Begin with two devices, then five to cross the forwarding threshold.
+Join with full invitations and opt-in discovery; repeat with multicast blocked using manual
+invites. Include a saved unreachable internet setup, no default route and an interface change.</p>
+<p><strong>Complete when:</strong> Admission, two-way real media, chat and membership changes work. A brief
+participant interruption recovers within the defined window. Capture attributable Veil traffic
+to verify no public helper, DNS, update, port-mapping or public-probe attempts. Record failures
+caused by client isolation and explain them; Local only remains an on-link policy, not proof
+of physical proximity or a guarantee about renamed virtual adapters.</p></div></details><details class="capability" id="TRUST-02" data-version="0.2.0" data-stream="Identity and security" data-state="planned">
+      <summary><span class="cap-id">TRUST-02</span><span class="cap-name">Review every convenience path against the trust rules<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.2.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Identity and security</span><p><strong>Outcome:</strong> Easier discovery, joining and recovery do not make unauthorised entry easier.
+<strong>Status:</strong> Existing controls and tests need an integrated adversarial review.
+<strong>Target:</strong> 0.2.0; release-blocking findings are fixed immediately. <strong>Depends on:</strong> BASE-01.</p>
+<p>Threat-model discovery broadcasts/code fetching, invitations, interface/address hints,
+host-control resume, helper registration and forwarding transitions. Test spoofing, replay,
+cross-room/epoch confusion, stale removed-member recovery, key substitution, floods, oversized
+messages and worker/queue exhaustion. An address hint may describe its authenticated source;
+it must not turn Veil into a dial/probe service for an arbitrary third-party target.</p>
+<p><strong>Complete when:</strong> Each attack surface has trust/size/time/rate limits, negative tests and a
+review disposition. Verify no failed connection silently disables pinning, Local only or
+relay-only privacy. Record exploitable findings privately through the security process; keep
+public roadmap entries focused on status and protection boundaries.</p></div></details><details class="capability" id="INVITE-01" data-version="0.2.0" data-stream="Local and invitations" data-state="planned">
+      <summary><span class="cap-id">INVITE-01</span><span class="cap-name">Make local and embedded joining understandable<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.2.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Local and invitations</span><p><strong>Outcome:</strong> A person can choose a nearby code, full invite or QR scan and reach the correct lobby.
+<strong>Status:</strong> Full invites, QR display and nearby-code fetch exist; camera QR decoding is absent.
+<strong>Target:</strong> 0.2.0. <strong>Depends on:</strong> <a href="#LOCAL-01">LOCAL-01</a>, <a href="#TRUST-02">TRUST-02</a>.</p>
+<p>Explain the difference between a nearby service, an unverified host and a verified contact.
+Add bounded on-device QR decoding with explicit camera permission and no uploaded frames.
+Keep full-text paste/share as the fallback. Show malformed, expired, consumed and wrong-version
+invites clearly. Deep links reuse the existing app instance without creating duplicate calls.</p>
+<p><strong>Complete when:</strong> A tester can join from a locally displayed QR, copied full invite and nearby
+code, including offline and denied-camera cases. A decoded invite still verifies the signature
+and requires admission. No private invitation secret appears in analytics, crash text or a
+public beacon. The future host adapter reuses validation, not a second invitation parser.</p></div></details><details class="capability" id="DIAG-01" data-version="0.2.0" data-stream="Evidence and release" data-state="planned">
+      <summary><span class="cap-id">DIAG-01</span><span class="cap-name">Give people useful local connection evidence<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.2.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Evidence and release</span><p><strong>Outcome:</strong> A user can understand a failed or degraded call and choose what evidence to share.
+<strong>Status:</strong> Logs, connection checks and route statistics exist; a unified call diagnosis remains.
+<strong>Target:</strong> 0.2.0. <strong>Depends on:</strong> BASE-01.</p>
+<p>Distinguish reachable helper, permission to host, invitation retrieval, admission, membership
+and usable media. Show permitted route, reconnecting state, media delivery and a specific
+failure action. Add an explicit redacted diagnostic export with a preview and selectable
+address/device detail. Keep logging bounded and local.</p>
+<p><strong>Complete when:</strong> Wrong key, refused host, UDP block, no route, denied permission and missing
+media each produce distinct useful states. Export tests ensure no private keys, MLS secrets,
+reusable invites or conversation content; sensitive metadata is visible to the user before
+export. Local-only diagnostics work without internet and do not create an upload service.</p></div></details><details class="capability" id="TEST-01" data-version="0.2.0" data-stream="Evidence and release" data-state="planned">
+      <summary><span class="cap-id">TEST-01</span><span class="cap-name">Make completion evidence repeatable<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.2.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Evidence and release</span><p><strong>Outcome:</strong> Maintainers can reproduce what a release actually supports.
+<strong>Status:</strong> Unit/integration/synthetic and one hardware exchange exist; full scenario coverage does not.
+<strong>Target:</strong> 0.2.0. <strong>Depends on:</strong> <a href="#AND-02">AND-02</a>, <a href="#DIAG-01">DIAG-01</a>.</p>
+<p>Maintain a scenario matrix with exact builds, devices/OS, topology, network restrictions,
+steps, expected result and measured outcome. Separate unit tests, synthetic loopbacks, real
+capture/playback, human listening and user-reported checks. Add deterministic failure
+injection for recovery/revocation and boundedness where practical.</p>
+<p><strong>Complete when:</strong> The core scenarios below have runnable procedures and a release evidence
+ledger, with an explicit pass/fail/not-run state per scenario. Preserve TEST-5G-01 as a passed
+user-reported connection. Hardware/network tests remain explicit actions; CI must not claim
+carrier or audible-quality coverage from localhost tests. Never fabricate population success
+rates from a handful of manual calls.</p></div></details><details class="capability" id="NET-02" data-version="0.3.0" data-stream="Networks and helpers" data-state="planned">
+      <summary><span class="cap-id">NET-02</span><span class="cap-name">Fail over between genuinely independent chosen helpers<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.3.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Networks and helpers</span><p><strong>Outcome:</strong> One helper failing does not make a reachable call depend on that machine forever.
+<strong>Status:</strong> Planned; multiple addresses for one helper identity are not independent helpers.
+<strong>Target:</strong> 0.3.0. <strong>Depends on:</strong> <a href="#TRUST-02">TRUST-02</a>, <a href="#DIAG-01">DIAG-01</a>.</p>
+<p>Design separate helper identities, room/permission registration, invitation references,
+selection and bounded retry policy. Define what metadata each helper receives and avoid
+registering everywhere by default. A replacement node must enforce its own host permission
+and preserve member identity; losing a node is not a reason to invent a new room owner.</p>
+<p><strong>Complete when:</strong> Two helpers with distinct keys and failure domains pass registration,
+join-time and mid-call outage tests. A stale/refusing/wrong-key helper cannot become trusted
+through failover. Removing a configured helper stops subsequent use under documented rules.
+Existing direct/local calls remain usable without contacting a replacement unnecessarily.</p></div></details><details class="capability" id="NET-03" data-version="0.3.0" data-stream="Networks and helpers" data-state="planned">
+      <summary><span class="cap-id">NET-03</span><span class="cap-name">Upgrade routes without downgrading privacy<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.3.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Networks and helpers</span><p><strong>Outcome:</strong> A relayed call can move to a better permitted direct path without restarting.
+<strong>Status:</strong> Planned; current links retain the path that won the initial connection race.
+<strong>Target:</strong> 0.3.0. <strong>Depends on:</strong> <a href="#TRUST-02">TRUST-02</a>, <a href="#DIAG-01">DIAG-01</a>.</p>
+<p>Design authenticated path validation and handover with bounded probes and overlap. Keep
+working media until a replacement is validated; discard stale migration results when a session,
+member or policy changes. Re-evaluate after interface changes with backoff rather than an
+unbounded background scan.</p>
+<p><strong>Complete when:</strong> Direct-to-relay and relay-to-direct transitions are tested under loss and
+membership changes without attribution/replay errors. Hide my address never attempts an
+address-revealing direct path; Local only never probes a public one. Record connection time,
+recovery gap and helper traffic before/after rather than assuming direct is always faster.</p></div></details><details class="capability" id="OPS-01" data-version="0.3.0" data-stream="Networks and helpers" data-state="planned">
+      <summary><span class="cap-id">OPS-01</span><span class="cap-name">Make user-run helpers practical and bounded<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.3.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Networks and helpers</span><p><strong>Outcome:</strong> A person can operate a node for chosen hosts without becoming an unlimited public service.
+<strong>Status:</strong> Configurable roles, host allow-lists and resource limits exist; operations evidence is limited.
+<strong>Target:</strong> 0.3.0. <strong>Depends on:</strong> <a href="#DIAG-01">DIAG-01</a>, <a href="#TRUST-02">TRUST-02</a>.</p>
+<p>Document private key custody, host grants/revocation, listen versus public addresses, service
+startup, firewall ports, updates and capacity limits. Expose local role health and resource
+metrics without content or a company telemetry backend. Test fairness under many sessions
+sharing a carrier NAT before changing address-block allocation.</p>
+<p><strong>Complete when:</strong> A clean machine can run a restricted node following the guide; allowed hosts
+work, strangers are refused, and their guests still require host admission. Load tests record
+bounded memory/queues and behaviour at capacity. Crash/restart and key/config errors have
+clear recovery. Container packaging can follow this contract; it must not imply an operated
+Veil service or unreviewed default public access.</p></div></details><details class="capability" id="ID-01" data-version="0.4.0" data-stream="Identity and security" data-state="planned">
+      <summary><span class="cap-id">ID-01</span><span class="cap-name">Keep contacts and host-app identities locally controlled<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.4.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Identity and security</span><p><strong>Outcome:</strong> People recognise verified devices across runs and across deliberate app integrations.
+<strong>Status:</strong> Verified-key lists exist; a complete local contact and multi-app identity model does not.
+<strong>Target:</strong> 0.4.0. <strong>Depends on:</strong> <a href="#DESK-01">DESK-01</a>, <a href="#SDK-01">SDK-01</a>, <a href="#TRUST-02">TRUST-02</a>.</p>
+<p>Design local aliases, public keys, verification provenance, key-change/revocation states and
+short-lived address hints. Default embedded stores to host-specific namespaces. Decide how
+an explicitly opted-in shared identity is accessed without distributing key files or granting
+all hosts blanket authority. Do not equate a host account ID with a verified Veil person.</p>
+<p><strong>Complete when:</strong> Restart, key replacement, duplicate names, store lockout, separate host apps,
+user deletion and consent-based export tests preserve the documented identity model. There
+is no central contact lookup or automatic address-book import. Encryption/backup recovery
+and deletion limits are documented before any history/contact export feature ships.</p></div></details><details class="capability" id="MEDIA-01" data-version="0.5.0" data-stream="Media and groups" data-state="planned">
+      <summary><span class="cap-id">MEDIA-01</span><span class="cap-name">Prioritise conversation and measure capacity<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.5.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Media and groups</span><p><strong>Outcome:</strong> Video does not make speech or call control unusable, and topology matches real resources.
+<strong>Status:</strong> Media queues, Opus FEC/jitter handling and a capacity planner exist; app capacities are assumed.
+<strong>Target:</strong> 0.5.0. <strong>Depends on:</strong> <a href="#DATA-01">DATA-01</a>, <a href="#DIAG-01">DIAG-01</a>, <a href="#TRUST-01">TRUST-01</a>.</p>
+<p>Measure rate, loss, delay, queue age, encoder/decoder cost and memory. Preserve control/audio
+priority across mesh, forwarder and TCP paths. Feed capacity estimates into topology/quality
+planning with conservative bounds; do not interpret one transient estimate as permission for
+an unlimited upload. Test slow receiver backpressure and repeated layer changes.</p>
+<p><strong>Complete when:</strong> Published throttling/loss and five-person runs show bounded latency/queues,
+intelligible audio, effective receive subscriptions and stable adaptation. Record phone thermal,
+battery and CPU observations before enabling a more expensive codec/encoder path. Optimise
+copies/scaling/encoding only against a measured bottleneck and preserve safety checks.</p></div></details><details class="capability" id="HOST-01" data-version="Unassigned" data-stream="Media and groups" data-state="planned">
+      <summary><span class="cap-id">HOST-01</span><span class="cap-name">Transfer coordination without sharing private keys<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">Later</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Media and groups</span><p><strong>Outcome:</strong> An explicitly authorised co-host can continue an eligible group call.
+<strong>Status:</strong> Not implemented; current host departure ends the call.
+<strong>Target:</strong> Unassigned extension after core reliability. <strong>Depends on:</strong> <a href="#GROUP-01">GROUP-01</a>, <a href="#TRUST-01">TRUST-01</a>, <a href="#ID-01">ID-01</a>.</p>
+<p>Start with planned handover, current roster consent/authority and an explicit epoch/ownership
+transition. Unexpected host failure and partitions need a separate authority/election design.
+No implementation may copy the host's private identity key or restore a removed participant.</p>
+<p><strong>Design gate:</strong> Specify who may commit MLS changes after transfer, how stale hosts are fenced,
+how conflicting coordinators resolve, and what users see when continuity is impossible.
+<strong>Completion gate:</strong> Adversarial partition/rejoin/removal tests and real planned/unplanned
+outage evidence meet that design. Until then, document the ended-call behaviour honestly.</p></div></details><details class="capability" id="NEAR-01" data-version="Unassigned" data-stream="Local and invitations" data-state="planned">
+      <summary><span class="cap-id">NEAR-01</span><span class="cap-name">Explore nearby connectivity beyond an existing LAN<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">Later</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Local and invitations</span><p><strong>Outcome:</strong> Nearby devices may establish a usable local path without an existing router.
+<strong>Status:</strong> Exploration; ordinary LAN/hotspot calling remains the supported foundation.
+<strong>Target:</strong> Unassigned extension. <strong>Depends on:</strong> <a href="#LOCAL-01">LOCAL-01</a>, <a href="#TRUST-02">TRUST-02</a>, <a href="#MOB-01">MOB-01</a>.</p>
+<p>Evaluate Wi-Fi Aware/Direct and available platform equivalents on actual supported hardware;
+Bluetooth may assist discovery/small exchanges rather than carrying video by assumption.
+Document OS permissions, background behaviour and interoperability limits. Discovery and
+physical transport must stay separate from identity/admission.</p>
+<p><strong>Design gate:</strong> A hardware feasibility matrix and measured two-device path identify what is
+actually portable. <strong>Completion gate:</strong> Opt-in discovery, bounded energy/use, authenticated
+joining and usable media pass adversarial/hardware checks. Geographic multi-hop community
+networking requires its own routing, power and hardware project; this capability does not
+promise to create a mesh or extend a radio's range.</p></div></details><details class="capability" id="MSG-01" data-version="Unassigned" data-stream="Future messaging" data-state="planned">
+      <summary><span class="cap-id">MSG-01</span><span class="cap-name">Explore local history and delayed private messages<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">Later</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Future messaging</span><p><strong>Outcome:</strong> An optional message can wait on a user's device until a permitted path returns.
+<strong>Status:</strong> Future extension; current in-call chat is not a persistent offline messenger.
+<strong>Target:</strong> Unassigned extension. <strong>Depends on:</strong> <a href="#ID-01">ID-01</a>, <a href="#TRUST-02">TRUST-02</a>, <a href="#TEST-01">TEST-01</a>.</p>
+<p>First design encrypted local history, retention, deletion, backups, multi-device key custody
+and delivery receipts. Treat an optional user-owned mailbox as an additional consented role
+with expiry/storage limits. Forwarding through other people adds its own abuse/metadata model;
+do not turn call helpers into hidden archives.</p>
+<p><strong>Design gate:</strong> Explain sender/recipient authentication, deduplication, expiry, quotas,
+compromise/recovery and what a mailbox learns. <strong>Completion gate:</strong> Delayed delivery,
+replay/duplication, device loss and deletion tests support the published guarantees. Live
+calls still need a continuous physical path; queued messages solve a different problem.</p></div></details><details class="capability" id="SCALE-01" data-version="Unassigned" data-stream="Media and groups" data-state="planned">
+      <summary><span class="cap-id">SCALE-01</span><span class="cap-name">Extend capacity through willing peers and cascades<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">Later</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Media and groups</span><p><strong>Outcome:</strong> People can contribute bounded forwarding capacity without a central provider.
+<strong>Status:</strong> Planner supports broader layouts; transport uses one forwarder per room today.
+<strong>Target:</strong> Unassigned extension. <strong>Depends on:</strong> <a href="#GROUP-01">GROUP-01</a>, <a href="#MEDIA-01">MEDIA-01</a>, <a href="#OPS-01">OPS-01</a>, <a href="#TRUST-01">TRUST-01</a>.</p>
+<p>Deliver opt-in participant forwarding first, with measured upload, battery, thermal and
+stop conditions. Then design forwarder-to-forwarder links, routing loops, partial reachability,
+roster authorisation, resource isolation and regional placement. Keep forwarding blind to
+content and explicit about observable metadata.</p>
+<p><strong>Complete when:</strong> Increasing group size has measured bandwidth/CPU/latency results; overload
+or withdrawal of one participant's contribution cannot exhaust another's device or bypass
+roster checks. Cascade failure tests verify bounded queues and recovery. No advertised room
+size or throughput exceeds the tested supported configuration.</p></div></details><details class="capability" id="PERF-01" data-version="Unassigned" data-stream="Media and groups" data-state="planned">
+      <summary><span class="cap-id">PERF-01</span><span class="cap-name">Pursue 4K60 and efficient native media against measurements<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">Later</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Media and groups</span><p><strong>Outcome:</strong> Capable devices get better video/screen quality without sacrificing conversation or power.
+<strong>Status:</strong> Architectural ambition; current desktop camera is capped at 1080p and share at 1920 long-edge.
+<strong>Target:</strong> Unassigned performance extension. <strong>Depends on:</strong> <a href="#MEDIA-01">MEDIA-01</a>, <a href="#DATA-01">DATA-01</a>, <a href="#TEST-01">TEST-01</a>.</p>
+<p>Benchmark hardware H.264, GPU scale/decode, content-aware screens and candidate codecs against
+current software paths. Review licence/patent/distribution constraints and native attack surface.
+Choose supported resolution/frame-rate combinations by device capacity and actual connection,
+not a universal marketing switch. Keep low-data/audio operation first-class.</p>
+<p><strong>Complete when:</strong> Reproducible hardware tests record capture-to-render delay, quality, wire
+rate, CPU/GPU, memory and phone power/thermal behaviour. Pause/resume/layer transitions remain
+correct. A 4K60 claim names the tested platform/hardware/path; 1.0 is not blocked on it.</p></div></details><details class="capability" id="ORG-01" data-version="Unassigned" data-stream="Engine and integrations" data-state="planned">
+      <summary><span class="cap-id">ORG-01</span><span class="cap-name">Add organisation adapters without changing the trust model<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">Later</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Engine and integrations</span><p><strong>Outcome:</strong> Organisations add identity, policy and capacity to the same Veil engine/protocol.
+<strong>Status:</strong> Architecture direction; enterprise adapters are not implemented.
+<strong>Target:</strong> Unassigned extension beyond the core baseline. <strong>Depends on:</strong> <a href="#SDK-02">SDK-02</a>, <a href="#EMBED-01">EMBED-01</a>, <a href="#ID-01">ID-01</a>, <a href="#OPS-01">OPS-01</a>.</p>
+<p>Define short-lived identity attestations bound to device keys and signed organisation policy;
+keep keys generated and held on endpoints. Organisation-provided rendezvous/relay/forwarder
+capacity remains replaceable. Add federation, visible recording or gateways only as separately
+reviewed adapters, with explicit participant-visible plaintext access and policy conflicts.</p>
+<p><strong>Complete when:</strong> Personal and organisation-enabled clients interoperate using the supported
+SDK/protocol. Invalid/expired/revoked policy/attestations fail safely. No invisible recorder,
+administrator decryption key or automatic company-hosted social graph is introduced. An
+organisation's opted-in data policy must be visible, not represented as Veil's default privacy model.</p></div></details></div><p id="empty" class="empty" hidden>No capabilities match. Clear the filters or try a different term.</p></section>
+<section id="ownership" class="block strategy-section"><h2>Data ownership and trust boundaries</h2><div class="prose"><p>The rule is: devices own people and conversations; helpers keep only the bounded routing
+state needed to make an authorised connection possible. "No central data company" does not
+mean helpers see no information. Their observable metadata and retention must stay explicit.</p>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Data</th>
+<th>Intended owner/location</th>
+<th>Helper access and retention rule</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Device private keys and verification state</td>
+<td>OS-protected storage on the user's device</td>
+<td>No upload to rendezvous, relay or forwarder</td>
+</tr>
+<tr>
+<td>User-assigned contact names and relationships</td>
+<td>Local storage, with explicit user-controlled export if implemented</td>
+<td>No public directory, address book upload or social graph service</td>
+</tr>
+<tr>
+<td>Call content and MLS state</td>
+<td>Authorised participants; current session state is in memory</td>
+<td>No helper receives content keys; persisted MLS recovery is a separate design</td>
+</tr>
+<tr>
+<td>Conversation history, if enabled later</td>
+<td>Encrypted local storage with deletion/backup controls</td>
+<td>No automatic server archive</td>
+</tr>
+<tr>
+<td>Full invitation</td>
+<td>Shared intentionally by the host; signed, expiring and single use</td>
+<td>A stolen invite can request entry, not bypass admission</td>
+</tr>
+<tr>
+<td>Sealed short invitation</td>
+<td>Temporary bounded storage on a chosen rendezvous</td>
+<td>Helper retains ciphertext and routing metadata; full invites remain the offline option</td>
+</tr>
+<tr>
+<td>Discovery beacon</td>
+<td>Opt-in local broadcast using temporary service identity</td>
+<td>No names, permanent identity, roster or invitation secret in public beacons</td>
+</tr>
+<tr>
+<td>Node identity and configured host grants</td>
+<td>Operator-controlled key/config files, including the persistent <code>hosts</code> allow-list</td>
+<td>Keep the node's own private key local; explicit grant/revocation and retention policy</td>
+</tr>
+<tr>
+<td>Helper registrations and routing state</td>
+<td>Bounded helper memory for an active registration</td>
+<td>Expire stale state; recheck configured grants; disclose identifiers/IP addresses the role must observe</td>
+</tr>
+<tr>
+<td>Media in transit</td>
+<td>Sealed participant frames in bounded transient buffers</td>
+<td>No disk recording or content analysis as part of a relay/forwarder role</td>
+</tr>
+<tr>
+<td>Diagnostics</td>
+<td>Local redacted logs, exported explicitly by the user</td>
+<td>No silent telemetry or automatic log upload; no keys or reusable invite secrets</td>
+</tr>
+</tbody>
+</table></div>
+<p>A malicious helper can keep a record despite a RAM-only implementation. Trust minimisation
+reduces what it can learn; it cannot make its network observations disappear. Padding and
+temporary connection identifiers require separate designs and measured overhead.</p></div></section>
+<section id="roles" class="block strategy-section"><h2>System roles and extension boundaries</h2><div class="prose"><div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Current foundation</th>
+<th>Work needed to serve the mission</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Participant</td>
+<td>Shared Rust engine; desktop and local Android integration</td>
+<td>Native identity persistence, mobile lifecycle, clear trust/recovery states</td>
+</tr>
+<tr>
+<td>Discovery and invitations</td>
+<td>Full and short signed invites; opt-in IPv4 nearby discovery</td>
+<td>Offline hardware evidence, camera QR scanning, bounded invitation handling and alternative nearby transports</td>
+</tr>
+<tr>
+<td>Rendezvous</td>
+<td>Introductions, chosen-host policy, registration recovery</td>
+<td>Independent helpers, expiry/failover semantics, TCP-accessible joining</td>
+</tr>
+<tr>
+<td>Relay</td>
+<td>Opaque packet carrying over QUIC/UDP</td>
+<td>Restricted-network transport, fairness under carrier NAT and observable capacity limits</td>
+</tr>
+<tr>
+<td>Forwarder</td>
+<td>One per room, sealed media, layer subscriptions, roster tickets</td>
+<td>Sender attribution, receive-side demand, mixed reachability, measured capacity and failure recovery</td>
+</tr>
+<tr>
+<td>Identity and policy</td>
+<td>Device keys, safety codes, host admission and node host allow-lists</td>
+<td>Cross-platform stable storage and local contacts; optional organisation attestations later</td>
+</tr>
+<tr>
+<td>Distribution</td>
+<td>Desktop packages and signed release manifests; local debug APKs</td>
+<td>Reproducible Android CI, upgrade identity tests, OS signing and offline-verifiable installation guidance</td>
+</tr>
+</tbody>
+</table></div>
+<p>Adapters must be evaluated behind these roles rather than making a new transport the product's
+identity. The earlier session raised an Iroh experiment; it remains a comparison/design task,
+not an adoption decision. Any candidate must demonstrate no mandatory public discovery/default
+relay, preserved pinned identities, Local only enforcement, bounded behaviour and acceptable
+mobile/recovery performance before migration is considered.</p></div></section>
+<section id="journeys" class="block strategy-section"><h2>Product journeys and failure states</h2><div class="prose"><div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Journey</th>
+<th>Required state sequence</th>
+<th>Security or usability rule</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Start/join a call</td>
+<td>Setup → pre-join → connecting → lobby → admitted/live</td>
+<td>Names and discoverability do not prove identity; capture and admission states remain visible</td>
+</tr>
+<tr>
+<td>Verify a person</td>
+<td>Unverified → compared through a trusted channel → verified</td>
+<td>A key change requires a clear warning; an identical display name never restores trust</td>
+</tr>
+<tr>
+<td>Nearby join</td>
+<td>Explicit scan/advertise → code/full invite → signed validation → lobby</td>
+<td>Discovery grants no membership; manual full-invite joining survives blocked multicast</td>
+</tr>
+<tr>
+<td>Interrupted call</td>
+<td>Live → reconnecting → recovered, or ended with rejoin guidance</td>
+<td>Recovery proves current membership and the same identity; it is not fresh automatic admission</td>
+</tr>
+<tr>
+<td>Removed member</td>
+<td>Live/reconnecting → removed → access revoked</td>
+<td>An old address, ticket, invitation or recovery token never restores membership</td>
+</tr>
+<tr>
+<td>Route change</td>
+<td>Current permitted route → replacement validated → active route updated</td>
+<td>Honour Local only and Hide my address throughout; do not silently expose a real address</td>
+</tr>
+<tr>
+<td>Poor network</td>
+<td>Video quality reduced → explicit receive limits/audio option → measured recovery</td>
+<td>Prioritise audio/control, explain the change and respect user consent before disabling video automatically</td>
+</tr>
+<tr>
+<td>Node unavailable</td>
+<td>Detect → try another configured eligible helper → recover or explain</td>
+<td>Another IP for the same key is not proof of an independent helper</td>
+</tr>
+<tr>
+<td>Host leaves</td>
+<td>Everyone is told the current call ended</td>
+<td>Until handover is implemented, do not imply a group survives coordinator loss</td>
+</tr>
+</tbody>
+</table></div>
+<p>Never label a call simply "connected" when a participant has no usable media path. Distinguish
+transport reachability, lobby/admission, cryptographic membership and media delivery in the
+model, with concise product language rather than implementation jargon on the main screens.</p></div></section>
+<section id="boundaries" class="block strategy-section"><h2>What the mission does and does not promise</h2><div class="prose"><div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>Desired supported experience</th>
+<th>Hard boundary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Same router or hotspot, no WAN/DNS</td>
+<td>Local invitations, admission, media and chat work within the reachable network</td>
+<td>Client isolation or host firewalls can still prevent peer traffic</td>
+</tr>
+<tr>
+<td>Phone on 5G joining a reachable desktop</td>
+<td>Direct, punched or chosen-helper connection; the reported connection already succeeded</td>
+<td>One successful case does not establish every carrier or route</td>
+</tr>
+<tr>
+<td>Host and guest both behind difficult NAT</td>
+<td>Use an independently reachable chosen helper when direct traversal fails</td>
+<td>A helper behind the same unreachable boundary cannot make itself reachable</td>
+</tr>
+<tr>
+<td>UDP blocked</td>
+<td>Chosen TCP/TLS helper path covers invitation retrieval, discovery/control and media</td>
+<td>TCP 443 alone does not guarantee access through an allow-list or traffic inspection</td>
+</tr>
+<tr>
+<td>Slow or costly link</td>
+<td>Stop unnecessary receive traffic, prioritise speech/control and show quality changes</td>
+<td>A connection below the measured audio floor cannot sustain a live call</td>
+</tr>
+<tr>
+<td>Internet outage across a community</td>
+<td>Devices communicate through whatever local physical network survives</td>
+<td>Discovery does not create radio range or a multi-hop network</td>
+</tr>
+<tr>
+<td>Completely disconnected locations</td>
+<td>Explain that no live path exists; optional future messages wait for contact</td>
+<td>Encryption and peer-to-peer software cannot bridge absent connectivity</td>
+</tr>
+<tr>
+<td>Malicious helper</td>
+<td>Preserve device authentication and content encryption; offer another selected route</td>
+<td>Helpers can observe metadata, delay/drop packets and record what they observe</td>
+</tr>
+<tr>
+<td>Compromised participant</td>
+<td>Contain access after removal and prevent attribution to another device</td>
+<td>An admitted device can retain plaintext it was legitimately able to receive</td>
+</tr>
+</tbody>
+</table></div>
+<p>Veil is a private communication app with resilience features. It must not promise anonymity,
+invisibility to the network, guaranteed censorship resistance or a new physical mesh. A shared
+screen, recorder or gateway that exposes plaintext is a participant with explicit user-visible
+consequences, never a hidden infrastructure role.</p></div></section>
+<section id="evidence" class="block strategy-section"><h2>What has already been demonstrated</h2><div class="prose"><div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Capability or test</th>
+<th>State and evidence</th>
+<th>Scope still open</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BASE-01</td>
+<td>Desktop calling and self-hosted nodes</td>
+<td>v0.1.13 published on 22 November 2026; <a href="https://github.com/Jeremy8776/veil/releases/tag/v0.1.13">release</a></td>
+<td>Broad real-device and network coverage</td>
+</tr>
+<tr>
+<td>AND-01</td>
+<td>Shared Android app and native integration</td>
+<td>Implemented locally as <code>0.1.13-mobile.3</code>; touch layouts, camera, audio, Keystore and foreground call service; <a href="../mobile/README.md">mobile notes</a></td>
+<td>Review, integration and automated Android packaging</td>
+</tr>
+<tr>
+<td>TEST-LAN-01</td>
+<td>Phone and desktop exchange encrypted media</td>
+<td>Hardware test on 22 November: phone video decoded, phone Opus received, desktop synthetic video and silence sent</td>
+<td>Subjective audio quality and sustained calls</td>
+</tr>
+<tr>
+<td>TEST-5G-01</td>
+<td>A phone on 5G connects to a desktop host</td>
+<td>Successful test reported by Jeremy on 23 November 2026</td>
+<td>Test date, builds, route, duration and detailed media checks were not recorded in the report</td>
+</tr>
+</tbody>
+</table></div>
+<p>TEST-5G-01 is completed evidence for that connection scenario. It does not establish whether
+the route was direct, punched or relayed, nor whether changing networks during a call works.
+Recording those details extends the evidence; it does not undo the successful test.</p>
+<p>The Android work is local and uncommitted in the inspected checkout. The handoff now includes
+this mobile snapshot. <a href="ARCHITECTURE.md">Architecture</a> describes implementation and design;
+<a href="TRANSPARENCY.md">Transparency</a> defines current protection limits. This roadmap owns future
+priority and completion criteria; <a href="HANDOFF.md">Handoff</a> owns the current session snapshot.</p></div></section>
+<section id="validation" class="block strategy-section"><h2>Validation scenarios and evidence</h2><div class="prose"><p>The table is a required validation plan, not a claim that every test has run. Completed
+evidence remains in the current-evidence ledger; release candidates attach exact builds and
+reports to the scenarios that apply to their supported scope.</p>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Setup and disturbance</th>
+<th>Required observation</th>
+<th>Current evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Local two-device</td>
+<td>WAN/DNS unavailable; full invite; Windows and Android</td>
+<td>Admit, two-way real media/chat; no attributable internet attempts</td>
+<td>Local synthetic/hardware interoperability exists; full outage proof still open</td>
+</tr>
+<tr>
+<td>Local five-device</td>
+<td>Same outage, enough devices to exercise forwarding; one briefly disconnects</td>
+<td>All admitted devices have visible usable paths; bounded safe recovery</td>
+<td>Planned physical test</td>
+</tr>
+<tr>
+<td>No multicast/no default route</td>
+<td>Block discovery; keep usable on-link addresses; unreachable saved node</td>
+<td>Manual joining works; optional internet configuration does not block local mode</td>
+<td>Implementation exists; scenario evidence needed</td>
+</tr>
+<tr>
+<td>5G phone to desktop host</td>
+<td>Phone on carrier data, desktop hosts</td>
+<td>Successful join; capture route/build/media/duration on repeat</td>
+<td>TEST-5G-01 passed as a user-reported connection</td>
+</tr>
+<tr>
+<td>Two difficult external networks</td>
+<td>Both peers behind restrictive NAT; chosen permitted node</td>
+<td>Actual direct/punched/relay outcome and time to live</td>
+<td>Planned path-separated tests</td>
+</tr>
+<tr>
+<td>UDP blocked</td>
+<td>Drop UDP; use permitted TCP/TLS helper</td>
+<td>Fetch invite, join lobby, admit and exchange media without hidden UDP dependency</td>
+<td><a href="#NET-01">NET-01</a> not built</td>
+</tr>
+<tr>
+<td>Helper failure</td>
+<td>Two distinct helper keys; stop selected helper during join and call</td>
+<td>Bounded failover, no trust relaxation, no unnecessary helper use for existing local paths</td>
+<td><a href="#NET-02">NET-02</a> not built</td>
+</tr>
+<tr>
+<td>Privacy route migration</td>
+<td>Enable Hide my address; make direct path available; change interfaces</td>
+<td>No address-revealing direct attempt; policy remains enforced</td>
+<td>Required <a href="#NET-03">NET-03</a> regression gate</td>
+</tr>
+<tr>
+<td>Network transition</td>
+<td>Wi-Fi to 5G and back, brief loss and address updates</td>
+<td>Record outage/recovery time, epochs, roster and actual returned media</td>
+<td>Recovery implementation partial; mobile scenario open</td>
+</tr>
+<tr>
+<td>Remove during outage</td>
+<td>Interrupt a member, remove it, restore network and replay old state</td>
+<td>No resumed membership or new content access</td>
+<td>Existing checks need integrated adversarial evidence</td>
+</tr>
+<tr>
+<td>Mobile background/audio</td>
+<td>Screen lock, background/foreground, Bluetooth disconnect, denied permissions</td>
+<td>Speech/route/capture/service states match the user-visible outcome</td>
+<td>Local media exchange passed; sustained listening/lifecycle open</td>
+</tr>
+<tr>
+<td>Low-bandwidth media</td>
+<td>Sustained throttling/loss with mesh, forwarder and TCP</td>
+<td>Audio/control remain usable; camera receive limits reduce actual wire payload</td>
+<td>Data modes exist; complete receive controls missing</td>
+</tr>
+<tr>
+<td>Host/forwarder loss</td>
+<td>Stop host; separately stop active forwarder; add unreachable guest</td>
+<td>Honest terminal/recovery state, no hidden media exclusion</td>
+<td>Host handover absent; forwarder recovery incomplete</td>
+</tr>
+<tr>
+<td>Malicious forwarded sender</td>
+<td>Forge attribution/counters, replay previous room/epoch and send invalid frames</td>
+<td>Authentication before replay/decoder mutation; legitimate sender continues</td>
+<td><a href="#TRUST-01">TRUST-01</a> protection gap remains</td>
+</tr>
+<tr>
+<td>Identity restart/failure</td>
+<td>Restart each OS; lock/corrupt store; compare before/after</td>
+<td>Stable identity or explicit safe failure; no silent replacement</td>
+<td>Windows and Android storage foundations exist; Linux/macOS incomplete</td>
+</tr>
+<tr>
+<td>SDK lifecycle</td>
+<td>Non-GUI sample, cancel startup, slow event consumer, repeat create/leave</td>
+<td>Complete interop, bounded events, no orphan resources or copied secrets</td>
+<td>SDK product surface not yet built</td>
+</tr>
+<tr>
+<td>Embedded host and standalone</td>
+<td>Start in reference host, join from Veil; unload plugin mid-call</td>
+<td>Same trust/permission flows; capture/tasks end correctly</td>
+<td><a href="#EMBED-01">EMBED-01</a> not built</td>
+</tr>
+<tr>
+<td>Local bridge hostile client</td>
+<td>Wrong caller, malformed/oversized data, stale handles, version mismatch</td>
+<td>Rejected/bounded requests; no cross-app session or capture authority</td>
+<td><a href="#BIND-01">BIND-01</a> not built</td>
+</tr>
+<tr>
+<td>Upgrade/installation</td>
+<td>Signed same-package upgrade; standalone and embedded compatible versions</td>
+<td>Keys/contacts retained; incompatible API/wire versions fail clearly</td>
+<td>Desktop packaging exists; Android signed upgrade/SDK matrix open</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="measurements-that-inform-decisions">Measurements that inform decisions</h3>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Measurement</th>
+<th>Record</th>
+<th>Decision it supports</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Joining</td>
+<td>Attempt count, successful path, time to lobby/admission and first usable media</td>
+<td>Dial timing and whether additional helpers actually improve reach</td>
+</tr>
+<tr>
+<td>Recovery</td>
+<td>Physical loss duration, time after usable connectivity, roster/epoch changes and media gap</td>
+<td>Supported interruption window and path migration policy</td>
+</tr>
+<tr>
+<td>Conversation quality</td>
+<td>Both-end listening verdict, echo/double-talk/dropout, device route</td>
+<td>Audio processing/device changes before video optimisation</td>
+</tr>
+<tr>
+<td>Bandwidth</td>
+<td>Wire bytes by audio/camera/share/control, per route and policy</td>
+<td>Receive controls, traffic priorities, topology and node budgets</td>
+</tr>
+<tr>
+<td>Resources</td>
+<td>CPU/GPU, queue age/bytes, memory, worker/task counts and shutdown time</td>
+<td>Boundedness and where native/hardware optimisation is justified</td>
+</tr>
+<tr>
+<td>Mobile cost</td>
+<td>Device/OS, call duration, battery delta and thermal observations</td>
+<td>Foreground/background limits, forwarding opt-in and default quality</td>
+</tr>
+<tr>
+<td>Integration quality</td>
+<td>Public versus private API use, host dependencies, cancellation/crash leaks</td>
+<td>Whether the SDK is reusable rather than a wrapper around the full app</td>
+</tr>
+<tr>
+<td>Privacy</td>
+<td>Attributable destinations, beacon fields, helper metadata and exported logs</td>
+<td>Whether selected privacy modes and data-minimisation rules hold</td>
+</tr>
+</tbody>
+</table></div>
+<p>Do not set a global call-success percentage from one device pair. Establish repeatable
+baselines across the defined scenarios, then set performance thresholds against those
+conditions. The proposed 10-second interruption, 20-second recovery and 30-minute soak gates
+are starting acceptance targets; changing them requires a documented supported-behaviour
+decision and updated tests, not quietly lowering the bar after a failed run.</p></div></section>
+<section id="gates" class="block strategy-section"><h2>Release gates and deliverables</h2><div class="prose"><p>Every milestone has a small set of reviewable deliverables. A successful demo advances the
+evidence; it does not silently close storage, revocation, lifecycle or integration requirements.</p>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Target</th>
+<th>Required deliverables</th>
+<th>Explicit release blocker</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.1.14</td>
+<td>Android integration reviews, pinned build instructions/CI, existing desktop checks, engine/provider ADR and API inventory</td>
+<td>Unexplained native lifetime ownership, unreproducible build or accidental desktop regression</td>
+</tr>
+<tr>
+<td>0.2.0</td>
+<td>Offline hardware report, integrated convenience-path review, mobile/audio scenarios, QR/manual join checks, redacted diagnostics, signed preview/upgrade record</td>
+<td>Removed-member recovery, weakened pinning/privacy, capture left running after leave or core offline call depending on WAN</td>
+</tr>
+<tr>
+<td>0.3.0</td>
+<td>Consumable headless Rust sample, desktop/Android engine migration, full TCP joining path, independent helper tests, measured receive controls and node load limits</td>
+<td>GUI dependency in the SDK, UDP-only joining on the TCP path, unbounded retry/queue behaviour or privacy-leaking route upgrade</td>
+</tr>
+<tr>
+<td>0.4.0</td>
+<td>Native persistence matrix, host-scoped identity design, versioned authorised local bridge, reference embedded app and standalone interop report</td>
+<td>Silent identity regeneration, unauthorised local IPC, plugin unload leaving capture alive or required central host data upload</td>
+</tr>
+<tr>
+<td>0.5.0</td>
+<td>Sender-attribution/replay review, measured group media, forwarding partial-failure decision, active-node outage results</td>
+<td>Another member accepted as a different media sender, hidden participants without media or unbounded group resource use</td>
+</tr>
+<tr>
+<td>1.0.0</td>
+<td>Defined supported scope, independent review/findings disposition, API/protocol compatibility policy, full mandatory matrix, signed distribution and maintenance process</td>
+<td>Any unresolved issue classified as release-blocking in the reviewed threat model or a protection claim unsupported on a supported path</td>
+</tr>
+</tbody>
+</table></div>
+<p>Before a release candidate, classify findings by exploitability, exposure and user impact,
+record remediation or a justified scoped exclusion, and keep security reports private as
+required. A known high-impact trust bypass is not made acceptable by labelling the package
+beta. If a platform/path is excluded, the product and documentation must make that boundary
+visible and fail safely rather than quietly offering the unsupported behaviour.</p>
+<p><strong>Earlier group previews:</strong> <a href="#TRUST-01">TRUST-01</a>'s allocation to 0.5 is a completion deadline, not permission
+to defer a release-blocking attribution flaw. Before any earlier preview including forwarding,
+classify the known malicious-member weakness and either fix it or enforce a documented scope
+restriction where it is release-blocking. A five-device engineering test may exercise that
+path with cooperating test participants; it does not establish safe use with untrusted members.
+The 0.2 supported experience must name this boundary, including any disabled/group-limited path.
+If no safe enforceable scope is accepted, <a href="#TRUST-01">TRUST-01</a> moves onto that release's critical path.</p></div></section>
+<section id="decisions" class="block strategy-section"><h2>Open decisions and engineering risks</h2><div class="prose"><div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Decision or risk</th>
+<th>Why it matters</th>
+<th>Required next evidence or decision</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SDK process boundary</td>
+<td>Native embedding is efficient but trusts the host process; IPC adds isolation and complexity</td>
+<td><a href="#SDK-01">SDK-01</a> ADR with a minimal Rust host, media surface and lifecycle contract</td>
+</tr>
+<tr>
+<td>Optional UI reuse</td>
+<td>A toolkit-specific screen is not a universal embeddable widget</td>
+<td>Choose launch-window versus host-rendered versus reusable component modes for the reference host</td>
+</tr>
+<tr>
+<td>Cross-app identity</td>
+<td>Automatic key sharing expands impersonation and compromise scope</td>
+<td>Scoped default stores; explicit shared-identity consent/key-custody design</td>
+</tr>
+<tr>
+<td>Platform integration permission</td>
+<td>A named app may allow launching links but not replacing native calls</td>
+<td>Check current documented APIs and authorisation before promising that adapter</td>
+</tr>
+<tr>
+<td>Transport replacement</td>
+<td>A new networking library can add hidden public discovery/default services</td>
+<td>Compare in isolation behind the role interface, inspect defaults and capture actual traffic</td>
+</tr>
+<tr>
+<td>Helper independence</td>
+<td>Several addresses can still be one operator, one key or one failure domain</td>
+<td>Distinct-key registration/failover design and practical outage test</td>
+</tr>
+<tr>
+<td>Forwarder majority versus everyone</td>
+<td>Current majority transition may strand a minority; new guests may lack a path</td>
+<td>Decide explicit refusal, mixed routes or bounded fallback; make actual reach visible</td>
+</tr>
+<tr>
+<td>Host continuity</td>
+<td>MLS authority and partitions make handover a protocol change</td>
+<td>Planned handover before unexpected failure/election; fence old authority</td>
+</tr>
+<tr>
+<td>Media attribution cost</td>
+<td>Added authentication must resist malicious members without overwhelming devices</td>
+<td>Adversarial tests plus encode/verify bandwidth/CPU measurements</td>
+</tr>
+<tr>
+<td>Nearby transport portability</td>
+<td>Hardware/OS support and background permissions vary</td>
+<td>Real platform feasibility matrix; keep LAN/manual invite fallback</td>
+</tr>
+<tr>
+<td>Carrier NAT fairness</td>
+<td>One address block may represent many legitimate users; device keys are cheap to mint</td>
+<td>Loaded-relay experiments before changing abuse controls</td>
+</tr>
+<tr>
+<td>Stored messages/history</td>
+<td>New persistence and mailbox roles expand compromise, deletion and abuse scope</td>
+<td>Separate opt-in storage/backup/retention threat model before implementation</td>
+</tr>
+<tr>
+<td>Enterprise adapters</td>
+<td>Attestation, policy, recording and gateways can change who is trusted</td>
+<td>Explicit role design and participant-visible policy/plaintext access</td>
+</tr>
+</tbody>
+</table></div>
+<p>No open library or framework choice is a reason to discard the working call stack without
+evidence. Prefer a small isolated prototype, an interoperability comparison and a rollback
+plan. Keep the product goal fixed while allowing the implementation behind a role to improve.</p></div></section>
+<section id="next" class="block strategy-section"><h2>Next implementation slices</h2><div class="prose"><p>These are work packages, not calendar promises or authorization to implement all features now.</p>
+<ol>
+<li><strong>Capture the foundation:</strong> review the uncommitted Android extraction/platform work, make
+   clean-checkout builds reproducible, and retain the LAN and user-reported 5G evidence.</li>
+<li><strong>Define the shared provider:</strong> <a href="#SDK-01">SDK-01</a> ADR and contract inventory; trace a Mailcraft-style
+   host journey without assuming access to that repository or a platform-specific plugin API.</li>
+<li><strong>Defend the new exposure:</strong> <a href="#TRUST-02">TRUST-02</a> review of discovery, invites, address hints and
+   recovery. Begin the forwarded-media attribution design immediately; ship fixes when ready.</li>
+<li><strong>Prove the mission on hardware:</strong> two-device then five-device WAN/DNS-off calls, manual
+   fallback with multicast blocked, removal during interruption and redacted diagnostics.</li>
+<li><strong>Make phones dependable:</strong> sustained listening/call/background runs, device-route changes
+   and network transitions; collect failures before choosing hardware media optimisation.</li>
+<li><strong>Extract and demonstrate:</strong> headless SDK, standalone migration and cross-language provider
+   sample. Add a reference host integration only after its trust/lifecycle contract is reviewable.</li>
+</ol></div></section>
+<section id="principles" class="block"><h2>Principles and product definition</h2><div class="prose source-intro"><p>Updated 23 November 2026. Proposed milestones for maintainer review; versions are planning
+targets, not release dates or changes to the current package version.</p>
+<p><strong>Modular. Agnostic. Shared.</strong> Veil is a video and audio calling app and a reusable call
+engine/provider that other applications can embed. Its standalone app is a first-party client
+of the same calling capabilities offered to integrators.</p>
+<p>Veil's goal is familiar, dependable private communication where people own their identities,
+contacts and conversation data, calls are peer to peer by default, and a surviving local
+network remains useful when the internet fails. People may add their own computers or chosen
+nodes for reach and capacity. Those helpers must be replaceable and receive no conversation keys.</p>
+<p>The product should feel as approachable as a conventional calling app without requiring a
+company account, company contact directory or company-operated call infrastructure. Easier
+connection must preserve strict admission, verification and revocation. Android delivery is
+part of reaching people; it is not the whole mission.</p></div><div class="prose"><ul>
+<li>Keep the shared Rust call engine and protocol across desktop and mobile.</li>
+<li>Keep calls end-to-end encrypted and servers chosen by the user. No built-in public node,
+  accounts or telemetry are required by this roadmap.</li>
+<li>Describe a capability by the user outcome, its dependencies and evidence of completion.
+  A compiled implementation, a local hardware test and an internet call establish different things.</li>
+<li>Treat security fixes as immediate work across milestones. A future audit does not defer
+  fixing a known weakness.</li>
+<li>Finish and validate a useful increment before widening its platform or performance scope.</li>
+</ul></div></section>
+<section id="compatibility" class="block strategy-section"><h2>Version and compatibility rules</h2><div class="prose"><ul>
+<li>Continue the existing 0.1.x preview line for consolidation/fixes; 0.1.14 is an integration
+  target, not a stable mobile promise. After 0.2.0, use patch releases for compatible fixes
+  and minor releases for capability milestones or deliberate pre-1.0 compatibility breaks.</li>
+<li>Give testers prereleases such as <code>0.2.0-alpha.1</code> and <code>0.2.0-beta.1</code>. The current
+  <code>0.1.13-mobile.3</code> label is a development preview, not a separate protocol generation.</li>
+<li>Record wire, invitation, node and persisted-data compatibility separately in every release.
+  Matching version numbers alone are not evidence that two builds interoperate. A wire break
+  must name the minimum compatible clients/nodes and whether fresh invitations are required.</li>
+<li>At 1.0, establish the supported public protocol/API surface. Compatible fixes use patch
+  versions, compatible additions use minor versions, and incompatible changes use major versions.</li>
+<li>Track the Rust SDK, IPC/binding schema, host adapter and wire protocol explicitly. Product
+  milestones do not promise those interfaces share one version or compatibility window.
+  Publish tested combinations and a deprecation policy; never hide a protocol break inside
+  a supposedly compatible host-plugin update.</li>
+<li>Never move a published tag. Allocate actual release numbers only after checking existing
+  tags/releases. This roadmap does not change Cargo or Android versions.</li>
+</ul></div></section>
+<section id="extensions" class="block strategy-section"><h2>Work after the core milestones</h2><div class="prose"><p>QR camera scanning is now in the proposed 0.2 <a href="#INVITE-01">INVITE-01</a> scope. Android screen sharing remains
+a separately scoped platform extension. <a href="#IOS-01">IOS-01</a> is conditional on hardware/tooling; <a href="#HOST-01">HOST-01</a>,
+<a href="#NEAR-01">NEAR-01</a>, <a href="#MSG-01">MSG-01</a>, <a href="#SCALE-01">SCALE-01</a>, <a href="#PERF-01">PERF-01</a> and <a href="#ORG-01">ORG-01</a> have design gates but no reserved version.
+Allocate their release numbers after feasibility and scope decisions instead of implying a
+fixed serial path to 0.7/0.8/0.9. Their absence does not remove the requirement for a reusable
+engine/provider in the core baseline.</p></div></section>
+<section id="maintenance" class="block strategy-section"><h2>Maintaining the roadmap</h2><div class="prose"><p>Every Veil session begins by opening the live roadmap and reading its highlighted next step.
+Follow <a href="../AGENTS.md">the session workflow</a> and <a href="ROADMAP_TRACKING.md">tracking guide</a>. Record
+meaningful work transitions in <code>roadmap-state.json</code> with <code>tools/roadmap.py</code>; the live preview
+polls that recorded state and refreshes document changes. A file-based HTML copy is a saved
+snapshot, clearly distinguished from the live local view.</p>
+<p>Use the capability ID in an issue or PR and link it here when work starts. Mark a capability
+complete only when its exit evidence is recorded, with the build/commit, platform, network,
+result and remaining limits. A test report should also distinguish user-reported results from
+automated checks and identify direct/punched/relayed/forwarded paths when known. Do not record
+private keys or reusable invitation secrets.</p>
+<p>When scope changes, update the milestone and dependency together. Keep completed test evidence
+instead of turning it back into a task. Move shipped behaviour to the changelog and refresh
+the handoff; keep capability IDs stable so older discussions remain meaningful.</p></div></section>
+<footer class="footer"><span>Veil · Modular, agnostic, shared.</span><span>Planning targets · <a href="ROADMAP.md">Read the Markdown source ↗</a></span></footer>
+</main></div><script type="application/json" id="roadmap-state">{"schema_version": 1, "revision": 17, "updated_at": "2026-11-23T13:25:12+00:00", "next_step": {"capability": "AND-02", "title": "Integrate the reviewed Android candidate and verify CI/lifecycle", "why": "Local build repeatability is proven; committed cross-platform CI and explicit native lifecycle disposition are still needed before closing AND-02.", "checks": ["Integrate the reviewed source in coherent changes, preserving the existing unrelated work.", "Run Android artifact and Windows/Linux/macOS CI against the committed candidate.", "Verify or explicitly disposition teardown, permission denial, service/background and Keystore failure cases from the review."]}, "capabilities": {"AND-02": {"status": "in_progress", "note": "Reviewed native ownership; fixed camera frame publication after close; pinned Android build and CI added. Fresh candidate-source ARM64 build/APK checks, Android Clippy and 810 Windows tests passed. Integration, remote desktop/Android CI and device lifecycle evidence remain open.", "evidence": ["main/ on codex/release-0.1.13, base c032a89; docs/ANDROID_INTEGRATION_REVIEW.md records scope, findings and actual verification. Fresh validation checkout: main/target/and-02-source-check (detached candidate overlay); no generated build inputs copied."], "updated_at": "2026-11-23T13:16:05+00:00"}, "MOB-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "MOB-02": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "DIST-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "NET-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "DATA-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "DESK-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "TRUST-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "GROUP-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "IOS-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "READY-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "SDK-01": {"status": "in_progress", "note": "Designing the provider lifecycle, bounded commands/events, consent/storage adapters and migration inventory for the 0.1.14 milestone", "evidence": [], "updated_at": "2026-11-23T13:25:12+00:00"}, "SDK-02": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "BIND-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "EMBED-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "LOCAL-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "TRUST-02": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "INVITE-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "DIAG-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "TEST-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "NET-02": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "NET-03": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "OPS-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "ID-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "MEDIA-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "HOST-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "NEAR-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "MSG-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "SCALE-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "PERF-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "ORG-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}}, "sessions": {"01a207ea-e141-7ce0-953c-df660a232d9b": {"title": "Live roadmap and session startup", "status": "idle", "started_at": "2026-11-23T12:57:42+00:00", "updated_at": "2026-11-23T13:02:20+00:00", "note": "Configured roadmap-first session instructions and verified shared live updates, next-step selection, concurrency and browser behaviour. Next product step: AND-02 Android integration review/build repeatability."}, "codex-continue-20261123-a": {"title": "Reach the 0.1.14 integration and provider-design milestone", "status": "active", "started_at": "2026-11-23T13:05:24+00:00", "updated_at": "2026-11-23T13:25:12+00:00", "note": "Reading the roadmap and current evidence."}}, "activity": [{"at": "2026-11-23T13:25:12+00:00", "session": "codex-continue-20261123-a", "note": "SDK-01: in_progress — Designing the provider lifecycle, bounded commands/events, consent/storage adapters and migration inventory for the 0.1.14 milestone"}, {"at": "2026-11-23T13:23:45+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Reach the 0.1.14 integration and provider-design milestone"}, {"at": "2026-11-23T13:23:21+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Reach the 0.1.14 integration and provider-design milestone"}, {"at": "2026-11-23T13:18:02+00:00", "session": "codex-continue-20261123-a", "note": "AND-02 review/build increment verified: pinned Android tools/CI artifact, camera publication and environment-restoration fixes, fresh candidate-source APK build, Android/desktop Clippy and 810 Windows tests passed. Next: coherent integration, remote CI and lifecycle checks; see docs/ANDROID_INTEGRATION_REVIEW.md."}, {"at": "2026-11-23T13:16:06+00:00", "session": "codex-continue-20261123-a", "note": "Next step: AND-02 — Integrate the reviewed Android candidate and verify CI/lifecycle"}, {"at": "2026-11-23T13:16:05+00:00", "session": "codex-continue-20261123-a", "note": "AND-02: in_progress — Reviewed native ownership; fixed camera frame publication after close; pinned Android build and CI added. Fresh candidate-source ARM64 build/APK checks, Android Clippy and 810 Windows tests passed. Integration, remote desktop/Android CI and device lifecycle evidence remain open."}, {"at": "2026-11-23T13:09:09+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Android integration review and repeatable build"}, {"at": "2026-11-23T13:08:51+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Android integration review and repeatable build"}, {"at": "2026-11-23T13:05:58+00:00", "session": "codex-continue-20261123-a", "note": "AND-02: in_progress — Reviewing Android JNI/media ownership and reproducible build/CI requirements"}, {"at": "2026-11-23T13:05:24+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Continue the next Veil roadmap task"}, {"at": "2026-11-23T13:02:20+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Configured roadmap-first session instructions and verified shared live updates, next-step selection, concurrency and browser behaviour. Next product step: AND-02 Android integration review/build repeatability."}, {"at": "2026-11-23T13:01:08+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Browser verified live session refresh 1795438867918"}, {"at": "2026-11-23T13:01:02+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Session opened: Live roadmap and session startup"}, {"at": "2026-11-23T12:59:52+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Session startup and live-state tracking implemented; verifying concurrent writers and the browser refresh path."}, {"at": "2026-11-23T12:58:34+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Session opened: Live roadmap and session startup"}, {"at": "2026-11-23T12:57:42+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Session opened: Live roadmap and session startup"}]}</script><script>
+const cards = [...document.querySelectorAll('.capability')];
+const search = document.querySelector('#search');
+const version = document.querySelector('#version');
+const stream = document.querySelector('#stream');
+const workFilter = document.querySelector('#work-state');
+const count = document.querySelector('#count');
+const empty = document.querySelector('#empty');
+const expand = document.querySelector('#expand');
+let expanded = false;
+const searchable = new Map(cards.map(card => [card, card.textContent.toLowerCase()]));
+function filter() {
+  const words = search.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  let visible = 0;
+  cards.forEach(card => {
+    card.hidden = !(words.every(word => searchable.get(card).includes(word)) && (!version.value || card.dataset.version === version.value) && (!stream.value || card.dataset.stream === stream.value) && (!workFilter.value || card.dataset.state === workFilter.value));
+    if (!card.hidden) visible++;
+  });
+  count.textContent = `${visible} of ${cards.length} capabilities`;
+  empty.hidden = visible !== 0;
+}
+search.addEventListener('input', filter);
+version.addEventListener('change', filter);
+stream.addEventListener('change', filter);
+workFilter.addEventListener('change', filter);
+document.querySelector('#reset').addEventListener('click', () => { search.value = ''; version.value = ''; stream.value = ''; workFilter.value = ''; filter(); });
+expand.addEventListener('click', () => {
+  expanded = !expanded;
+  cards.filter(card => !card.hidden).forEach(card => { card.open = expanded; });
+  expand.textContent = expanded ? 'Collapse details' : 'Expand details';
+  expand.setAttribute('aria-expanded', String(expanded));
+});
+function revealHash() {
+  const card = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+  if (card?.classList.contains('capability')) {
+    search.value = ''; version.value = ''; stream.value = ''; workFilter.value = ''; filter(); card.open = true;
+    requestAnimationFrame(() => card.scrollIntoView({block: 'start'}));
+  }
+}
+window.addEventListener('hashchange', revealHash);
+document.querySelectorAll('a[href^="#"]').forEach(link => link.addEventListener('click', () => {
+  if (location.hash === link.hash) revealHash();
+}));
+let printState;
+window.addEventListener('beforeprint', () => {
+  printState = cards.map(card => ({open: card.open, hidden: card.hidden}));
+  cards.forEach(card => { card.open = true; card.hidden = false; });
+});
+window.addEventListener('afterprint', () => {
+  if (printState) cards.forEach((card, i) => Object.assign(card, printState[i]));
+});
+document.querySelector('#print').addEventListener('click', () => window.print());
+const nav = [...document.querySelectorAll('.sidebar nav a')];
+if ('IntersectionObserver' in window) {
+  const observer = new IntersectionObserver(entries => {
+    const active = entries.find(entry => entry.isIntersecting);
+    if (active) nav.forEach(link => {
+      if (link.hash === '#' + active.target.id) link.setAttribute('aria-current', 'location');
+      else link.removeAttribute('aria-current');
+    });
+  }, {rootMargin: '-10% 0px -65% 0px'});
+  nav.forEach(link => observer.observe(document.querySelector(link.hash)));
+}
+filter(); revealHash();
+document.querySelectorAll('[data-js]').forEach(el => { el.hidden = false; });
+
+const initial = JSON.parse(document.querySelector('#roadmap-state').textContent);
+const labels = {planned: 'Planned gate', in_progress: 'In progress', blocked: 'Blocked', done: 'Complete'};
+const formatDate = value => new Intl.DateTimeFormat('en-GB', {timeZone: 'Europe/London', day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', second:'2-digit'}).format(new Date(value));
+function listItems(element, values) {
+  element.replaceChildren(...values.map(value => { const li = document.createElement('li'); li.textContent = value; return li; }));
+}
+function applyState(state) {
+  const step = state.next_step;
+  document.querySelector('#next-title').textContent = step?.title || 'Review blockers and select the next supported step';
+  const link = document.querySelector('#next-capability');
+  link.textContent = step?.capability || 'View capability gates';
+  link.href = step ? '#' + step.capability : '#capabilities';
+  document.querySelector('#next-reason').textContent = step?.why || 'No eligible core capability is currently selected.';
+  listItems(document.querySelector('#next-checks'), step?.checks || []);
+  document.querySelector('#state-updated').textContent = 'Work state updated ' + formatDate(state.updated_at);
+  const totals = {planned:0, in_progress:0, blocked:0, done:0};
+  cards.forEach(card => {
+    const item = state.capabilities[card.id];
+    card.dataset.state = item.status;
+    card.classList.toggle('is-next', step?.capability === card.id);
+    card.querySelector('.cap-work-status').textContent = labels[item.status];
+    card.querySelector('.work-note').textContent = item.note;
+    listItems(card.querySelector('.work-evidence'), item.evidence);
+    totals[item.status]++;
+  });
+  for (const [key,value] of Object.entries(totals)) document.querySelector('[data-total="'+key+'"]').textContent = value;
+  const sessions = Object.values(state.sessions).sort((a,b)=>b.updated_at.localeCompare(a.updated_at)).slice(0,5);
+  listItems(document.querySelector('#session-list'), sessions.map(item => `${item.title} — ${item.status} (last reported ${formatDate(item.updated_at)}). ${item.note}`));
+  listItems(document.querySelector('#activity-list'), state.activity.slice(0,8).map(item => `${formatDate(item.at)} · ${item.note}`));
+  filter();
+}
+applyState(initial);
+let polling = false;
+async function sync() {
+  if (polling || document.hidden) return;
+  polling = true;
+  const badge = document.querySelector('#live-connection');
+  try {
+    const response = await fetch('/api/state', {cache:'no-store', signal:AbortSignal.timeout(5000)});
+    if (!response.ok) throw Error('Preview unavailable');
+    const data = await response.json();
+    if (data.service !== 'veil-roadmap') throw Error('Wrong preview service');
+    if (data.document_revision !== document.querySelector('meta[name="roadmap-document-revision"]').content) {
+      sessionStorage.setItem('veil-roadmap-ui', JSON.stringify({search:search.value,version:version.value,stream:stream.value,status:workFilter.value,open:cards.filter(c=>c.open).map(c=>c.id),scroll:scrollY}));
+      location.reload(); return;
+    }
+    applyState(data.state);
+    badge.textContent = 'Live · synced ' + formatDate(new Date().toISOString());
+    badge.className = 'connection-ok';
+  } catch {
+    badge.textContent = 'Live preview disconnected · showing last saved state';
+    badge.className = 'connection-off';
+  } finally { polling = false; }
+}
+const saved = sessionStorage.getItem('veil-roadmap-ui');
+if (saved) {
+  try {
+    const ui = JSON.parse(saved);search.value=ui.search;version.value=ui.version;stream.value=ui.stream;workFilter.value=ui.status;
+    cards.forEach(c=>{c.open=ui.open.includes(c.id);});filter();requestAnimationFrame(()=>scrollTo(0,ui.scroll));
+  } finally { sessionStorage.removeItem('veil-roadmap-ui'); }
+}
+if (location.protocol === 'http:' && ['127.0.0.1','localhost'].includes(location.hostname)) {
+  sync();setInterval(sync,2000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync();});
+}
+</script></body></html>

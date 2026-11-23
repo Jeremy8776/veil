@@ -2,13 +2,53 @@
 
 Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
-## Current work, 22/11/2026
+## Current work, 23/11/2026
+
+- AND-02 review/build increment is recorded in
+  [Android integration review](ANDROID_INTEGRATION_REVIEW.md), including native ownership,
+  lifecycle limitations and a three-part integration plan. Work is in `main/` on
+  `codex/release-0.1.13`, base `c032a89`; the older `source/` checkout was not synchronised.
+  Tool versions are now pinned in `mobile/android/toolchain.json`; the build bootstraps
+  checksum-verified Gradle 8.13, verifies APK signing/alignment and records build metadata.
+  A new Android preview workflow builds ARM64 and uploads a development artifact; it has
+  not yet run remotely. A camera callback now rechecks generation under the close lock
+  before publishing its copied frame. Local Windows workspace tests passed (810, 20 ignored)
+  and desktop/Android Clippy passed. AND-02 remains open for integration, remote cross-platform
+  CI and lifecycle verification; this is not a signed upgradeable release or headless SDK.
+  The candidate also built successfully in a fresh detached validation checkout under
+  `main/target/and-02-source-check` with no copied native/Gradle output. Artifact identity and
+  the distinction between that source-overlay check and committed CI are in the review.
+- Every Veil session now starts from the live roadmap under `AGENTS.md`. Run
+  `python tools/roadmap.py start --session <id> --title "<task>"` and open its returned local
+  URL. Shared state is `docs/roadmap-state.json`; reported changes refresh in the page every
+  two seconds. The highlighted next step is AND-02 review/build repeatability. Product
+  capability work has not been marked started merely for adding roadmap tooling.
+- [Roadmap](ROADMAP.md) now owns future priorities: outcome-based capabilities, stable IDs,
+  dependencies, completion evidence and proposed version milestones from preview integration
+  through 1.0. The milestone versions are planning targets, not tags or package bumps.
+- Mission reminder: **Modular, Agnostic, Shared** video/audio calling, local first and peer to
+  peer by default, useful over a surviving local network when internet fails. Devices own
+  identities/contacts/conversations; chosen replaceable helpers hold no conversation keys.
+  Easier discovery/recovery must preserve admission, pinning, revocation and bounded exposure.
+- On 23/11 Jeremy clarified the shared-product goal: other applications should be able to use
+  Veil as their call provider (Mailcraft, Discord and Slack were examples). The roadmap now
+  includes a headless engine/SDK, provider contract, scoped host identity, local bridge and
+  reference integration. Third-party platform adapter feasibility must be checked separately.
+- Android `0.1.13-mobile.3` is implemented locally and remains uncommitted in the inspected
+  checkout. [Mobile notes](../mobile/README.md) record the hardware interoperability check
+  and touch-layout review. Jeremy reported a successful phone-on-5G connection to his desktop
+  host on 23/11; route, builds, duration and detailed media checks were not specified.
+- Next: AND-02 integration/build repeatability and SDK-01 shared provider design, alongside
+  TRUST-02 convenience-path review, LOCAL-01 WAN/DNS-off hardware proof and DIAG-01 evidence.
+  Then sustained mobile calls, interruption/audio checks and signed preview distribution.
+  The reported 5G connection is completed evidence, not an untested prerequisite.
 
 - User guides: [Getting started](GETTING_STARTED.md), [Self-hosting](SELF_HOSTING.md) and
   [Releasing](RELEASING.md). [Architecture](ARCHITECTURE.md) now distinguishes current app
   behaviour from planned 4K, cascade and enterprise features.
-- Release line: **v0.1.13**, dated 22/11/2026. Check GitHub Releases for publication status
-  before creating another tag. The previous release, v0.1.12, was published 20/11 at 13:41 UTC.
+- Release line: **v0.1.13**, published 22/11/2026 at 14:11 UTC, verified against GitHub Releases.
+  Check existing releases before allocating another tag. The previous release, v0.1.12,
+  was published 20/11 at 13:41 UTC.
 - This line includes the Home tools and native icons (#75), microphone Auto volume and
   steadier speaking border (#76), local networking and recovery (#77), and responsive Home /
   Connection layouts, saved setups, explicit connection checks and native log-folder fixes (#78).
@@ -37,8 +77,8 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
   remain to be built. A node host allow-list on those systems needs a new key after restart.
   Standard Linux/macOS runs also lack persisted settings because the config path currently
   comes only from `LOCALAPPDATA`; add native config directories as well as keychain support.
-- Next: test the combined changes in a real call, repeat Wi-Fi off/on and cropped-share size
-  changes, and measure Auto on a slow mobile link. KDE capture has been tested on Plasma 6.8;
+- Remaining desktop checks: test the combined changes in a real call, repeat Wi-Fi off/on
+  and cropped-share size changes, and measure Auto on a slow mobile link. KDE capture has been tested on Plasma 6.8;
   remote delivery, GNOME and older Plasma need coverage. TCP/TLS relay fallback and fully
   stopping incoming video remain future work.
 
