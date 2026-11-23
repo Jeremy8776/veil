@@ -250,11 +250,35 @@ impl ForwarderServer {
 
     /// Serves until the node is closed.
     pub async fn run(self) {
-        while let Some(incoming) = self.node.accept().await {
-            if let Ok(link) = incoming {
-                let (state, budgets) = (self.state.clone(), self.budgets.clone());
-                tokio::spawn(serve(link, state, budgets, self.limits, self.hosts.clone()));
+        let mut members = tokio::task::JoinSet::new();
+        loop {
+            tokio::select! {
+                incoming = self.node.accept() => match incoming {
+                    Some(Ok(link)) => {
+                        let (state, budgets) = (self.state.clone(), self.budgets.clone());
+                        members.spawn(serve(link, state, budgets, self.limits, self.hosts.clone()));
+                    }
+                    Some(Err(_)) => {}
+                    None => break,
+                },
+                _ = members.join_next(), if !members.is_empty() => {}
             }
+        }
+    }
+}
+
+impl Drop for ForwarderServer {
+    fn drop(&mut self) {
+        self.node.close();
+    }
+}
+
+/// Cancellation of a member handler must also stop its media/control workers.
+struct LinkTasks(Vec<tokio::task::AbortHandle>);
+impl Drop for LinkTasks {
+    fn drop(&mut self) {
+        for task in &self.0 {
+            task.abort();
         }
     }
 }
@@ -600,6 +624,13 @@ async fn serve(
         id,
         limits.alone_grace,
     ));
+    let _workers = LinkTasks(vec![
+        control_writer.abort_handle(),
+        writer.abort_handle(),
+        video.abort_handle(),
+        audio.abort_handle(),
+        alone.abort_handle(),
+    ]);
 
     // Reading control messages also detects the link closing.
     while let Ok(message) = input.recv::<ClientMsg>().await {

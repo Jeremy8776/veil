@@ -123,6 +123,9 @@ pub(super) fn start(ctx: &Ctx, dialer: &Dialer) {
         tokio::spawn(async move {
             let result = match &target {
                 Target::Member(p) => open_media(&node, presence.as_ref(), p, relay_only, room_id).await,
+                Target::Forwarder { .. } if relay_only => {
+                    Err(CallError::Plan("this forwarding path cannot preserve Hide my address"))
+                }
                 Target::Forwarder { addr, ticket } => {
                     ForwarderClient::join(&node, &[addr.addr], addr.key, ticket)
                         .await

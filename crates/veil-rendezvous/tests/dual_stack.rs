@@ -1,5 +1,5 @@
-//! A dual-stack rendezvous on localhost: reflection in both families, IPv6 candidates passed
-//! on in introductions and preferred by the punched dial, and a reachability check over IPv6.
+//! A dual-stack rendezvous on localhost: authenticated IPv6 endpoints are introduced and
+//! used by the punched dial, and reachability checks also work over IPv6.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -29,14 +29,14 @@ async fn within<T>(f: impl std::future::Future<Output = T>) -> T {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn ipv6_candidates_are_introduced_and_win_the_punch() {
+async fn authenticated_ipv6_endpoints_are_introduced_and_used_by_the_punch() {
     let Some((port, key)) = start_server() else {
         return;
     };
     let v4_server = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
     let room = room_tag(&[6; 16]);
 
-    // Both members reach the server over IPv4 and say they also listen on IPv6 loopback.
+    // The host registers over IPv4; the guest proves its IPv6 endpoint by using it.
     let host_id = Identity::generate();
     let host_key = host_id.public();
     let host_node = Node::bind_any(&host_id, 0).unwrap();
@@ -49,7 +49,8 @@ async fn ipv6_candidates_are_introduced_and_win_the_punch() {
     let guest_key = guest_id.public();
     host.allow(vec![guest_key], Vec::new()).await.unwrap();
     let guest_node = Node::bind_any(&guest_id, 0).unwrap();
-    let mut guest = RendezvousClient::connect(&guest_node, &[v4_server], key).await.unwrap();
+    let v6_server = SocketAddr::from((Ipv6Addr::LOCALHOST, port));
+    let mut guest = RendezvousClient::connect(&guest_node, &[v6_server], key).await.unwrap();
     let guest_v6 = SocketAddr::from((Ipv6Addr::LOCALHOST, guest_node.local_addr().unwrap().port()));
     guest.register(room, host_key, None, vec![guest_v6]).await.unwrap();
 

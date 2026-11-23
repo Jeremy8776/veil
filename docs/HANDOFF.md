@@ -4,8 +4,20 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
 ## Current work, 23/11/2026
 
-- The 0.1.14 engineering milestone candidate is [PR #86](https://github.com/Jeremy8776/veil/pull/86),
-  in `main/` on `codex/android-preview-integration`, based on main's `264640f`. Commits separate
+- TRUST-02 review is in progress on local branch `codex/trust-02-review`, based on merged main
+  `d87e171`, in `main/target/trust-02-review`. Local fixes cover convenience-path isolation,
+  authenticated endpoint hints, relay-only forwarding policy and helper worker bounds/cleanup.
+  Regression reproductions and the detailed review remain under ignored `main/target/`;
+  no security change or finding has been published. The full gate remains open for application
+  event-queue bounds, selected-helper reflection trust and mixed privacy/group transitions.
+  Fresh isolated-target Windows validation passed 821 tests (20 ignored), all-target workspace
+  Clippy with warnings denied, generated licence checking and whitespace checking. Hardware,
+  Android-target and remote CI validation were not run for this local increment.
+  This is local implementation evidence, not a release or an independent security audit.
+- PRs #80-85 were reviewed and merged on 23 November; the resulting main tree `d87e171`
+  matches the combined dependency tree that passed Windows tests, Clippy and licence checks.
+- The 0.1.14 engineering milestone [PR #86](https://github.com/Jeremy8776/veil/pull/86)
+  merged as `f2a01a3`. Work used `main/` on `codex/android-preview-integration`. Commits separate
   Android integration, pinned packaging/CI, live roadmap tooling, provider design, native
   background-capture fixes and the user-requested bento/portrait/join-animation and saved
   camera-mirror controls.

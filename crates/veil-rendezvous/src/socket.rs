@@ -16,7 +16,7 @@ use std::task::{Context, Poll};
 use bytes::Bytes;
 use quinn::udp::{RecvMeta, Transmit};
 use quinn::{AsyncUdpSocket, UdpPoller};
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
 
 use crate::protocol::{session_packet, stream_header};
 
@@ -29,6 +29,7 @@ pub struct RelaySocket {
     outer: quinn::Connection,
     session: u32,
     inbox: Mutex<mpsc::Receiver<Bytes>>,
+    sending: std::sync::Arc<Semaphore>,
 }
 
 impl RelaySocket {
@@ -37,6 +38,7 @@ impl RelaySocket {
             outer,
             session,
             inbox: Mutex::new(inbox),
+            sending: std::sync::Arc::new(Semaphore::new(crate::streams::MAX_PACKET_WORKERS)),
         }
     }
 }
@@ -72,15 +74,22 @@ impl AsyncUdpSocket for RelaySocket {
         let Some(head) = stream_header(self.session, transmit.contents.len()) else {
             return Ok(()); // over 64 KiB: drop, as a real network would
         };
+        let Ok(slot) = self.sending.clone().try_acquire_owned() else {
+            return Ok(()); // bounded packet loss; the inner QUIC link retries
+        };
         let outer = self.outer.clone();
         let body = transmit.contents.to_vec();
         tokio::spawn(async move {
-            if let Ok(mut s) = outer.open_uni().await
-                && s.write_all(&head).await.is_ok()
-                && s.write_all(&body).await.is_ok()
-            {
-                let _ = s.finish();
-            }
+            let _slot = slot;
+            let send = async {
+                if let Ok(mut s) = outer.open_uni().await
+                    && s.write_all(&head).await.is_ok()
+                    && s.write_all(&body).await.is_ok()
+                {
+                    let _ = s.finish();
+                }
+            };
+            let _ = tokio::time::timeout(crate::streams::PACKET_DEADLINE, send).await;
         });
         Ok(())
     }

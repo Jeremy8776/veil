@@ -1,9 +1,8 @@
 //! Address hints: what members may say about their own addresses, and how often.
 //!
 //! Invariants:
-//! - A member's hints never aim other members' packets at a third party: a public address is
-//!   kept only on the IP the member's link comes from, and a local one only on the link's own
-//!   port ([`member_hints`]).
+//! - A member's hints retain only its authenticated link's observed endpoint
+//!   ([`member_hints`]). A matching port alone proves no other address's owner.
 //! - At most one update per member per [`HINT_GAP`] reaches the engine; the newest waits.
 //! - Hints are connection hints, never proof that an address belongs to a peer.
 
@@ -79,13 +78,10 @@ pub(crate) fn checked_candidates(
 
 /// What a member may say about its own addresses. These go into every member's directory and
 /// are dialled, so a member must not be able to aim other members' packets anywhere it likes:
-/// - A public address must be the IP this host sees the member's link come from.
-/// - A local scope address (private, link-local, unique local) must carry the port the link
-///   comes from. A member binds one socket for the whole call, so its real addresses all share
-///   that port, and hints are only used in Local only calls, where no NAT changes it. Without
-///   this, a member could point every other member at any service on the LAN.
-/// - Local scope hints on a privileged port (below 1024) are dropped, so a member that bound
-///   such a port cannot aim other members at well-known services (DNS, SNMP) on the LAN.
+/// Only the exact observed IP and port are established by the authenticated connection.
+/// Other interface addresses and ports require separate ownership verification before
+/// being advertised to peers. Return the observed address so IPv6 scope IDs are local to
+/// this host, rather than copied from a different machine's interface numbering.
 ///
 /// Loopback and documentation addresses are dropped. Too many drops the whole update.
 pub(crate) fn member_hints(
@@ -100,7 +96,6 @@ pub(crate) fn member_hints(
     let mut result = Vec::new();
     for addr in checked_candidates(addrs)? {
         let ip = addr.ip().to_canonical();
-        let local_scope = veil_net::local::is_local_scope(ip);
         let documentation = match ip {
             IpAddr::V4(v4) => v4.is_documentation(),
             IpAddr::V6(v6) => v6.segments()[..2] == [0x2001, 0x0db8],
@@ -108,10 +103,25 @@ pub(crate) fn member_hints(
         if ip.is_loopback() || documentation {
             continue;
         }
-        let own_port = addr.port() == observed.port() && addr.port() >= 1024;
-        if ip == seen || (local_scope && own_port) {
-            result.push(addr);
+        if ip == seen && addr.port() == observed.port() && result.is_empty() {
+            result.push(observed);
         }
     }
     Some(result)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sharing_a_port_does_not_prove_another_addresses_owner() {
+        let observed: SocketAddr = "192.168.1.2:7000".parse().unwrap();
+        let other: SocketAddr = "192.168.1.3:7000".parse().unwrap();
+        assert_eq!(
+            member_hints(vec![observed, other], observed),
+            Some(vec![observed])
+        );
+    }
 }

@@ -46,7 +46,7 @@ async fn datagrams_at(sink: &UdpSocket) -> usize {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn repeated_introductions_get_one_dial_back() {
+async fn repeated_introductions_never_dial_an_unverified_claimed_address() {
     let server = RendezvousServer::new(Node::bind(&Identity::generate(), localhost()).unwrap());
     let rendezvous = NodeAddr { key: server.id(), addr: server.local_addr().unwrap() };
     tokio::spawn(server.run());
@@ -85,8 +85,7 @@ async fn repeated_introductions_get_one_dial_back() {
     }
 
     let seen = datagrams_at(&sink).await;
-    assert!(seen >= 1, "the first introduction still gets its dial-back");
-    assert!(seen <= 8, "{seen} datagrams: more than one dial's worth");
+    assert_eq!(seen, 0, "claimed addresses are not authenticated endpoints");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

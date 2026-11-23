@@ -209,7 +209,7 @@ pub async fn join_with(
                     let (node, checked, epoch) = (node.clone(), checked.clone(), group.epoch());
                     probe = Some(Reader(tokio::spawn(async move {
                         let ok = match routes {
-                            Ok(Routes::Forwarder { addr, ticket }) => {
+                            Ok(Routes::Forwarder { addr, ticket }) if !relay_only => {
                                 matches!(
                                     tokio::time::timeout(
                                         Duration::from_secs(8),
@@ -224,6 +224,7 @@ pub async fn join_with(
                                     Ok(Ok(()))
                                 )
                             }
+                            Ok(Routes::Forwarder { .. }) => false,
                             Ok(Routes::Mesh { .. }) => true,
                             Err(_) => false,
                         };

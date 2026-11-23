@@ -362,6 +362,9 @@ impl MediaSession {
         addr: NodeAddr,
         ticket: &[u8],
     ) -> Vec<(PublicId, CallError)> {
+        if self.relay_only {
+            return vec![(addr.key, CallError::Plan("this forwarding path cannot preserve Hide my address"))];
+        }
         // Keep the current routes and their introduction permissions while trying the new
         // forwarder. An unreachable or refusing forwarder must not destroy a working mesh.
         // In particular, the host's private LAN forwarder may not be reachable by an internet

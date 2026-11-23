@@ -68,8 +68,8 @@ const CONTROL_WAIT: Duration = Duration::from_secs(10);
 struct State {
     rooms: HashMap<RoomKey, Room>,
     sessions: Sessions<quinn::Connection>,
-    /// Requests waiting for their target: (from, to, kind) to when asked.
-    requests: HashMap<(PublicId, PublicId, Ask), Instant>,
+    /// Requests waiting for their target, scoped to the registered room and host.
+    requests: HashMap<(RoomKey, PublicId, PublicId, Ask), Instant>,
     relay_disabled: bool,
     /// When set, the only room this server serves.
     only_room: Option<RoomKey>,
@@ -106,7 +106,7 @@ impl State {
     fn forget(&mut self, key: PublicId) {
         self.sessions.forget(key);
         self.requests
-            .retain(|(from, to, _), _| *from != key && *to != key);
+            .retain(|(_, from, to, _), _| *from != key && *to != key);
     }
 }
 
@@ -380,8 +380,9 @@ fn handle(
                 return refuse(Refusal::Full);
             }
             let observed = link.remote_addr();
-            let mut addrs = vec![observed];
-            addrs.extend(local_addrs.into_iter().filter(|a| *a != observed));
+            // A registered key proves the endpoint this link actually uses, not other
+            // addresses it claims. Additional paths need their own ownership proof.
+            let addrs = vec![observed];
             r.members.insert(
                 me,
                 Member {
@@ -464,8 +465,11 @@ fn ask(
     if kind == Ask::Relay && s.relay_disabled {
         return refuse(Refusal::RelayDisabled);
     }
-    let Some(r) = room
-        .and_then(|key| s.rooms.get(&key))
+    let Some(key) = *room else {
+        return refuse(Refusal::NotRegistered);
+    };
+    let Some(r) = s.rooms
+        .get(&key)
         .filter(|r| r.members.contains_key(&me))
     else {
         return refuse(Refusal::NotRegistered);
@@ -479,14 +483,14 @@ fn ask(
     let now = Instant::now();
     s.requests
         .retain(|_, at| now.duration_since(*at) < REQUEST_TTL);
-    let mine = s.requests.keys().filter(|(from, ..)| *from == me).count();
+    let mine = s.requests.keys().filter(|(_, from, ..)| *from == me).count();
     if mine >= MAX_REQUESTS_PER_MEMBER {
         return refuse(Refusal::Full);
     }
     if kind == Ask::Relay && s.sessions.member_full(me, now) {
         return refuse(Refusal::Full);
     }
-    s.requests.insert((me, peer, kind), now);
+    s.requests.insert((key, me, peer, kind), now);
     // An absent key gets no request and the asker no answer: the same as a member that
     // declines by staying silent.
     their_box.map_or_else(Vec::new, |to| {
@@ -504,13 +508,16 @@ fn accept(
     me: PublicId,
     kind: Ask,
 ) -> Outgoing {
-    let fresh = s
-        .requests
-        .remove(&(from, me, kind))
-        .is_some_and(|at| at.elapsed() < REQUEST_TTL);
-    let Some(key) = room.filter(|_| fresh) else {
+    let Some(key) = *room else {
         return Vec::new();
     };
+    let fresh = s
+        .requests
+        .remove(&(key, from, me, kind))
+        .is_some_and(|at| at.elapsed() < REQUEST_TTL);
+    if !fresh {
+        return Vec::new();
+    }
     let Some(members) = s.rooms.get(&key).map(|r| &r.members) else {
         return Vec::new();
     };
@@ -621,9 +628,10 @@ async fn forward_datagrams(conn: quinn::Connection, me: PublicId, state: Shared,
 }
 
 async fn forward_streams(conn: quinn::Connection, me: PublicId, state: Shared, buckets: Buckets) {
-    while let Ok(mut stream) = conn.accept_uni().await {
+    let reader = conn.clone();
+    crate::streams::receive(reader, move |mut stream| {
         let (state, buckets, conn) = (state.clone(), buckets.clone(), conn.clone());
-        tokio::spawn(async move {
+        async move {
             let mut head = [0u8; STREAM_HEADER];
             if stream.read_exact(&mut head).await.is_err() {
                 return;
@@ -635,8 +643,10 @@ async fn forward_streams(conn: quinn::Connection, me: PublicId, state: Shared, b
             if !within_limit(&buckets, session, len) || !within_total(&state, &conn, len) {
                 return;
             }
-            let mut packet = vec![0u8; len];
-            if stream.read_exact(&mut packet).await.is_err() {
+            let Ok(packet) = stream.read_to_end(len).await else {
+                return;
+            };
+            if packet.len() != len {
                 return;
             }
             let Ok(mut out) = target.open_uni().await else {
@@ -645,6 +655,7 @@ async fn forward_streams(conn: quinn::Connection, me: PublicId, state: Shared, b
             if out.write_all(&head).await.is_ok() && out.write_all(&packet).await.is_ok() {
                 let _ = out.finish();
             }
-        });
-    }
+        }
+    })
+    .await;
 }

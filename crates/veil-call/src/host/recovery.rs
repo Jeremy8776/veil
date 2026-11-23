@@ -214,6 +214,7 @@ mod tests {
                 "[fd00::9]:5000".parse().unwrap(),
                 "[fe80::9]:5000".parse().unwrap(),
                 "81.2.69.160:5001".parse().unwrap(),
+                "81.2.69.160:5000".parse().unwrap(),
                 "8.8.8.8:53".parse().unwrap(),
                 // Another port on the LAN is someone else's service, not this member.
                 "192.168.1.1:53".parse().unwrap(),
@@ -226,12 +227,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             hints,
-            vec![
-                "192.168.1.9:5000".parse::<SocketAddr>().unwrap(),
-                "[fd00::9]:5000".parse().unwrap(),
-                "[fe80::9]:5000".parse().unwrap(),
-                "81.2.69.160:5001".parse().unwrap(),
-            ]
+            vec![seen]
         );
         let many = vec!["192.168.1.9:5000".parse().unwrap(); MAX_HINTS + 1];
         assert!(member_hints(many, seen).is_none());
@@ -351,5 +347,38 @@ mod tests {
                 .iter()
                 .any(|(_, id)| *id == alice.public())
         );
+    }
+
+    #[tokio::test]
+    async fn resume_refuses_wrong_rooms_future_epochs_and_unknown_keys() {
+        let mut host = actor();
+        let alice = Identity::generate();
+        let group = add(&mut host, &alice);
+        for (device, room, epoch) in [
+            (alice.public(), [52; 16], group.epoch()),
+            (alice.public(), [51; 16], group.epoch() + 1),
+            (Identity::generate().public(), [51; 16], group.epoch()),
+        ] {
+            let (out, mut input) = mpsc::channel(OUTBOX);
+            host.resume(device, 2, out, room, epoch);
+            assert_eq!(input.recv().await.unwrap(), Control::Refused(RefuseReason::DeclinedByHost));
+            assert!(input.recv().await.is_none(), "refusals disclose no replay or plan");
+        }
+    }
+
+    #[tokio::test]
+    async fn resume_refuses_an_epoch_older_than_the_available_journal() {
+        let mut host = actor();
+        let alice = Identity::generate();
+        let group = add(&mut host, &alice);
+        let bob = Identity::generate();
+        let _bob = add(&mut host, &bob);
+        host.remove(bob.public(), false);
+        // Simulate the oldest missing commit having aged out of the bounded journal.
+        host.history.retain(|(epoch, _)| *epoch > group.epoch() + 1);
+        let (out, mut input) = mpsc::channel(OUTBOX);
+        host.resume(alice.public(), 2, out, [51; 16], group.epoch());
+        assert_eq!(input.recv().await.unwrap(), Control::Refused(RefuseReason::DeclinedByHost));
+        assert!(input.recv().await.is_none());
     }
 }

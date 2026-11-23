@@ -22,6 +22,8 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ### Fixed
 
+- Harden convenience-path trust boundaries and helper worker cleanup. Additional interface
+  candidates require ownership verification; Hide my address refuses direct forwarding paths.
 - Prevent a camera callback from queuing a frame after Android capture was closed or switched.
 - Restore absent build environment variables as absent after an Android build.
 - Close the Android pre-join microphone stream when the app backgrounds; only an explicitly

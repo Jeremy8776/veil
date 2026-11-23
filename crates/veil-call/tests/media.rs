@@ -278,6 +278,32 @@ impl Call {
     }
 }
 
+/// A correctly signed host proposal still has to satisfy the member's privacy policy.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn relay_only_member_refuses_signed_forwarder_probes_without_direct_traffic() {
+    let relay = start_rendezvous();
+    let mut call = Call::start(Some(relay)).await;
+    let invite = call.invite(vec![call.addr.to_string()]).await;
+    assert_eq!(call.admit(invite, true).await, Path::Relayed);
+    let sink = tokio::net::UdpSocket::bind(localhost()).await.unwrap();
+    let target = NodeAddr { key: Identity::generate().public(), addr: sink.local_addr().unwrap() };
+    let plan = call.plan(true);
+    let directory = call.directory(0, Some(target));
+    call.host.probe_plan(plan, directory, 42).await.unwrap();
+    let mut bytes = [0u8; 2048];
+    let answer = async {
+        loop {
+            if let HostEvent::PlanChecked { request: 42, ok, .. } = call.events.recv().await.unwrap() {
+                return ok;
+            }
+        }
+    };
+    tokio::select! {
+        ok = within(answer) => assert!(!ok, "a direct forwarding path cannot satisfy relay-only privacy"),
+        _ = sink.recv_from(&mut bytes) => panic!("a signed proposal bypassed relay-only privacy"),
+    }
+}
+
 /// Sends one sealed video frame from `from` and checks every other party opens it.
 async fn frame_reaches_everyone(call: &mut Call, sessions: &mut [MediaSession], from: usize) {
     let body = format!("frame from party {from}").into_bytes();

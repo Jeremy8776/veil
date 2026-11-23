@@ -600,7 +600,9 @@ of physical proximity or a guarantee about renamed virtual adapters.
 ### TRUST-02 Review every convenience path against the trust rules
 
 **Outcome:** Easier discovery, joining and recovery do not make unauthorised entry easier.
-**Status:** Existing controls and tests need an integrated adversarial review.
+**Status:** Integrated local review in progress; first regression-backed hardening changes
+are local. Application queue bounds, selected-helper reflection trust and mixed privacy/group
+transitions remain open; detailed findings are kept private.
 **Target:** 0.2.0; release-blocking findings are fixed immediately. **Depends on:** BASE-01.
 
 Threat-model discovery broadcasts/code fetching, invitations, interface/address hints,

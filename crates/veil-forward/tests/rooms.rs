@@ -99,3 +99,16 @@ async fn a_room_of_two_outlives_the_grace_time() {
     assert!(a.client.link().quic().close_reason().is_none(), "a was let go");
     assert!(b.client.link().quic().close_reason().is_none(), "b was let go");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stopping_the_forwarder_closes_its_registered_links() {
+    let node = Node::bind(&Identity::generate(), addr("127.0.0.1")).unwrap();
+    let server = ForwarderServer::new(node, Limits::default());
+    let forwarder = (server.local_addr().unwrap(), server.id());
+    let task = tokio::spawn(server.run());
+    let host = Identity::generate();
+    let member = join_from(forwarder, "127.0.0.1", 9, &host).await.unwrap();
+    task.abort();
+    let _ = task.await;
+    assert!(closed(&member).await, "stopping the server must stop its member workers and links");
+}
