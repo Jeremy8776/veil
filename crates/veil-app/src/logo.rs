@@ -33,6 +33,19 @@ const WAVE_TO: f32 = 1.0 - RING_WIDTH * 0.5;
 const WAVE_ALPHA: f32 = 0.65;
 
 /// Draws the logo `size` points square, centred in the row, on a `behind` coloured page.
+pub fn mark(painter: &egui::Painter, rect: egui::Rect, behind: Color32) {
+    let centre = rect.center();
+    let unit = rect.width().min(rect.height()) / 2.0;
+    for radius in [0.73, 0.94] {
+        painter.circle_stroke(centre, radius * unit, Stroke::new(RING_WIDTH * unit, LOGO));
+    }
+    painter.circle_filled(centre, DISC * unit, LOGO);
+    let points: Vec<Pos2> = V.iter().map(|&(x, y)| centre + vec2(x, y) * unit).collect();
+    painter.add(Shape::line(points.clone(), Stroke::new(V_WIDTH * unit, behind)));
+    for point in points { painter.circle_filled(point, V_WIDTH * unit / 2.0, behind); }
+}
+
+/// Draws the animated desktop mark.
 pub fn show(ui: &mut egui::Ui, size: f32, behind: Color32) {
     let (rect, _) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
     let time = ui.input(|i| i.time) as f32;

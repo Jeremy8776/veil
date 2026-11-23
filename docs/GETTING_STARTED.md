@@ -73,7 +73,10 @@ until a different setup or mode is saved; internet tests stay disabled until the
 - KDE Plasma Wayland uses Veil's picker where KWin permits it. Other Wayland desktops use
   the system chooser first. macOS requires Screen Recording permission. A cancelled choice
   sends nothing.
-- Your mirror choice changes the picture everyone sees. Blur is an effect, not a guarantee
+- **Mirror my camera** flips your camera for you and everyone in the call; screen shares
+  keep their normal orientation.
+  Windows and Android remember this choice across restarts. On Android, find it before
+  joining or in the call's More menu. Blur is an effect, not a guarantee
   that your background cannot be recognised. See [Transparency](TRANSPARENCY.md).
 
 ## Check the people in your call

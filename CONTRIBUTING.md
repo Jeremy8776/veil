@@ -5,6 +5,12 @@ everyone time.
 
 ## Before you start
 
+Every Veil session opens the live roadmap and updates its shared work state. Follow
+[AGENTS.md](AGENTS.md) and start with `python tools/roadmap.py start --session <id> --title "<task>"`.
+The highlighted next action, work states and completion evidence are shared across sessions;
+the generated HTML also remains available as an offline snapshot. See
+[Roadmap tracking](docs/ROADMAP_TRACKING.md) for commands and live-preview behaviour.
+
 - **Security holes:** do not open an issue. See [SECURITY.md](SECURITY.md).
 - **Bugs and ideas:** open an issue with the template. Say what you expected and what happened.
 - **Large changes:** open an issue first, so we can agree the approach before you build it.
@@ -45,6 +51,10 @@ This exercises admission, raised hands, chat/reactions, screen changes and call 
 localhost. It does not replace a call between separate devices or networks. Do not run all
 ignored tests casually: other tests can capture the camera or microphone or map router ports.
 
+For a desktop UI-only demo, build with `--features dev-ui`, set `VEIL_START=call` and
+`VEIL_DEV_NO_CAPTURE=1`. The latter keeps real camera/microphone capture off while inspecting
+layouts and simulated joins. Both variables are development features, ignored by normal builds.
+
 CI runs the full workspace tests on Windows, Clippy on all three operating systems, and
 debug builds on Linux/macOS. The release workflow builds and packages optimised binaries.
 Normal CI does not run the ignored hardware or real-network tests.
@@ -57,7 +67,8 @@ Normal CI does not run the ignored hardware or real-network tests.
 - **Clippy clean.** CI builds with `-D warnings`.
 - **Docs kept true.** If your change alters what Veil protects, what it depends on, or what other
   parties can see, update [docs/TRANSPARENCY.md](docs/TRANSPARENCY.md) in the same pull request.
-- **No new `unsafe`** outside `veil-media`'s documented FFI modules, and no new dependency for a few
+- **No new `unsafe`** outside `veil-media`'s documented FFI modules and the Android launcher's
+  single exported entry-point attribute (see Transparency), and no new dependency for a few
   lines of code. A new dependency must pass `tools/licences.py`.
 - **Small files.** Aim for under 500 lines per file. Split by responsibility.
 

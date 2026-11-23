@@ -46,6 +46,10 @@ pub mod platform;
 pub mod remix;
 pub mod scale;
 pub mod schedule;
+#[cfg(not(target_os = "android"))]
+pub mod screen;
+#[cfg(target_os = "android")]
+#[path = "screen/mobile.rs"]
 pub mod screen;
 pub mod segment;
 pub mod simulcast;

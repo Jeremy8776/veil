@@ -386,6 +386,8 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
             Ok(None) => continue,
             Err(e) => {
                 *lock(&shared.camera_error) = Some(e.to_string());
+                #[cfg(target_os = "android")]
+                shared.camera_stopped.store(true, Ordering::Release);
                 break;
             }
         };
