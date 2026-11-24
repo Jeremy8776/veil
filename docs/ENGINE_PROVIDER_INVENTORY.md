@@ -21,7 +21,7 @@ Every row below starts under `crates/veil-app/src/engine/`.
 
 | Module | Current coupling / responsibility | Destination or interface |
 |---|---|---|
-| `mod.rs` | Own Tokio runtime; egui Context; model Action/Call/CallStatus; KeyStore, Worker, Playback and DataUseCell; unbounded command/keyframe channels | `veil-engine` lifecycle/actor; toolkit-free handles/types and bounded queues; platform/storage adapters |
+| `mod.rs` | Own Tokio runtime; egui Context; model Action/Call/CallStatus; KeyStore, Worker, Playback and DataUseCell; unbounded UI command channel, bounded decoder keyframe feedback | `veil-engine` lifecycle/actor; toolkit-free handles/types and bounded queues; platform/storage adapters |
 | `view.rs` | Shared view, received pictures/chat, stats and tiles; egui repaint; UI participant/lobby models, Rgba and app locking helper | Versioned engine snapshots, bounded events/media sinks; UI mapping and repaint stay in app |
 | `host.rs` | Host actor, lobby decisions, local helper roles, invitations, planning; app Action/CallStatus and `nearby::advertise(Shared)` | Engine host coordinator with scoped discovery lease and typed membership/lobby requests |
 | `host/forwarder_check.rs` | Forwarder readiness/proposal/activation through parent host types and Shared | Engine topology coordination; retain honest partial-reach reporting, future GROUP-01 decision |

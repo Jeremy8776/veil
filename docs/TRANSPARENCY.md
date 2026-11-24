@@ -130,10 +130,21 @@ A relay-only member never agrees to an introduction. A member dials back only fo
 introduction it has just agreed to, at most once every 10 seconds for each peer and 16 times
 every 10 seconds in all. An honest rendezvous introduces only the endpoint it observes on
 the peer's authenticated connection. Extra interface hints are ignored until independently
-verified. A dishonest helper can still misreport address reflection; key pinning prevents
-accepting a substitute peer, while consent and dial limits bound the resulting attempts.
+verified. In the private local TRUST-02 candidate, automatic punching accepts only an exact
+endpoint that THIS node authenticated as the named peer within the last 60 seconds. The
+evidence is capped at 256 peers and is not shared with other nodes or virtual relay sockets.
+Unverified invitation fetches do not add it. A helper supplies timing, not permission to dial
+a new address. Unknown reflected endpoints fall back to the chosen relay; fresh NAT punching
+based only on a helper's observation is therefore unavailable in this candidate. Explicit
+invitation/host-signed route targets remain separate authority for ordinary direct dials.
+Recent evidence does not guarantee current reachability or prevent address reassignment.
 The asker gets the same silence whether the member declines or is not there, so the
 rendezvous never says who is online.
+
+The private candidate scopes registration cleanup to its room and binds relay traffic to the
+exact registered connection. Revoking a registration closes it; host departure ends that
+room's registrations, requests, sessions and stored invitations. Other rooms retain their
+state. Resource quotas remain shared across the server and, where stated, across an identity.
 
 Hide my address currently supports relay-carried mesh media. Forwarder checks and transitions
 are refused in that mode because the forwarding path would connect directly to the proposed
@@ -147,6 +158,8 @@ one reserved terminal record. Falling behind ends the session with an explicit o
 event; it never silently drops membership changes or waits indefinitely on the consumer.
 Dropping the event receiver also stops the session. Guest link-up holding has separate caps
 of 64 events and 64 validated chat/reaction actions; terminal events still interrupt it.
+Decoder keyframe feedback has a 64-record queue; saturation permits a later frame to retry
+instead of blocking the decoder or permanently losing its request.
 These limits do not complete the planned SDK command, byte-budget and capture-teardown contract.
 
 Relay packet streams have at most 16 workers per link and a two-second deadline. Cancelling

@@ -69,7 +69,7 @@ impl Call {
             CallNode::start(&identity, node(&identity), ROOM, Some(relay), host.clone()).await;
         let (_, encoded) = mpsc::channel(1);
         let (_, sound) = mpsc::channel(1);
-        let (_, keyframes) = mpsc::unbounded_channel();
+        let (_, keyframes) = mpsc::channel(64);
         let (video_in, _) = std::sync::mpsc::sync_channel(1);
         let (audio_in, _) = std::sync::mpsc::sync_channel(1);
         let session = Session::new(

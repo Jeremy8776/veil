@@ -102,11 +102,22 @@ impl State {
         self.hosts.as_ref().is_none_or(|hosts| hosts.contains(key))
     }
 
-    /// Drops `key`'s relay sessions and requests.
-    fn forget(&mut self, key: PublicId) {
-        self.sessions.forget(key);
+    /// Drops only this room's relay sessions and requests for `key`.
+    fn forget(&mut self, room: RoomKey, key: PublicId) {
+        self.sessions.forget(room, key);
         self.requests
-            .retain(|(_, from, to, _), _| *from != key && *to != key);
+            .retain(|(r, from, to, _), _| *r != room || (*from != key && *to != key));
+    }
+
+    fn stop_room(&mut self, room: RoomKey) {
+        if let Some(ended) = self.rooms.remove(&room) {
+            for member in ended.members.into_values() {
+                member.conn.close(0u32.into(), b"room ended");
+            }
+        }
+        self.sessions.forget_room(room);
+        self.requests.retain(|(r, ..), _| *r != room);
+        self.invites.drop_room(&room);
     }
 }
 
@@ -301,16 +312,18 @@ async fn serve(link: Link, state: Shared, checks: Arc<Semaphore>, unregistered_w
     if let Some(key) = room
         && let Some(mut s) = lock(&state)
     {
-        if let Some(r) = s.rooms.get_mut(&key) {
-            r.members.remove(&me);
-            if r.members.is_empty() {
-                s.rooms.remove(&key);
+        // A revoked link can finish after a replacement registered with the same key.
+        // Only the exact registration owns this place and its scoped cleanup.
+        let current = s.rooms.get(&key).and_then(|r| r.members.get(&me))
+            .is_some_and(|member| member.conn.stable_id() == link.quic().stable_id());
+        if current {
+            if key.1 == me {
+                s.stop_room(key);
+            } else {
+                if let Some(r) = s.rooms.get_mut(&key) { r.members.remove(&me); }
+                s.forget(key, me);
             }
         }
-        if key.1 == me {
-            s.invites.drop_room(&key);
-        }
-        s.forget(me);
     }
     writer.abort();
     datagrams.abort();
@@ -331,6 +344,17 @@ fn handle(
     let Some(mut s) = lock(state) else {
         return refuse(Refusal::Full);
     };
+
+    // A revoked reader may still finish a buffered message after a replacement arrives.
+    // Registration-bound commands must belong to this exact connection, as packets do.
+    if matches!(&message, ClientMsg::Allow { .. } | ClientMsg::Introduce { .. }
+        | ClientMsg::OpenRelay { .. } | ClientMsg::Accept { .. })
+        && let Some(key) = *room
+        && !s.rooms.get(&key).and_then(|r| r.members.get(&me))
+            .is_some_and(|member| member.conn.stable_id() == link.quic().stable_id())
+    {
+        return refuse(Refusal::NotRegistered);
+    }
 
     match message {
         ClientMsg::Register {
@@ -447,7 +471,7 @@ fn allow(
         return Vec::new();
     };
     for device in r.allow(key.1, members, passes) {
-        s.forget(device);
+        s.forget(key, device);
     }
     vec![(outbox.clone(), ServerMsg::Allowed)]
 }
@@ -561,7 +585,7 @@ fn accept(
             };
             let opened = s
                 .sessions
-                .open(end(from, asker_conn), end(me, my_conn), Instant::now());
+                .open(key, end(from, asker_conn), end(me, my_conn), Instant::now());
             let Some(id) = opened else {
                 return vec![(asker_box, ServerMsg::Refused(Refusal::Full))];
             };
@@ -585,9 +609,9 @@ fn accept(
     }
 }
 
-fn route(state: &Shared, session: u32, from: PublicId) -> Option<quinn::Connection> {
+fn route(state: &Shared, session: u32, from: PublicId, conn: &quinn::Connection) -> Option<quinn::Connection> {
     let mut s = lock(state)?;
-    s.sessions.route(session, from, Instant::now()).cloned()
+    s.sessions.route_from(session, from, Instant::now(), |registered| registered.stable_id() == conn.stable_id()).cloned()
 }
 
 /// Whether the server's total relay budget has room for `bytes` from `conn`'s address block.
@@ -618,7 +642,7 @@ async fn forward_datagrams(conn: quinn::Connection, me: PublicId, state: Shared,
         let Some((session, _)) = split_session(&datagram) else {
             continue;
         };
-        if let Some(target) = route(&state, session, me)
+        if let Some(target) = route(&state, session, me, &conn)
             && within_limit(&buckets, session, datagram.len())
             && within_total(&state, &conn, datagram.len())
         {
@@ -637,9 +661,9 @@ async fn forward_streams(conn: quinn::Connection, me: PublicId, state: Shared, b
                 return;
             }
             let (session, len) = parse_stream_header(head);
-            let Some(target) = route(&state, session, me) else {
+            if route(&state, session, me, &conn).is_none() {
                 return;
-            };
+            }
             if !within_limit(&buckets, session, len) || !within_total(&state, &conn, len) {
                 return;
             }
@@ -649,6 +673,8 @@ async fn forward_streams(conn: quinn::Connection, me: PublicId, state: Shared, b
             if packet.len() != len {
                 return;
             }
+            // Reading the payload is an await: revocation may have happened meanwhile.
+            let Some(target) = route(&state, session, me, &conn) else { return; };
             let Ok(mut out) = target.open_uni().await else {
                 return;
             };

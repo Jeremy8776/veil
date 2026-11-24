@@ -46,6 +46,10 @@ separate adapter feasibility question, not something the existence of a Rust lib
 | One protocol serves every deployment | Add roles/adapters and capacity without splitting the personal and enterprise products | An enterprise fork quietly changes the trust model |
 | Other apps can use Veil as their call provider | Offer a documented engine/SDK and provider contract; the standalone app exercises the same path | Every integration copies the app's private engine or creates a new call protocol |
 
+On 24 November, Jeremy selected strict helper targeting: use independently known peer
+endpoints, otherwise the chosen relay. The private TRUST-02 candidate applies this before
+automatic punch packets, rather than relying on a later key check to justify the first dial.
+
 ### The everyday experience we are building toward
 
 Alex starts a call on a laptop. Sam joins from a phone over 5G using an invitation and waits
@@ -599,10 +603,13 @@ of physical proximity or a guarantee about renamed virtual adapters.
 ### TRUST-02 Review every convenience path against the trust rules
 
 **Outcome:** Easier discovery, joining and recovery do not make unauthorised entry easier.
-**Status:** Integrated local review in progress. Private local hardening includes bounded
-application events/link-up holding and all-member forwarding checks on membership changes.
-Selected-helper reflection trust and expanded discovery/cross-room teardown coverage remain
-open; detailed findings are kept private.
+**Status:** Integrated local engineering review complete on the private candidate, with a
+disposition for each surface:
+discovery/fetch, invitations, address hints/reflection, resume, helper admission and forwarding.
+It includes bounded application events/decoder feedback, all-member forwarding checks,
+independently known punch targets and room/connection-scoped helper lifetimes. Windows
+validation passed 843 tests (20 ignored), Clippy, licences and whitespace. Private evidence
+accompanies the candidate; no release or independent audit is claimed.
 **Target:** 0.2.0; release-blocking findings are fixed immediately. **Depends on:** BASE-01.
 
 Threat-model discovery broadcasts/code fetching, invitations, interface/address hints,
@@ -691,6 +698,11 @@ Design authenticated path validation and handover with bounded probes and overla
 working media until a replacement is validated; discard stale migration results when a session,
 member or policy changes. Re-evaluate after interface changes with backoff rather than an
 unbounded background scan.
+
+The private TRUST-02 candidate restricts automatic punching to endpoints independently
+authenticated recently by this node, using the chosen relay for unknown reflected addresses.
+Restoring fresh NAT traversal needs an ownership/consent design that does not let a dishonest
+helper select arbitrary probe targets. Do not silently remove this guard to improve success.
 
 **Complete when:** Direct-to-relay and relay-to-direct transitions are tested under loss and
 membership changes without attribution/replay errors. Hide my address never attempts an

@@ -4,19 +4,35 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
 ## Current work, 24/11/2026
 
+- TRUST-02's remaining local review work now has implementations and regression coverage in
+  `main/target/trust-02-review` on `codex/trust-02-review`: helper notices cannot select new
+  punch targets, discovery replies/floods are checked, and helper teardown is scoped to the
+  exact room and registered connection. Four new room-boundary regressions failed before
+  repair. Private evidence: `main/target/trust-02-evidence/coverage-*.log` and final review.
+  Jeremy selected the strict policy on 24 November: automatic punches use only exact
+  endpoints authenticated on this node in the
+  last 60 seconds (256-peer cap). Unknown reflected endpoints use the chosen relay. Restoring
+  fresh NAT traversal needs independent endpoint ownership/consent design under NET-03.
+  Final Windows workspace validation: 843 passed, 20 ignored; all-target Clippy with warnings
+  denied, licences and whitespace checks passed. Detailed final review is private under
+  `main/target/trust-02-evidence/final-review.json`; no push or release is implied.
+  The higher-level SDK resource contract, TRUST-01 sender attribution, real outage and mobile
+  hardware gates remain separate. Next core roadmap work after this review is DIAG-01.
+
 - Continuing TRUST-02 privately in `main/target/trust-02-review` on `codex/trust-02-review`:
   host/member events now have a 64-record backlog plus a reserved terminal slot. Overflow
   closes the session explicitly; dropping the consumer also stops it. Guest link-up holding
-  independently caps events and validated chat/reactions. App UI commands/keyframe channels
-  remain SDK extraction work; the provider's full byte/age/cancellation contract is not met.
+  independently caps events and validated chat/reactions. The later increment also bounds
+  decoder keyframe feedback with retry on saturation. App UI commands and the provider's
+  full byte/age/cancellation contract remain SDK extraction work.
   Forwarding now requires every current member's timely successful check, returns to mesh
   on each replan and checks newcomers. Loopback regressions cover a relay-only newcomer after
   successful forwarding and removal during probes. Final Windows workspace validation passed
   831 tests (20 ignored), all-target Clippy with warnings denied, licences and whitespace
   checks. Logs: `main/target/trust-02-evidence/resume-{workspace-tests,clippy}.log`.
   No new camera/microphone capture, Android-target, remote CI or release claim.
-  Remaining TRUST-02 work: selected-helper address reflection policy and integrated hostile
-  discovery/cross-room teardown coverage. Detailed findings remain under ignored `target/`.
+  This second increment left helper reflection and discovery/cross-room teardown coverage
+  open; the later increment above addresses them. Detailed findings stay under ignored `target/`.
 
 - TRUST-02 review is in progress on local branch `codex/trust-02-review`, based on merged main
   `d87e171`, in `main/target/trust-02-review`. Local fixes cover convenience-path isolation,

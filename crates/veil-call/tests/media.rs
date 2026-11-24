@@ -346,7 +346,7 @@ async fn frame_reaches_everyone(call: &mut Call, sessions: &mut [MediaSession], 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn mesh_call_punches_links_and_every_member_opens_each_frame() {
+async fn mesh_call_relays_unknown_endpoints_and_every_member_opens_each_frame() {
     let mut call = Call::start(Some(start_rendezvous())).await;
     call.admit_direct().await;
     call.admit_direct().await;
@@ -354,13 +354,14 @@ async fn mesh_call_punches_links_and_every_member_opens_each_frame() {
     for media in &sessions {
         let paths = media.paths();
         assert_eq!(paths.len(), 2, "a link to each other member");
-        // No addresses were in the directory, so leaders reached peers by punching.
+        // No independent endpoint evidence exists between guests: use the chosen relay.
         assert!(
             paths
                 .iter()
-                .all(|(_, p)| matches!(p, Path::Punched | Path::Direct))
+                .all(|(_, p)| matches!(p, Path::Punched | Path::Direct | Path::Relayed))
         );
     }
+    assert!(sessions.iter().any(|s| s.paths().iter().any(|(_, p)| *p == Path::Relayed)));
     for from in 0..3 {
         frame_reaches_everyone(&mut call, &mut sessions, from).await;
     }

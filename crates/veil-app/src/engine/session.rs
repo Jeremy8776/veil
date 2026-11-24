@@ -54,7 +54,7 @@ pub struct Pipes {
     pub encoded: mpsc::Receiver<Encoded>,
     pub sound: mpsc::Receiver<Vec<f32>>,
     /// Participant ids whose video cannot decode until their next keyframe.
-    pub keyframes: mpsc::UnboundedReceiver<u32>,
+    pub keyframes: mpsc::Receiver<u32>,
     pub video_in: SyncSender<VideoIn>,
     pub audio_in: SyncSender<AudioIn>,
     pub control: Arc<VideoControl>,

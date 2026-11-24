@@ -133,7 +133,7 @@ impl Engine {
         let (encoded_tx, encoded_rx) = mpsc::channel(32);
         let (video_in_tx, video_in_rx) = sync_channel(64);
         let (audio_in_tx, audio_in_rx) = sync_channel(128);
-        let (keyframe_tx, keyframe_rx) = mpsc::unbounded_channel();
+        let (keyframe_tx, keyframe_rx) = mpsc::channel(64);
         let control = Arc::new(video_out::VideoControl::default());
         let screen_control = Arc::new(video_out::VideoControl::default());
         let camera = video_out::Stream::Camera;

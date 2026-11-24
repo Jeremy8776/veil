@@ -110,8 +110,20 @@ pub struct Scanner {
 
 impl Scanner {
     pub fn start() -> Result<Self, NetError> {
-        let mut socket = multicast_socket()?;
+        let socket = multicast_socket()?;
         let mut interfaces = local::ipv4_interfaces();
+        Ok(Self::listen(socket, move || {
+            let now_interfaces = local::ipv4_interfaces();
+            if now_interfaces != interfaces && let Ok(replacement) = multicast_socket() {
+                interfaces = now_interfaces;
+                Some(replacement)
+            } else { None }
+        }))
+    }
+
+    // The same packet loop can be exercised on isolated unicast sockets without emitting
+    // a discovery multicast or depending on the machine's physical interface inventory.
+    fn listen(mut socket: UdpSocket, mut refresh: impl FnMut() -> Option<UdpSocket> + Send + 'static) -> Self {
         let (tx, found) = mpsc::channel(32);
         let task = tokio::spawn(async move {
             let mut bytes = [0; 256];
@@ -128,11 +140,7 @@ impl Scanner {
                         if recent.len() < 32 && !recent.contains(&found) { recent.push(found); }
                     }
                     _ = tick.tick() => {
-                        let now_interfaces = local::ipv4_interfaces();
-                        if now_interfaces != interfaces && let Ok(replacement) = multicast_socket() {
-                            socket = replacement;
-                            interfaces = now_interfaces;
-                        }
+                        if let Some(replacement) = refresh() { socket = replacement; }
                         let now = std::time::Instant::now();
                         known.retain(|_, seen| now.duration_since(*seen) < EXPIRY);
                         // At most 32 interface checks and notifications each second.
@@ -140,8 +148,8 @@ impl Scanner {
                             if !local::is_on_link(found.addr) {
                                 continue;
                             }
-                            // A flood of forged sources must not hide real calls: the oldest
-                            // entry makes room rather than the newcomer being refused.
+                            // Avoid permanent saturation of the remembered set. A sustained
+                            // on-link flood can still deny discovery; full invitations remain.
                             if known.len() >= MAX_KNOWN && !known.contains_key(&found.addr)
                                 && let Some(oldest) = known.iter().min_by_key(|(_, at)| **at).map(|(a, _)| *a)
                             {
@@ -154,7 +162,7 @@ impl Scanner {
                 }
             }
         });
-        Ok(Self { found, task })
+        Self { found, task }
     }
     pub async fn next(&mut self) -> Option<Found> {
         self.found.recv().await
@@ -400,6 +408,71 @@ pub async fn fetch(found: &Found, code: Code, now_unix: u64) -> Result<Invite, N
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    fn signed_invite(now: u64) -> String {
+        let host = Identity::generate();
+        Invite { version: 1, room_id: [11; 16], host: host.public(),
+            addrs: vec!["127.0.0.1:7000".into()], relay: None,
+            expires_unix: now + 60, join_token: [12; 16] }.to_link(&host).unwrap()
+    }
+
+    async fn serve_reply(reply: String, code: Code) -> (Found, JoinHandle<()>) {
+        let service = Identity::generate();
+        let node = Node::bind_local(&service, 0).unwrap();
+        let found = Found { key: service.public(),
+            addr: SocketAddr::from((Ipv4Addr::LOCALHOST, node.local_addr().unwrap().port())) };
+        (found, serve(node, Arc::new(move || Some(reply.clone())), code))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn forged_expired_and_oversized_discovery_replies_never_become_invitations() {
+        let now = 1_800_000_000;
+        let code = Code::parse("123456").unwrap();
+        let mut forged = signed_invite(now).into_bytes();
+        let at = forged.len() - 20;
+        forged[at] = if forged[at] == b'A' { b'B' } else { b'A' };
+        for reply in [String::from_utf8(forged).unwrap(), signed_invite(now - 120), "x".repeat(MAX_LINK_LEN + 1)] {
+            let (found, serving) = serve_reply(reply, code).await;
+            assert!(fetch(&found, code, now).await.is_err());
+            serving.abort();
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn replacing_a_beacon_service_key_cannot_reuse_the_original_service() {
+        let now = 1_800_000_000;
+        let code = Code::parse("123456").unwrap();
+        let (mut found, serving) = serve_reply(signed_invite(now), code).await;
+        found.key = Identity::generate().public();
+        assert!(fetch(&found, code, now).await.is_err(), "the selected beacon key stays pinned");
+        serving.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn hostile_beacons_stay_bounded_and_never_trigger_a_fetch() {
+        let receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let listen = receiver.local_addr().unwrap();
+        let scanner = Scanner::listen(receiver, || None);
+        let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let target = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        // All beacons lead to a monitored sink; scanning must remain passive.
+        for n in 0u16..512 {
+            let mut key = [0u8; 32];
+            key[..2].copy_from_slice(&n.to_be_bytes());
+            sender.send_to(&beacon(PublicId(key), target.local_addr().unwrap().port()), listen).await.unwrap();
+            if n % 16 == 0 { tokio::task::yield_now().await; }
+        }
+        sender.send_to(&[0u8; 256], listen).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        assert!(!scanner.found.is_empty() && scanner.found.len() <= 32);
+        let mut bytes = [0u8; 2048];
+        assert!(tokio::time::timeout(Duration::from_millis(100), target.recv_from(&mut bytes)).await.is_err());
+        let stopped = scanner.task.abort_handle();
+        drop(scanner);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !stopped.is_finished() { tokio::task::yield_now().await; }
+        }).await.unwrap();
+    }
     #[test]
     fn announcement_is_fixed_size_and_contains_no_invitation() {
         let key = Identity::generate().public();

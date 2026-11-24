@@ -45,7 +45,7 @@ pub struct VideoIn {
 
 pub fn spawn(
     frames: Receiver<VideoIn>,
-    keyframes: mpsc::UnboundedSender<u32>,
+    keyframes: mpsc::Sender<u32>,
     shared: Arc<Shared>,
 ) -> Worker {
     Worker::spawn(move |stop| run(&frames, &keyframes, &shared, &stop))
@@ -97,7 +97,7 @@ struct Source {
 
 fn run(
     frames: &Receiver<VideoIn>,
-    keyframes: &mpsc::UnboundedSender<u32>,
+    keyframes: &mpsc::Sender<u32>,
     shared: &Shared,
     stop: &AtomicBool,
 ) {
@@ -130,7 +130,7 @@ fn run(
             Verdict::Decode => {}
             Verdict::Drop => continue,
             Verdict::DropAndRequestKeyframe => {
-                let _ = keyframes.send(frame.id);
+                request_keyframe(keyframes, frame.id, &mut source.gate);
                 continue;
             }
         }
@@ -141,11 +141,17 @@ fn run(
                 crate::note!("video decoder failed: {e}");
                 source.decoder = None;
                 source.gate = Gate::default();
-                let _ = keyframes.send(frame.id);
+                request_keyframe(keyframes, frame.id, &mut source.gate);
             }
         }
         forget_quiet(&mut sources, shared);
     }
+}
+
+/// A full feedback queue must neither block decoding nor permanently consume the gate's
+/// one request for this break. Resetting it lets the next undecodable base frame retry.
+fn request_keyframe(requests: &mpsc::Sender<u32>, id: u32, gate: &mut Gate) {
+    if requests.try_send(id).is_err() { *gate = Gate::default(); }
 }
 
 /// A decoded picture for the screen, and the size it was decoded at (before any halving).
@@ -193,6 +199,28 @@ fn platform_decoder() -> Result<Box<dyn VideoDecoder>, MediaError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn a_full_keyframe_queue_preserves_the_next_frames_retry() {
+        let (requests, mut received) = mpsc::channel(1);
+        requests.try_send(1).unwrap();
+        let mut gate = Gate::default();
+        let layer = veil_security::Layer::new(0, 0, false).unwrap();
+        let header = VideoHeader { codec: veil_media::payload::Codec::H264,
+            picture: 2, reference: Some(1), needs_lower: false, screen: false,
+            timestamp_us: 0, width: 16, height: 16 };
+        for _ in 0..1000 {
+            assert_eq!(gate.admit(layer, &header), Verdict::DropAndRequestKeyframe);
+            request_keyframe(&requests, 2, &mut gate);
+        }
+        assert_eq!(received.len(), 1);
+        assert_eq!(received.try_recv().unwrap(), 1);
+        assert_eq!(gate.admit(layer, &header), Verdict::DropAndRequestKeyframe);
+        request_keyframe(&requests, 2, &mut gate);
+        assert_eq!(received.try_recv().unwrap(), 2);
+        assert_eq!(gate.admit(layer, &header), Verdict::Drop, "a delivered request stays coalesced");
+    }
 
     #[test]
     fn a_persons_camera_and_screen_are_kept_apart() {

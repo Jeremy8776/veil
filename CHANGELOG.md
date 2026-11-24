@@ -22,6 +22,9 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ### Fixed
 
+- Isolate helper registration lifetimes by room and connection. Automatic punching requires
+  a recently authenticated endpoint; unknown helper-supplied endpoints use the chosen relay.
+  Expand negative discovery and helper teardown coverage.
 - Harden convenience-path trust boundaries and helper worker cleanup. Additional interface
   candidates require ownership verification; Hide my address refuses direct forwarding paths.
 - Bound application session events and guest link-up holding with explicit overload teardown.
