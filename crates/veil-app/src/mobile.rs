@@ -660,7 +660,7 @@ fn invitation(view: &mut CallView, ui: &mut egui::Ui) {
             view.notify("Invite copied");
         }
         if action(&mut columns[1], None, "Show QR", Tone::Quiet) {
-            crate::invite_qr::show(columns[1].ctx(), &view.call.invite_full);
+            crate::invite_qr::open(columns[1].ctx());
         }
     });
     w::label(

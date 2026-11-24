@@ -163,7 +163,14 @@ impl CallView {
         }
         self.sync_you(app);
         if cfg!(target_os = "android") {
-            return crate::mobile::call(self, app, ui);
+            let stay = crate::mobile::call(self, app, ui);
+            if self.call.is_host && !self.call.demo {
+                crate::invite_qr::show(ui.ctx(), &self.call.invite_full);
+            }
+            if !stay {
+                crate::invite_qr::clear(ui.ctx());
+            }
+            return stay;
         }
         self.shortcuts(app, ui);
         call_top::show(self, app, ui, now);

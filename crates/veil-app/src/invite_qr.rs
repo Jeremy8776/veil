@@ -51,10 +51,14 @@ pub fn clear(ctx: &egui::Context) {
     });
 }
 
+pub fn open(ctx: &egui::Context) {
+    ctx.data_mut(|data| data.insert_temp(open_id(), true));
+}
+
 pub fn button(ui: &mut egui::Ui) {
     if ui.small_button("Show full invite QR").on_hover_text(
         "Contains the whole invitation. No server is needed to read it. Share only with people you want to invite.").clicked() {
-        ui.ctx().data_mut(|data| data.insert_temp(open_id(), true));
+        open(ui.ctx());
     }
 }
 
