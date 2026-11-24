@@ -26,6 +26,8 @@ pub struct Row {
     pub label: &'static str,
     pub detail: String,
     pub outcome: Outcome,
+    pub issue: Option<crate::diagnostics::Problem>,
+    pub endpoint: Option<veil_net::NodeAddr>,
 }
 
 #[derive(Default)]
@@ -46,6 +48,46 @@ impl Drop for Checker {
 }
 
 impl Checker {
+    pub fn snapshot(&self) -> Option<crate::diagnostics::Snapshot> {
+        use crate::diagnostics::{Report, Scope, Snapshot, State, Step};
+        let rows = self.result.as_ref()?;
+        let config = self.config.as_ref()?;
+        let mut report = Report {
+            scope: Scope {
+                host: false,
+                local_only: config.local_only,
+                relay_only: config.relay_only,
+            },
+            ..Default::default()
+        };
+        for row in rows {
+            let step = match row.label {
+                "Call port" | "Settings" => Some(Step::Socket),
+                "Rendezvous" => Some(Step::Helper),
+                "Forwarder" => Some(Step::Forwarder),
+                _ => None,
+            };
+            if let Some(step) = step {
+                report.set(
+                    step,
+                    match row.outcome {
+                        Outcome::Passed => State::Passed,
+                        Outcome::Failed => {
+                            State::Failed(row.issue.unwrap_or(crate::diagnostics::Problem::Other))
+                        }
+                        Outcome::Note => State::Skipped,
+                    },
+                );
+            }
+            if let Some(endpoint) = row.endpoint {
+                report.endpoint(true, endpoint);
+            }
+        }
+        Some(Snapshot {
+            report,
+            ..Default::default()
+        })
+    }
     pub fn running(&self) -> bool {
         self.receiver.is_some()
     }
@@ -162,6 +204,8 @@ fn row(label: &'static str, outcome: Outcome, detail: impl Into<String>) -> Row 
         label,
         detail: detail.into(),
         outcome,
+        issue: (outcome == Outcome::Failed).then_some(crate::diagnostics::Problem::Other),
+        endpoint: None,
     }
 }
 
@@ -235,18 +279,24 @@ async fn run(config: NetConfig) -> Vec<Row> {
 }
 
 async fn check_server(node: &Node, label: &'static str, server: NodeName) -> Row {
+    use crate::diagnostics::Problem;
     let started = Instant::now();
+    let mut endpoint = None;
     let answer = tokio::time::timeout(SERVER_TIMEOUT, async {
-        let server = server.resolve().await.map_err(|why| why.to_string())?;
+        let server = server
+            .resolve()
+            .await
+            .map_err(|why| (Problem::HelperUnavailable, why.to_string()))?;
+        endpoint = Some(server);
         let link = node
             .connect(&[server.addr], server.key)
             .await
-            .map_err(|why| why.to_string())?;
+            .map_err(|why| (Problem::net(&why), why.to_string()))?;
         link.close("connection check complete");
-        Ok::<_, String>(())
+        Ok::<_, (Problem, String)>(())
     })
     .await;
-    match answer {
+    let mut result = match answer {
         Ok(Ok(())) => row(
             label,
             Outcome::Passed,
@@ -255,19 +305,64 @@ async fn check_server(node: &Node, label: &'static str, server: NodeName) -> Row
                 started.elapsed().as_millis()
             ),
         ),
-        Ok(Err(why)) => row(label, Outcome::Failed, why),
-        Err(_) => row(
-            label,
-            Outcome::Failed,
-            "No verified connection within 6 seconds",
-        ),
-    }
+        Ok(Err((problem, _))) => {
+            let mut row = row(
+                label,
+                Outcome::Failed,
+                format!("{}. {}", problem.label(), problem.action()),
+            );
+            row.issue = Some(problem);
+            row
+        }
+        Err(_) => {
+            let mut row = row(
+                label,
+                Outcome::Failed,
+                format!(
+                    "{}. {}",
+                    Problem::NoUdpReply.label(),
+                    Problem::NoUdpReply.action()
+                ),
+            );
+            row.issue = Some(Problem::NoUdpReply);
+            row
+        }
+    };
+    result.endpoint = endpoint;
+    result
 }
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn silent_udp_endpoint_reports_uncertain_no_reply_evidence() {
+        let silent = std::net::UdpSocket::bind("127.0.0.1:0").expect("silent UDP endpoint");
+        let node = Node::bind_any(&Identity::generate(), 0).expect("client");
+        let server = format!("{}@{}", veil_net::node_addr::key_text(&Identity::generate().public()), silent.local_addr().expect("address"));
+        let row = check_server(&node, "Rendezvous", server.parse().expect("server name")).await;
+        assert_eq!(row.issue, Some(crate::diagnostics::Problem::NoUdpReply));
+        assert!(row.detail.contains("does not prove"));
+        node.close();
+    }
+
+    #[test]
+    fn a_check_never_claims_admission_membership_or_media() {
+        use crate::diagnostics::{State, Step};
+        let mut checker = Checker::default();
+        checker.result = Some(vec![row("Rendezvous", Outcome::Passed, "verified")]);
+        checker.config = Some(NetConfig { local_only: true, ..Default::default() });
+        let snapshot = checker.snapshot().expect("completed check");
+        assert!(snapshot.report.scope.local_only);
+        assert_eq!(snapshot.report.steps[Step::Helper as usize], State::Passed);
+        for step in [Step::Hosting, Step::Admission, Step::Membership] {
+            assert_eq!(snapshot.report.steps[step as usize], State::Unchecked);
+        }
+        assert!(snapshot.peers.is_empty());
+        assert!(!snapshot.sampled);
+    }
 
     #[test]
     fn saved_local_only_prevents_unsaved_internet_tests_and_overrides() {
@@ -334,6 +429,7 @@ mod tests {
             std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
         )
         .expect("test server");
+        server.admit_strangers();
         let node = Node::bind_any(&Identity::generate(), 0).expect("test client");
         let text = format!(
             "{}@{}",
@@ -343,6 +439,7 @@ mod tests {
         let answer =
             check_server(&node, "Rendezvous", text.parse().expect("test server name")).await;
         assert_eq!(answer.outcome, Outcome::Failed);
+        assert_eq!(answer.issue, Some(crate::diagnostics::Problem::Identity));
         server.close();
         node.close();
     }

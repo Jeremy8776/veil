@@ -45,8 +45,15 @@ pub fn still_speaking(loud_at: Option<Instant>, now: Instant) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Said {
     /// A message; `id` is None from 0.1.11 and earlier.
-    Chat { id: Option<u64>, text: String },
-    React { id: u64, emoji: String, on: bool },
+    Chat {
+        id: Option<u64>,
+        text: String,
+    },
+    React {
+        id: u64,
+        emoji: String,
+        on: bool,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -133,6 +140,7 @@ pub struct Seen {
 }
 
 pub struct Shared {
+    pub diagnostic: Mutex<crate::diagnostics::Report>,
     pub view: Mutex<View>,
     pictures: Mutex<HashMap<u32, Picture>>,
     heard: Mutex<HashMap<u32, Heard>>,
@@ -148,6 +156,7 @@ pub struct Shared {
 impl Shared {
     pub fn new(ctx: egui::Context) -> Self {
         Self {
+            diagnostic: Mutex::default(),
             view: Mutex::new(View {
                 status: CallStatus::Connecting,
                 invite: String::new(),
@@ -194,6 +203,11 @@ impl Shared {
         } else {
             drop(view);
         }
+        self.ctx.request_repaint();
+    }
+
+    pub fn diagnose(&self, change: impl FnOnce(&mut crate::diagnostics::Report)) {
+        change(&mut lock(&self.diagnostic));
         self.ctx.request_repaint();
     }
 
@@ -425,7 +439,10 @@ mod tests {
         assert!(!still_speaking(None, now));
         assert!(still_speaking(Some(now), now));
         let gap = now + Duration::from_millis(200);
-        assert!(still_speaking(Some(now), gap), "a short gap keeps the border");
+        assert!(
+            still_speaking(Some(now), gap),
+            "a short gap keeps the border"
+        );
         let pause = now + SPEAKING_HOLD;
         assert!(!still_speaking(Some(now), pause), "a pause ends it");
     }
@@ -468,7 +485,10 @@ mod tests {
         assert!(host.camera && !host.muted && host.speaking && host.is_host);
         let guest = &call.participants[2];
         assert!(!guest.camera && guest.muted && !guest.speaking);
-        assert!(host.hand_raised && !guest.hand_raised, "each hand as that person sent it");
+        assert!(
+            host.hand_raised && !guest.hand_raised,
+            "each hand as that person sent it"
+        );
         assert_eq!(call.lobby.len(), 1);
         assert_eq!(call.lobby[0].safety, "11111");
         assert!(call.lobby[0].verified && !call.participants[1].verified);

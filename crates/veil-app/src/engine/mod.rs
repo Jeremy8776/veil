@@ -126,6 +126,31 @@ impl Engine {
             .build()
             .map_err(|e| format!("cannot start the call runtime: {e}"))?;
         let shared = Arc::new(Shared::new(ctx));
+        shared.diagnose(|report| {
+            use crate::diagnostics::{Scope, State, Step};
+            report.scope = Scope {
+                host: matches!(&role, Role::Host),
+                local_only: config.local_only,
+                relay_only: config.relay_only,
+            };
+            report.started = true;
+            report.set(
+                Step::Invitation,
+                if report.scope.host {
+                    State::Skipped
+                } else {
+                    State::Waiting
+                },
+            );
+            report.set(
+                Step::Admission,
+                if report.scope.host {
+                    State::Skipped
+                } else {
+                    State::Unchecked
+                },
+            );
+        });
         // One picture waits at most: the encoder always takes the newest.
         let (video_tx, video_rx) = sync_channel(1);
         let (screen_tx, screen_rx) = sync_channel(1);
@@ -139,8 +164,20 @@ impl Engine {
         let camera = video_out::Stream::Camera;
         let screen = video_out::Stream::Screen;
         let workers = vec![
-            video_out::spawn(video_rx, encoded_tx.clone(), control.clone(), camera, data.clone()),
-            video_out::spawn(screen_rx, encoded_tx, screen_control.clone(), screen, data.clone()),
+            video_out::spawn(
+                video_rx,
+                encoded_tx.clone(),
+                control.clone(),
+                camera,
+                data.clone(),
+            ),
+            video_out::spawn(
+                screen_rx,
+                encoded_tx,
+                screen_control.clone(),
+                screen,
+                data.clone(),
+            ),
             video_in::spawn(video_in_rx, keyframe_tx, shared.clone()),
             audio_out::spawn(audio_in_rx, shared.clone(), playback),
         ];
@@ -176,10 +213,21 @@ impl Engine {
                     guest::run(identity, *invite, config, name, shared, pipes, commands_rx).await
                 }
             };
+            let left = result.is_ok();
             let reason = match result {
                 Ok(()) => String::from("You left the call"),
                 Err(reason) => reason,
             };
+            shared.diagnose(|report| {
+                use crate::diagnostics::{End, Problem};
+                report.ended = true;
+                if report.end.is_none() {
+                    report.end = Some(if left { End::Left } else { End::Failed });
+                    if !left && report.problem.is_none() {
+                        report.problem = Some(Problem::Other);
+                    }
+                }
+            });
             shared.update(|view| view.status = CallStatus::Ended(reason));
         });
         Ok(Self {
@@ -256,8 +304,60 @@ impl Engine {
     /// The newest call stats (once a second) and each person's received sound level, 0 to 1,
     /// for the debug overlay.
     pub fn stats(&self) -> (stats::Stats, HashMap<u32, f32>) {
-        let levels = self.shared.seen().audio.iter().map(|(id, h)| (*id, h.level)).collect();
+        let levels = self
+            .shared
+            .seen()
+            .audio
+            .iter()
+            .map(|(id, h)| (*id, h.level))
+            .collect();
         (self.shared.stats(), levels)
+    }
+
+    /// Typed, bounded evidence only. No names, invitations, log lines or session keys.
+    pub fn diagnostics(&self) -> crate::diagnostics::Snapshot {
+        use crate::diagnostics::{MAX_PEERS, Peer, Snapshot};
+        let report = lock(&self.shared.diagnostic).clone();
+        let seen = self.shared.seen();
+        let now = Instant::now();
+        let fresh = |at: Instant| now.saturating_duration_since(at) < Duration::from_secs(3);
+        let view = lock(&self.shared.view);
+        let peers = view
+            .people
+            .iter()
+            .take(MAX_PEERS)
+            .map(|person| Peer {
+                id: person.id,
+                device: person.device,
+                route: person.path,
+                audio_recent: seen.audio.get(&person.id).is_some_and(|a| fresh(a.at)),
+                video_recent: seen.video.get(&person.id).is_some_and(|at| fresh(*at)),
+            })
+            .collect();
+        drop(view);
+        let stats = self.shared.stats();
+        Snapshot {
+            report,
+            own_device: Some(lock(&self.keys).public()),
+            peers,
+            sampled: !stats.links.is_empty(),
+            rtt_ms: stats
+                .links
+                .iter()
+                .map(|link| link.rtt.as_millis().min(u128::from(u64::MAX)) as u64)
+                .max(),
+            down_kbps: stats
+                .links
+                .iter()
+                .filter_map(|l| l.down_kbps)
+                .reduce(u32::saturating_add),
+            up_kbps: stats
+                .links
+                .iter()
+                .filter_map(|l| l.up_kbps)
+                .reduce(u32::saturating_add),
+            ..Default::default()
+        }
     }
 
     /// Who is sharing their screen now, by participant id.
@@ -335,5 +435,31 @@ mod tests {
         assert_eq!(ids.device(2), Some(b));
         assert_eq!(ids.device(3), None);
         assert_eq!(short(&a).len(), 8);
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    #[test]
+    fn recovery_removal_and_host_ending_retain_distinct_evidence() {
+        use super::{session::diagnose_member, view::Shared};
+        use crate::diagnostics::{End, Problem};
+        use crate::media::lock;
+        use veil_call::MemberEvent;
+        let shared = Shared::new(eframe::egui::Context::default());
+        diagnose_member(&shared, &MemberEvent::Reconnecting);
+        assert!(lock(&shared.diagnostic).reconnecting);
+        diagnose_member(&shared, &MemberEvent::Reconnected);
+        assert!(!lock(&shared.diagnostic).reconnecting);
+        diagnose_member(&shared, &MemberEvent::ConnectionLost);
+        assert_eq!(lock(&shared.diagnostic).problem, Some(Problem::Recovery));
+        diagnose_member(&shared, &MemberEvent::Reconnecting);
+        diagnose_member(&shared, &MemberEvent::Removed);
+        assert!(!lock(&shared.diagnostic).reconnecting, "removal stops recovery evidence");
+        assert_eq!(lock(&shared.diagnostic).end, Some(End::Removed));
+        assert_eq!(lock(&shared.diagnostic).problem, Some(Problem::Removed));
+        let shared = Shared::new(eframe::egui::Context::default());
+        diagnose_member(&shared, &MemberEvent::Closed);
+        assert_eq!(lock(&shared.diagnostic).end, Some(End::HostEnded));
     }
 }

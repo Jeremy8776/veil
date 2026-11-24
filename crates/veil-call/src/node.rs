@@ -52,6 +52,16 @@ pub enum Path {
     Forwarder,
 }
 
+/// Initial helper failure, retained separately from transport reachability and admission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HelperIssue {
+    Identity,
+    NoReply,
+    NoRoute,
+    Unavailable,
+    Refused(Refusal),
+}
+
 pub struct CallNode {
     node: Arc<Node>,
     identity: Identity,
@@ -59,6 +69,7 @@ pub struct CallNode {
     presence: Option<Presence>,
     /// Why the rendezvous turned this node away, when it answered with a refusal.
     refusal: Option<Refusal>,
+    helper_issue: Option<HelperIssue>,
     relay_only: bool,
     consent: Arc<Consent>,
     media: Option<mpsc::Receiver<Inbound>>,
@@ -121,6 +132,7 @@ impl CallNode {
             .push(tokio::spawn(router.clone().accept_loop(node.clone())));
         let mut presence = None;
         let mut refusal = None;
+        let mut helper_issue = None;
         if let Some(server) = rendezvous {
             match Presence::start(
                 identity,
@@ -136,8 +148,25 @@ impl CallNode {
                     presence = Some(handle);
                     tasks.0.push(task);
                 }
-                Err(CallError::Rendezvous(RendezvousError::Refused(why))) => refusal = Some(why),
-                Err(_) => {}
+                Err(CallError::Rendezvous(RendezvousError::Refused(why))) => {
+                    refusal = Some(why);
+                    helper_issue = Some(HelperIssue::Refused(why));
+                }
+                Err(CallError::Rendezvous(RendezvousError::Net(veil_net::NetError::Identity)))
+                | Err(CallError::Net(veil_net::NetError::Identity)) => {
+                    helper_issue = Some(HelperIssue::Identity)
+                }
+                Err(CallError::Net(veil_net::NetError::NoAddresses))
+                | Err(CallError::Rendezvous(RendezvousError::Net(veil_net::NetError::NoAddresses))) => {
+                    helper_issue = Some(HelperIssue::NoRoute)
+                }
+                Err(CallError::Timeout)
+                | Err(CallError::Rendezvous(RendezvousError::Timeout))
+                | Err(CallError::Net(veil_net::NetError::Timeout | veil_net::NetError::Connect(_)))
+                | Err(CallError::Rendezvous(RendezvousError::Net(veil_net::NetError::Timeout | veil_net::NetError::Connect(_)))) => {
+                    helper_issue = Some(HelperIssue::NoReply)
+                }
+                Err(_) => helper_issue = Some(HelperIssue::Unavailable),
             }
         }
         Self {
@@ -146,6 +175,7 @@ impl CallNode {
             room_id,
             presence,
             refusal,
+            helper_issue,
             relay_only: false,
             consent,
             media: Some(media_rx),
@@ -213,6 +243,13 @@ impl CallNode {
         self.refusal
     }
 
+    /// Initial registration failure. A refusal proves a pinned transport answered, but
+    /// not that this device was allowed to register. No reply proves neither UDP blocking
+    /// nor that a helper is absent. `has_rendezvous` remains the current connectivity check.
+    pub fn helper_issue(&self) -> Option<HelperIssue> {
+        self.helper_issue
+    }
+
     /// When set, this node dials other participants only through the relay, never directly
     /// or by punching, and refuses their introductions, so they never learn its address.
     /// Costs relay bandwidth and latency. Dialling follows it in [`crate::join`] and in a
@@ -252,7 +289,9 @@ impl CallNode {
         let relay_only = self.relay_only;
         async move {
             if relay_only {
-                return Err(CallError::Plan("this forwarding path cannot preserve Hide my address"));
+                return Err(CallError::Plan(
+                    "this forwarding path cannot preserve Hide my address",
+                ));
             }
             veil_forward::ForwarderClient::probe(&node, &[addr.addr], addr.key, &ticket)
                 .await

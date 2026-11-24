@@ -31,6 +31,7 @@ use super::plan::{NetConfig, resolve};
 use super::session::{Pipes, Session};
 use super::view::Shared;
 use super::{Command, invites};
+use crate::diagnostics::{Problem, State, Step};
 use crate::model::{Action, CallStatus};
 
 pub async fn run(
@@ -44,34 +45,84 @@ pub async fn run(
 ) -> Result<(), String> {
     let config = config.enforce_policy();
     if let Some(why) = config.conflict() {
+        shared.diagnose(|d| d.set(Step::Socket, State::Failed(Problem::Settings)));
         return Err(why.into());
     }
     // A short link names where the invite is, so it is fetched before anything else.
     let invite = match link {
         InviteLink::Full(invite) => invite,
         InviteLink::Short(_) if config.local_only => {
+            shared.diagnose(|d| d.set(Step::Invitation, State::Failed(Problem::NoRoute)));
             return Err(String::from(
                 "Local only needs the full invitation. Ask the host to use Copy full link or show its QR code.",
             ));
         }
         InviteLink::Short(short) => tokio::select! {
             fetched = fetch_invite(&short, invites::now_unix()) => {
-                fetched.map_err(|e| e.to_string())?
+                fetched.map_err(|e| {
+                    shared.diagnose(|d| d.set(Step::Invitation, State::Failed(match e {
+                        veil_rendezvous::FetchError::Refused(_) => Problem::InviteExpired,
+                        _ => Problem::InviteUnavailable,
+                    })));
+                    e.to_string()
+                })?
             }
             () = wait_for_leave(&mut commands) => return Ok(()),
         },
     };
+    shared.diagnose(|d| {
+        d.set(Step::Invitation, State::Passed);
+        d.set(Step::Hosting, State::Skipped);
+        for addr in invite.addrs.iter().filter_map(|a| a.parse().ok()) {
+            d.endpoint(
+                false,
+                veil_net::NodeAddr {
+                    key: invite.host,
+                    addr,
+                },
+            );
+        }
+    });
     // Dual-stack where the system allows it, so a host's IPv6 address is dialled first.
     let node = if config.local_only {
         Node::bind_local(&identity, 0)
     } else {
         Node::bind_any(&identity, 0)
     }
-    .map_err(|e| format!("Cannot open the network: {e}"))?;
+    .map_err(|e| {
+        shared.diagnose(|d| d.set(Step::Socket, State::Failed(Problem::net(&e))));
+        format!("Cannot open the network: {e}")
+    })?;
+    shared.diagnose(|d| d.set(Step::Socket, State::Passed));
     // A rendezvous you chose is not swapped for the host's when it cannot be found: that
     // node would see your address, which matters most with Hide my address. Local only has
     // none configured (`enforce_policy`), so this never blocks a local call.
-    let rendezvous = resolve(config.rendezvous.as_ref(), "rendezvous").await?;
+    let rendezvous = resolve(config.rendezvous.as_ref(), "rendezvous")
+        .await
+        .inspect_err(|_| {
+            shared.diagnose(|d| d.set(Step::Helper, State::Failed(Problem::HelperUnavailable)));
+        })?;
+    shared.diagnose(|d| {
+        d.set(Step::Helper, State::Waiting);
+        if let Some(addr) = rendezvous {
+            d.endpoint(true, addr);
+        } else if !config.local_only
+            && let Some(relay) = invite
+                .relay
+                .as_deref()
+                .and_then(veil_call::RelayAddrs::parse)
+        {
+            for addr in relay.addrs {
+                d.endpoint(
+                    true,
+                    veil_net::NodeAddr {
+                        key: relay.key,
+                        addr,
+                    },
+                );
+            }
+        }
+    });
     // Registering with the rendezvous and finding a path to the host can take half a minute
     // over the internet, so Leave is honoured throughout, not only in the lobby.
     let start = async {
@@ -92,18 +143,42 @@ pub async fn run(
         call = start => call,
         () = wait_for_leave(&mut commands) => return Ok(()),
     };
+    shared.diagnose(|d| {
+        d.helper(
+            call.has_rendezvous(),
+            call.helper_issue(),
+            !config.local_only && (rendezvous.is_some() || invite.relay.is_some()),
+        );
+        d.set(Step::HostConnection, State::Waiting);
+    });
     // Before joining, so the join and the media session made after it both follow it.
     if config.relay_only {
         crate::note!("call: hiding your address, relay only");
         call.set_relay_only(true);
     }
     // The status stays Connecting ("Reaching the host") until the host has the knock.
-    let knocked = || shared.update(|view| view.status = CallStatus::Lobby);
+    let knocked = || {
+        shared.diagnose(|d| {
+            d.set(Step::HostConnection, State::Passed);
+            d.set(Step::Admission, State::Waiting);
+        });
+        shared.update(|view| view.status = CallStatus::Lobby);
+    };
     let mut member = tokio::select! {
-        joined = join_with(&call, &invite, knocked) => joined.map_err(|e| join_error(&e))?,
+        joined = join_with(&call, &invite, knocked) => joined.map_err(|e| {
+            shared.diagnose(|d| {
+                let step = if d.steps[Step::HostConnection as usize] == State::Passed { Step::Admission } else { Step::HostConnection };
+                d.set(step, State::Failed(Problem::call(&e)));
+            });
+            join_error(&e)
+        })?,
         () = wait_for_leave(&mut commands) => return Ok(()),
     };
     shared.update(|view| view.status = CallStatus::Live);
+    shared.diagnose(|d| {
+        d.set(Step::Admission, State::Passed);
+        d.set(Step::Membership, State::Passed);
+    });
     let media = call.media().map_err(|e| e.to_string())?;
     let mut session = Session::new(
         media,
@@ -171,7 +246,8 @@ enum Flow {
 /// unlimited stream of events into this deque. Overflow ends the call without skipping keys.
 const HELD_EVENTS: usize = veil_call::EVENT_BACKLOG;
 const HELD_CHAT: usize = 64;
-const LINK_UP_OVERLOAD: &str = "The call became too busy while connecting. Join again with a new invite.";
+const LINK_UP_OVERLOAD: &str =
+    "The call became too busy while connecting. Join again with a new invite.";
 
 /// What arrived during a link-up, in order, with bounded count and chat payload size.
 #[derive(Default)]
@@ -215,7 +291,9 @@ impl Held {
 /// The reason to show if `event` ends the call for this guest.
 fn ending(event: &MemberEvent) -> Option<String> {
     match event {
-        MemberEvent::Overloaded => Some("The call became too busy to keep up. Join again with a new invite.".into()),
+        MemberEvent::Overloaded => {
+            Some("The call became too busy to keep up. Join again with a new invite.".into())
+        }
         MemberEvent::Removed => Some("The host removed you from the call.".into()),
         MemberEvent::ConnectionLost => {
             Some("The connection to the host could not be restored. Join with a new invite.".into())
@@ -237,13 +315,30 @@ async fn on_event(
     commands: &mut UnboundedReceiver<Command>,
     held: &mut Held,
 ) -> Result<Flow, String> {
+    session.diagnose_member(&event);
     if let Some(reason) = ending(&event) {
         return Err(reason);
     }
     match event {
         MemberEvent::Keys(keys) => session.on_keys(keys),
         MemberEvent::Routes(routes) => {
-            return link_up(session.on_routes(routes), events, commands, held).await;
+            let evidence = session.evidence();
+            let result = link_up(
+                session.on_routes(routes),
+                events,
+                commands,
+                held,
+                Some(&evidence),
+            )
+            .await;
+            if result.is_err() {
+                evidence.diagnose(|d| {
+                    if d.end.is_none() {
+                        d.set(Step::Membership, State::Failed(Problem::Overloaded));
+                    }
+                });
+            }
+            return result;
         }
         MemberEvent::PlanRefused(e) => crate::note!("refused the host's plan: {e}"),
         MemberEvent::Reconnecting => session.reconnecting(true),
@@ -265,6 +360,7 @@ async fn link_up(
     events: &mut Receiver<MemberEvent>,
     commands: &mut UnboundedReceiver<Command>,
     held: &mut Held,
+    evidence: Option<&Shared>,
 ) -> Result<Flow, String> {
     tokio::pin!(linking);
     loop {
@@ -272,6 +368,7 @@ async fn link_up(
             () = &mut linking => return Ok(Flow::Stay),
             event = events.recv() => {
                 let event = event.unwrap_or(MemberEvent::Closed);
+                if let Some(evidence) = evidence { super::session::diagnose_member(evidence, &event); }
                 held.event(event)?;
             }
             command = commands.recv() => match command {
@@ -345,7 +442,14 @@ mod tests {
     async fn the_host_ending_the_call_interrupts_a_link_up() {
         let (event_tx, mut events, _command_tx, mut commands) = channels();
         event_tx.try_send(MemberEvent::Closed).unwrap();
-        let result = link_up(pending(), &mut events, &mut commands, &mut Held::default()).await;
+        let result = link_up(
+            pending(),
+            &mut events,
+            &mut commands,
+            &mut Held::default(),
+            None,
+        )
+        .await;
         assert_eq!(result, Err("The host ended the call.".to_string()));
     }
 
@@ -353,7 +457,14 @@ mod tests {
     async fn being_removed_interrupts_a_link_up() {
         let (event_tx, mut events, _command_tx, mut commands) = channels();
         event_tx.try_send(MemberEvent::Removed).unwrap();
-        let result = link_up(pending(), &mut events, &mut commands, &mut Held::default()).await;
+        let result = link_up(
+            pending(),
+            &mut events,
+            &mut commands,
+            &mut Held::default(),
+            None,
+        )
+        .await;
         assert_eq!(
             result,
             Err("The host removed you from the call.".to_string())
@@ -367,7 +478,14 @@ mod tests {
             .send(Command::Leave)
             .map_err(|_| "closed")
             .unwrap();
-        let result = link_up(pending(), &mut events, &mut commands, &mut Held::default()).await;
+        let result = link_up(
+            pending(),
+            &mut events,
+            &mut commands,
+            &mut Held::default(),
+            None,
+        )
+        .await;
         assert_eq!(result, Ok(Flow::Leave));
     }
 
@@ -386,7 +504,7 @@ mod tests {
         }
         let mut held = Held::default();
         let linking = tokio::time::sleep(Duration::from_millis(50));
-        let result = link_up(linking, &mut events, &mut commands, &mut held).await;
+        let result = link_up(linking, &mut events, &mut commands, &mut held, None).await;
         assert_eq!(result, Ok(Flow::Stay));
         assert!(matches!(
             held.events.make_contiguous(),
@@ -409,7 +527,11 @@ mod tests {
         let (event_tx, mut events, _command_tx, mut commands) = channels();
         let producer = tokio::spawn(async move {
             for _ in 0..10_000 {
-                if event_tx.send(MemberEvent::PlanRefused(CallError::Timeout)).await.is_err() {
+                if event_tx
+                    .send(MemberEvent::PlanRefused(CallError::Timeout))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -417,8 +539,10 @@ mod tests {
         let mut held = Held::default();
         let result = tokio::time::timeout(
             Duration::from_secs(1),
-            link_up(pending(), &mut events, &mut commands, &mut held),
-        ).await.unwrap();
+            link_up(pending(), &mut events, &mut commands, &mut held, None),
+        )
+        .await
+        .unwrap();
         assert_eq!(result, Err(LINK_UP_OVERLOAD.into()));
         assert_eq!(held.events.len(), HELD_EVENTS);
         drop(events);
@@ -429,11 +553,13 @@ mod tests {
     async fn excess_chat_cannot_grow_link_up_storage() {
         let (_event_tx, mut events, command_tx, mut commands) = channels();
         for id in 0..=HELD_CHAT {
-            command_tx.send(Command::Act(Action::Chat(id as u64, "hello".into())))
-                .map_err(|_| "closed").unwrap();
+            command_tx
+                .send(Command::Act(Action::Chat(id as u64, "hello".into())))
+                .map_err(|_| "closed")
+                .unwrap();
         }
         let mut held = Held::default();
-        let result = link_up(pending(), &mut events, &mut commands, &mut held).await;
+        let result = link_up(pending(), &mut events, &mut commands, &mut held, None).await;
         assert_eq!(result, Err(LINK_UP_OVERLOAD.into()));
         assert_eq!(held.chat.len(), HELD_CHAT);
     }
@@ -444,13 +570,23 @@ mod tests {
         let limit = veil_call::app_msg::MAX_CHAT_CHARS;
         assert!(held.said(Action::Chat(1, "🦀".repeat(limit))).is_ok());
         assert!(held.said(Action::Chat(2, "🦀".repeat(limit + 1))).is_err());
-        assert!(held.said(Action::React(3, "x".repeat(1_000), true)).is_err());
+        assert!(
+            held.said(Action::React(3, "x".repeat(1_000), true))
+                .is_err()
+        );
         assert_eq!(held.chat.len(), 1);
         for _ in 0..HELD_EVENTS {
             held.event(MemberEvent::Reconnecting).unwrap();
         }
-        assert_eq!(held.event(MemberEvent::Removed), Err("The host removed you from the call.".into()));
-        assert!(held.event(MemberEvent::Overloaded).unwrap_err().contains("too busy"));
+        assert_eq!(
+            held.event(MemberEvent::Removed),
+            Err("The host removed you from the call.".into())
+        );
+        assert!(
+            held.event(MemberEvent::Overloaded)
+                .unwrap_err()
+                .contains("too busy")
+        );
         assert_eq!(held.events.len(), HELD_EVENTS);
     }
 

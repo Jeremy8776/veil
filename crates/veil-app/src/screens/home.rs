@@ -472,6 +472,9 @@ pub fn ended(app: &mut VeilApp, ui: &mut egui::Ui) {
         if pill(ui, None, "Back to home", Tone::Primary, 220.0).clicked() {
             app.go_home();
         }
+        if ui.link("Connection report").clicked() {
+            app.diagnostics.open();
+        }
     });
 }
 

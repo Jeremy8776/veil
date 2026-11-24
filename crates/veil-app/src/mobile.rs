@@ -11,10 +11,7 @@ use crate::screens::{
 };
 use crate::theme;
 use crate::widgets::{self as shared, Tile, Tone};
-use eframe::egui::{
-    self, Align, Align2, Layout, Margin, Rect, Sense, Stroke, UiBuilder,
-    vec2,
-};
+use eframe::egui::{self, Align, Align2, Layout, Margin, Rect, Sense, Stroke, UiBuilder, vec2};
 use std::time::{Duration, Instant};
 use widgets as w;
 
@@ -233,6 +230,9 @@ pub fn home(app: &mut VeilApp, ui: &mut egui::Ui) {
         if let Some(error) = crate::media::lock(&app.keys).problem.clone() {
             w::label(ui, error, 13.0, false, theme::WARN);
         }
+        if action(ui, Some(Icon::Info), "Connection report", Tone::Quiet) {
+            app.diagnostics.open();
+        }
     });
 }
 
@@ -311,8 +311,12 @@ pub fn prejoin(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
         });
     page(ui, "mobile-prejoin", |ui| {
         let available = ui.available_size();
-        let aspect = app.preview_video().map_or(0.75, |(_, size)| size[0] as f32 / size[1].max(1) as f32);
-        let height = (available.x / aspect).min((available.y - 260.0).max(128.0)).clamp(128.0, 560.0);
+        let aspect = app
+            .preview_video()
+            .map_or(0.75, |(_, size)| size[0] as f32 / size[1].max(1) as f32);
+        let height = (available.x / aspect)
+            .min((available.y - 260.0).max(128.0))
+            .clamp(128.0, 560.0);
         let (rect, _) = ui.allocate_exact_size(vec2(available.x, height), Sense::hover());
         shared::tile(
             ui,
@@ -490,6 +494,10 @@ pub fn call(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
                         ui.close();
                     }
                     mirror_choice(app, ui);
+                    if action(ui, Some(Icon::Info), "Connection report", Tone::Quiet) {
+                        app.diagnostics.open();
+                        ui.close();
+                    }
                     data_picker(app, ui);
                 });
             });
@@ -670,22 +678,43 @@ fn stage(view: &mut CallView, app: &VeilApp, ui: &mut egui::Ui) {
     let waiting = view.call.participants.iter().all(|person| person.is_you);
     if let Some(rect) = crate::screens::bento::show(view, app, ui, area, waiting) {
         let content = rect.shrink(16.0);
-        ui.scope_builder(UiBuilder::new().max_rect(content).layout(Layout::top_down(Align::Center)), |ui| {
-            egui::ScrollArea::vertical().id_salt("mobile-waiting").auto_shrink([false, false]).show(ui, |ui| {
-                let title = if view.call.is_host { "Your call is ready" }
-                    else if view.call.status == CallStatus::Lobby { "Waiting for the host" }
-                    else { "Reaching the host" };
-                w::label(ui, title, 22.0, true, theme::TEXT);
-                ui.add_space(8.0);
-                if view.call.is_host && !view.mobile_invite { invitation(view, ui); }
-                else if !view.call.is_host {
-                    ui.spinner();
-                    w::label(ui, if view.call.status == CallStatus::Lobby {
-                        "The host will decide when to let you in."
-                    } else { "Finding a connection to your call…" }, 14.0, false, theme::MUTED);
-                }
-            });
-        });
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(content)
+                .layout(Layout::top_down(Align::Center)),
+            |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("mobile-waiting")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let title = if view.call.is_host {
+                            "Your call is ready"
+                        } else if view.call.status == CallStatus::Lobby {
+                            "Waiting for the host"
+                        } else {
+                            "Reaching the host"
+                        };
+                        w::label(ui, title, 22.0, true, theme::TEXT);
+                        ui.add_space(8.0);
+                        if view.call.is_host && !view.mobile_invite {
+                            invitation(view, ui);
+                        } else if !view.call.is_host {
+                            ui.spinner();
+                            w::label(
+                                ui,
+                                if view.call.status == CallStatus::Lobby {
+                                    "The host will decide when to let you in."
+                                } else {
+                                    "Finding a connection to your call…"
+                                },
+                                14.0,
+                                false,
+                                theme::MUTED,
+                            );
+                        }
+                    });
+            },
+        );
     }
 }
 
@@ -718,6 +747,9 @@ pub fn ended(app: &mut VeilApp, ui: &mut egui::Ui) {
         ui.add_space(28.0);
         if action(ui, None, "Back to home", Tone::Primary) {
             app.go_home();
+        }
+        if action(ui, Some(Icon::Info), "Connection report", Tone::Quiet) {
+            app.diagnostics.open();
         }
     });
 }

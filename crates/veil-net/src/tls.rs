@@ -15,9 +15,7 @@ use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer, ServerName, UnixTime
 use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
-use rustls::{
-    CertificateError, DigitallySignedStruct, DistinguishedName, Error, SignatureScheme,
-};
+use rustls::{CertificateError, DigitallySignedStruct, DistinguishedName, Error, SignatureScheme};
 use veil_security::{Identity, PublicId};
 use zeroize::Zeroizing;
 
@@ -71,7 +69,8 @@ fn verify_signature(
     if dss.scheme != SignatureScheme::ED25519 {
         return Err(Error::InvalidCertificate(CertificateError::BadSignature));
     }
-    let id = parse_spki(presented).ok_or(Error::InvalidCertificate(CertificateError::BadEncoding))?;
+    let id =
+        parse_spki(presented).ok_or(Error::InvalidCertificate(CertificateError::BadEncoding))?;
     let signature: [u8; 64] = dss
         .signature()
         .try_into()
@@ -85,6 +84,7 @@ fn verify_signature(
 #[derive(Debug)]
 struct PinnedPeer {
     expected: PublicId,
+    rejected: Arc<AtomicBool>,
 }
 
 impl ServerCertVerifier for PinnedPeer {
@@ -97,14 +97,21 @@ impl ServerCertVerifier for PinnedPeer {
         _now: UnixTime,
     ) -> Result<ServerCertVerified, Error> {
         if !intermediates.is_empty() {
+            self.rejected.store(true, Ordering::Relaxed);
             return Err(Error::InvalidCertificate(CertificateError::BadEncoding));
         }
         match parse_spki(end_entity) {
             Some(id) if id == self.expected => Ok(ServerCertVerified::assertion()),
-            Some(_) => Err(Error::InvalidCertificate(
-                CertificateError::ApplicationVerificationFailure,
-            )),
-            None => Err(Error::InvalidCertificate(CertificateError::BadEncoding)),
+            Some(_) => {
+                self.rejected.store(true, Ordering::Relaxed);
+                Err(Error::InvalidCertificate(
+                    CertificateError::ApplicationVerificationFailure,
+                ))
+            }
+            None => {
+                self.rejected.store(true, Ordering::Relaxed);
+                Err(Error::InvalidCertificate(CertificateError::BadEncoding))
+            }
         }
     }
 
@@ -284,9 +291,14 @@ pub(crate) fn server_config(
 pub(crate) fn client_config(
     key: Arc<CertifiedKey>,
     expected: PublicId,
+    rejected: Arc<AtomicBool>,
 ) -> Result<QuicClientConfig, NetError> {
     let knock = knock::make(&expected)?;
-    client_with(key, Arc::new(PinnedPeer { expected }), Some(knock))
+    client_with(
+        key,
+        Arc::new(PinnedPeer { expected, rejected }),
+        Some(knock),
+    )
 }
 
 /// For [`crate::Node::connect_unverified`] only. No knock: the dialler does not know the key,

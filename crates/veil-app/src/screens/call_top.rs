@@ -25,7 +25,7 @@ use crate::widgets;
 
 const CHIP_H: f32 = 30.0;
 
-pub fn show(view: &mut CallView, ui: &mut Ui, now: Instant) {
+pub fn show(view: &mut CallView, app: &mut crate::app::VeilApp, ui: &mut Ui, now: Instant) {
     egui::Panel::top("call_top")
         .exact_size(52.0)
         .frame(
@@ -56,13 +56,16 @@ pub fn show(view: &mut CallView, ui: &mut Ui, now: Instant) {
                     view.panel = toggle(view.panel, Panel::Security);
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    right_side(view, ui);
+                    right_side(view, app, ui);
                 });
             });
         });
 }
 
-fn right_side(view: &mut CallView, ui: &mut Ui) {
+fn right_side(view: &mut CallView, app: &mut crate::app::VeilApp, ui: &mut Ui) {
+    if widgets::icon_button(ui, Icon::Info, "Connection report (Ctrl+Shift+E)").clicked() {
+        app.diagnostics.open();
+    }
     let (icon, label, next) = match view.view {
         View::Gallery => (Icon::SpeakerView, "Speaker view", View::Speaker),
         View::Speaker => (Icon::Grid, "Gallery view", View::Gallery),

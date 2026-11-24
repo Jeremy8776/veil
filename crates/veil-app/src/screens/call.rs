@@ -83,7 +83,9 @@ impl CallView {
     }
 
     pub(crate) fn watch_tiles(&self, tiles: Vec<(u32, f32)>) {
-        if let Some(engine) = &self.engine { engine.watch(tiles); }
+        if let Some(engine) = &self.engine {
+            engine.watch(tiles);
+        }
     }
 
     /// Puts the invite link on the clipboard and says so.
@@ -125,6 +127,22 @@ impl CallView {
                 engine.act(action);
             }
             engine.sync(&mut self.call, now);
+            let mut snapshot = engine.diagnostics();
+            snapshot.camera = app.media.camera_evidence();
+            snapshot.microphone = app.media.microphone_evidence();
+            let (camera, mic) = {
+                #[cfg(target_os = "android")]
+                {
+                    veil_media::ffi::android::permission_state()
+                }
+                #[cfg(not(target_os = "android"))]
+                {
+                    (true, true)
+                }
+            };
+            snapshot.camera = snapshot.camera.with_permission(app.want_camera, camera);
+            snapshot.microphone = snapshot.microphone.with_permission(app.want_mic, mic);
+            app.diagnostics.call = Some(snapshot);
             app.upload_remote(engine.take_pictures());
             self.sharers = engine.sharers();
             app.keep_screens(&self.sharers);
@@ -148,7 +166,7 @@ impl CallView {
             return crate::mobile::call(self, app, ui);
         }
         self.shortcuts(app, ui);
-        call_top::show(self, ui, now);
+        call_top::show(self, app, ui, now);
         let stay = control_bar(self, app, ui);
         if let Some(panel) = self.panel {
             panels::show(self, ui, panel, now);
@@ -183,8 +201,8 @@ impl CallView {
 
     /// Your own tile follows the devices and the microphone level.
     fn sync_you(&mut self, app: &VeilApp) {
-        let speaking = app.media.mic_on()
-            && crate::engine::still_speaking(app.loud_at, Instant::now());
+        let speaking =
+            app.media.mic_on() && crate::engine::still_speaking(app.loud_at, Instant::now());
         if let Some(you) = self.call.you_mut() {
             you.muted = !app.media.mic_on();
             you.camera = app.media.camera_on();

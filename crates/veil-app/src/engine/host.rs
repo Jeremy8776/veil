@@ -55,7 +55,6 @@ use veil_security::{Identity, PublicId};
 
 mod forwarder_check;
 
-use forwarder_check::{checked_plan, finish_checked_plan, own_check};
 use super::pinhole::V6Port;
 use super::plan::{NetConfig, advertised, lan_ip, resolve};
 use super::reach::Reachability;
@@ -63,7 +62,9 @@ use super::router::{Event, PortStatus, Router};
 use super::session::{Pipes, Session};
 use super::view::{Knocker, Shared};
 use super::{Command, Ids, invites, short};
+use crate::diagnostics::{Problem, State, Step};
 use crate::model::{Action, CallStatus};
+use forwarder_check::{checked_plan, finish_checked_plan, own_check};
 
 pub async fn run(
     identity: Identity,
@@ -74,6 +75,10 @@ pub async fn run(
     mut commands: UnboundedReceiver<Command>,
 ) -> Result<(), String> {
     let config = config.enforce_policy();
+    if let Some(problem) = config.conflict() {
+        shared.diagnose(|d| d.set(Step::Socket, State::Failed(Problem::Settings)));
+        return Err(problem.into());
+    }
     let me = identity.public();
     // A fresh key's public half is 32 random-looking bytes; its first 16 make a room id.
     let room_id: [u8; 16] = Identity::generate().public().0[..16]
@@ -84,7 +89,14 @@ pub async fn run(
     } else {
         Node::bind_any(&identity, config.port)
     }
-    .map_err(|e| format!("Cannot open the network: {e}"))?;
+    .map_err(|e| {
+        shared.diagnose(|d| d.set(Step::Socket, State::Failed(Problem::net(&e))));
+        format!("Cannot open the network: {e}")
+    })?;
+    shared.diagnose(|d| {
+        d.set(Step::Socket, State::Passed);
+        d.set(Step::HostConnection, State::Skipped);
+    });
     node.set_local_only(config.local_only);
     let port = node.local_addr().map_err(|e| e.to_string())?.port();
     let lan = lan_ip();
@@ -100,7 +112,11 @@ pub async fn run(
     // A server set in Settings that cannot be found stops the call, as before, rather than
     // quietly hosting on this network only. Local only clears these first, so a local call
     // never waits on them.
-    let configured = resolve(config.rendezvous.as_ref(), "rendezvous").await?;
+    let configured = resolve(config.rendezvous.as_ref(), "rendezvous")
+        .await
+        .inspect_err(|_| {
+            shared.diagnose(|d| d.set(Step::Helper, State::Failed(Problem::HelperUnavailable)));
+        })?;
     // The public node's IPv6 address, for checking ours from outside.
     let configured6 = match (&config.rendezvous, v6) {
         (Some(node), Some(_)) => node.resolve_ipv6().await,
@@ -111,7 +127,13 @@ pub async fn run(
         None => own_server(lan, Own::Rendezvous, &identity, room_id, config.local_only)?,
     };
     let forwarder = match (
-        resolve(config.forwarder.as_ref(), "forwarder").await?,
+        resolve(config.forwarder.as_ref(), "forwarder")
+            .await
+            .inspect_err(|_| {
+                shared.diagnose(|d| {
+                    d.set(Step::Forwarder, State::Failed(Problem::HelperUnavailable))
+                });
+            })?,
         configured,
     ) {
         (Some(addr), _) => Some(addr),
@@ -126,7 +148,20 @@ pub async fn run(
     };
     let (host, mut events) = HostHandle::start(&identity, room_id).map_err(|e| e.to_string())?;
     let mut call = CallNode::start(&identity, node, room_id, Some(rendezvous), host.clone()).await;
+    shared.diagnose(|d| {
+        d.endpoint(true, rendezvous);
+        d.helper(call.has_rendezvous(), call.helper_issue(), true);
+        d.set(
+            Step::Hosting,
+            if call.has_rendezvous() {
+                State::Passed
+            } else {
+                State::Unchecked
+            },
+        );
+    });
     if configured.is_some() && call.rendezvous_refusal() == Some(Refusal::NotAllowed) {
+        shared.diagnose(|d| d.set(Step::Hosting, State::Failed(Problem::HostNotAllowed)));
         // A node that lets only chosen device keys host. Without it nobody could find the
         // call, so stop here and say what to do rather than run a call nobody can join.
         return Err(String::from(
@@ -237,7 +272,10 @@ pub async fn run(
             },
             event = events.recv() => match event {
                 None => break Err("The call stopped unexpectedly.".into()),
-                Some(HostEvent::Overloaded) => break Err("The call became too busy to keep up. Start a new call.".into()),
+                Some(HostEvent::Overloaded) => {
+                    shared.diagnose(|d| d.set(Step::Membership, State::Failed(Problem::Overloaded)));
+                    break Err("The call became too busy to keep up. Start a new call.".into());
+                },
                 Some(HostEvent::Knock(device)) => {
                     let id = session.ids.id(device);
                     knocks.push((id, device));
@@ -268,6 +306,7 @@ pub async fn run(
                     peer_addrs.remove(&device);
                 }
                 Some(HostEvent::Keys(keys)) => {
+                    shared.diagnose(|d| d.set(Step::Membership, State::Passed));
                     roster = keys.roster.clone();
                     session.on_keys(keys);
                     peer_addrs.retain(|device, _| roster.iter().any(|(_, d)| d == device));
@@ -314,6 +353,10 @@ pub async fn run(
                         crate::note!("rendezvous {rendezvous} answering again");
                     }
                     shared.update(|view| view.server_down = server_down);
+                    shared.diagnose(|d| {
+                        d.helper(!server_down, None, true);
+                        d.set(Step::Hosting, if server_down { State::Unchecked } else { State::Passed });
+                    });
                 }
                 finish_checked_plan(&mut pending_plan, &host, &mut session, &mut forwarded).await;
                 if replan {
@@ -419,7 +462,11 @@ async fn publish_addresses(host: &HostHandle, addrs: &[SocketAddr]) {
 /// Where guests reach the host's own helper. In a Local only call it listens on every
 /// interface, so its local scope addresses are listed too (IPv6-only LANs need them).
 /// Otherwise only the router's public mapping and the LAN address are given, as before.
-fn hosted_addresses(node: NodeAddr, public: Option<SocketAddr>, local_only: bool) -> Vec<SocketAddr> {
+fn hosted_addresses(
+    node: NodeAddr,
+    public: Option<SocketAddr>,
+    local_only: bool,
+) -> Vec<SocketAddr> {
     let extra = if local_only {
         veil_net::local::local_candidates(node.addr.port())
     } else {

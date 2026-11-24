@@ -92,9 +92,7 @@ pub(super) fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, 
             // is paused. Keep only the worker/selection so foreground preview can resume.
             drop(mic);
             shared.level.store(0, Ordering::Relaxed);
-            while !stop.load(Ordering::Relaxed)
-                && !veil_media::ffi::android::microphone_allowed()
-            {
+            while !stop.load(Ordering::Relaxed) && !veil_media::ffi::android::microphone_allowed() {
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
             if stop.load(Ordering::Relaxed) {
@@ -112,6 +110,7 @@ pub(super) fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, 
         }
         match mic.read() {
             Ok(frame) => {
+                *lock(&shared.microphone_at) = Some(std::time::Instant::now());
                 scaled.clear();
                 scaled.extend_from_slice(frame);
                 let mic_gain = shared.mic_gain.get();
