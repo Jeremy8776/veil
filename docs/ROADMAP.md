@@ -642,7 +642,7 @@ public beacon. The future host adapter reuses validation, not a second invitatio
 ### DIAG-01 Give people useful local connection evidence
 
 **Outcome:** A user can understand a failed or degraded call and choose what evidence to share.
-**Status:** Logs, connection checks and route statistics exist; a unified call diagnosis remains.
+**Status:** Local call/check diagnosis and previewed redacted export implemented in private `codex/diag-01`; final native UI/device acceptance remains open (see [diagnostics](DIAGNOSTICS.md)).
 **Target:** 0.2.0. **Depends on:** BASE-01.
 
 Distinguish reachable helper, permission to host, invitation retrieval, admission, membership
