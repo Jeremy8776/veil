@@ -67,9 +67,10 @@ scope interface addresses (private and link-local IPv4, unique local and link-lo
 to the host. In any other call members report none, and the host ignores any it gets:
 those members may be across the internet, and a full address list fingerprints a machine
 (a link-local IPv6 address can carry the network card's MAC address). The host keeps
-a public address only when it is the one the member's link comes from, and passes the hints
-to other current members in signed mesh plans. Members on the same network can therefore
-see each other's local addresses, including virtual adapters in those ranges. Invitations
+a connection hint only when its IP and port match the authenticated member's observed
+endpoint, and passes that endpoint to current members in signed mesh plans. Other interface
+addresses need separate ownership verification before they can be shared automatically.
+Members on the same network can therefore see each other's authenticated local endpoint. Invitations
 outside Local only list the configured, public IPv6 and main LAN address, as before.
 No company service or central directory is introduced by these changes. Host-control
 recovery retains only a bounded, in-memory commit journal; it does not persist call history.
@@ -95,7 +96,7 @@ see this:
 | Party | Sees |
 |---|---|
 | The network | Which addresses talk to which, when, and how much |
-| Rendezvous node | Members' IP addresses, a hash of the room id, when people join. Each member with IPv6 also tells it its public IPv6 address, so other members can be introduced to it and dial it over IPv6. When a host with a configured `veil-node` has a public port (opened on the router, or set by hand), the node also learns that port: it dials the host back once, from a separate port with a throwaway key, to check guests can reach it. It dials only the asker's own IP. If that node has an IPv6 address too, it does the same for the host's public IPv6 address. While a host's room is open, the node also stores its sealed invites for short links, and sees when each is stored and which IP addresses fetch one. It cannot read them |
+| Rendezvous node | Members' IP addresses, a hash of the room id, when people join. Registrations may include IPv6 hints; introductions use only the authenticated connection's observed endpoint, in either address family. When a host with a configured `veil-node` has a public port (opened on the router, or set by hand), the node also learns that port: it dials the host back once, from a separate port with a throwaway key, to check guests can reach it. It dials only the asker's own IP. If that node has an IPv6 address too, it does the same for the host's public IPv6 address. While a host's room is open, the node also stores its sealed invites for short links, and sees when each is stored and which IP addresses fetch one. It cannot read them |
 | Relay | Members' IP addresses, encrypted traffic volume and timing |
 | Forwarder | Members' device keys and the room hash (from the host's roster ticket), traffic volume and timing, and each video frame's layer marker: which resolution tier and frame-rate step it is, and whether it is a keyframe. Names and chat pass through it sealed: it sees when one is sent and how large it is, not who sent it or what it says |
 | Other members | Your device key, the display name you chose, your chat messages and reactions, and your IP addresses (IPv4 and, if you have one, your public IPv6 address) unless you use relay-only mode ("Hide my address" in Settings > Connection, off by default). It applies only when you join: a host's invite always carries the host's addresses, and the relay still sees yours. Chat and reactions are not stored: they are gone when the call ends |
@@ -127,10 +128,44 @@ introduction or a relay session goes to the member first, and the member's app a
 if its current routes expect the one asking (the host agrees to anyone holding the invite).
 A relay-only member never agrees to an introduction. A member dials back only for an
 introduction it has just agreed to, at most once every 10 seconds for each peer and 16 times
-every 10 seconds in all. A dial-back goes to the addresses that peer listed at the rendezvous,
-which the rendezvous does not check.
+every 10 seconds in all. An honest rendezvous introduces only the endpoint it observes on
+the peer's authenticated connection. Extra interface hints are ignored until independently
+verified. In the private local TRUST-02 candidate, automatic punching accepts only an exact
+endpoint that THIS node authenticated as the named peer within the last 60 seconds. The
+evidence is capped at 256 peers and is not shared with other nodes or virtual relay sockets.
+Unverified invitation fetches do not add it. A helper supplies timing, not permission to dial
+a new address. Unknown reflected endpoints fall back to the chosen relay; fresh NAT punching
+based only on a helper's observation is therefore unavailable in this candidate. Explicit
+invitation/host-signed route targets remain separate authority for ordinary direct dials.
+Recent evidence does not guarantee current reachability or prevent address reassignment.
 The asker gets the same silence whether the member declines or is not there, so the
 rendezvous never says who is online.
+
+The private candidate scopes registration cleanup to its room and binds relay traffic to the
+exact registered connection. Revoking a registration closes it; host departure ends that
+room's registrations, requests, sessions and stored invitations. Other rooms retain their
+state. Resource quotas remain shared across the server and, where stated, across an identity.
+
+Hide my address currently supports relay-carried mesh media. Forwarder checks and transitions
+are refused in that mode because the forwarding path would connect directly to the proposed
+helper. The private local candidate requires every current member to check a forwarder,
+returns to mesh on each membership/address change and checks newcomers before switching
+again. Any refusal or timeout keeps mesh. Mixed routes and measured large-mesh capacity
+remain future work. This restriction also applies to signed proposals and recovery attempts.
+
+The private local candidate bounds host/member application events to 64 pending records plus
+one reserved terminal record. Falling behind ends the session with an explicit overload
+event; it never silently drops membership changes or waits indefinitely on the consumer.
+Dropping the event receiver also stops the session. Guest link-up holding has separate caps
+of 64 events and 64 validated chat/reaction actions; terminal events still interrupt it.
+Decoder keyframe feedback has a 64-record queue; saturation permits a later frame to retry
+instead of blocking the decoder or permanently losing its request.
+These limits do not complete the planned SDK command, byte-budget and capture-teardown contract.
+
+Relay packet streams have at most 16 workers per link and a two-second deadline. Cancelling
+their receiver stops the in-flight workers. Forwarder shutdown closes its endpoint and stops
+its member workers. These limits bound retained work; they do not guarantee availability
+against a network or CPU flood.
 
 A relay limits who can hold its relay sessions. Two members hold at most 4 together, and one
 IPv4 address or IPv6 /64 holds at most 128. A session unused for 30 seconds can be taken back,

@@ -21,6 +21,7 @@ use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 use veil_security::PublicId;
+use crate::room::RoomKey;
 
 pub const MAX_SESSIONS: usize = 4_096;
 /// Relay sessions one member may hold. A call has at most 16 members.
@@ -41,6 +42,7 @@ pub(crate) struct End<T> {
 }
 
 struct Session<T> {
+    room: RoomKey,
     a: End<T>,
     b: End<T>,
     last_used: Instant,
@@ -152,7 +154,7 @@ impl<T> Sessions<T> {
     }
 
     /// Opens a session, or returns `None` if a limit refuses it.
-    pub(crate) fn open(&mut self, a: End<T>, b: End<T>, now: Instant) -> Option<u32> {
+    pub(crate) fn open(&mut self, room: RoomKey, a: End<T>, b: End<T>, now: Instant) -> Option<u32> {
         self.replace_in_pair(a.key, b.key);
         if self.member_full(a.key, now)
             || self.member_full(b.key, now)
@@ -168,22 +170,41 @@ impl<T> Sessions<T> {
             id = id.wrapping_add(1);
         }
         self.next = id.wrapping_add(1);
-        self.map.insert(id, Session { a, b, last_used: now });
+        self.map.insert(id, Session { room, a, b, last_used: now });
         Some(id)
     }
 
     /// Where a packet from `from` goes. Counts as use of the session.
-    pub(crate) fn route(&mut self, id: u32, from: PublicId, now: Instant) -> Option<&T> {
+    pub(crate) fn route_from(
+        &mut self, id: u32, from: PublicId, now: Instant,
+        owns_registration: impl FnOnce(&T) -> bool,
+    ) -> Option<&T> {
         let session = self.map.get_mut(&id)?;
-        if !session.involves(from) {
+        let origin = if session.a.key == from {
+            &session.a.to
+        } else if session.b.key == from {
+            &session.b.to
+        } else {
+            return None;
+        };
+        if !owns_registration(origin) {
             return None;
         }
         session.last_used = now;
         session.other(from)
     }
 
-    pub(crate) fn forget(&mut self, key: PublicId) {
-        self.map.retain(|_, s| !s.involves(key));
+    pub(crate) fn forget(&mut self, room: RoomKey, key: PublicId) {
+        self.map.retain(|_, s| s.room != room || !s.involves(key));
+    }
+
+    pub(crate) fn forget_room(&mut self, room: RoomKey) {
+        self.map.retain(|_, s| s.room != room);
+    }
+
+    #[cfg(test)]
+    fn route(&mut self, id: u32, from: PublicId, now: Instant) -> Option<&T> {
+        self.route_from(id, from, now, |_| true)
     }
 }
 
@@ -211,7 +232,7 @@ mod tests {
     fn fill(t: &mut Sessions<char>, first_key: u32, b: u32, count: usize, now: Instant) {
         for i in 0..u32::try_from(count).unwrap() {
             let k = first_key + i * 2;
-            t.open(end(k, b), end(k + 1, b), now).unwrap();
+            t.open(([1; 32], key(0)), end(k, b), end(k + 1, b), now).unwrap();
         }
     }
 
@@ -221,7 +242,7 @@ mod tests {
         let mut t = Sessions::default();
         let a = End { key: key(1), block: block(1), to: 'A' };
         let b = End { key: key(2), block: block(2), to: 'B' };
-        let id = t.open(a, b, now).unwrap();
+        let id = t.open(([1; 32], key(0)), a, b, now).unwrap();
         assert_eq!(t.route(id, key(1), now), Some(&'B'));
         assert_eq!(t.route(id, key(2), now), Some(&'A'));
         assert_eq!(t.route(id, key(3), now), None);
@@ -238,14 +259,14 @@ mod tests {
         let start = Instant::now();
         let at = |secs| start + Duration::from_secs(secs);
         let mut t = Sessions::default();
-        let other_pair = t.open(end(1, 1), end(3, 3), start).unwrap();
-        let first = t.open(end(1, 1), end(2, 2), at(1)).unwrap();
-        let second = t.open(end(2, 2), end(1, 1), at(2)).unwrap();
-        t.open(end(1, 1), end(2, 2), at(3)).unwrap();
-        t.open(end(1, 1), end(2, 2), at(4)).unwrap();
+        let other_pair = t.open(([1; 32], key(0)), end(1, 1), end(3, 3), start).unwrap();
+        let first = t.open(([1; 32], key(0)), end(1, 1), end(2, 2), at(1)).unwrap();
+        let second = t.open(([1; 32], key(0)), end(2, 2), end(1, 1), at(2)).unwrap();
+        t.open(([1; 32], key(0)), end(1, 1), end(2, 2), at(3)).unwrap();
+        t.open(([1; 32], key(0)), end(1, 1), end(2, 2), at(4)).unwrap();
         assert!(t.route(first, key(1), at(5)).is_some(), "still carrying a link");
 
-        t.open(end(1, 1), end(2, 2), at(6)).unwrap();
+        t.open(([1; 32], key(0)), end(1, 1), end(2, 2), at(6)).unwrap();
         assert!(t.route(second, key(1), at(6)).is_none());
         assert!(t.route(first, key(1), at(6)).is_some());
         assert!(t.route(other_pair, key(1), at(6)).is_some());
@@ -256,9 +277,9 @@ mod tests {
         let now = Instant::now();
         let mut t = Sessions::default();
         fill(&mut t, 0, 1, MAX_SESSIONS_PER_BLOCK, now);
-        assert!(t.open(end(900_000, 1), end(900_001, 1), now).is_none());
-        assert!(t.open(end(900_000, 1), end(900_001, 2), now).is_none());
-        assert!(t.open(end(900_000, 2), end(900_001, 2), now).is_some());
+        assert!(t.open(([1; 32], key(0)), end(900_000, 1), end(900_001, 1), now).is_none());
+        assert!(t.open(([1; 32], key(0)), end(900_000, 1), end(900_001, 2), now).is_none());
+        assert!(t.open(([1; 32], key(0)), end(900_000, 2), end(900_001, 2), now).is_some());
     }
 
     #[test]
@@ -267,7 +288,7 @@ mod tests {
         let mut t = Sessions::default();
         for a in 0..16 {
             for b in (a + 1)..16 {
-                t.open(end(a, 1), end(b, 1), now).unwrap();
+                t.open(([1; 32], key(0)), end(a, 1), end(b, 1), now).unwrap();
             }
         }
         assert_eq!(t.count_in(block(1)), 120);
@@ -281,7 +302,7 @@ mod tests {
         let later = start + SESSION_IDLE;
         let kept = 0;
         assert!(t.route(kept, key(0), later - Duration::from_secs(1)).is_some());
-        t.open(end(900_000, 1), end(900_001, 1), later).unwrap();
+        t.open(([1; 32], key(0)), end(900_000, 1), end(900_001, 1), later).unwrap();
         assert_eq!(t.count_in(block(1)), 2);
         assert!(t.route(kept, key(0), later).is_some());
     }
@@ -291,7 +312,7 @@ mod tests {
         let start = Instant::now();
         let mut t = Sessions::default();
         for i in 1..=u32::try_from(MAX_SESSIONS_PER_MEMBER).unwrap() {
-            t.open(end(0, 1), end(i, 2), start).unwrap();
+            t.open(([1; 32], key(0)), end(0, 1), end(i, 2), start).unwrap();
         }
         assert!(t.member_full(key(0), start));
         assert!(!t.member_full(key(0), start + SESSION_IDLE));
@@ -310,7 +331,7 @@ mod tests {
         let free = MAX_SESSIONS - t.map.len();
         fill(&mut t, 900_000, 100, free, now);
         assert_eq!(t.map.len(), MAX_SESSIONS);
-        let newcomer = t.open(end(990_000, 200), end(990_001, 200), now).unwrap();
+        let newcomer = t.open(([1; 32], key(0)), end(990_000, 200), end(990_001, 200), now).unwrap();
         assert_eq!(t.map.len(), MAX_SESSIONS);
         assert!(t.route(newcomer, key(990_000), now).is_some());
         assert_eq!(t.count_in(block(1)), MAX_SESSIONS_PER_BLOCK - 1);
@@ -327,7 +348,7 @@ mod tests {
         }
         let free = MAX_SESSIONS - t.map.len();
         fill(&mut t, 900_000, 100, free, now);
-        assert!(t.open(end(990_000, 2), end(990_001, 2), now).is_none());
+        assert!(t.open(([1; 32], key(0)), end(990_000, 2), end(990_001, 2), now).is_none());
         assert_eq!(t.map.len(), MAX_SESSIONS);
     }
 }

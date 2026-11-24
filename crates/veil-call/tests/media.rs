@@ -6,7 +6,7 @@
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::Receiver;
 use veil_call::{
     AppMessage, CallError, CallNode, Directory, EpochKeys, HostEvent, HostHandle, KeyRing,
     LinkEvent, Media, MediaSession, MemberEvent, MemberHandle, Path, Peer, Routes, join,
@@ -69,13 +69,13 @@ struct Party {
 
 struct Call {
     host: HostHandle,
-    events: UnboundedReceiver<HostEvent>,
+    events: Receiver<HostEvent>,
     addr: SocketAddr,
     relay: Option<NodeAddr>,
     parties: Vec<Party>,
 }
 
-async fn next_host_keys(events: &mut UnboundedReceiver<HostEvent>) -> EpochKeys {
+async fn next_host_keys(events: &mut Receiver<HostEvent>) -> EpochKeys {
     loop {
         match within(events.recv()).await.unwrap() {
             HostEvent::Keys(keys) => return keys,
@@ -278,6 +278,50 @@ impl Call {
     }
 }
 
+/// An authenticated host can still outpace an application event consumer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn repeated_signed_plans_cannot_grow_a_slow_members_event_queue() {
+    let mut call = Call::start(None).await;
+    call.admit_direct().await;
+    for _ in 0..=veil_call::EVENT_BACKLOG {
+        within(call.host.publish_plan(call.plan(false), call.directory(0, None))).await.unwrap();
+    }
+    let member = call.parties[1].member.as_mut().unwrap();
+    within(member.link().quic().closed()).await;
+    assert_eq!(member.events.len(), veil_call::EVENT_BACKLOG + 1);
+    for _ in 0..veil_call::EVENT_BACKLOG {
+        assert!(matches!(member.events.recv().await, Some(MemberEvent::Routes(_))));
+    }
+    assert!(matches!(member.events.recv().await, Some(MemberEvent::Overloaded)));
+    assert!(member.events.recv().await.is_none());
+}
+
+/// A correctly signed host proposal still has to satisfy the member's privacy policy.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn relay_only_member_refuses_signed_forwarder_probes_without_direct_traffic() {
+    let relay = start_rendezvous();
+    let mut call = Call::start(Some(relay)).await;
+    let invite = call.invite(vec![call.addr.to_string()]).await;
+    assert_eq!(call.admit(invite, true).await, Path::Relayed);
+    let sink = tokio::net::UdpSocket::bind(localhost()).await.unwrap();
+    let target = NodeAddr { key: Identity::generate().public(), addr: sink.local_addr().unwrap() };
+    let plan = call.plan(true);
+    let directory = call.directory(0, Some(target));
+    call.host.probe_plan(plan, directory, 42).await.unwrap();
+    let mut bytes = [0u8; 2048];
+    let answer = async {
+        loop {
+            if let HostEvent::PlanChecked { request: 42, ok, .. } = call.events.recv().await.unwrap() {
+                return ok;
+            }
+        }
+    };
+    tokio::select! {
+        ok = within(answer) => assert!(!ok, "a direct forwarding path cannot satisfy relay-only privacy"),
+        _ = sink.recv_from(&mut bytes) => panic!("a signed proposal bypassed relay-only privacy"),
+    }
+}
+
 /// Sends one sealed video frame from `from` and checks every other party opens it.
 async fn frame_reaches_everyone(call: &mut Call, sessions: &mut [MediaSession], from: usize) {
     let body = format!("frame from party {from}").into_bytes();
@@ -302,7 +346,7 @@ async fn frame_reaches_everyone(call: &mut Call, sessions: &mut [MediaSession], 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn mesh_call_punches_links_and_every_member_opens_each_frame() {
+async fn mesh_call_relays_unknown_endpoints_and_every_member_opens_each_frame() {
     let mut call = Call::start(Some(start_rendezvous())).await;
     call.admit_direct().await;
     call.admit_direct().await;
@@ -310,13 +354,14 @@ async fn mesh_call_punches_links_and_every_member_opens_each_frame() {
     for media in &sessions {
         let paths = media.paths();
         assert_eq!(paths.len(), 2, "a link to each other member");
-        // No addresses were in the directory, so leaders reached peers by punching.
+        // No independent endpoint evidence exists between guests: use the chosen relay.
         assert!(
             paths
                 .iter()
-                .all(|(_, p)| matches!(p, Path::Punched | Path::Direct))
+                .all(|(_, p)| matches!(p, Path::Punched | Path::Direct | Path::Relayed))
         );
     }
+    assert!(sessions.iter().any(|s| s.paths().iter().any(|(_, p)| *p == Path::Relayed)));
     for from in 0..3 {
         frame_reaches_everyone(&mut call, &mut sessions, from).await;
     }

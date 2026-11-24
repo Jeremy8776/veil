@@ -27,9 +27,9 @@ pub fn room_tag(room_id: &[u8; 16]) -> [u8; 32] {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ClientMsg {
-    /// Join a room's directory with the addresses this node can also be dialled at (its
-    /// public IPv6 address, from a dual-stack socket; see `veil_net::family`). Introductions
-    /// pass them on after the address the server sees, and dialling tries IPv6 first. A room is
+    /// Join a room's directory. `local_addrs` is retained for wire compatibility; the server
+    /// introduces only the authenticated connection's observed endpoint. Additional interface
+    /// addresses require independent ownership verification. A room is
     /// named by its tag and its host's key. The host registers with its own key and no pass;
     /// anyone else must be on the host's allow list, or show a lobby pass the host opened.
     Register {

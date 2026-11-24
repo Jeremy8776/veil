@@ -79,7 +79,9 @@ impl Room {
             .map(|(device, _)| *device)
             .collect();
         for device in &dropped {
-            self.members.remove(device);
+            if let Some(member) = self.members.remove(device) {
+                member.conn.close(0u32.into(), b"registration revoked");
+            }
         }
         dropped
     }

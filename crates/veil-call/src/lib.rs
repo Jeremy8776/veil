@@ -30,6 +30,7 @@ pub mod app_msg;
 pub mod call_plan;
 mod dial;
 mod dial_back;
+mod events;
 pub mod host;
 mod inbound;
 pub mod keyring;
@@ -51,6 +52,7 @@ use veil_security::frame::{FrameReceiver, FrameSender};
 
 pub use app_msg::{AppError, AppMessage};
 pub use call_plan::{CallPlan, Layout};
+pub use events::EVENT_BACKLOG;
 pub use host::{Allowed, HostEvent, HostHandle};
 pub use keyring::KeyRing;
 pub use media::{Incoming, LinkEvent, LinkStats, Media, MediaSession, SEND_DEADLINE};

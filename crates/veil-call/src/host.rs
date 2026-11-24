@@ -33,6 +33,7 @@ use veil_security::{Identity, PublicId};
 use veil_topology::Plan;
 
 use crate::inbound::Inbound;
+use crate::events::EventSender;
 use crate::routes::{Directory, Routes};
 use crate::{CallError, CallPlan, EpochKeys, now_unix};
 
@@ -62,6 +63,9 @@ pub struct Allowed {
 
 #[derive(Debug)]
 pub enum HostEvent {
+    /// The application fell behind the bounded event queue. The entire call has stopped;
+    /// no membership/key events were silently skipped. Start a new call.
+    Overloaded,
     /// A joiner with a valid token is waiting. Answer with [`HostHandle::decide`].
     Knock(PublicId),
     Joined {
@@ -133,15 +137,15 @@ pub struct HostHandle {
 impl HostHandle {
     /// Creates the call's group and starts the session. The first event is the epoch 0 keys.
     /// Must be called inside a Tokio runtime.
-    // shortcut: events are unbounded so a busy app can never stall the actor while the actor
-    // waits on the app. Bound it once the app has a dedicated event reader.
+    /// Events are bounded by [`crate::EVENT_BACKLOG`]. A slow consumer ends the call with
+    /// [`HostEvent::Overloaded`]; dropping the receiver also stops the actor.
     pub fn start(
         identity: &Identity,
         room_id: [u8; 16],
-    ) -> Result<(Self, mpsc::UnboundedReceiver<HostEvent>), CallError> {
+    ) -> Result<(Self, mpsc::Receiver<HostEvent>), CallError> {
         let group = Group::create(identity, room_id)?;
-        let (events, events_rx) = mpsc::unbounded_channel();
-        let _ = events.send(HostEvent::Keys(EpochKeys::from_group(&group)?));
+        let (events, events_rx) = EventSender::channel();
+        events.emit(HostEvent::Keys(EpochKeys::from_group(&group)?));
         let (commands, commands_rx) = mpsc::channel(COMMANDS);
         let (internal, internal_rx) = mpsc::channel(COMMANDS);
         let (allowed_tx, allowed) = watch::channel(Allowed::default());
@@ -266,7 +270,7 @@ struct Actor {
     group: Group,
     lobby: Lobby,
     links: HashMap<PublicId, (u64, mpsc::Sender<Control>)>,
-    events: mpsc::UnboundedSender<HostEvent>,
+    events: EventSender<HostEvent>,
     internal: mpsc::Sender<Internal>,
     next_link: u64,
     allowed: watch::Sender<Allowed>,
@@ -292,6 +296,7 @@ impl Actor {
         expiry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
+                () = self.events.closed() => break,
                 _ = expiry.tick() => {
                     self.expire_recovery();
                     self.flush_hints();
@@ -303,9 +308,19 @@ impl Actor {
                 },
                 Some(event) = internal.recv() => self.internal(event),
             }
+            if self.events.is_stopped() {
+                break;
+            }
             self.remove_cut_off();
+            if self.events.is_stopped() {
+                break;
+            }
             self.publish_allowed();
         }
+        if self.events.is_stopped() {
+            self.events.finish(HostEvent::Overloaded);
+        }
+        self.allowed.send_replace(Allowed::default());
         // Reliable explicit goodbye is delivered before stream closure. A stream FIN alone
         // is indistinguishable from a transport interruption to the recovering member.
         for device in self.others() {
@@ -333,7 +348,7 @@ impl Actor {
     }
 
     fn emit(&self, event: HostEvent) {
-        let _ = self.events.send(event);
+        self.events.emit(event);
     }
 
     fn emit_keys(&self) {

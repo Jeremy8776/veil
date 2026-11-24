@@ -13,6 +13,8 @@
 //! - Links from losing paths never open a control stream, and dropping them closes them, so
 //!   the peer routes only the winner.
 //! - A relay-only node uses only the relay, so the peer never learns its address.
+//! - Automatic punch targets must have authenticated on this node in the last 60 seconds.
+//!   Unknown helper-reflected endpoints fall back to relay, without a first probe packet.
 //!
 //! shortcut: a link stays on the path it started on, so a slow direct path that would have
 //! worked after [`RELAY_AFTER`] loses to the relay for that link. Move media to a better path
@@ -73,7 +75,9 @@ pub(crate) async fn dial(
         return relayed.await;
     }
     let punched = async {
-        let plan = presence.introduce(peer).await?;
+        let mut plan = presence.introduce(peer).await?;
+        plan.addrs.retain(|addr| node.authenticated_at(peer, *addr));
+        if plan.addrs.is_empty() { return Err(NetError::NoAddresses.into()); }
         let link = punch(node, &plan).await?;
         Ok(Dialled { link, via: None, path: Path::Punched })
     };

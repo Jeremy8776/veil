@@ -25,6 +25,7 @@
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -97,6 +98,7 @@ fn transport(initial_mtu: u16) -> Result<Arc<TransportConfig>, NetError> {
 /// A bound endpoint for one device identity. Must be created inside a Tokio runtime.
 /// Incoming handshakes run on their own tasks, with limits (`accept.rs`).
 pub struct Node {
+    known_paths: Mutex<crate::known_paths::KnownPaths>,
     endpoint: quinn::Endpoint,
     key: Arc<CertifiedKey>,
     id: PublicId,
@@ -202,6 +204,7 @@ impl Node {
             }
         });
         Self {
+            known_paths: Mutex::default(),
             endpoint,
             key,
             id,
@@ -296,6 +299,7 @@ impl Node {
             // cannot silently drop the pin.
             return Err(NetError::Identity);
         }
+        self.remember(&link);
         Ok(link)
     }
 
@@ -364,7 +368,24 @@ impl Node {
     /// Waits for the next link whose handshake finished. `None` once the endpoint is closed.
     /// Failed handshakes are dropped by the accept task, so every item is `Ok`.
     pub async fn accept(&self) -> Option<Result<Link, NetError>> {
-        self.ready.lock().await.recv().await.map(Ok)
+        let link = self.ready.lock().await.recv().await?;
+        self.remember(&link);
+        Some(Ok(link))
+    }
+
+    fn remember(&self, link: &Link) {
+        if let Ok(mut paths) = self.known_paths.lock() {
+            paths.record(link.peer(), link.remote_addr(), std::time::Instant::now());
+        }
+    }
+
+    /// Whether this exact endpoint authenticated as `peer` on THIS node in the last 60s.
+    /// Used to constrain automatic helper notices before any dial sends a packet. It is
+    /// bounded historical evidence, not membership, current reachability or device trust.
+    /// Unverified outgoing connections never populate it; relayed virtual nodes are separate.
+    pub fn authenticated_at(&self, peer: PublicId, addr: SocketAddr) -> bool {
+        self.known_paths.lock().is_ok_and(|paths|
+            paths.contains(peer, addr, std::time::Instant::now()))
     }
 
     /// Takes no more incoming links, and closes any not yet returned by [`Self::accept`]. Links

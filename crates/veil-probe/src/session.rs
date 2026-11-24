@@ -161,7 +161,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use tokio::sync::mpsc::UnboundedReceiver;
+    use tokio::sync::mpsc::Receiver;
     use veil_call::{CallNode, HostEvent, HostHandle, MemberEvent, join};
     use veil_net::{Node, NodeAddr};
     use veil_rendezvous::RendezvousServer;
@@ -191,7 +191,7 @@ mod tests {
             .as_secs()
     }
 
-    async fn host_keys(events: &mut UnboundedReceiver<HostEvent>) -> EpochKeys {
+    async fn host_keys(events: &mut Receiver<HostEvent>) -> EpochKeys {
         loop {
             match within(events.recv()).await.unwrap() {
                 HostEvent::Keys(keys) => return keys,
@@ -201,6 +201,7 @@ mod tests {
                 | HostEvent::Addresses { .. }
                 | HostEvent::PlanChecked { .. }
                 | HostEvent::Refused(..) => {}
+                HostEvent::Overloaded => panic!("host event queue overloaded"),
                 HostEvent::Error(e) => panic!("host error: {e}"),
             }
         }

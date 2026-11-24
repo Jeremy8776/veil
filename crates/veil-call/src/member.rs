@@ -11,6 +11,7 @@ use veil_net::control::Control;
 use veil_net::{FramedRecv, FramedSend, Link, Node};
 use veil_security::invite::Invite;
 
+use crate::events::EventSender;
 use crate::node::{CallNode, Path};
 use crate::routes::Routes;
 use crate::{CallError, CallPlan, EpochKeys};
@@ -22,6 +23,9 @@ const STEP: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 pub enum MemberEvent {
+    /// The application fell behind the bounded event queue. This session has stopped.
+    /// Rejoin with a fresh invitation; no keys or membership changes were silently skipped.
+    Overloaded,
     /// A new epoch started. Replace the media pipeline's frame keys.
     Keys(EpochKeys),
     /// The host's layout for the current epoch. Apply it to the media session.
@@ -45,7 +49,8 @@ pub enum MemberEvent {
 
 /// A joined member's session. Dropping it leaves the call.
 pub struct MemberHandle {
-    pub events: mpsc::UnboundedReceiver<MemberEvent>,
+    /// Ordered, bounded events; dropping the receiver stops control processing.
+    pub events: mpsc::Receiver<MemberEvent>,
     current: watch::Receiver<(Arc<Link>, Path)>,
     task: JoinHandle<()>,
 }
@@ -129,8 +134,8 @@ pub async fn join_with(
     let mut candidates = own_hints(&node, relay_only);
     out.send(&Control::Addresses(candidates.clone())).await?;
 
-    let (events, events_rx) = mpsc::unbounded_channel();
-    let _ = events.send(MemberEvent::Keys(EpochKeys::from_group(&group)?));
+    let (events, events_rx) = EventSender::channel();
+    events.emit(MemberEvent::Keys(EpochKeys::from_group(&group)?));
     let (current, current_rx) = watch::channel((link.clone(), path));
     let task = tokio::spawn(async move {
         let mut live = link;
@@ -143,11 +148,12 @@ pub async fn join_with(
         let mut probe: Option<Reader> = None;
         let ending = loop {
             let message = tokio::select! {
+                () = events.closed() => break MemberEvent::Closed,
                 message = inbox.recv() => match message {
                     Some(message) => message,
                     None => {
                         if live.peer_closed_with("bye") { break MemberEvent::Closed; }
-                        let _ = events.send(MemberEvent::Reconnecting);
+                        if !events.emit(MemberEvent::Reconnecting) { break MemberEvent::Overloaded; }
                         drop(probe.take());
                         while checks.try_recv().is_ok() {}
                         let before = group.epoch();
@@ -162,7 +168,7 @@ pub async fn join_with(
                                 let _ = current.send((live.clone(), dialled.path));
                                 if group.epoch() != before {
                                     match EpochKeys::from_group(&group) {
-                                        Ok(keys) => { let _ = events.send(MemberEvent::Keys(keys)); }
+                                        Ok(keys) => { if !events.emit(MemberEvent::Keys(keys)) { break MemberEvent::Overloaded; } }
                                         Err(e) => break MemberEvent::Failed(e),
                                     }
                                 }
@@ -173,7 +179,7 @@ pub async fn join_with(
                                     live.close("control recovery failed");
                                     continue;
                                 }
-                                let _ = events.send(MemberEvent::Reconnected);
+                                if !events.emit(MemberEvent::Reconnected) { break MemberEvent::Overloaded; }
                                 continue;
                             }
                             Err(CallError::Group(e)) => break MemberEvent::Failed(e),
@@ -209,7 +215,7 @@ pub async fn join_with(
                     let (node, checked, epoch) = (node.clone(), checked.clone(), group.epoch());
                     probe = Some(Reader(tokio::spawn(async move {
                         let ok = match routes {
-                            Ok(Routes::Forwarder { addr, ticket }) => {
+                            Ok(Routes::Forwarder { addr, ticket }) if !relay_only => {
                                 matches!(
                                     tokio::time::timeout(
                                         Duration::from_secs(8),
@@ -224,6 +230,7 @@ pub async fn join_with(
                                     Ok(Ok(()))
                                 )
                             }
+                            Ok(Routes::Forwarder { .. }) => false,
                             Ok(Routes::Mesh { .. }) => true,
                             Err(_) => false,
                         };
@@ -233,7 +240,7 @@ pub async fn join_with(
                 Control::Commit(commit) => match group.apply(&commit) {
                     Ok(Applied::NewEpoch(_)) => match EpochKeys::from_group(&group) {
                         Ok(keys) => {
-                            let _ = events.send(MemberEvent::Keys(keys));
+                            if !events.emit(MemberEvent::Keys(keys)) { break MemberEvent::Overloaded; }
                         }
                         Err(e) => break MemberEvent::Failed(e),
                     },
@@ -250,7 +257,7 @@ pub async fn join_with(
                     {
                         addrs = peer.addrs.clone();
                     }
-                    let _ = events.send(event);
+                    if !events.emit(event) { break MemberEvent::Overloaded; }
                 }
                 Control::Addresses(next) => {
                     // This stream is pinned to the host. Never learn addresses from any
@@ -267,7 +274,8 @@ pub async fn join_with(
         };
         drop(probe);
         drop(reader);
-        let _ = events.send(ending);
+        live.close("left");
+        events.finish(ending);
     });
     Ok(MemberHandle {
         events: events_rx,

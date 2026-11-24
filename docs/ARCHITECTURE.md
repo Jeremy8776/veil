@@ -275,6 +275,9 @@ The host distributes a signed plan after each MLS epoch. Direct links begin at o
 hole-punch attempts after one second and relayed attempts after five, or sooner if earlier
 paths fail. A relay-only joiner uses only the relay. IPv6 candidates begin first, with
 IPv4 following after 250 ms. Forwarder connections currently have no relay fallback.
+The private TRUST-02 candidate limits automatic punching to exact peer endpoints authenticated
+on the same node within the last 60 seconds. A fresh helper-only endpoint uses the chosen
+relay instead; the helper's reflection is not treated as independent endpoint ownership proof.
 
 A missing media link is redialled on the session tick by the designated side, with waits
 of 1, 2, 4, 8 and then 16 seconds after failures. A result is adopted only while its target

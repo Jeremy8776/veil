@@ -21,11 +21,11 @@ Every row below starts under `crates/veil-app/src/engine/`.
 
 | Module | Current coupling / responsibility | Destination or interface |
 |---|---|---|
-| `mod.rs` | Own Tokio runtime; egui Context; model Action/Call/CallStatus; KeyStore, Worker, Playback and DataUseCell; unbounded command/keyframe channels | `veil-engine` lifecycle/actor; toolkit-free handles/types and bounded queues; platform/storage adapters |
+| `mod.rs` | Own Tokio runtime; egui Context; model Action/Call/CallStatus; KeyStore, Worker, Playback and DataUseCell; unbounded UI command channel, bounded decoder keyframe feedback | `veil-engine` lifecycle/actor; toolkit-free handles/types and bounded queues; platform/storage adapters |
 | `view.rs` | Shared view, received pictures/chat, stats and tiles; egui repaint; UI participant/lobby models, Rgba and app locking helper | Versioned engine snapshots, bounded events/media sinks; UI mapping and repaint stay in app |
 | `host.rs` | Host actor, lobby decisions, local helper roles, invitations, planning; app Action/CallStatus and `nearby::advertise(Shared)` | Engine host coordinator with scoped discovery lease and typed membership/lobby requests |
 | `host/forwarder_check.rs` | Forwarder readiness/proposal/activation through parent host types and Shared | Engine topology coordination; retain honest partial-reach reporting, future GROUP-01 decision |
-| `guest.rs` | Invite fetch/resolve/join/recovery; app Action/CallStatus; unbounded command/event holding during linking | Engine guest coordinator; cancellation at every await and bounded deferred events |
+| `guest.rs` | Invite fetch/resolve/join/recovery; app Action/CallStatus; private local candidate caps link-up holding at 64 events and 64 validated chat/reaction actions; UI command channel remains unbounded | Engine guest coordinator; cancellation at every await, bounded commands and deferred byte/age budgets |
 | `session.rs` | Epoch keys, sealing/opening, subscriptions, app messages and media routing; DataUseCell, model types and Shared | Engine protocol/media coordinator; secrets stay private; bounded event/sink interfaces |
 | `video_out.rs` | Encoders, shared media Worker/lock, DataUse and captured buffers | Engine encoder worker using bounded source lease and toolkit-free media policy |
 | `video_in.rs` | Decode gate, frame parsing and conversion; Worker/Shared and app Rgba conversion | Engine decoder worker and immutable frame sinks; reusable conversion moves to media if retained |

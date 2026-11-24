@@ -249,7 +249,11 @@ impl CallNode {
         ticket: Vec<u8>,
     ) -> impl Future<Output = Result<(), CallError>> + Send + 'static {
         let node = self.node.clone();
+        let relay_only = self.relay_only;
         async move {
+            if relay_only {
+                return Err(CallError::Plan("this forwarding path cannot preserve Hide my address"));
+            }
             veil_forward::ForwarderClient::probe(&node, &[addr.addr], addr.key, &ticket)
                 .await
                 .map_err(CallError::Forward)

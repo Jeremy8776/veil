@@ -32,6 +32,7 @@ pub mod error;
 pub mod family;
 pub mod frames;
 mod knock;
+mod known_paths;
 pub mod local;
 pub mod nearby;
 pub mod node_addr;

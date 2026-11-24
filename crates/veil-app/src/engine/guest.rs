@@ -19,7 +19,7 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::Arc;
 
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
 use veil_call::{CallError, CallNode, MemberEvent, join_with};
 use veil_net::Node;
 use veil_net::control::RefuseReason;
@@ -167,8 +167,13 @@ enum Flow {
     Leave,
 }
 
-/// What arrived during a link-up, in order. Both channels are already unbounded, so holding
-/// these here adds no new way to use up memory.
+/// Link-up buffering has an independent limit: draining a bounded input must not move an
+/// unlimited stream of events into this deque. Overflow ends the call without skipping keys.
+const HELD_EVENTS: usize = veil_call::EVENT_BACKLOG;
+const HELD_CHAT: usize = 64;
+const LINK_UP_OVERLOAD: &str = "The call became too busy while connecting. Join again with a new invite.";
+
+/// What arrived during a link-up, in order, with bounded count and chat payload size.
 #[derive(Default)]
 struct Held {
     events: VecDeque<MemberEvent>,
@@ -178,9 +183,39 @@ struct Held {
     hand: Option<bool>,
 }
 
+impl Held {
+    fn event(&mut self, event: MemberEvent) -> Result<(), String> {
+        // Terminal events always interrupt, even if the holding queue is already full.
+        if let Some(reason) = ending(&event) {
+            return Err(reason);
+        }
+        if self.events.len() >= HELD_EVENTS {
+            return Err(LINK_UP_OVERLOAD.into());
+        }
+        self.events.push_back(event);
+        Ok(())
+    }
+
+    fn said(&mut self, said: Action) -> Result<(), String> {
+        // Validate before retaining a String. These are the same limits as transmission,
+        // including multibyte text and reaction lengths.
+        let valid = match &said {
+            Action::Chat(id, text) => veil_call::AppMessage::chat(*id, text).is_ok(),
+            Action::React(id, emoji, on) => veil_call::AppMessage::react(*id, emoji, *on).is_ok(),
+            _ => false,
+        };
+        if self.chat.len() >= HELD_CHAT || !valid {
+            return Err(LINK_UP_OVERLOAD.into());
+        }
+        self.chat.push_back(said);
+        Ok(())
+    }
+}
+
 /// The reason to show if `event` ends the call for this guest.
 fn ending(event: &MemberEvent) -> Option<String> {
     match event {
+        MemberEvent::Overloaded => Some("The call became too busy to keep up. Join again with a new invite.".into()),
         MemberEvent::Removed => Some("The host removed you from the call.".into()),
         MemberEvent::ConnectionLost => {
             Some("The connection to the host could not be restored. Join with a new invite.".into())
@@ -198,7 +233,7 @@ fn ending(event: &MemberEvent) -> Option<String> {
 async fn on_event(
     event: MemberEvent,
     session: &mut Session,
-    events: &mut UnboundedReceiver<MemberEvent>,
+    events: &mut Receiver<MemberEvent>,
     commands: &mut UnboundedReceiver<Command>,
     held: &mut Held,
 ) -> Result<Flow, String> {
@@ -214,7 +249,8 @@ async fn on_event(
         MemberEvent::Reconnecting => session.reconnecting(true),
         MemberEvent::Reconnected => session.reconnecting(false),
         // `ending` has already returned for these.
-        MemberEvent::Removed
+        MemberEvent::Overloaded
+        | MemberEvent::Removed
         | MemberEvent::Closed
         | MemberEvent::ConnectionLost
         | MemberEvent::Failed(_) => {}
@@ -226,7 +262,7 @@ async fn on_event(
 /// which drops any dial in progress. Anything else is kept for afterwards.
 async fn link_up(
     linking: impl Future<Output = ()>,
-    events: &mut UnboundedReceiver<MemberEvent>,
+    events: &mut Receiver<MemberEvent>,
     commands: &mut UnboundedReceiver<Command>,
     held: &mut Held,
 ) -> Result<Flow, String> {
@@ -236,15 +272,12 @@ async fn link_up(
             () = &mut linking => return Ok(Flow::Stay),
             event = events.recv() => {
                 let event = event.unwrap_or(MemberEvent::Closed);
-                if let Some(reason) = ending(&event) {
-                    return Err(reason);
-                }
-                held.events.push_back(event);
+                held.event(event)?;
             }
             command = commands.recv() => match command {
                 None | Some(Command::Leave) => return Ok(Flow::Leave),
                 Some(Command::Act(said @ (Action::Chat(..) | Action::React(..)))) => {
-                    held.chat.push_back(said);
+                    held.said(said)?;
                 }
                 Some(Command::Act(Action::Hand(raised))) => held.hand = Some(raised),
                 Some(Command::Act(_)) => {}
@@ -291,19 +324,19 @@ mod tests {
     use std::future::pending;
     use std::time::Duration;
 
-    use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+    use tokio::sync::mpsc::{Sender, UnboundedSender, channel, unbounded_channel};
 
     use super::*;
 
     type Channels = (
-        UnboundedSender<MemberEvent>,
-        UnboundedReceiver<MemberEvent>,
+        Sender<MemberEvent>,
+        Receiver<MemberEvent>,
         UnboundedSender<Command>,
         UnboundedReceiver<Command>,
     );
 
     fn channels() -> Channels {
-        let (event_tx, events) = unbounded_channel();
+        let (event_tx, events) = channel(veil_call::EVENT_BACKLOG + 1);
         let (command_tx, commands) = unbounded_channel();
         (event_tx, events, command_tx, commands)
     }
@@ -311,7 +344,7 @@ mod tests {
     #[tokio::test]
     async fn the_host_ending_the_call_interrupts_a_link_up() {
         let (event_tx, mut events, _command_tx, mut commands) = channels();
-        event_tx.send(MemberEvent::Closed).unwrap();
+        event_tx.try_send(MemberEvent::Closed).unwrap();
         let result = link_up(pending(), &mut events, &mut commands, &mut Held::default()).await;
         assert_eq!(result, Err("The host ended the call.".to_string()));
     }
@@ -319,7 +352,7 @@ mod tests {
     #[tokio::test]
     async fn being_removed_interrupts_a_link_up() {
         let (event_tx, mut events, _command_tx, mut commands) = channels();
-        event_tx.send(MemberEvent::Removed).unwrap();
+        event_tx.try_send(MemberEvent::Removed).unwrap();
         let result = link_up(pending(), &mut events, &mut commands, &mut Held::default()).await;
         assert_eq!(
             result,
@@ -342,10 +375,10 @@ mod tests {
     async fn other_arrivals_wait_in_order_until_the_link_up_ends() {
         let (event_tx, mut events, command_tx, mut commands) = channels();
         event_tx
-            .send(MemberEvent::PlanRefused(CallError::Closed))
+            .try_send(MemberEvent::PlanRefused(CallError::Closed))
             .unwrap();
         event_tx
-            .send(MemberEvent::PlanRefused(CallError::Timeout))
+            .try_send(MemberEvent::PlanRefused(CallError::Timeout))
             .unwrap();
         for text in ["first", "second"] {
             let chat = Command::Act(Action::Chat(1, text.into()));
@@ -369,6 +402,56 @@ mod tests {
                 Action::Chat(1, "second".into())
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn a_continuous_event_producer_cannot_grow_link_up_storage() {
+        let (event_tx, mut events, _command_tx, mut commands) = channels();
+        let producer = tokio::spawn(async move {
+            for _ in 0..10_000 {
+                if event_tx.send(MemberEvent::PlanRefused(CallError::Timeout)).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let mut held = Held::default();
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            link_up(pending(), &mut events, &mut commands, &mut held),
+        ).await.unwrap();
+        assert_eq!(result, Err(LINK_UP_OVERLOAD.into()));
+        assert_eq!(held.events.len(), HELD_EVENTS);
+        drop(events);
+        producer.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn excess_chat_cannot_grow_link_up_storage() {
+        let (_event_tx, mut events, command_tx, mut commands) = channels();
+        for id in 0..=HELD_CHAT {
+            command_tx.send(Command::Act(Action::Chat(id as u64, "hello".into())))
+                .map_err(|_| "closed").unwrap();
+        }
+        let mut held = Held::default();
+        let result = link_up(pending(), &mut events, &mut commands, &mut held).await;
+        assert_eq!(result, Err(LINK_UP_OVERLOAD.into()));
+        assert_eq!(held.chat.len(), HELD_CHAT);
+    }
+
+    #[test]
+    fn held_chat_checks_payload_limits_and_terminal_events_always_interrupt() {
+        let mut held = Held::default();
+        let limit = veil_call::app_msg::MAX_CHAT_CHARS;
+        assert!(held.said(Action::Chat(1, "🦀".repeat(limit))).is_ok());
+        assert!(held.said(Action::Chat(2, "🦀".repeat(limit + 1))).is_err());
+        assert!(held.said(Action::React(3, "x".repeat(1_000), true)).is_err());
+        assert_eq!(held.chat.len(), 1);
+        for _ in 0..HELD_EVENTS {
+            held.event(MemberEvent::Reconnecting).unwrap();
+        }
+        assert_eq!(held.event(MemberEvent::Removed), Err("The host removed you from the call.".into()));
+        assert!(held.event(MemberEvent::Overloaded).unwrap_err().contains("too busy"));
+        assert_eq!(held.events.len(), HELD_EVENTS);
     }
 
     #[test]

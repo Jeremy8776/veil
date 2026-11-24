@@ -424,13 +424,17 @@ impl Actor {
             ServerMsg::Request { from, kind } => self.request(from, kind).await,
             ServerMsg::Punch {
                 peer,
-                addrs,
+                mut addrs,
                 delay_ms,
             } => {
                 while self.dial_backs.try_join_next().is_some() {}
                 if !self.consent.may_dial_back(&peer, addrs.len()) {
                     return;
                 }
+                // The chosen helper can lie about reflection. Its notice supplies timing,
+                // never authority to send to a new third-party endpoint.
+                addrs.retain(|addr| self.node.authenticated_at(peer, *addr));
+                if addrs.is_empty() { return; }
                 let plan = Punch {
                     peer,
                     addrs,

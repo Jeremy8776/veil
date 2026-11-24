@@ -360,20 +360,22 @@ async fn demux_datagrams(conn: quinn::Connection, inboxes: Inboxes) {
 }
 
 async fn demux_streams(conn: quinn::Connection, inboxes: Inboxes) {
-    while let Ok(mut stream) = conn.accept_uni().await {
+    crate::streams::receive(conn, move |mut stream| {
         let inboxes = inboxes.clone();
-        tokio::spawn(async move {
+        async move {
             let mut head = [0u8; STREAM_HEADER];
             if stream.read_exact(&mut head).await.is_err() {
                 return;
             }
             let (session, len) = parse_stream_header(head);
-            let mut packet = vec![0u8; len];
-            if stream.read_exact(&mut packet).await.is_ok() {
+            if let Ok(packet) = stream.read_to_end(len).await
+                && packet.len() == len
+            {
                 deliver(&inboxes, session, Bytes::from(packet));
             }
-        });
-    }
+        }
+    })
+    .await;
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::Receiver;
 use veil_call::{CallError, CallNode, HostEvent, HostHandle, MemberHandle, Path, join};
 use veil_net::{Node, NodeAddr};
 use veil_rendezvous::{RendezvousClient, RendezvousError, RendezvousServer, room_tag};
@@ -31,7 +31,7 @@ fn now() -> u64 {
 struct Host {
     _node: CallNode,
     handle: HostHandle,
-    events: UnboundedReceiver<HostEvent>,
+    events: Receiver<HostEvent>,
     key: PublicId,
     addr: SocketAddr,
     rendezvous: NodeAddr,

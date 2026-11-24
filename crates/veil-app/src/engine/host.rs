@@ -237,6 +237,7 @@ pub async fn run(
             },
             event = events.recv() => match event {
                 None => break Err("The call stopped unexpectedly.".into()),
+                Some(HostEvent::Overloaded) => break Err("The call became too busy to keep up. Start a new call.".into()),
                 Some(HostEvent::Knock(device)) => {
                     let id = session.ids.id(device);
                     knocks.push((id, device));
