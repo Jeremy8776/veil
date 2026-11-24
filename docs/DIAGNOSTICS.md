@@ -69,12 +69,36 @@ untrusted error-text exclusion, bounded exports, frozen previews, exact copied J
 264/320/540-point report layouts. Tests are offline except for isolated loopback traffic.
 
 Windows native UI inspection uses `dev-ui`, `VEIL_START=report`, isolated workspace app data,
-Local only, and synthetic evidence. Initial evidence and privacy sections were inspected.
-The window height was adjusted; its final native confirmation was stopped with Escape.
-The preview starts no call or capture devices. Android target
-Clippy checks platform-specific permission/back handling; this is not a new APK installation
-or hardware permission/network test. Existing multi-device outage and sustained mobile/media
-quality gates remain separate roadmap work. No release, remote CI or publication is implied.
+Local only, and synthetic evidence. The continuation rebuilt `9256b92` and confirmed the
+bounded window, scrolling to export controls, local copy acknowledgement, parsed clipboard
+JSON matching the displayed preview, independent address/key choices, both choices reset on
+reopening, and explicit snapshot refresh. The earlier Escape-interrupted check remains
+historical; this is a separate completed inspection. The synthetic report's recorded policy
+is independent of the current Local only settings and is labelled as synthetic evidence.
+The preview starts no call or capture devices.
+
+Android acceptance then passed on Samsung SM-S9260 / Android 17 after the user connected it.
+The same-signer ARM64 APK retained the identity and settings. Camera and microphone requests
+were explicitly denied; the real call report showed both permissions denied with useful
+guidance, separately from confirmed membership and a direct route to the admitted desktop
+test peer. No capture service was active. A brief pause of only the test peer expired the
+three-second media window: the report showed no recent decoded audio/video and the specific
+missing-media guidance. The frozen snapshot remained unchanged after the peer resumed;
+Capture latest snapshot then restored the recent-audio observation. The test peer sends
+sealed synthetic probes, not conversational media; this is not listening-quality evidence.
+Android export controls, local copy acknowledgement, independent metadata choices and both
+choices resetting on reopening were inspected. Leave ended the call for both devices.
+Original connection/preferences bytes and identity SHA-256 matched after restoration; both
+capture permissions and their original user flags were restored, and the app was stopped.
+
+This check found and fixed Android's Show QR open/render lifecycle in `c565715`: the QR now
+opens, persists and decodes locally. Affected app regressions passed 294 tests (11 ignored);
+desktop app/all-target/dev-ui and Android ARM64 library Clippy passed with warnings denied.
+The earlier 858-test workspace evidence remains valid for the diagnostic implementation.
+Evidence, APK/build hashes, screenshots and restoration checks are indexed by
+`main/target/diag-01-evidence/acceptance-final.json`. DIAG-01's acceptance gate is complete.
+Existing multi-device physical outage and sustained mobile/media quality gates remain
+separate roadmap work. No release, remote CI, push or publication is implied.
 
 Reproduce from this checkout with its own target directory:
 

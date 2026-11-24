@@ -4,6 +4,18 @@ Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
 ## Current work, 24/11/2026
 
+- DIAG-01 acceptance is now complete in this checkout, `main/target/diag-01` on
+  `codex/diag-01`. The continuation verified desktop report/export controls and Android
+  SM-S9260 / Android 17 denied capture, admitted direct peer, missing recent media,
+  frozen/explicitly refreshed snapshot, metadata opt-ins/reset, local copy and Leave.
+  It fixed Android's Show QR open/render lifecycle as `c565715`; 294 affected app tests
+  passed (11 ignored), plus desktop and Android lint. Original phone identity/settings
+  hashes and permission flags were restored. See `docs/DIAGNOSTICS.md` and private
+  `main/target/diag-01-evidence/acceptance-final.json`. No conversational capture, listening
+  quality, physical outage, remote CI, push or publication claim. Canonical tracking remains
+  in primary `main/`; product code there and the older `source/` were not synchronised.
+  The following DIAG-01 paragraph is the earlier, now-superseded handoff evidence.
+
 - DIAG-01 local connection reports are implemented in private local commit
   `8e0f41742fbcb4f7ce3d2147d1cac0699022a83f` on `codex/diag-01`, checkout
   `main/target/diag-01`, based explicitly on TRUST-02 `2ee20cd`. Helper reachability,
