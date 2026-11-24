@@ -96,7 +96,8 @@ opens, persists and decodes locally. Affected app regressions passed 294 tests (
 desktop app/all-target/dev-ui and Android ARM64 library Clippy passed with warnings denied.
 The earlier 858-test workspace evidence remains valid for the diagnostic implementation.
 Evidence, APK/build hashes, screenshots and restoration checks are indexed by
-`main/target/diag-01-evidence/acceptance-final.json`. DIAG-01's acceptance gate is complete.
+`main/target/diag-01-evidence/acceptance-final.json`. DIAG-01's acceptance gate is met on this
+branch; the roadmap marks it done when PR #88 merges.
 Existing multi-device physical outage and sustained mobile/media quality gates remain
 separate roadmap work. No release, remote CI, push or publication is implied.
 
