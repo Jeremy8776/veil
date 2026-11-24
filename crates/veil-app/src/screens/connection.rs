@@ -192,6 +192,11 @@ impl Help {
 
 /// Draws the screen. Returns false when the user goes back to Home.
 pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
+    form.check
+        .refresh(&form.draft, app.connection.saved.local_only);
+    if let Some(snapshot) = form.check.snapshot() {
+        app.diagnostics.check = Some(snapshot);
+    }
     if cfg!(target_os = "android") {
         return mobile_show(app, ui, form);
     }
@@ -378,6 +383,9 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
                     } else {
                         ui.label("Run a check to see its results.");
                     }
+                    if ui.button("Preview connection report").clicked() {
+                        app.diagnostics.open_check();
+                    }
                 });
             });
     }
@@ -387,40 +395,117 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
 fn mobile_show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
     use crate::mobile::{self, widgets as w};
     let (back, _) = mobile::app_bar(ui, "mobile-connection-bar", "Connection", true, false);
-    if back { app.go_home(); return false; }
+    if back {
+        app.go_home();
+        return false;
+    }
     egui::Panel::bottom("mobile-save-settings")
-        .frame(egui::Frame::new().fill(theme::PAGE).inner_margin(egui::Margin::symmetric(20, 12)))
+        .frame(
+            egui::Frame::new()
+                .fill(theme::PAGE)
+                .inner_margin(egui::Margin::symmetric(20, 12)),
+        )
         .show(ui, |ui| {
-            if let Some(error) = &form.save_error { w::label(ui, error, 13.0, false, theme::WARN); }
-            if form.saved && !form.dirty() { w::label(ui, "Saved for your next call", 13.0, false, theme::SPEAKING); }
-            if ui.add_enabled_ui(form.dirty(), |ui| mobile::action(ui, None, "Save changes", Tone::Primary)).inner {
+            if let Some(error) = &form.save_error {
+                w::label(ui, error, 13.0, false, theme::WARN);
+            }
+            if form.saved && !form.dirty() {
+                w::label(ui, "Saved for your next call", 13.0, false, theme::SPEAKING);
+            }
+            if ui
+                .add_enabled_ui(form.dirty(), |ui| {
+                    mobile::action(ui, None, "Save changes", Tone::Primary)
+                })
+                .inner
+            {
                 form.save(&mut app.connection);
             }
         });
     mobile::page(ui, "mobile-connection", |ui| {
-        w::label(ui, "Choose how your next call connects.", 16.0, false, MUTED);
+        w::label(
+            ui,
+            "Choose how your next call connects.",
+            16.0,
+            false,
+            MUTED,
+        );
+        if mobile::action(
+            ui,
+            None,
+            if form.check.running() {
+                "Checking…"
+            } else {
+                "Test these settings"
+            },
+            Tone::Quiet,
+        ) && !form.check.running()
+            && let Err(problems) = form.check.start(
+                &form.draft,
+                app.connection.saved.local_only,
+                ui.ctx().clone(),
+            ) {
+            form.problems = problems;
+        }
+        if form.check.result.is_some()
+            && mobile::action(ui, None, "Preview connection report", Tone::Quiet)
+        {
+            app.diagnostics.open_check();
+        }
         ui.add_space(20.0);
         w::label(ui, "Local network", 20.0, true, theme::TEXT);
-        mobile::setting(ui, &mut form.draft.local_only, "Local only", "Use the same Wi-Fi or hotspot. No internet helpers.");
+        mobile::setting(
+            ui,
+            &mut form.draft.local_only,
+            "Local only",
+            "Use the same Wi-Fi or hotspot. No internet helpers.",
+        );
         ui.add_enabled_ui(form.draft.local_only, |ui| {
-            mobile::setting(ui, &mut form.draft.nearby_discovery, "Nearby discovery", "Let others find your call while you host.");
+            mobile::setting(
+                ui,
+                &mut form.draft.nearby_discovery,
+                "Nearby discovery",
+                "Let others find your call while you host.",
+            );
         });
         ui.add_space(12.0);
         ui.separator();
         ui.add_space(12.0);
         w::label(ui, "Privacy", 20.0, true, theme::TEXT);
-        mobile::setting(ui, &mut form.draft.hide_address, "Hide my address", "Use a relay when joining. Turn off Local only first.");
+        mobile::setting(
+            ui,
+            &mut form.draft.hide_address,
+            "Hide my address",
+            "Use a relay when joining. Turn off Local only first.",
+        );
         ui.add_space(16.0);
         let id = ui.scope_id().with("mobile-advanced-connection");
-        let mut expanded = ui.ctx().data(|data| data.get_temp::<bool>(id)).unwrap_or(false);
-        if mobile::action(ui, None, if expanded { "Hide servers and ports" } else { "Servers and ports" }, Tone::Quiet) {
+        let mut expanded = ui
+            .ctx()
+            .data(|data| data.get_temp::<bool>(id))
+            .unwrap_or(false);
+        if mobile::action(
+            ui,
+            None,
+            if expanded {
+                "Hide servers and ports"
+            } else {
+                "Servers and ports"
+            },
+            Tone::Quiet,
+        ) {
             expanded = !expanded;
             ui.ctx().data_mut(|data| data.insert_temp(id, expanded));
         }
         // Always reveal invalid fields so a save error can be repaired.
         if expanded || !form.problems.is_empty() {
             ui.add_space(8.0);
-            w::label(ui, "Optional. Leave blank to use the defaults.", 13.0, false, MUTED);
+            w::label(
+                ui,
+                "Optional. Leave blank to use the defaults.",
+                13.0,
+                false,
+                MUTED,
+            );
             for (field, label) in [
                 (Field::Rendezvous, "Rendezvous / relay"),
                 (Field::Forwarder, "Forwarder"),
@@ -429,7 +514,10 @@ fn mobile_show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
             ] {
                 w::label(ui, label, 13.0, true, MUTED);
                 ui.add_enabled_ui(!form.draft.local_only, |ui| {
-                    ui.add_sized([ui.available_width(), 48.0], TextEdit::singleline(form.draft.field_mut(field)).char_limit(MAX_FIELD));
+                    ui.add_sized(
+                        [ui.available_width(), 48.0],
+                        TextEdit::singleline(form.draft.field_mut(field)).char_limit(MAX_FIELD),
+                    );
                 });
                 for (_, why) in form.problems.iter().filter(|(f, _)| *f == field) {
                     w::label(ui, why, 13.0, false, theme::WARN);
@@ -437,7 +525,12 @@ fn mobile_show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
                 ui.add_space(8.0);
             }
             ui.add_enabled_ui(!form.draft.local_only, |ui| {
-                mobile::setting(ui, &mut form.draft.open_port, "Open hosting ports", "Ask your router to make this device reachable.");
+                mobile::setting(
+                    ui,
+                    &mut form.draft.open_port,
+                    "Open hosting ports",
+                    "Ask your router to make this device reachable.",
+                );
             });
         }
     });

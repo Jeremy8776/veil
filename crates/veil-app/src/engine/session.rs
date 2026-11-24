@@ -63,6 +63,37 @@ pub struct Pipes {
     pub data: Arc<DataUseCell>,
 }
 
+pub(super) fn diagnose_member(shared: &Shared, event: &veil_call::MemberEvent) {
+    use crate::diagnostics::{End, Problem, State, Step};
+    use veil_call::MemberEvent;
+    if matches!(event, MemberEvent::Closed | MemberEvent::Removed | MemberEvent::ConnectionLost | MemberEvent::Overloaded | MemberEvent::Failed(_)) {
+        shared.diagnose(|d| d.reconnecting = false);
+    }
+    shared.diagnose(|d| match event {
+        MemberEvent::Reconnecting => d.reconnecting = true,
+        MemberEvent::Reconnected => d.reconnecting = false,
+        MemberEvent::Keys(_) => d.set(Step::Membership, State::Passed),
+        MemberEvent::Closed => d.end = Some(End::HostEnded),
+        MemberEvent::Removed => {
+            d.end = Some(End::Removed);
+            d.set(Step::Membership, State::Failed(Problem::Removed));
+        }
+        MemberEvent::ConnectionLost => {
+            d.end = Some(End::Failed);
+            d.set(Step::HostConnection, State::Failed(Problem::Recovery));
+        }
+        MemberEvent::Overloaded => {
+            d.end = Some(End::Failed);
+            d.set(Step::Membership, State::Failed(Problem::Overloaded));
+        }
+        MemberEvent::Failed(_) => {
+            d.end = Some(End::Failed);
+            d.set(Step::Membership, State::Failed(Problem::Other));
+        }
+        MemberEvent::Routes(_) | MemberEvent::PlanRefused(_) => {}
+    });
+}
+
 impl Pipes {
     fn controls(&self) -> [&VideoControl; 2] {
         [&self.control, &self.screen_control]
@@ -110,6 +141,12 @@ pub struct Session {
 }
 
 impl Session {
+    pub fn evidence(&self) -> Arc<Shared> {
+        self.shared.clone()
+    }
+    pub fn diagnose_member(&self, event: &veil_call::MemberEvent) {
+        diagnose_member(&self.shared, event);
+    }
     pub fn new(
         media: MediaSession,
         identity: &Identity,

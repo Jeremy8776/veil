@@ -45,8 +45,15 @@ pub fn still_speaking(loud_at: Option<Instant>, now: Instant) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Said {
     /// A message; `id` is None from 0.1.11 and earlier.
-    Chat { id: Option<u64>, text: String },
-    React { id: u64, emoji: String, on: bool },
+    Chat {
+        id: Option<u64>,
+        text: String,
+    },
+    React {
+        id: u64,
+        emoji: String,
+        on: bool,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -125,14 +132,16 @@ pub struct Heard {
     pub loud_at: Option<Instant>,
 }
 
-/// When each person last showed video and sound.
+/// When each person last showed video and sound. `screen` is keyed by the sharer's own id.
 #[derive(Default)]
 pub struct Seen {
     pub video: HashMap<u32, Instant>,
+    pub screen: HashMap<u32, Instant>,
     pub audio: HashMap<u32, Heard>,
 }
 
 pub struct Shared {
+    pub diagnostic: Mutex<crate::diagnostics::Report>,
     pub view: Mutex<View>,
     pictures: Mutex<HashMap<u32, Picture>>,
     heard: Mutex<HashMap<u32, Heard>>,
@@ -148,6 +157,7 @@ pub struct Shared {
 impl Shared {
     pub fn new(ctx: egui::Context) -> Self {
         Self {
+            diagnostic: Mutex::default(),
             view: Mutex::new(View {
                 status: CallStatus::Connecting,
                 invite: String::new(),
@@ -194,6 +204,11 @@ impl Shared {
         } else {
             drop(view);
         }
+        self.ctx.request_repaint();
+    }
+
+    pub fn diagnose(&self, change: impl FnOnce(&mut crate::diagnostics::Report)) {
+        change(&mut lock(&self.diagnostic));
         self.ctx.request_repaint();
     }
 
@@ -288,14 +303,18 @@ impl Shared {
     }
 
     pub fn seen(&self) -> Seen {
-        Seen {
-            video: lock(&self.pictures)
-                .iter()
-                .filter(|(id, _)| !is_screen(**id))
-                .map(|(id, p)| (*id, p.at))
-                .collect(),
+        let mut seen = Seen {
             audio: lock(&self.heard).clone(),
+            ..Seen::default()
+        };
+        for (id, picture) in lock(&self.pictures).iter() {
+            if is_screen(*id) {
+                seen.screen.insert(*id & !SCREEN_KEY, picture.at);
+            } else {
+                seen.video.insert(*id, picture.at);
+            }
         }
+        seen
     }
 }
 
@@ -425,7 +444,10 @@ mod tests {
         assert!(!still_speaking(None, now));
         assert!(still_speaking(Some(now), now));
         let gap = now + Duration::from_millis(200);
-        assert!(still_speaking(Some(now), gap), "a short gap keeps the border");
+        assert!(
+            still_speaking(Some(now), gap),
+            "a short gap keeps the border"
+        );
         let pause = now + SPEAKING_HOLD;
         assert!(!still_speaking(Some(now), pause), "a pause ends it");
     }
@@ -468,7 +490,10 @@ mod tests {
         assert!(host.camera && !host.muted && host.speaking && host.is_host);
         let guest = &call.participants[2];
         assert!(!guest.camera && guest.muted && !guest.speaking);
-        assert!(host.hand_raised && !guest.hand_raised, "each hand as that person sent it");
+        assert!(
+            host.hand_raised && !guest.hand_raised,
+            "each hand as that person sent it"
+        );
         assert_eq!(call.lobby.len(), 1);
         assert_eq!(call.lobby[0].safety, "11111");
         assert!(call.lobby[0].verified && !call.participants[1].verified);

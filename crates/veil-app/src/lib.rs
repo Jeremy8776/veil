@@ -21,6 +21,7 @@ mod demo;
 #[cfg(feature = "dev-ui")]
 mod dev_start;
 mod devices;
+mod diagnostics;
 mod engine;
 mod firewall;
 mod icons;

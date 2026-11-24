@@ -292,8 +292,13 @@ impl Node {
         addrs: &[SocketAddr],
         expected: PublicId,
     ) -> Result<Link, NetError> {
-        let crypto = tls::client_config(self.key.clone(), expected)?;
-        let link = self.dial(addrs, crypto).await?;
+        let rejected = Arc::new(AtomicBool::new(false));
+        let crypto = tls::client_config(self.key.clone(), expected, rejected.clone())?;
+        let link = match self.dial(addrs, crypto).await {
+            Ok(link) => link,
+            Err(_) if rejected.load(Ordering::Relaxed) => return Err(NetError::Identity),
+            Err(error) => return Err(error),
+        };
         if link.peer != expected {
             // The verifier already enforces this; checked again so a future verifier change
             // cannot silently drop the pin.
@@ -384,8 +389,9 @@ impl Node {
     /// bounded historical evidence, not membership, current reachability or device trust.
     /// Unverified outgoing connections never populate it; relayed virtual nodes are separate.
     pub fn authenticated_at(&self, peer: PublicId, addr: SocketAddr) -> bool {
-        self.known_paths.lock().is_ok_and(|paths|
-            paths.contains(peer, addr, std::time::Instant::now()))
+        self.known_paths
+            .lock()
+            .is_ok_and(|paths| paths.contains(peer, addr, std::time::Instant::now()))
     }
 
     /// Takes no more incoming links, and closes any not yet returned by [`Self::accept`]. Links

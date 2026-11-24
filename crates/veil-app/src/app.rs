@@ -43,6 +43,7 @@ pub struct VeilApp {
     pub invite: String,
     pub home_error: Option<String>,
     pub log_opener: crate::log::FolderOpener,
+    pub diagnostics: crate::diagnostics::review::Review,
     pub media: LocalMedia,
     /// Sharing your screen (`share.rs`).
     pub share: crate::share::ScreenShare,
@@ -100,13 +101,17 @@ impl VeilApp {
         #[cfg(target_os = "android")]
         let name = prefs.saved.display_name.clone();
         #[cfg(not(target_os = "android"))]
-        let name = std::env::var("USERNAME").ok().filter(|n| !n.trim().is_empty()).unwrap_or_default();
+        let name = std::env::var("USERNAME")
+            .ok()
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or_default();
         Self {
             screen: Screen::Home,
             name,
             invite: String::new(),
             home_error: None,
             log_opener: crate::log::FolderOpener::default(),
+            diagnostics: crate::diagnostics::review::Review::default(),
             media,
             share: crate::share::ScreenShare::new(ctx.clone()),
             share_view: None,
@@ -229,6 +234,12 @@ impl VeilApp {
     }
 
     pub fn leave(&mut self, call: &Call) {
+        if let Some(snapshot) = self.diagnostics.call.as_mut() {
+            snapshot.report.ended = true;
+            if snapshot.report.end.is_none() {
+                snapshot.report.end = Some(crate::diagnostics::End::Left);
+            }
+        }
         #[cfg(target_os = "android")]
         veil_media::ffi::android::call_active(false);
         self.stop_sharing();
@@ -347,7 +358,10 @@ impl VeilApp {
     fn remember_prefs(&mut self, ctx: &egui::Context) {
         let now = crate::preferences::Prefs::current(&self.media, &self.prefs.saved, &self.devices);
         #[cfg(target_os = "android")]
-        let now = crate::preferences::Prefs { display_name: self.name.clone(), ..now };
+        let now = crate::preferences::Prefs {
+            display_name: self.name.clone(),
+            ..now
+        };
         if self.prefs.observe(now, Instant::now()) {
             ctx.request_repaint_after(crate::preferences::SETTLE);
         }
@@ -396,12 +410,16 @@ impl eframe::App for VeilApp {
             }
             let (left, right) = veil_media::ffi::android::side_insets();
             if left > 0 {
-                egui::Panel::left("android-left-inset").exact_size(left as f32 / scale)
-                    .frame(egui::Frame::new().fill(crate::theme::PAGE)).show(ui, |_| {});
+                egui::Panel::left("android-left-inset")
+                    .exact_size(left as f32 / scale)
+                    .frame(egui::Frame::new().fill(crate::theme::PAGE))
+                    .show(ui, |_| {});
             }
             if right > 0 {
-                egui::Panel::right("android-right-inset").exact_size(right as f32 / scale)
-                    .frame(egui::Frame::new().fill(crate::theme::PAGE)).show(ui, |_| {});
+                egui::Panel::right("android-right-inset")
+                    .exact_size(right as f32 / scale)
+                    .frame(egui::Frame::new().fill(crate::theme::PAGE))
+                    .show(ui, |_| {});
             }
             egui::Panel::top("android-status-bar")
                 .exact_size(top as f32 / scale)
@@ -419,16 +437,20 @@ impl eframe::App for VeilApp {
         }
         #[cfg(target_os = "android")]
         if veil_media::ffi::android::back_requested() {
-            match &mut self.screen {
-                Screen::Call(view) if view.mobile_invite => view.mobile_invite = false,
-                Screen::Call(view) if view.panel.is_some() => view.panel = None,
-                Screen::Call(_) => {
-                    ctx.data_mut(|data| {
-                        data.insert_temp(egui::Id::unique("mobile-leave"), true);
-                    });
+            if self.diagnostics.open {
+                self.diagnostics.open = false;
+            } else {
+                match &mut self.screen {
+                    Screen::Call(view) if view.mobile_invite => view.mobile_invite = false,
+                    Screen::Call(view) if view.panel.is_some() => view.panel = None,
+                    Screen::Call(_) => {
+                        ctx.data_mut(|data| {
+                            data.insert_temp(egui::Id::unique("mobile-leave"), true);
+                        });
+                    }
+                    Screen::Home => veil_media::ffi::android::background(),
+                    _ => self.go_home(),
                 }
-                Screen::Home => veil_media::ffi::android::background(),
-                _ => self.go_home(),
             }
         }
         self.update_media(&ctx);
@@ -471,10 +493,19 @@ impl eframe::App for VeilApp {
                     lasted,
                     reason,
                 };
-                if cfg!(target_os = "android") { crate::mobile::ended(self, ui); }
-                else { crate::screens::home::ended(self, ui); }
+                if cfg!(target_os = "android") {
+                    crate::mobile::ended(self, ui);
+                } else {
+                    crate::screens::home::ended(self, ui);
+                }
             }
         }
         self.alert_lobby(&ctx);
+        if ctx.input_mut(|i| {
+            i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::E)
+        }) {
+            self.diagnostics.open();
+        }
+        self.diagnostics.ui(&ctx);
     }
 }

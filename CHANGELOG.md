@@ -6,6 +6,10 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ### Added
 
+- Local **Connection report** with separate helper, hosting, invitation, admission, membership,
+  recovery, route and decoded-media evidence. Reports remain available after leaving a call.
+  Explicit JSON export previews exactly what is copied; candidate addresses and device public
+  keys are independent opt-ins, reset when opening the report. No raw logs or call content.
 - Android ARM64 development preview using the same call engine and protocol as desktop,
   with Camera2 video, AAudio sound, Android Keystore, touch layouts and a visible call service.
   This is a development package; sustained background calls, audio routes and signed upgrades

@@ -27,7 +27,13 @@ async fn pinned_link_carries_control_messages() {
         assert_eq!(link.peer(), guest_key);
         let mut ctl = link.accept_control().await.unwrap();
         let hello = ctl.recv().await.unwrap();
-        assert_eq!(hello, Control::Hello { room_id: [1; 16], join_token: [2; 16] });
+        assert_eq!(
+            hello,
+            Control::Hello {
+                room_id: [1; 16],
+                join_token: [2; 16]
+            }
+        );
         ctl.send(&Control::Admitted).await.unwrap();
         // Keep the link open until the guest has read the reply.
         let _ = ctl.recv().await;
@@ -36,9 +42,12 @@ async fn pinned_link_carries_control_messages() {
     let link = guest.connect(&[host_addr], host_id.public()).await.unwrap();
     assert_eq!(link.peer(), host_id.public());
     let mut ctl = link.open_control().await.unwrap();
-    ctl.send(&Control::Hello { room_id: [1; 16], join_token: [2; 16] })
-        .await
-        .unwrap();
+    ctl.send(&Control::Hello {
+        room_id: [1; 16],
+        join_token: [2; 16],
+    })
+    .await
+    .unwrap();
     assert_eq!(ctl.recv().await.unwrap(), Control::Admitted);
     link.close("done");
     server.await.unwrap();
@@ -54,7 +63,32 @@ async fn impostor_is_refused() {
 
     let guest = Node::bind(&Identity::generate(), localhost()).unwrap();
     let result = guest.connect(&[addr], real_host.public()).await;
-    assert!(matches!(result, Err(NetError::Connect(_))), "got {:?}", result.err());
+    assert!(
+        matches!(result, Err(NetError::Connect(_))),
+        "got {:?}",
+        result.err()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_presented_wrong_key_retains_typed_identity_evidence() {
+    let impostor = Node::bind(&Identity::generate(), localhost()).unwrap();
+    // Public helpers answer even an unknown knock. Closed call ports may reveal no key.
+    impostor.admit_strangers();
+    let guest = Node::bind(&Identity::generate(), localhost()).unwrap();
+    let result = guest
+        .connect(
+            &[impostor.local_addr().unwrap()],
+            Identity::generate().public(),
+        )
+        .await;
+    assert!(
+        matches!(result, Err(NetError::Identity)),
+        "got {:?}",
+        result.err()
+    );
+    impostor.close();
+    guest.close();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -154,7 +188,10 @@ async fn dual_stack_node_takes_both_families() {
 
     let v4 = Node::bind(&Identity::generate(), localhost()).unwrap();
     let link = v4
-        .connect(&[SocketAddr::from(([127, 0, 0, 1], port))], host_id.public())
+        .connect(
+            &[SocketAddr::from(([127, 0, 0, 1], port))],
+            host_id.public(),
+        )
         .await
         .unwrap();
     assert!(link.remote_addr().is_ipv4());
@@ -170,5 +207,9 @@ async fn dual_stack_node_takes_both_families() {
         )
         .await
         .unwrap();
-    assert!(link.remote_addr().is_ipv6(), "IPv6 should win: {}", link.remote_addr());
+    assert!(
+        link.remote_addr().is_ipv6(),
+        "IPv6 should win: {}",
+        link.remote_addr()
+    );
 }

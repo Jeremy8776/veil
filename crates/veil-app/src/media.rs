@@ -38,6 +38,8 @@ mod mic;
 /// What the interface reads from the workers.
 #[derive(Default)]
 struct Shared {
+    camera_at: Mutex<Option<std::time::Instant>>,
+    microphone_at: Mutex<Option<std::time::Instant>>,
     picture: Mutex<Option<Rgba>>,
     picture_seq: AtomicU64,
     /// Microphone level, 0 to 1, as `f32` bits.
@@ -99,7 +101,9 @@ const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
 impl Drop for Worker {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        let Some(handle) = self.handle.take() else { return };
+        let Some(handle) = self.handle.take() else {
+            return;
+        };
         let deadline = std::time::Instant::now() + STOP_WAIT;
         while !handle.is_finished() && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(5));
@@ -194,6 +198,7 @@ impl LocalMedia {
         if on == self.camera_on() {
             return;
         }
+        *lock(&self.shared.camera_at) = None;
         if !on {
             self.camera = None;
             *lock(&self.shared.picture) = None;
@@ -212,6 +217,7 @@ impl LocalMedia {
         if on == self.mic_on() {
             return;
         }
+        *lock(&self.shared.microphone_at) = None;
         if !on {
             self.mic = None;
             self.shared.level.store(0, Ordering::Relaxed);
@@ -332,6 +338,38 @@ impl LocalMedia {
     pub fn mic_error(&self) -> Option<String> {
         lock(&self.shared.mic_error).clone()
     }
+
+    pub fn camera_evidence(&self) -> crate::diagnostics::Capture {
+        capture_evidence(
+            self.camera_on(),
+            self.camera_error().is_some(),
+            *lock(&self.shared.camera_at),
+        )
+    }
+    pub fn microphone_evidence(&self) -> crate::diagnostics::Capture {
+        capture_evidence(
+            self.mic_on(),
+            self.mic_error().is_some(),
+            *lock(&self.shared.microphone_at),
+        )
+    }
+}
+
+fn capture_evidence(
+    on: bool,
+    failed: bool,
+    last: Option<std::time::Instant>,
+) -> crate::diagnostics::Capture {
+    use crate::diagnostics::Capture;
+    if !on {
+        Capture::Off
+    } else if failed {
+        Capture::Unavailable
+    } else if last.is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(3)) {
+        Capture::Active
+    } else {
+        Capture::Starting
+    }
 }
 
 /// Which device a log line is about, without its name or id (`log.rs` keeps names out): the
@@ -432,6 +470,7 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
         if let Some(rgba) = crate::convert::nv12_to_rgba(pixels, w, h, picture.stride, half) {
             *lock(&shared.picture) = Some(rgba);
             shared.picture_seq.fetch_add(1, Ordering::Release);
+            *lock(&shared.camera_at) = Some(std::time::Instant::now());
             ctx.request_repaint();
         }
     }
@@ -440,6 +479,24 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn diagnostic_capture_requires_recent_frames_and_honours_off_and_failure() {
+        use super::capture_evidence;
+        use crate::diagnostics::Capture;
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        assert_eq!(capture_evidence(true, false, None), Capture::Starting);
+        assert_eq!(capture_evidence(true, false, Some(now)), Capture::Active);
+        assert_eq!(
+            capture_evidence(true, false, now.checked_sub(Duration::from_secs(5))),
+            Capture::Starting
+        );
+        assert_eq!(capture_evidence(false, false, Some(now)), Capture::Off);
+        assert_eq!(
+            capture_evidence(true, true, Some(now)),
+            Capture::Unavailable
+        );
+    }
     use super::meter;
 
     #[test]
@@ -449,7 +506,11 @@ mod tests {
         let stuck = super::Worker::spawn(|_stop| std::thread::sleep(Duration::from_secs(3)));
         let t = Instant::now();
         drop(stuck);
-        assert!(t.elapsed() < Duration::from_millis(1_500), "held for {:?}", t.elapsed());
+        assert!(
+            t.elapsed() < Duration::from_millis(1_500),
+            "held for {:?}",
+            t.elapsed()
+        );
 
         let quick = super::Worker::spawn(|stop| {
             while !stop.load(std::sync::atomic::Ordering::Relaxed) {
@@ -458,7 +519,10 @@ mod tests {
         });
         let t = Instant::now();
         drop(quick);
-        assert!(t.elapsed() < Duration::from_millis(200), "a worker that stops is joined at once");
+        assert!(
+            t.elapsed() < Duration::from_millis(200),
+            "a worker that stops is joined at once"
+        );
     }
 
     #[test]

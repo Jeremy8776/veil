@@ -56,6 +56,13 @@ pub(super) fn show(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHe
     if let Some(problem) = problem {
         ui.label(RichText::new(problem).small().color(WARN));
     }
+    if ui
+        .link("Connection report")
+        .on_hover_text("Review local evidence before copying a redacted report (Ctrl+Shift+E).")
+        .clicked()
+    {
+        app.diagnostics.open();
+    }
 }
 
 fn demo(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHelpState) {

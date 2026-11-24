@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "revision": 20,
-  "updated_at": "2026-11-23T14:07:25+00:00",
+  "revision": 21,
+  "updated_at": "2026-11-24T20:19:10+00:00",
   "next_step": {
     "capability": "AND-02",
     "title": "Integrate the reviewed Android candidate and verify CI/lifecycle",
@@ -128,10 +128,10 @@
       "updated_at": "2026-11-23T12:57:42+00:00"
     },
     "DIAG-01": {
-      "status": "planned",
-      "note": "Full capability acceptance gate remains open.",
+      "status": "in_progress",
+      "note": "Acceptance met on codex/diag-01 (PR #88); review fixes for full-call, helper, identity and screen-share evidence pushed; closes on merge",
       "evidence": [],
-      "updated_at": "2026-11-23T12:57:42+00:00"
+      "updated_at": "2026-11-24T20:19:10+00:00"
     },
     "TEST-01": {
       "status": "planned",
@@ -223,6 +223,11 @@
     }
   },
   "activity": [
+    {
+      "at": "2026-11-24T20:19:10+00:00",
+      "session": "claude-diag-01",
+      "note": "DIAG-01: in_progress — Acceptance met on codex/diag-01 (PR #88); review fixes for full-call, helper, identity and screen-share evidence pushed; closes on merge"
+    },
     {
       "at": "2026-11-23T14:07:25+00:00",
       "session": "codex-continue-20261123-a",
