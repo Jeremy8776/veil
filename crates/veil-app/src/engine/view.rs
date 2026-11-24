@@ -132,10 +132,11 @@ pub struct Heard {
     pub loud_at: Option<Instant>,
 }
 
-/// When each person last showed video and sound.
+/// When each person last showed video and sound. `screen` is keyed by the sharer's own id.
 #[derive(Default)]
 pub struct Seen {
     pub video: HashMap<u32, Instant>,
+    pub screen: HashMap<u32, Instant>,
     pub audio: HashMap<u32, Heard>,
 }
 
@@ -302,14 +303,18 @@ impl Shared {
     }
 
     pub fn seen(&self) -> Seen {
-        Seen {
-            video: lock(&self.pictures)
-                .iter()
-                .filter(|(id, _)| !is_screen(**id))
-                .map(|(id, p)| (*id, p.at))
-                .collect(),
+        let mut seen = Seen {
             audio: lock(&self.heard).clone(),
+            ..Seen::default()
+        };
+        for (id, picture) in lock(&self.pictures).iter() {
+            if is_screen(*id) {
+                seen.screen.insert(*id & !SCREEN_KEY, picture.at);
+            } else {
+                seen.video.insert(*id, picture.at);
+            }
         }
+        seen
     }
 }
 

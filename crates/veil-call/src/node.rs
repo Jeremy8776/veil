@@ -52,7 +52,7 @@ pub enum Path {
     Forwarder,
 }
 
-/// Initial helper failure, retained separately from transport reachability and admission.
+/// The latest helper failure, retained separately from transport reachability and admission.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HelperIssue {
     Identity,
@@ -60,6 +60,21 @@ pub enum HelperIssue {
     NoRoute,
     Unavailable,
     Refused(Refusal),
+}
+
+impl HelperIssue {
+    /// Classifies a failed connect or registration. Never guesses filtering from silence.
+    pub fn of(error: &RendezvousError) -> Self {
+        use veil_net::NetError;
+        match error {
+            RendezvousError::Refused(why) => Self::Refused(*why),
+            RendezvousError::Net(NetError::Identity) => Self::Identity,
+            RendezvousError::Net(NetError::NoAddresses) => Self::NoRoute,
+            RendezvousError::Timeout
+            | RendezvousError::Net(NetError::Timeout | NetError::Connect(_)) => Self::NoReply,
+            _ => Self::Unavailable,
+        }
+    }
 }
 
 pub struct CallNode {
@@ -148,23 +163,12 @@ impl CallNode {
                     presence = Some(handle);
                     tasks.0.push(task);
                 }
-                Err(CallError::Rendezvous(RendezvousError::Refused(why))) => {
-                    refusal = Some(why);
-                    helper_issue = Some(HelperIssue::Refused(why));
-                }
-                Err(CallError::Rendezvous(RendezvousError::Net(veil_net::NetError::Identity)))
-                | Err(CallError::Net(veil_net::NetError::Identity)) => {
-                    helper_issue = Some(HelperIssue::Identity)
-                }
-                Err(CallError::Net(veil_net::NetError::NoAddresses))
-                | Err(CallError::Rendezvous(RendezvousError::Net(veil_net::NetError::NoAddresses))) => {
-                    helper_issue = Some(HelperIssue::NoRoute)
-                }
-                Err(CallError::Timeout)
-                | Err(CallError::Rendezvous(RendezvousError::Timeout))
-                | Err(CallError::Net(veil_net::NetError::Timeout | veil_net::NetError::Connect(_)))
-                | Err(CallError::Rendezvous(RendezvousError::Net(veil_net::NetError::Timeout | veil_net::NetError::Connect(_)))) => {
-                    helper_issue = Some(HelperIssue::NoReply)
+                Err(CallError::Rendezvous(error)) => {
+                    let issue = HelperIssue::of(&error);
+                    if let HelperIssue::Refused(why) = issue {
+                        refusal = Some(why);
+                    }
+                    helper_issue = Some(issue);
                 }
                 Err(_) => helper_issue = Some(HelperIssue::Unavailable),
             }
@@ -247,7 +251,11 @@ impl CallNode {
     /// not that this device was allowed to register. No reply proves neither UDP blocking
     /// nor that a helper is absent. `has_rendezvous` remains the current connectivity check.
     pub fn helper_issue(&self) -> Option<HelperIssue> {
-        self.helper_issue
+        // A retrying presence knows its latest failure; a refused start has no presence.
+        match &self.presence {
+            Some(presence) => presence.issue(),
+            None => self.helper_issue,
+        }
     }
 
     /// When set, this node dials other participants only through the relay, never directly

@@ -25,6 +25,7 @@ pub enum Problem {
     InviteExpired,
     Declined,
     TokenUsed,
+    CallFull,
     Removed,
     Recovery,
     PermissionDenied,
@@ -47,6 +48,7 @@ impl Problem {
             Self::InviteExpired => "Invitation expired or invalid",
             Self::Declined => "The host declined admission",
             Self::TokenUsed => "Invitation already used",
+            Self::CallFull => "The call is full",
             Self::Removed => "The host removed this device",
             Self::Recovery => "Host connection could not be restored",
             Self::PermissionDenied => "Capture permission denied",
@@ -78,6 +80,9 @@ impl Problem {
                 "Ask the host for a fresh full invitation. Full invitations do not need short-link retrieval."
             }
             Self::Declined => "Contact the host before asking to join again.",
+            Self::CallFull => {
+                "Retrying will fail until a seat is free. Ask the host to free one, or join another call."
+            }
             Self::Removed => {
                 "Removal revokes this membership. Rejoining requires a new invitation and admission."
             }
@@ -133,6 +138,7 @@ impl Problem {
             CallError::Refused(Refused::DeclinedByHost) => Self::Declined,
             CallError::Refused(Refused::TokenUsed) => Self::TokenUsed,
             CallError::Refused(Refused::UnknownRoom) => Self::InviteUnavailable,
+            CallError::Refused(Refused::RoomFull) => Self::CallFull,
             CallError::Plan(_) => Self::NoRoute,
             _ => Self::Other,
         }

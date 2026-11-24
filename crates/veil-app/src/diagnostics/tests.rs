@@ -163,3 +163,12 @@ fn failure_evidence_does_not_guess_filtering_or_weaken_verification() {
         .set(Step::Admission, State::Failed(Problem::Declined));
     assert_eq!(snapshot.problem(), Some(Problem::Declined));
 }
+
+#[test]
+fn a_full_call_is_not_reported_as_a_generic_retryable_failure() {
+    use veil_net::control::RefuseReason;
+    let problem = Problem::call(&veil_call::CallError::Refused(RefuseReason::RoomFull));
+    assert_eq!(problem, Problem::CallFull);
+    assert_eq!(problem.label(), "The call is full");
+    assert!(problem.action().contains("until a seat is free"));
+}

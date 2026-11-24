@@ -38,6 +38,8 @@ use tokio::task::JoinSet;
 use veil_net::Node;
 use veil_rendezvous::protocol::ServerMsg;
 use veil_rendezvous::{Ask, Punch, RendezvousClient, punch, room_tag};
+
+use crate::node::HelperIssue;
 use veil_security::{Identity, PublicId};
 
 use crate::CallError;
@@ -121,6 +123,7 @@ pub(crate) struct Presence {
     commands: mpsc::Sender<Command>,
     consent: Arc<Consent>,
     connected: Arc<AtomicBool>,
+    issue: Arc<Mutex<Option<HelperIssue>>>,
 }
 
 impl Presence {
@@ -150,6 +153,7 @@ impl Presence {
             Ok::<_, veil_rendezvous::RendezvousError>(client)
         }
         .await;
+        let mut initial_issue = None;
         let client = match initial {
             Ok(mut client) => {
                 let policy = consent.clone();
@@ -162,10 +166,14 @@ impl Presence {
             }
             // A temporarily unavailable helper is optional. Keep trying in the background
             // while direct calls proceed instead of permanently losing this presence.
-            Err(_) => None,
+            Err(error) => {
+                initial_issue = Some(HelperIssue::of(&error));
+                None
+            }
         };
         let (commands, rx) = mpsc::channel(COMMANDS);
         let connected = Arc::new(AtomicBool::new(client.is_some()));
+        let issue = Arc::new(Mutex::new(initial_issue));
         let actor = Actor {
             identity: Identity::from_secret(&identity.secret_bytes()),
             node,
@@ -180,12 +188,14 @@ impl Presence {
             host,
             pass,
             connected: connected.clone(),
+            issue: issue.clone(),
         };
         Ok((
             Self {
                 commands,
                 consent,
                 connected,
+                issue,
             },
             tokio::spawn(actor.run(rx)),
         ))
@@ -193,6 +203,14 @@ impl Presence {
 
     pub fn is_connected(&self) -> bool {
         self.connected.load(Ordering::Acquire)
+    }
+
+    /// Why the latest connect or registration attempt failed. `None` while registered.
+    pub fn issue(&self) -> Option<HelperIssue> {
+        if self.is_connected() {
+            return None;
+        }
+        self.issue.lock().ok().and_then(|issue| *issue)
     }
 
     /// The peers this participant's routes now link to. Their requests are accepted, and
@@ -245,6 +263,7 @@ struct Actor {
     host: PublicId,
     pass: Option<[u8; 32]>,
     connected: Arc<AtomicBool>,
+    issue: Arc<Mutex<Option<HelperIssue>>>,
 }
 
 impl Drop for Actor {
@@ -263,6 +282,12 @@ async fn next_allowed(allowed: &mut Option<watch::Receiver<Allowed>>) -> Option<
 }
 
 impl Actor {
+    fn set_issue(&self, issue: Option<HelperIssue>) {
+        if let Ok(mut latest) = self.issue.lock() {
+            *latest = issue;
+        }
+    }
+
     async fn run(mut self, mut commands: mpsc::Receiver<Command>) {
         loop {
             if self.client.is_none() && !self.recover(&mut commands).await {
@@ -343,22 +368,32 @@ impl Actor {
                     },
                 }
             };
-            if let Ok(mut client) = result {
-                // Registration alone must not make a host visible with stale permissions.
-                let restored = if let Some(allowed) = self.allowed.as_mut() {
-                    let now = allowed.borrow_and_update().clone();
-                    client.allow(now.members, now.passes).await.is_ok()
-                } else {
-                    true
-                };
-                if restored {
-                    let policy = self.consent.clone();
-                    client.set_consent(Arc::new(move |from, kind| policy.agree(from, kind)));
-                    self.client = Some(client);
-                    self.connected.store(true, Ordering::Release);
-                    return true;
+            let failed = match result {
+                Ok(mut client) => {
+                    // Registration alone must not make a host visible with stale permissions.
+                    let restored = match self.allowed.as_mut() {
+                        Some(allowed) => {
+                            let now = allowed.borrow_and_update().clone();
+                            client.allow(now.members, now.passes).await
+                        }
+                        None => Ok(()),
+                    };
+                    match restored {
+                        Ok(()) => {
+                            let policy = self.consent.clone();
+                            client
+                                .set_consent(Arc::new(move |from, kind| policy.agree(from, kind)));
+                            self.client = Some(client);
+                            self.set_issue(None);
+                            self.connected.store(true, Ordering::Release);
+                            return true;
+                        }
+                        Err(error) => error,
+                    }
                 }
-            }
+                Err(error) => error,
+            };
+            self.set_issue(Some(HelperIssue::of(&failed)));
             gap = (gap * 2).min(RECONNECT_MAX);
         }
     }
@@ -434,7 +469,9 @@ impl Actor {
                 // The chosen helper can lie about reflection. Its notice supplies timing,
                 // never authority to send to a new third-party endpoint.
                 addrs.retain(|addr| self.node.authenticated_at(peer, *addr));
-                if addrs.is_empty() { return; }
+                if addrs.is_empty() {
+                    return;
+                }
                 let plan = Punch {
                     peer,
                     addrs,

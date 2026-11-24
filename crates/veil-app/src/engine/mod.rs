@@ -25,6 +25,7 @@
 mod audio_out;
 mod auto_step;
 mod guest;
+mod helper_evidence;
 mod host;
 mod invites;
 mod loopback;
@@ -331,7 +332,10 @@ impl Engine {
                 device: person.device,
                 route: person.path,
                 audio_recent: seen.audio.get(&person.id).is_some_and(|a| fresh(a.at)),
-                video_recent: seen.video.get(&person.id).is_some_and(|at| fresh(*at)),
+                // A shared screen is decoded video too; camera-off sharers are not "silent".
+                video_recent: [&seen.video, &seen.screen]
+                    .iter()
+                    .any(|map| map.get(&person.id).is_some_and(|at| fresh(*at))),
             })
             .collect();
         drop(view);
@@ -455,11 +459,36 @@ mod diagnostic_tests {
         assert_eq!(lock(&shared.diagnostic).problem, Some(Problem::Recovery));
         diagnose_member(&shared, &MemberEvent::Reconnecting);
         diagnose_member(&shared, &MemberEvent::Removed);
-        assert!(!lock(&shared.diagnostic).reconnecting, "removal stops recovery evidence");
+        assert!(
+            !lock(&shared.diagnostic).reconnecting,
+            "removal stops recovery evidence"
+        );
         assert_eq!(lock(&shared.diagnostic).end, Some(End::Removed));
         assert_eq!(lock(&shared.diagnostic).problem, Some(Problem::Removed));
         let shared = Shared::new(eframe::egui::Context::default());
         diagnose_member(&shared, &MemberEvent::Closed);
         assert_eq!(lock(&shared.diagnostic).end, Some(End::HostEnded));
+    }
+
+    #[test]
+    fn a_shared_screen_counts_as_that_sharers_decoded_video() {
+        use super::view::{Shared, screen_key};
+        use crate::convert::Rgba;
+        let shared = Shared::new(eframe::egui::Context::default());
+        let rgba = || Rgba {
+            width: 2,
+            height: 2,
+            pixels: vec![0; 16],
+        };
+        shared.put_picture(screen_key(7), rgba(), (2, 2));
+        let seen = shared.seen();
+        assert!(seen.video.is_empty(), "a screen is not a camera tile");
+        assert!(
+            seen.screen.contains_key(&7),
+            "keyed by the sharer, not the screen key"
+        );
+        shared.put_picture(9, rgba(), (2, 2));
+        let seen = shared.seen();
+        assert!(seen.video.contains_key(&9) && !seen.screen.contains_key(&9));
     }
 }

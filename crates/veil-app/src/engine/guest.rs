@@ -27,6 +27,7 @@ use veil_rendezvous::fetch_invite;
 use veil_security::Identity;
 use veil_security::short_invite::InviteLink;
 
+use super::helper_evidence::HelperWatch;
 use super::plan::{NetConfig, resolve};
 use super::session::{Pipes, Session};
 use super::view::Shared;
@@ -143,12 +144,10 @@ pub async fn run(
         call = start => call,
         () = wait_for_leave(&mut commands) => return Ok(()),
     };
+    let helper_needed = !config.local_only && (rendezvous.is_some() || invite.relay.is_some());
+    let mut helper_watch = HelperWatch::start(&call, helper_needed, false);
     shared.diagnose(|d| {
-        d.helper(
-            call.has_rendezvous(),
-            call.helper_issue(),
-            !config.local_only && (rendezvous.is_some() || invite.relay.is_some()),
-        );
+        helper_watch.write(d);
         d.set(Step::HostConnection, State::Waiting);
     });
     // Before joining, so the join and the media session made after it both follow it.
@@ -189,6 +188,8 @@ pub async fn run(
         pipes,
     );
     let mut held = Held::default();
+    // The presence keeps retrying a helper that blipped at join; keep its row current.
+    let mut helper_tick = tokio::time::interval(std::time::Duration::from_secs(2));
     loop {
         // What arrived during a link-up comes first, so nothing overtakes it.
         let flow = if let Some(event) = held.events.pop_front() {
@@ -227,6 +228,10 @@ pub async fn run(
                         .await?
                 }
                 () = session.pump() => Flow::Stay,
+                _ = helper_tick.tick() => {
+                    helper_watch.refresh(&shared, &call);
+                    Flow::Stay
+                }
             }
         };
         if flow == Flow::Leave {

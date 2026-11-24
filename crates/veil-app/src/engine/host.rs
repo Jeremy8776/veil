@@ -55,6 +55,7 @@ use veil_security::{Identity, PublicId};
 
 mod forwarder_check;
 
+use super::helper_evidence::HelperWatch;
 use super::pinhole::V6Port;
 use super::plan::{NetConfig, advertised, lan_ip, resolve};
 use super::reach::Reachability;
@@ -148,17 +149,10 @@ pub async fn run(
     };
     let (host, mut events) = HostHandle::start(&identity, room_id).map_err(|e| e.to_string())?;
     let mut call = CallNode::start(&identity, node, room_id, Some(rendezvous), host.clone()).await;
+    let mut helper_watch = HelperWatch::start(&call, true, true);
     shared.diagnose(|d| {
         d.endpoint(true, rendezvous);
-        d.helper(call.has_rendezvous(), call.helper_issue(), true);
-        d.set(
-            Step::Hosting,
-            if call.has_rendezvous() {
-                State::Passed
-            } else {
-                State::Unchecked
-            },
-        );
+        helper_watch.write(d);
     });
     if configured.is_some() && call.rendezvous_refusal() == Some(Refusal::NotAllowed) {
         shared.diagnose(|d| d.set(Step::Hosting, State::Failed(Problem::HostNotAllowed)));
@@ -345,7 +339,8 @@ pub async fn run(
                 finish_checked_plan(&mut pending_plan, &host, &mut session, &mut forwarded).await;
             }
             _ = refresh.tick() => {
-                if call.has_rendezvous() == server_down {
+                // Evidence follows actual transitions and keeps the latest typed failure kind.
+                if helper_watch.refresh(&shared, &call) == server_down {
                     server_down = !server_down;
                     if server_down {
                         crate::note!("rendezvous {rendezvous} stopped answering; still trying");
@@ -353,10 +348,6 @@ pub async fn run(
                         crate::note!("rendezvous {rendezvous} answering again");
                     }
                     shared.update(|view| view.server_down = server_down);
-                    shared.diagnose(|d| {
-                        d.helper(!server_down, None, true);
-                        d.set(Step::Hosting, if server_down { State::Unchecked } else { State::Passed });
-                    });
                 }
                 finish_checked_plan(&mut pending_plan, &host, &mut session, &mut forwarded).await;
                 if replan {

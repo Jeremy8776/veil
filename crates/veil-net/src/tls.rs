@@ -131,12 +131,19 @@ impl ServerCertVerifier for PinnedPeer {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, Error> {
-        if parse_spki(cert) != Some(self.expected) {
-            return Err(Error::InvalidCertificate(
+        let result = if parse_spki(cert) == Some(self.expected) {
+            verify_signature(message, cert, dss)
+        } else {
+            Err(Error::InvalidCertificate(
                 CertificateError::ApplicationVerificationFailure,
-            ));
+            ))
+        };
+        // Presenting the pinned key (public in every invitation) without its private key is
+        // an answered but unauthenticated peer: identity evidence, not a silent endpoint.
+        if result.is_err() {
+            self.rejected.store(true, Ordering::Relaxed);
         }
-        verify_signature(message, cert, dss)
+        result
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
@@ -356,5 +363,78 @@ mod tests {
     #[test]
     fn device_key_loads_into_tls() {
         assert!(certified_key(&Identity::generate()).is_ok());
+    }
+    /// Serves a fixed key regardless of the hello.
+    #[derive(Debug)]
+    struct Always(Arc<CertifiedKey>);
+    impl ResolvesServerCert for Always {
+        fn resolve(&self, _hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+            Some(self.0.clone())
+        }
+        fn only_raw_public_keys(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn presenting_the_pinned_key_without_its_secret_is_an_identity_rejection() {
+        use rustls::{ClientConnection, ServerConnection};
+        let (real, impostor) = (Identity::generate(), Identity::generate());
+        // The pinned public key, signed by a different private key.
+        let forged = Arc::new(CertifiedKey::new(
+            vec![CertificateDer::from(spki_der(&real.public()))],
+            certified_key(&impostor).unwrap().key.clone(),
+        ));
+        let server = rustls::ServerConfig::builder_with_provider(provider())
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .unwrap()
+            .with_client_cert_verifier(Arc::new(AnyDeviceKey))
+            .with_cert_resolver(Arc::new(Always(forged)));
+        let rejected = Arc::new(AtomicBool::new(false));
+        let pinned = PinnedPeer {
+            expected: real.public(),
+            rejected: rejected.clone(),
+        };
+        let client = rustls::ClientConfig::builder_with_provider(provider())
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .unwrap()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(pinned))
+            .with_client_cert_resolver(Arc::new(
+                rustls::client::AlwaysResolvesClientRawPublicKeys::new(
+                    certified_key(&Identity::generate()).unwrap(),
+                ),
+            ));
+        let name = ServerName::try_from("veil").unwrap();
+        let mut c = ClientConnection::new(Arc::new(client), name).unwrap();
+        let mut s = ServerConnection::new(Arc::new(server)).unwrap();
+        let mut failed = None;
+        for _ in 0..8 {
+            let mut buf = Vec::new();
+            c.write_tls(&mut buf).unwrap();
+            s.read_tls(&mut &buf[..]).unwrap();
+            if s.process_new_packets().is_err() {
+                break;
+            }
+            buf.clear();
+            s.write_tls(&mut buf).unwrap();
+            c.read_tls(&mut &buf[..]).unwrap();
+            if let Err(e) = c.process_new_packets() {
+                failed = Some(e);
+                break;
+            }
+        }
+        assert!(
+            matches!(
+                failed,
+                Some(Error::InvalidCertificate(CertificateError::BadSignature))
+            ),
+            "got {failed:?}"
+        );
+        assert!(
+            rejected.load(Ordering::Relaxed),
+            "an answered forgery is identity evidence"
+        );
     }
 }
