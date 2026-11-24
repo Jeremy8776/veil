@@ -2,14 +2,29 @@
 
 Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
-## Current work, 23/11/2026
+## Current work, 24/11/2026
+
+- Continuing TRUST-02 privately in `main/target/trust-02-review` on `codex/trust-02-review`:
+  host/member events now have a 64-record backlog plus a reserved terminal slot. Overflow
+  closes the session explicitly; dropping the consumer also stops it. Guest link-up holding
+  independently caps events and validated chat/reactions. App UI commands/keyframe channels
+  remain SDK extraction work; the provider's full byte/age/cancellation contract is not met.
+  Forwarding now requires every current member's timely successful check, returns to mesh
+  on each replan and checks newcomers. Loopback regressions cover a relay-only newcomer after
+  successful forwarding and removal during probes. Final Windows workspace validation passed
+  831 tests (20 ignored), all-target Clippy with warnings denied, licences and whitespace
+  checks. Logs: `main/target/trust-02-evidence/resume-{workspace-tests,clippy}.log`.
+  No new camera/microphone capture, Android-target, remote CI or release claim.
+  Remaining TRUST-02 work: selected-helper address reflection policy and integrated hostile
+  discovery/cross-room teardown coverage. Detailed findings remain under ignored `target/`.
 
 - TRUST-02 review is in progress on local branch `codex/trust-02-review`, based on merged main
   `d87e171`, in `main/target/trust-02-review`. Local fixes cover convenience-path isolation,
   authenticated endpoint hints, relay-only forwarding policy and helper worker bounds/cleanup.
   Regression reproductions and the detailed review remain under ignored `main/target/`;
-  no security change or finding has been published. The full gate remains open for application
-  event-queue bounds, selected-helper reflection trust and mixed privacy/group transitions.
+  no security change or finding has been published. This first increment left application
+  event-queue bounds, selected-helper reflection trust and mixed privacy/group transitions
+  open; the 24 November increment above advances the queues and group transitions.
   Fresh isolated-target Windows validation passed 821 tests (20 ignored), all-target workspace
   Clippy with warnings denied, generated licence checking and whitespace checking. Hardware,
   Android-target and remote CI validation were not run for this local increment.

@@ -137,8 +137,17 @@ rendezvous never says who is online.
 
 Hide my address currently supports relay-carried mesh media. Forwarder checks and transitions
 are refused in that mode because the forwarding path would connect directly to the proposed
-helper. An existing mesh is retained on refusal; group-wide mixed-route fallback still needs
-its own design. This restriction also applies to signed proposals and recovery attempts.
+helper. The private local candidate requires every current member to check a forwarder,
+returns to mesh on each membership/address change and checks newcomers before switching
+again. Any refusal or timeout keeps mesh. Mixed routes and measured large-mesh capacity
+remain future work. This restriction also applies to signed proposals and recovery attempts.
+
+The private local candidate bounds host/member application events to 64 pending records plus
+one reserved terminal record. Falling behind ends the session with an explicit overload
+event; it never silently drops membership changes or waits indefinitely on the consumer.
+Dropping the event receiver also stops the session. Guest link-up holding has separate caps
+of 64 events and 64 validated chat/reaction actions; terminal events still interrupt it.
+These limits do not complete the planned SDK command, byte-budget and capture-teardown contract.
 
 Relay packet streams have at most 16 workers per link and a two-second deadline. Cancelling
 their receiver stops the in-flight workers. Forwarder shutdown closes its endpoint and stops

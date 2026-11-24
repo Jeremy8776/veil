@@ -121,7 +121,7 @@ mod tests {
     fn actor() -> Actor {
         let identity = Identity::generate();
         let group = Group::create(&identity, [51; 16]).unwrap();
-        let (events, _) = mpsc::unbounded_channel();
+        let (events, _) = EventSender::channel();
         let (internal, _) = mpsc::channel(16);
         let (allowed, _) = watch::channel(Allowed::default());
         Actor {
@@ -241,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn address_updates_are_throttled_and_the_newest_is_kept() {
-        let (events, mut rx) = mpsc::unbounded_channel();
+        let (events, mut rx) = EventSender::channel();
         let mut host = actor();
         host.events = events;
         let device = PublicId([7; 32]);
@@ -266,7 +266,7 @@ mod tests {
 
     #[tokio::test]
     async fn only_one_answer_per_asked_member_reaches_the_engine() {
-        let (events, mut rx) = mpsc::unbounded_channel();
+        let (events, mut rx) = EventSender::channel();
         let mut host = actor();
         host.events = events;
         let asked = PublicId([3; 32]);

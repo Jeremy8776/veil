@@ -477,11 +477,10 @@ Do not treat a safety-code comparison as a substitute for media attribution.
 - Implement recovery after an active forwarder outage, or a clear bounded failure/rejoin path.
   Test transitions, stale tickets and removal. Cascading is a later extension, not an exit gate.
 
-**Current policy to revisit:** The actual implementation uses the host's successful preflight
-and a strict majority of members, not unanimous agreement. A failed member can lose media;
-an already forwarded call does not preflight every new joiner. Decide and test whether to use
-mixed routes, an explicit refusal, or another bounded fallback. Do not describe majority
-reachability as evidence that every participant can hear everyone.
+**Local policy hardening:** The private TRUST-02 candidate requires a timely successful check
+from every current member, including newcomers to an already forwarded call. Each replan
+publishes mesh first; any refusal or timeout keeps it. This bounds the transition decision,
+but does not prove mesh capacity, sustained media or active-forwarder outage recovery.
 
 ### IOS-01 Bring the shared experience to iPhone
 
@@ -600,9 +599,10 @@ of physical proximity or a guarantee about renamed virtual adapters.
 ### TRUST-02 Review every convenience path against the trust rules
 
 **Outcome:** Easier discovery, joining and recovery do not make unauthorised entry easier.
-**Status:** Integrated local review in progress; first regression-backed hardening changes
-are local. Application queue bounds, selected-helper reflection trust and mixed privacy/group
-transitions remain open; detailed findings are kept private.
+**Status:** Integrated local review in progress. Private local hardening includes bounded
+application events/link-up holding and all-member forwarding checks on membership changes.
+Selected-helper reflection trust and expanded discovery/cross-room teardown coverage remain
+open; detailed findings are kept private.
 **Target:** 0.2.0; release-blocking findings are fixed immediately. **Depends on:** BASE-01.
 
 Threat-model discovery broadcasts/code fetching, invitations, interface/address hints,

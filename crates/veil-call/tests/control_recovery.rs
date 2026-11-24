@@ -18,7 +18,7 @@ async fn within<T>(f: impl Future<Output = T>) -> T {
 struct Call {
     _host: CallNode,
     handle: HostHandle,
-    events: mpsc::UnboundedReceiver<HostEvent>,
+    events: mpsc::Receiver<HostEvent>,
     guest: CallNode,
     member: MemberHandle,
     epoch: u64,

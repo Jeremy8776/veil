@@ -88,6 +88,7 @@ pub async fn run(mut args: HostArgs) -> Result<(), String> {
                         }
                     }
                 }
+                Some(HostEvent::Overloaded) => return Err("application event queue overloaded; start a new call".into()),
                 Some(HostEvent::Error(e)) => println!("group error: {e}"),
                 Some(HostEvent::Addresses { .. } | HostEvent::PlanChecked { .. }) => {},
                 None => return Err("the host session stopped".into()),

@@ -6,7 +6,7 @@
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::Receiver;
 use veil_call::{
     AppMessage, CallError, CallNode, Directory, EpochKeys, HostEvent, HostHandle, KeyRing,
     LinkEvent, Media, MediaSession, MemberEvent, MemberHandle, Path, Peer, Routes, join,
@@ -69,13 +69,13 @@ struct Party {
 
 struct Call {
     host: HostHandle,
-    events: UnboundedReceiver<HostEvent>,
+    events: Receiver<HostEvent>,
     addr: SocketAddr,
     relay: Option<NodeAddr>,
     parties: Vec<Party>,
 }
 
-async fn next_host_keys(events: &mut UnboundedReceiver<HostEvent>) -> EpochKeys {
+async fn next_host_keys(events: &mut Receiver<HostEvent>) -> EpochKeys {
     loop {
         match within(events.recv()).await.unwrap() {
             HostEvent::Keys(keys) => return keys,
@@ -276,6 +276,24 @@ impl Call {
             within(media.ready(Duration::from_secs(10))).await.unwrap();
         }
     }
+}
+
+/// An authenticated host can still outpace an application event consumer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn repeated_signed_plans_cannot_grow_a_slow_members_event_queue() {
+    let mut call = Call::start(None).await;
+    call.admit_direct().await;
+    for _ in 0..=veil_call::EVENT_BACKLOG {
+        within(call.host.publish_plan(call.plan(false), call.directory(0, None))).await.unwrap();
+    }
+    let member = call.parties[1].member.as_mut().unwrap();
+    within(member.link().quic().closed()).await;
+    assert_eq!(member.events.len(), veil_call::EVENT_BACKLOG + 1);
+    for _ in 0..veil_call::EVENT_BACKLOG {
+        assert!(matches!(member.events.recv().await, Some(MemberEvent::Routes(_))));
+    }
+    assert!(matches!(member.events.recv().await, Some(MemberEvent::Overloaded)));
+    assert!(member.events.recv().await.is_none());
 }
 
 /// A correctly signed host proposal still has to satisfy the member's privacy policy.

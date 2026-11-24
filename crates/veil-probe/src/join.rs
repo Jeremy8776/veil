@@ -52,6 +52,7 @@ pub async fn run(args: JoinArgs) -> Result<(), String> {
                 Some(MemberEvent::Reconnected) => println!("host connection restored"),
                 Some(MemberEvent::ConnectionLost) => return Err("the connection to the host could not be restored; use a new invite".into()),
                 Some(MemberEvent::Removed) => return Err("the host removed this member".into()),
+                Some(MemberEvent::Overloaded) => return Err("application event queue overloaded; rejoin with a fresh invite".into()),
                 Some(MemberEvent::Failed(e)) => return Err(format!("group failed: {e}")),
                 Some(MemberEvent::Closed) | None => return Err("the call ended".into()),
             },

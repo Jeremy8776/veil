@@ -4,7 +4,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::Receiver;
 use veil_call::{CallError, CallNode, EpochKeys, HostEvent, HostHandle, MemberEvent, MemberHandle, join};
 use veil_net::Node;
 use veil_net::control::RefuseReason;
@@ -36,7 +36,7 @@ struct Member {
 struct Call {
     _node: CallNode,
     host: HostHandle,
-    events: UnboundedReceiver<HostEvent>,
+    events: Receiver<HostEvent>,
     addr: SocketAddr,
     keys: EpochKeys,
 }
@@ -52,7 +52,7 @@ async fn start_call() -> Call {
     Call { _node: node, host, events, addr, keys }
 }
 
-async fn next_keys(events: &mut UnboundedReceiver<HostEvent>) -> EpochKeys {
+async fn next_keys(events: &mut Receiver<HostEvent>) -> EpochKeys {
     loop {
         match within(events.recv()).await.unwrap() {
             HostEvent::Keys(keys) => return keys,
@@ -221,4 +221,52 @@ async fn members_learn_at_once_that_the_host_ended_the_call() {
     // or members only notice at the 20 s idle timeout.
     let waited = ended.elapsed();
     assert!(waited < Duration::from_millis(500), "members heard after {waited:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rejected_remote_knocks_cannot_grow_a_slow_hosts_event_queue() {
+    let mut call = start_call().await;
+    let mut alice = call.admit().await;
+    while call.events.try_recv().is_ok() {}
+    let attacker = Node::bind(&Identity::generate(), localhost()).unwrap();
+    // Invalid tokens still produce application refusal events. Do not consume any.
+    for _ in 0..=veil_call::EVENT_BACKLOG {
+        let link = within(attacker.connect(&[call.addr], call._node.id())).await.unwrap();
+        let mut control = within(link.open_control()).await.unwrap();
+        control.send(&veil_net::control::Control::Hello {
+            room_id: [4; 16], join_token: [0; 16],
+        }).await.unwrap();
+        match within(control.recv()).await {
+            Ok(veil_net::control::Control::Refused(_)) => {},
+            // Overflow can close the actor while the final refusal is being flushed.
+            Err(_) => break,
+            other => panic!("unexpected reply: {other:?}"),
+        }
+        link.close("left");
+    }
+    // A healthy existing participant hears the call end without the app draining events.
+    assert!(matches!(within(alice.handle.events.recv()).await, Some(MemberEvent::Closed)));
+    assert_eq!(call.events.len(), veil_call::EVENT_BACKLOG + 1);
+    let mut refused = 0;
+    for _ in 0..veil_call::EVENT_BACKLOG {
+        match call.events.recv().await {
+            Some(HostEvent::Refused(..)) => refused += 1,
+            // The admitted member may report its authenticated address after its keys.
+            Some(HostEvent::Addresses { .. }) => {},
+            other => panic!("unexpected queued event: {other:?}"),
+        }
+    }
+    assert!(refused >= veil_call::EVENT_BACKLOG - 1);
+    assert!(matches!(call.events.recv().await, Some(HostEvent::Overloaded)));
+    assert!(call.events.recv().await.is_none());
+    assert!(matches!(call.host.invite(vec![], None, now() + 60).await, Err(CallError::Closed)));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn dropping_the_hosts_event_consumer_stops_the_call_even_with_live_handles() {
+    let mut call = start_call().await;
+    let mut alice = call.admit().await;
+    drop(call.events);
+    assert!(matches!(within(alice.handle.events.recv()).await, Some(MemberEvent::Closed)));
+    assert!(matches!(call.host.invite(vec![], None, now() + 60).await, Err(CallError::Closed)));
 }

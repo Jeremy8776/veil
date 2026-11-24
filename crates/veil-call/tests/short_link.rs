@@ -28,18 +28,18 @@ fn own_server(host: &Identity) -> NodeAddr {
     addr
 }
 
-async fn hosting(identity: &Identity, rendezvous: Option<NodeAddr>) -> (HostHandle, CallNode) {
-    let (host, _events) = HostHandle::start(identity, ROOM).unwrap();
+async fn hosting(identity: &Identity, rendezvous: Option<NodeAddr>) -> (HostHandle, CallNode, tokio::sync::mpsc::Receiver<veil_call::HostEvent>) {
+    let (host, events) = HostHandle::start(identity, ROOM).unwrap();
     let node = Node::bind(identity, localhost()).unwrap();
     let call = CallNode::start(identity, node, ROOM, rendezvous, host.clone()).await;
-    (host, call)
+    (host, call, events)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_guest_gets_the_hosts_invite_from_the_short_link() {
     let identity = Identity::generate();
     let server = own_server(&identity);
-    let (host, call) = hosting(&identity, Some(server)).await;
+    let (host, call, _events) = hosting(&identity, Some(server)).await;
     let relay = RelayAddrs::from(server);
     let full = host
         .invite(vec!["127.0.0.1:1".into()], Some(relay.to_string()), NOW + 60)
@@ -57,7 +57,7 @@ async fn a_guest_gets_the_hosts_invite_from_the_short_link() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn without_a_rendezvous_there_is_no_short_link() {
     let identity = Identity::generate();
-    let (_host, call) = hosting(&identity, None).await;
+    let (_host, call, _events) = hosting(&identity, None).await;
     let relay = RelayAddrs::from(NodeAddr {
         key: Identity::generate().public(),
         addr: "127.0.0.1:1".parse().unwrap(),
