@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "revision": 22,
-  "updated_at": "2026-11-24T21:52:11+00:00",
+  "revision": 23,
+  "updated_at": "2026-11-24T21:53:06+00:00",
   "next_step": {
     "capability": "AND-02",
     "title": "Integrate the reviewed Android candidate and verify CI/lifecycle",
@@ -116,10 +116,12 @@
       "updated_at": "2026-11-23T12:57:42+00:00"
     },
     "TRUST-02": {
-      "status": "planned",
-      "note": "Full capability acceptance gate remains open.",
-      "evidence": [],
-      "updated_at": "2026-11-23T12:57:42+00:00"
+      "status": "done",
+      "note": "Merged in PR #87 (c9444cd): trust-boundary hardening",
+      "evidence": [
+        "https://github.com/Jeremy8776/veil/pull/87"
+      ],
+      "updated_at": "2026-11-24T21:53:06+00:00"
     },
     "INVITE-01": {
       "status": "planned",
@@ -225,6 +227,11 @@
     }
   },
   "activity": [
+    {
+      "at": "2026-11-24T21:53:06+00:00",
+      "session": null,
+      "note": "TRUST-02: done — Merged in PR #87 (c9444cd): trust-boundary hardening"
+    },
     {
       "at": "2026-11-24T21:52:11+00:00",
       "session": null,
