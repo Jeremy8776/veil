@@ -156,7 +156,8 @@ forwarded-sender attribution gates; the CI artifact is not that release.
 The current integration review, native ownership findings and proposed PR split are in
 [`docs/ANDROID_INTEGRATION_REVIEW.md`](../docs/ANDROID_INTEGRATION_REVIEW.md).
 
-Android screen sharing is unavailable in this preview. Camera video, incoming shared screens,
+Android screen sharing is unavailable in this preview; it is planned as SHARE-02
+([ADR 0007](../docs/adr/0007-share-sound-is-a-separate-opt-in-stream.md)). Camera video, incoming shared screens,
 and calls use the existing media protocol. Hardware H.264 encoding, echo cancellation,
 headset routing, reconnection across Wi-Fi/mobile transitions and long background calls need
 dedicated mobile validation before release. Desktop update installation is disabled on Android.

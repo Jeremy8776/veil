@@ -12,6 +12,14 @@ _Avoid_: Processing, enhancement
 An Effect that changes the colour or tone of the whole picture, such as brightness, warmth or black-and-white.
 _Avoid_: Lens, AR effect, face effect
 
+**LUT** (planned, FX-01):
+A colour look-up table file (`.cube`) that the person imports and uses as a Filter.
+_Avoid_: Preset, profile, grade (alone)
+
+**Strength** (planned, FX-01):
+How much of an Effect is applied, from 0% (the original picture) to 100% (the full Effect).
+_Avoid_: Intensity, amount, opacity
+
 **Background blur**:
 An Effect that blurs everything in the picture except the person in front of the camera.
 _Avoid_: Portrait mode, bokeh, blur (alone)
@@ -29,3 +37,7 @@ _Avoid_: Source list, share dialog
 **System chooser**:
 The desktop's own dialog for choosing a screen or window to share, used where Veil is not allowed to list them itself. Veil only learns what the person picked there.
 _Avoid_: Portal, permission prompt
+
+**Computer sound** (planned, SHARE-01):
+The sound a device is playing, which the person can choose to send with a screen share. It never includes Veil's own call audio.
+_Avoid_: System audio, desktop audio, loopback

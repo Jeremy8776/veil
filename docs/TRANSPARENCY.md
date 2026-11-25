@@ -199,6 +199,9 @@ because it would have the desktop write each picture of your screen to a file. T
 drawn in where the desktop offers it. Your desktop's chooser also lists Veil's own window, and
 Veil cannot leave it out. Ending the share in Veil, or backing out of the picker, closes the
 stream and the desktop's session; stopping it from the desktop ends the share in Veil.
+A share sends no sound today. Sending computer sound is planned as a choice you make for each
+share ([ADR 0007](adr/0007-share-sound-is-a-separate-opt-in-stream.md)); this section will
+describe it when it ships.
 
 **Computer sound with a share** is off for every new share. Only if you tick "Include computer
 sound" in the picker, and only while that share runs, Veil reads what your computer plays and
