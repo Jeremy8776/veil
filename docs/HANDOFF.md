@@ -2,7 +2,45 @@
 
 Where Veil stands, for the next session. Read `docs/ARCHITECTURE.md` first.
 
-## Current work, 24/11/2026
+## Current work, 25/11/2026
+
+Primary checkout is `C:\Users\jerem\Apps\Veil`. The `main/` paths in the 24/11 notes below
+refer to an older Codex layout.
+
+**Done this session (Claude, roadmap session `claude-5341dbf7`):**
+
+- AND-02 is closed. PR #86 had already merged it, and CI plus the Android ARM64 artifact build
+  passed on `main` `816b789`. [PR #90](https://github.com/Jeremy8776/veil/pull/90),
+  branch `docs/and-02-done`, records this. It also fixes a flaky test: in
+  `crates/veil-app/src/diagnostics/review.rs`, epaint 0.37 wrapped random device keys one
+  glyph past the phone width. The preview now reserves one monospace glyph of wrap width, and
+  a new test checks 100 random keys.
+- Jeremy asked for three new features first: SHARE-01 (share computer sound, with sender
+  level and mute and receiver volume), FX-01 (`.cube` LUTs and a strength slider on every
+  effect) and SHARE-02 (Android screen sharing).
+  [PR #91](https://github.com/Jeremy8776/veil/pull/91), branch `docs/share-fx-roadmap`, adds
+  them to `docs/ROADMAP.md` and puts them before LOCAL-01. It is built on top of #90, so merge
+  #90 first.
+
+**Open items for the next session:**
+
+1. PR #90 and PR #91 are open with Auto-fix on, and neither is merged. Merging needs
+   Jeremy's yes.
+2. Start **SHARE-01**, the highlighted next step. Read its backlog entry in
+   `docs/ROADMAP.md` first. Facts from the code today:
+   - Screen sharing sends video only. Capture is in `crates/veil-media/src/screen.rs`
+     (xcap), plus `ffi/macos/screen.rs` and `ffi/windows/`.
+   - There is no system-sound capture yet. Microphone and speakers go through cpal.
+   - SHARE-01 must work on Windows (WASAPI loopback), macOS (ScreenCaptureKit) and Linux
+     (PipeWire portal). Exclude Veil's own call playback from capture to avoid echo.
+   - Send share sound as its own Opus stream, separate from the microphone.
+3. Then FX-01: effects are in `crates/veil-media/src/effects.rs`, with four 1D-LUT filters,
+   and `src/blur/`. Then SHARE-02.
+4. `docs/roadmap-state.json` and `docs/roadmap.html` may show uncommitted live session
+   updates. These come from `tools/roadmap.py` and are not product changes.
+5. The old Codex session `codex-continue-20261123-a` still shows as active in the roadmap
+   state, but it has not updated since 23/11.
+
 
 - DIAG-01 acceptance is now complete in this checkout, `main/target/diag-01` on
   `codex/diag-01`. The continuation verified desktop report/export controls and Android
