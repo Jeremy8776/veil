@@ -43,6 +43,8 @@ pub mod mjpeg;
 mod notify_macos;
 pub mod payload;
 pub mod platform;
+#[cfg(any(target_os = "android", test))]
+pub mod projection;
 pub mod remix;
 pub mod scale;
 pub mod schedule;
@@ -53,7 +55,6 @@ pub mod screen;
 pub mod screen;
 pub mod segment;
 pub mod simulcast;
-#[cfg(not(target_os = "android"))]
 pub mod system_sound;
 pub mod temporal;
 #[cfg(target_os = "linux")]

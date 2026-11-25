@@ -1,4 +1,5 @@
 //! Android layouts share the desktop call state, security panels and media engine.
+mod call_bar;
 pub(crate) mod widgets;
 
 use crate::app::{Screen, VeilApp};
@@ -502,53 +503,9 @@ pub fn call(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
                 });
             });
         });
-    egui::Panel::bottom("mobile-call-controls")
-        .frame(
-            egui::Frame::new()
-                .fill(theme::SURFACE)
-                .inner_margin(Margin {
-                    left: 12,
-                    right: 12,
-                    top: 12,
-                    bottom: 12,
-                }),
-        )
-        .show(ui, |ui| {
-            ui.columns(4, |columns| {
-                if w::call_control(
-                    &mut columns[0],
-                    Icon::Mic,
-                    if app.media.mic_on() { "Mute" } else { "Unmute" },
-                    !app.media.mic_on(),
-                    false,
-                )
-                .clicked()
-                {
-                    controls::toggle_mic(app);
-                }
-                if w::call_control(
-                    &mut columns[1],
-                    Icon::Video,
-                    if app.media.camera_on() {
-                        "Stop video"
-                    } else {
-                        "Start video"
-                    },
-                    !app.media.camera_on(),
-                    false,
-                )
-                .clicked()
-                {
-                    controls::toggle_camera(app);
-                }
-                if w::call_control(&mut columns[2], Icon::Refresh, "Flip", false, false).clicked() {
-                    flip(app);
-                }
-                if w::call_control(&mut columns[3], Icon::Leave, "Leave", false, true).clicked() {
-                    stay = false;
-                }
-            });
-        });
+    if !call_bar::show(view, app, ui) {
+        stay = false;
+    }
     let page_id = match view.panel {
         Some(Panel::People) => "mobile-people",
         Some(Panel::Chat) => "mobile-chat",

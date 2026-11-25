@@ -71,6 +71,8 @@ public final class VeilActivity extends NativeActivity {
     @Override public void onDestroy() {
         callActive = false;
         veilCloseCamera();
+        ScreenShare.stopAll();
+        stopService(new Intent(this, ShareService.class));
         stopService(new Intent(this, CallService.class));
         if (cameraThread != null) cameraThread.quitSafely();
         super.onDestroy();
@@ -136,6 +138,42 @@ public final class VeilActivity extends NativeActivity {
             audio.setMode(active ? AudioManager.MODE_IN_COMMUNICATION : AudioManager.MODE_NORMAL);
         });
     }
+
+    // Screen sharing (SHARE-02). ScreenShare.java owns the projection; these only forward.
+    private static final int SHARE_REQUEST = 7;
+    private volatile int pendingShare = -1;
+
+    /** Opens Android's consent prompt for a new share and returns its generation. */
+    public int veilShareRequest() {
+        int asked = ScreenShare.request();
+        runOnUiThread(() -> {
+            try {
+                pendingShare = asked;
+                startActivityForResult(getSystemService(android.media.projection.MediaProjectionManager.class)
+                    .createScreenCaptureIntent(), SHARE_REQUEST);
+            } catch (RuntimeException problem) { ScreenShare.denied(asked); }
+        });
+        return asked;
+    }
+    @SuppressWarnings("deprecation")
+    @Override protected void onActivityResult(int request, int result, Intent consent) {
+        super.onActivityResult(request, result, consent);
+        if (request != SHARE_REQUEST) return;
+        int asked = pendingShare;
+        if (result != RESULT_OK || consent == null) { ScreenShare.denied(asked); return; }
+        Intent service = new Intent(this, ShareService.class).putExtra(ShareService.CODE, result)
+            .putExtra(ShareService.CONSENT, consent).putExtra(ShareService.GENERATION, asked);
+        try { startForegroundService(service); } catch (RuntimeException problem) { ScreenShare.denied(asked); }
+    }
+    public int veilShareStatus(int asked) { return ScreenShare.status(asked); }
+    public byte[] veilShareFrame(int asked) { return ScreenShare.frame(asked); }
+    public void veilShareStop(int asked) { ScreenShare.stop(asked); }
+    public boolean veilShareSoundPermitted() {
+        return checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+    }
+    public boolean veilShareSoundStart(int asked) { return ScreenShare.soundStart(this, asked); }
+    public byte[] veilShareSoundRead(int asked) { return ScreenShare.soundRead(asked); }
+    public void veilShareSoundStop(int asked) { ScreenShare.soundStop(asked); }
 
     public String veilClipboard(String value, boolean copy) {
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);

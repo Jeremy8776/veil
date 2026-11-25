@@ -32,7 +32,9 @@ if ($LASTEXITCODE -ne 0 -or -not ($gradleVersion -match "^Gradle $([regex]::Esca
     throw "Use exactly Gradle $($pins.gradle), or omit -Gradle for a checksum-verified download."
 }
 $java = if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME 'bin\java.exe' } else { 'java' }
-$javaVersion = & $java -version 2>&1 | Out-String
+# java prints its version on stderr. Windows PowerShell 5.1 turns redirected native stderr into
+# error records, which 'Stop' would make fatal, so this one call continues past them.
+$javaVersion = & { $ErrorActionPreference = 'Continue'; & $java -version 2>&1 | Out-String }
 if ($LASTEXITCODE -ne 0 -or $javaVersion -notmatch ('version "' + $pins.java + '\.')) {
     throw "Use JDK $($pins.java) and set JAVA_HOME and PATH to that JDK."
 }

@@ -41,7 +41,7 @@ pub fn init(app: android_activity::AndroidApp) -> Result<(), MediaError> {
     Ok(())
 }
 
-fn activity<T>(
+pub(crate) fn activity<T>(
     f: impl FnOnce(&mut Env<'_>, &JObject<'_>) -> jni::errors::Result<T>,
 ) -> Result<T, MediaError> {
     let app = APP

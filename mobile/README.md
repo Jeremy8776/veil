@@ -156,8 +156,15 @@ forwarded-sender attribution gates; the CI artifact is not that release.
 The current integration review, native ownership findings and proposed PR split are in
 [`docs/ANDROID_INTEGRATION_REVIEW.md`](../docs/ANDROID_INTEGRATION_REVIEW.md).
 
-Android screen sharing is unavailable in this preview; it is planned as SHARE-02
-([ADR 0007](../docs/adr/0007-share-sound-is-a-separate-opt-in-stream.md)). Camera video, incoming shared screens,
+**Screen sharing (SHARE-02, awaiting a phone test).** Share in the call bar opens a short
+sheet, then Android's consent prompt, which picks the whole screen or one app where Android
+supports it. `ScreenShare.java` owns the MediaProjection, virtual display, image reader and
+playback capture, under a `mediaProjection` foreground service (`ShareService.java`) whose
+notification has Stop sharing. Rust polls copies by generation and feeds the desktop share path,
+so encoding, signing and the wire format are shared ([ADR 0007](../docs/adr/0007-share-sound-is-a-separate-opt-in-stream.md)).
+"Include phone sound" uses `AudioPlaybackCapture`. Locking the screen stops the share. The
+consent prompt pauses the Activity, which closes the camera as backgrounding does; restart video
+after returning. Camera video, incoming shared screens,
 and calls use the existing media protocol. Hardware H.264 encoding, echo cancellation,
 headset routing, reconnection across Wi-Fi/mobile transitions and long background calls need
 dedicated mobile validation before release. Desktop update installation is disabled on Android.

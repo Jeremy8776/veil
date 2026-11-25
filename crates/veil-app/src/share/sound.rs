@@ -24,15 +24,18 @@ use super::State;
 use crate::media::{Worker, lock};
 use crate::volume::{Gain, SPEAKER_MAX};
 
+#[cfg(not(target_os = "android"))]
 const CANNOT_START: &str = "Computer sound could not start. Your screen is still shared.";
-#[cfg_attr(target_os = "android", allow(dead_code))]
+#[cfg(not(target_os = "android"))]
 const STOPPED: &str = "Computer sound stopped. Your screen is still shared.";
+#[cfg(target_os = "android")]
+const CANNOT_START: &str = "Phone sound could not start. Your screen is still shared.";
+#[cfg(target_os = "android")]
+const STOPPED: &str = "Phone sound stopped. Your screen is still shared.";
 /// Frames between repaints for the level meter: five a second.
-#[cfg_attr(target_os = "android", allow(dead_code))]
 const METER_EVERY: u32 = 10;
 
 /// Whether this computer can share its sound.
-#[cfg_attr(target_os = "android", allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SoundSupport {
     Ready,
@@ -82,8 +85,7 @@ impl SoundState {
     }
 
     /// The gain for the next frame: the level, or nothing while muted.
-    #[cfg_attr(target_os = "android", allow(dead_code))]
-    fn gain(&self) -> f32 {
+        fn gain(&self) -> f32 {
         if self.muted() { 0.0 } else { self.level() }
     }
 }
@@ -158,13 +160,10 @@ impl SoundShare {
 }
 
 fn probe() -> SoundSupport {
-    #[cfg(not(target_os = "android"))]
-    return match veil_media::system_sound::support() {
+    match veil_media::system_sound::support() {
         veil_media::system_sound::Support::Ready => SoundSupport::Ready,
         veil_media::system_sound::Support::Unavailable(why) => SoundSupport::Unavailable(why),
-    };
-    #[cfg(target_os = "android")]
-    SoundSupport::Unavailable("Not on this device yet")
+    }
 }
 
 /// Notes why sound could not start; the share goes on without it.
@@ -175,12 +174,6 @@ fn cannot_start(state: &SoundState, ctx: &egui::Context, why: &str) {
     ctx.request_repaint();
 }
 
-#[cfg(target_os = "android")]
-fn sound_loop(state: &SoundState, _share: &State, ctx: &egui::Context, _stop: &AtomicBool) {
-    cannot_start(state, ctx, "not on this device");
-}
-
-#[cfg(not(target_os = "android"))]
 fn sound_loop(state: &SoundState, share: &State, ctx: &egui::Context, stop: &AtomicBool) {
     let mut sound = match veil_media::system_sound::SystemSound::open() {
         Ok(sound) => sound,

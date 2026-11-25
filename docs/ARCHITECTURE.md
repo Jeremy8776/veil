@@ -168,6 +168,9 @@ section 3.3 is the goal. What runs now is simpler:
 - Picture numbers continue when an encoder reopens, so selecting a new area or changing
   Data use does not freeze the receiver's decode gate.
 
+Android (SHARE-02) captures through MediaProjection. Its consent prompt takes the place of the
+picker, as the portal does on Wayland, and copied RGBA pictures enter the same share thread and
+encoder (`veil-media/src/screen/mobile.rs`, `veil-media/src/projection.rs`).
 Windows captures through Windows Graphics Capture. X11 and macOS take repeated screenshots
 through `xcap`. On KDE Plasma's Wayland session KWin lists windows, takes the thumbnail and
 preview screenshots and streams the share (`veil-media/src/screen/kde.rs`), so Veil's own
