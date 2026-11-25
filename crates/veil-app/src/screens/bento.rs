@@ -26,7 +26,7 @@ struct Cell {
     content: Content,
 }
 
-fn video(app: &VeilApp, person: &Participant) -> Option<(TextureId, [usize; 2])> {
+pub(crate) fn video(app: &VeilApp, person: &Participant) -> Option<(TextureId, [usize; 2])> {
     if !person.camera {
         return None;
     }

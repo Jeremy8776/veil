@@ -2,6 +2,7 @@
 mod call_bar;
 mod home;
 mod prejoin;
+mod waiting;
 pub(crate) mod widgets;
 
 use crate::app::{Screen, VeilApp};
@@ -15,7 +16,7 @@ use crate::screens::{
 use crate::theme;
 use crate::widgets::Tone;
 use eframe::egui::{
-    self, Align, Align2, Layout, Margin, Rect, Sense, UiBuilder, vec2,
+    self, Align, Align2, Layout, Margin, Rect, Sense, vec2,
 };
 use std::time::{Duration, Instant};
 use widgets as w;
@@ -371,77 +372,19 @@ fn invitation(view: &mut CallView, ui: &mut egui::Ui) {
         });
         return;
     }
-    if !view.call.nearby_code.is_empty() {
-        w::label(ui, "Nearby code", 13.0, false, theme::MUTED);
-        w::label(ui, &view.call.nearby_code, 28.0, true, theme::TEXT);
-        ui.add_space(4.0);
-    }
-    ui.columns(2, |columns| {
-        if action(
-            &mut columns[0],
-            Some(Icon::Copy),
-            "Copy invite",
-            Tone::Quiet,
-        ) {
-            copy(columns[0].ctx(), &view.call.invite_full);
-            view.notify("Invite copied");
-        }
-        if action(&mut columns[1], None, "Show QR", Tone::Quiet) {
-            crate::invite_qr::open(columns[1].ctx());
-        }
+    ui.vertical_centered(|ui| {
+        waiting::code(view, ui);
+        waiting::controls(view, ui);
     });
-    w::label(
-        ui,
-        "The host still decides who may join.",
-        13.0,
-        false,
-        theme::MUTED,
-    );
 }
 
 fn stage(view: &mut CallView, app: &VeilApp, ui: &mut egui::Ui) {
     let size = ui.available_size();
     let (area, _) = ui.allocate_exact_size(vec2(size.x, size.y.max(1.0)), Sense::hover());
-    let waiting = view.call.participants.iter().all(|person| person.is_you);
-    if let Some(rect) = crate::screens::bento::show(view, app, ui, area, waiting) {
-        let content = rect.shrink(16.0);
-        ui.scope_builder(
-            UiBuilder::new()
-                .max_rect(content)
-                .layout(Layout::top_down(Align::Center)),
-            |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("mobile-waiting")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        let title = if view.call.is_host {
-                            "Your call is ready"
-                        } else if view.call.status == CallStatus::Lobby {
-                            "Waiting for the host"
-                        } else {
-                            "Reaching the host"
-                        };
-                        w::label(ui, title, 22.0, true, theme::TEXT);
-                        ui.add_space(8.0);
-                        if view.call.is_host && !view.mobile_invite {
-                            invitation(view, ui);
-                        } else if !view.call.is_host {
-                            ui.spinner();
-                            w::label(
-                                ui,
-                                if view.call.status == CallStatus::Lobby {
-                                    "The host will decide when to let you in."
-                                } else {
-                                    "Finding a connection to your call…"
-                                },
-                                14.0,
-                                false,
-                                theme::MUTED,
-                            );
-                        }
-                    });
-            },
-        );
+    if view.call.participants.iter().all(|person| person.is_you) {
+        waiting::show(view, app, ui, area);
+    } else {
+        crate::screens::bento::show(view, app, ui, area, false);
     }
 }
 
