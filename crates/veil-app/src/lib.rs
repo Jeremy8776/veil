@@ -97,9 +97,17 @@ pub fn run_android(app: winit::platform::android::activity::AndroidApp) -> efram
         return Err(eframe::Error::AppCreation(Box::new(problem)));
     }
     log::start(log::folder().as_deref());
+    let mut wgpu_options = eframe::egui_wgpu::WgpuConfiguration::default();
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut wgpu_options.wgpu_setup {
+        // Debug builds name GPU objects for debugging tools, and the Android emulator's
+        // Vulkan driver crashes on that call (vkSetDebugUtilsObjectNameEXT). Phones need no
+        // names either. WGPU_DEBUG and WGPU_VALIDATION can still turn them on.
+        setup.instance_descriptor.flags = eframe::wgpu::InstanceFlags::empty().with_env();
+    }
     let options = eframe::NativeOptions {
         android_app: Some(app),
         renderer: eframe::Renderer::Wgpu,
+        wgpu_options,
         ..Default::default()
     };
     log::record_exit(eframe::run_native(
