@@ -677,7 +677,8 @@ rates from a handful of manual calls.
 
 **Outcome:** A person sharing a screen can choose to include their computer's sound, and set
 or mute its level during the share.
-**Status:** Requested 25 November 2026. Screen sharing sends video only today. **Target:** 0.2.0.
+**Status:** Requested 25 November 2026. Screen sharing sends video only today. Design:
+[ADR 0007](adr/0007-share-sound-is-a-separate-opt-in-stream.md). **Target:** 0.2.0.
 **Depends on:** BASE-01.
 
 - Add an **Include computer sound** choice to the share picker. It starts off for each share.
@@ -701,7 +702,8 @@ in the picker rather than failing silently.
 **Outcome:** A person on Android can share their screen into a call, with the same controls
 as desktop.
 **Status:** Requested 25 November 2026. The Android preview can receive shared screens but
-cannot send one. **Target:** 0.2.0. **Depends on:** AND-02.
+cannot send one. Design: [ADR 0007](adr/0007-share-sound-is-a-separate-opt-in-stream.md).
+**Target:** 0.2.0. **Depends on:** AND-02.
 
 - Use Android MediaProjection, with the system consent prompt for every share and a
   foreground service of type `mediaProjection`. Offer a single app or the whole screen where
@@ -722,7 +724,8 @@ Android version. iPhone sharing remains IOS-01 scope.
 **Outcome:** A person can load a colour look-up table (LUT) as a camera effect, and set how
 strongly any effect is applied.
 **Status:** Requested 25 November 2026. Four built-in colour filters and background blur
-exist, with no strength control and no loadable LUTs. **Target:** 0.2.0. **Depends on:** BASE-01.
+exist, with no strength control and no loadable LUTs. Design:
+[ADR 0008](adr/0008-lut-effects-and-effect-strength.md). **Target:** 0.2.0. **Depends on:** BASE-01.
 
 - Import standard `.cube` 3D LUT files on desktop and Android. Copy each into app-private
   storage, show it in the effects picker by name, and allow removal.

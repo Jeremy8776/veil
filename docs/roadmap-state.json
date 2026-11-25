@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "revision": 32,
-  "updated_at": "2026-11-25T11:44:28+00:00",
+  "revision": 34,
+  "updated_at": "2026-11-25T11:48:32+00:00",
   "next_step": {
     "capability": "SHARE-01",
     "title": "Share computer sound with a screen",
@@ -247,11 +247,21 @@
       "title": "Roadmap review",
       "status": "idle",
       "started_at": "2026-11-25T10:53:47+00:00",
-      "updated_at": "2026-11-25T11:44:28+00:00",
-      "note": "Added SHARE-01, SHARE-02 and FX-01 to 0.2.0 on docs/share-fx-roadmap (local commit, stacked on PR #90). Next: LOCAL-01."
+      "updated_at": "2026-11-25T11:48:32+00:00",
+      "note": "Handoff written in docs/HANDOFF.md (local commit on docs/share-fx-roadmap). Next session starts SHARE-01."
     }
   },
   "activity": [
+    {
+      "at": "2026-11-25T11:48:32+00:00",
+      "session": "claude-5341dbf7",
+      "note": "Handoff written in docs/HANDOFF.md (local commit on docs/share-fx-roadmap). Next session starts SHARE-01."
+    },
+    {
+      "at": "2026-11-25T11:44:30+00:00",
+      "session": "claude-5341dbf7",
+      "note": "SHARE-01, FX-01, SHARE-02 moved ahead of LOCAL-01; SHARE-01 is next. Local commits on docs/share-fx-roadmap, unpushed."
+    },
     {
       "at": "2026-11-25T11:44:28+00:00",
       "session": "claude-5341dbf7",

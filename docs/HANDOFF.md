@@ -22,6 +22,13 @@ refer to an older Codex layout.
   them to `docs/ROADMAP.md` and puts them before LOCAL-01. It is built on top of #90, so merge
   #90 first.
 
+- Proposed designs are recorded in [ADR 0007](adr/0007-share-sound-is-a-separate-opt-in-stream.md)
+  (share sound and Android sharing) and [ADR 0008](adr/0008-lut-effects-and-effect-strength.md)
+  (LUTs and effect strength). ADR 0005 and ADR 0006, the Glossary, Architecture, Transparency,
+  Getting started, `mobile/README.md` and the Changelog point to them.
+- SHARE-01 is being built in its own Claude session, worktree branch `share-01-system-audio`,
+  cut from `main`.
+
 **Open items for the next session:**
 
 1. PR #90 and PR #91 are open with Auto-fix on, and neither is merged. Merging needs

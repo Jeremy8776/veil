@@ -199,6 +199,9 @@ because it would have the desktop write each picture of your screen to a file. T
 drawn in where the desktop offers it. Your desktop's chooser also lists Veil's own window, and
 Veil cannot leave it out. Ending the share in Veil, or backing out of the picker, closes the
 stream and the desktop's session; stopping it from the desktop ends the share in Veil.
+A share sends no sound today. Sending computer sound is planned as a choice you make for each
+share ([ADR 0007](adr/0007-share-sound-is-a-separate-opt-in-stream.md)); this section will
+describe it when it ships.
 
 **Filters and Background blur** run on your device, on each camera picture before your
 self-view and before it is encoded, so other members receive only the changed picture. Finding
