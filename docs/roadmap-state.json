@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "revision": 37,
-  "updated_at": "2026-11-25T17:12:37+00:00",
+  "revision": 38,
+  "updated_at": "2026-11-25T17:13:17+00:00",
   "next_step": {
     "capability": "SHARE-01",
     "title": "Share computer sound with a screen",
@@ -252,13 +252,18 @@
     },
     "share-02-hungry-bhaskara": {
       "title": "SHARE-02 Android screen share",
-      "status": "active",
+      "status": "idle",
       "started_at": "2026-11-25T16:58:55+00:00",
-      "updated_at": "2026-11-25T17:12:37+00:00",
-      "note": "Reading the roadmap and current evidence."
+      "updated_at": "2026-11-25T17:13:17+00:00",
+      "note": "SHARE-02 PR #94 open; CI pending; awaiting Jeremy's phone test"
     }
   },
   "activity": [
+    {
+      "at": "2026-11-25T17:13:17+00:00",
+      "session": "share-02-hungry-bhaskara",
+      "note": "SHARE-02 PR #94 open; CI pending; awaiting Jeremy's phone test"
+    },
     {
       "at": "2026-11-25T17:12:37+00:00",
       "session": "share-02-hungry-bhaskara",

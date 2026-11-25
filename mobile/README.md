@@ -86,6 +86,23 @@ identity and verified contacts. Stable signing and upgrade testing belong to DIS
 The debug package is `io.github.jeremy8776.veil.preview` and appears as **Veil Preview**.
 It can coexist with a later production package. Android 10 or later is required.
 
+## Android emulator
+
+Phones are ARM64. For the x86_64 Android emulator, build a native x86_64 APK instead, so the
+emulator does not translate ARM code (its Vulkan driver crashes under translation):
+
+```powershell
+rustup target add --toolchain 1.98.1 x86_64-linux-android
+sdkmanager "emulator" "system-images;android-36;google_apis;x86_64"
+.\mobile\android\build.ps1 -Emulator -Install
+```
+
+`-Install` with `-Emulator` installs to the running emulator (`adb -e`); without it, to the USB
+phone (`adb -d`). The Android 16 (API 36) Google APIs image boots and runs Veil with its default
+graphics. On 25 November 2026 the Android 17 (API 37.0) image boot-looped on emulator 37.3.10
+(its display service crashed with both host and software graphics). An emulator run is a
+development aid; it does not replace phone evidence.
+
 ## Native boundaries
 
 `-Install` stops the previous NativeActivity before replacing the debug package and preserves

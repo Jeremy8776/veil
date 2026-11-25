@@ -2,7 +2,9 @@ param(
     [string]$AndroidSdk = "$env:USERPROFILE\AppData\Local\Android\Sdk",
     [string]$Gradle = "",
     [switch]$Check,
-    [switch]$Install
+    [switch]$Install,
+    # Builds for the x86_64 Android emulator instead of ARM64 phones, and installs to it.
+    [switch]$Emulator
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -39,36 +41,42 @@ if ($LASTEXITCODE -ne 0 -or $javaVersion -notmatch ('version "' + $pins.java + '
     throw "Use JDK $($pins.java) and set JAVA_HOME and PATH to that JDK."
 }
 $targetRoot = Join-Path $repo 'target\android'
-$jniDir = Join-Path $PSScriptRoot 'app\src\main\jniLibs\arm64-v8a'
-$variables = @('ANDROID_HOME','ANDROID_NDK_HOME','CARGO_TARGET_DIR','CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER','CC_aarch64_linux_android','CXX_aarch64_linux_android','AR_aarch64_linux_android','RUSTFLAGS')
+# Phones are ARM64. The emulator build is x86_64, so the emulator runs it without ARM translation.
+$rustTarget = if ($Emulator) { $pins.emulatorTarget } else { 'aarch64-linux-android' }
+$abi = if ($Emulator) { 'x86_64' } else { 'arm64-v8a' }
+$cargoKey = $rustTarget.ToUpperInvariant().Replace('-', '_')
+$ccKey = $rustTarget.Replace('-', '_')
+$jniDir = Join-Path $PSScriptRoot "app\src\main\jniLibs\$abi"
+$variables = @('ANDROID_HOME','ANDROID_NDK_HOME','CARGO_TARGET_DIR',"CARGO_TARGET_$($cargoKey)_LINKER","CC_$ccKey","CXX_$ccKey","AR_$ccKey",'RUSTFLAGS')
 $previous = @{}
 foreach ($name in $variables) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 try {
     $env:ANDROID_HOME = $AndroidSdk
     $env:ANDROID_NDK_HOME = $ndk
     $env:CARGO_TARGET_DIR = $targetRoot
-    $env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = Join-Path $toolchain 'aarch64-linux-android29-clang.cmd'
-    $env:CC_aarch64_linux_android = $env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER
-    $env:CXX_aarch64_linux_android = Join-Path $toolchain 'aarch64-linux-android29-clang++.cmd'
-    $env:AR_aarch64_linux_android = Join-Path $toolchain 'llvm-ar.exe'
+    $linker = Join-Path $toolchain "$($rustTarget)29-clang.cmd"
+    Set-Item -LiteralPath "Env:CARGO_TARGET_$($cargoKey)_LINKER" -Value $linker
+    Set-Item -LiteralPath "Env:CC_$ccKey" -Value $linker
+    Set-Item -LiteralPath "Env:CXX_$ccKey" -Value (Join-Path $toolchain "$($rustTarget)29-clang++.cmd")
+    Set-Item -LiteralPath "Env:AR_$ccKey" -Value (Join-Path $toolchain 'llvm-ar.exe')
     $env:RUSTFLAGS = (($previous.RUSTFLAGS + ' -C link-arg=-Wl,-z,max-page-size=16384').Trim())
     Push-Location $repo
     try {
-        cargo "+$($pins.rust)" build --locked -p veil-android --target aarch64-linux-android
+        cargo "+$($pins.rust)" build --locked -p veil-android --target $rustTarget
         if ($LASTEXITCODE -ne 0) { throw 'Rust Android build failed.' }
         if ($Check) {
-            cargo "+$($pins.rust)" clippy --locked -p veil-android -p veil-app -p veil-media --lib --target aarch64-linux-android -- -D warnings
+            cargo "+$($pins.rust)" clippy --locked -p veil-android -p veil-app -p veil-media --lib --target $rustTarget -- -D warnings
             if ($LASTEXITCODE -ne 0) { throw 'Android Clippy failed.' }
         }
     } finally { Pop-Location }
     New-Item -ItemType Directory -Path $jniDir -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $targetRoot 'aarch64-linux-android\debug\libveil_android.so') -Destination $jniDir
-    Copy-Item -LiteralPath (Join-Path $ndk 'toolchains\llvm\prebuilt\windows-x86_64\sysroot\usr\lib\aarch64-linux-android\libc++_shared.so') -Destination $jniDir
+    Copy-Item -LiteralPath (Join-Path $targetRoot "$rustTarget\debug\libveil_android.so") -Destination $jniDir
+    Copy-Item -LiteralPath (Join-Path $ndk "toolchains\llvm\prebuilt\windows-x86_64\sysroot\usr\lib\$rustTarget\libc++_shared.so") -Destination $jniDir
     & (Join-Path $toolchain 'llvm-strip.exe') --strip-debug (Join-Path $jniDir 'libveil_android.so')
     if ($LASTEXITCODE -ne 0) { throw 'Cannot strip Android native library.' }
     Push-Location $PSScriptRoot
     try {
-        & $Gradle --no-daemon --console=plain :app:assembleDebug
+        & $Gradle --no-daemon --console=plain "-PveilAbi=$abi" :app:assembleDebug
         if ($LASTEXITCODE -ne 0) { throw 'APK packaging failed.' }
     } finally { Pop-Location }
     $apk = Join-Path $PSScriptRoot 'app\build\outputs\apk\debug\app-debug.apk'
@@ -88,18 +96,20 @@ try {
         dirty = $dirty
         packageId = 'io.github.jeremy8776.veil.preview'
         preview = $pins.preview
-        abi = 'arm64-v8a'
+        abi = $abi
         toolchain = $pins
         sha256 = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path (Split-Path $apk) 'build-info.json') -Encoding utf8
     Write-Output "Built: $apk"
     if ($Install) {
         $adb = Join-Path $AndroidSdk 'platform-tools\adb.exe'
+        # -e is the running emulator, -d the USB phone, so the build goes to the device it was made for.
+        $device = if ($Emulator) { '-e' } else { '-d' }
         # End the old NativeActivity before replacing its library; retain all app data.
-        & $adb shell am force-stop io.github.jeremy8776.veil.preview
+        & $adb $device shell am force-stop io.github.jeremy8776.veil.preview
         if ($LASTEXITCODE -ne 0) { throw 'Cannot stop the existing preview before upgrade.' }
-        & $adb install -r $apk
-        if ($LASTEXITCODE -ne 0) { throw 'Phone installation failed.' }
+        & $adb $device install -r $apk
+        if ($LASTEXITCODE -ne 0) { throw 'Installation failed.' }
     }
 } finally {
     foreach ($name in $variables) {

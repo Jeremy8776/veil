@@ -12,7 +12,8 @@ android {
         targetSdk 36
         versionCode pins.preview.versionCode
         versionName pins.preview.versionName
-        ndk { abiFilters 'arm64-v8a' }
+        // build.ps1 -Emulator passes -PveilAbi=x86_64; phones use ARM64.
+        ndk { abiFilters(project.findProperty('veilAbi') ?: 'arm64-v8a') }
     }
     buildTypes {
         debug { applicationIdSuffix '.preview'; debuggable true }
