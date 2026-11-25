@@ -37,6 +37,7 @@ mod freedesktop;
 pub mod gate;
 pub mod jitter;
 pub mod ladder;
+pub mod lut;
 #[cfg(any(target_os = "linux", test))]
 pub mod mjpeg;
 #[cfg(target_os = "macos")]
@@ -65,6 +66,7 @@ pub use capture::{CameraMode, NativeMode, PixelFormat};
 pub use decoder::VideoDecoder;
 pub use denoise::Denoiser;
 pub use effects::Filter;
+pub use lut::{LutError, YuvLut};
 pub use encoder::{EncodedLayer, RawPicture, VideoEncoder};
 pub use error::MediaError;
 pub use ffi::opus::{OpusDecoder, OpusEncoder, opus_version};
