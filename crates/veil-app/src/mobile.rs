@@ -1,5 +1,6 @@
 //! Android layouts share the desktop call state, security panels and media engine.
 mod call_bar;
+mod focus;
 mod home;
 mod people;
 mod prejoin;
@@ -382,7 +383,11 @@ fn stage(view: &mut CallView, app: &VeilApp, ui: &mut egui::Ui) {
     if view.call.participants.iter().all(|person| person.is_you) {
         waiting::show(view, app, ui, area);
     } else {
-        crate::screens::bento::show(view, app, ui, area, false);
+        if view.view == View::Focus && !view.sharing(app) {
+            focus::show(view, app, ui, area);
+        } else {
+            crate::screens::bento::show(view, app, ui, area, false);
+        }
     }
 }
 

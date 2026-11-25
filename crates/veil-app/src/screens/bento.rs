@@ -3,7 +3,6 @@ use super::{
     call::{CallView, View},
     share,
     share_sound::{self, Owner},
-    speaker::{self, Seat},
 };
 use crate::{
     app::VeilApp,
@@ -14,7 +13,6 @@ use crate::{
     widgets::{self, Tile},
 };
 use eframe::egui::{self, Rect, TextureId, UiBuilder};
-use std::time::Instant;
 
 const WAITING: u64 = u64::MAX;
 enum Content {
@@ -92,9 +90,7 @@ pub(crate) fn show(
         }
     }
     let shares = cells.len() > usize::from(waiting);
-    // Track the speaker in both views, so switching to Focus opens on whoever is talking.
-    let seats: Vec<Seat> = view.call.participants.iter().map(Seat::from).collect();
-    view.focus = speaker::pick(view.focus, &seats, Instant::now());
+    view.update_focus();
     let focus = view.view == View::Focus;
     let featured = if waiting || shares {
         0

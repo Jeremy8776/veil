@@ -12,6 +12,7 @@
 //! - A real call reads the engine once per frame, before drawing, and hands it the host's
 //!   decisions from the model's outbox. It ends when the engine says so.
 
+use crate::screens::speaker::{self, Seat};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{
@@ -60,7 +61,7 @@ pub struct CallView {
     pub(super) sounding: Vec<u32>,
     pub(crate) tile_motion: layout::Motion,
     /// Who holds the stage in Focus view, kept between frames for the speaker hold.
-    pub(crate) focus: Option<crate::screens::speaker::Focus>,
+    pub(crate) focus: Option<speaker::Focus>,
     /// The real call; `None` in a demo. Dropping it leaves the call.
     engine: Option<Engine>,
 }
@@ -88,6 +89,18 @@ impl CallView {
 
     pub fn notify(&mut self, text: &str) {
         self.notice = Some((text.to_string(), Instant::now()));
+    }
+
+    /// Moves the stage to whoever is speaking, with the speaker hold. Runs in both views,
+    /// so switching to Focus opens on whoever is talking.
+    pub(crate) fn update_focus(&mut self) {
+        let seats: Vec<_> = self.call.participants.iter().map(Seat::from).collect();
+        self.focus = speaker::pick(self.focus, &seats, Instant::now());
+    }
+
+    /// Whether anyone, you included, is sharing a screen.
+    pub(crate) fn sharing(&self, app: &VeilApp) -> bool {
+        !self.sharers.is_empty() || app.share_video().is_some()
     }
 
     pub(crate) fn watch_tiles(&self, tiles: Vec<(u32, f32)>) {
