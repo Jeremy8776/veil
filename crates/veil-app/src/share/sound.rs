@@ -32,6 +32,7 @@ const STOPPED: &str = "Computer sound stopped. Your screen is still shared.";
 const METER_EVERY: u32 = 10;
 
 /// Whether this computer can share its sound.
+#[cfg_attr(target_os = "android", allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SoundSupport {
     Ready,
@@ -81,6 +82,7 @@ impl SoundState {
     }
 
     /// The gain for the next frame: the level, or nothing while muted.
+    #[cfg_attr(target_os = "android", allow(dead_code))]
     fn gain(&self) -> f32 {
         if self.muted() { 0.0 } else { self.level() }
     }
