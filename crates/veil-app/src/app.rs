@@ -410,6 +410,13 @@ impl eframe::App for VeilApp {
                 crate::mobile::apply_style(&ctx, font_scale);
                 ctx.data_mut(|data| data.insert_temp(font_id, font_scale));
             }
+            // Open the keyboard when a text field takes focus, close it when none has it.
+            let typing = ctx.text_edit_focused();
+            let keyboard_id = egui::Id::unique("android-keyboard");
+            if ctx.data(|data| data.get_temp::<bool>(keyboard_id)).unwrap_or(false) != typing {
+                veil_media::ffi::android::keyboard(typing);
+                ctx.data_mut(|data| data.insert_temp(keyboard_id, typing));
+            }
             let (left, right) = veil_media::ffi::android::side_insets();
             if left > 0 {
                 egui::Panel::left("android-left-inset")

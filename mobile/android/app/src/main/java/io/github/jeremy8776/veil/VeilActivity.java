@@ -92,6 +92,24 @@ public final class VeilActivity extends NativeActivity {
     public long veilInsets() { return ((long)topInset << 32) | (bottomInset & 0xffffffffL); }
     public long veilSideInsets() { return ((long)leftInset << 32) | (rightInset & 0xffffffffL); }
     public float veilFontScale() { return getResources().getConfiguration().fontScale; }
+    /** winit asks for the keyboard from the native thread with an implicit flag, which
+     *  Android 11+ refuses. Ask from the UI thread, explicitly, on the focused content view. */
+    public void veilKeyboard(boolean show) {
+        runOnUiThread(() -> {
+            android.view.View view = getWindow().getDecorView();
+            android.view.inputmethod.InputMethodManager input =
+                getSystemService(android.view.inputmethod.InputMethodManager.class);
+            if (show) {
+                view.setFocusable(true); view.setFocusableInTouchMode(true); view.requestFocus();
+                if (Build.VERSION.SDK_INT >= 30) view.getWindowInsetsController().show(android.view.WindowInsets.Type.ime());
+                else input.showSoftInput(view, 0);
+            } else if (Build.VERSION.SDK_INT >= 30) {
+                view.getWindowInsetsController().hide(android.view.WindowInsets.Type.ime());
+            } else {
+                input.hideSoftInputFromWindow(view.getWindowToken(), 0);
+            }
+        });
+    }
     public void veilBackground() { runOnUiThread(() -> moveTaskToBack(true)); }
     public boolean veilBackRequested() { boolean value = backRequested; backRequested = false; return value; }
     public boolean veilResumed() { return resumed; }
