@@ -183,7 +183,8 @@ impl Nearby {
                     ui.add_enabled_ui(!self.fetching, |ui| {
                         crate::mobile::widgets::link(
                             ui,
-                            Some(crate::icons::Icon::Signal),
+                            // Not Signal: that is the connection icon in the top-right corner.
+                            Some(crate::icons::Icon::People),
                             "Find nearby calls",
                         )
                         .on_hover_text("Calls on the same Wi-Fi or hotspot")
