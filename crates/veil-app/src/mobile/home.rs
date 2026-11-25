@@ -9,9 +9,9 @@ use crate::theme;
 use crate::widgets::Tone;
 use eframe::egui::{self, Align2, Margin, Rect, UiBuilder, vec2};
 
-/// The logo block's height: 80 logo, 16 gap, title, 4 gap, subtitle.
+/// The logo block's height: 112 logo, 24 gap, the wordmark.
 /// shortcut: a fixed estimate used to centre it; measure the block if its content changes.
-const HERO: f32 = 168.0;
+const HERO: f32 = 160.0;
 
 pub fn home(app: &mut VeilApp, ui: &mut egui::Ui) {
     controls(app, ui);
@@ -22,20 +22,28 @@ pub fn home(app: &mut VeilApp, ui: &mut egui::Ui) {
         );
         ui.add_space(((ui.available_height() - HERO) * 0.5).max(w::TARGET));
         ui.vertical_centered(|ui| {
-            crate::logo::show(ui, 80.0, theme::PAGE);
-            ui.add_space(16.0);
-            w::label(ui, "Veil", 32.0, true, theme::TEXT);
-            ui.add_space(4.0);
-            w::label(
-                ui,
-                "Private voice and video calls",
-                16.0,
-                false,
-                theme::MUTED,
-            );
+            crate::logo::show(ui, 112.0, theme::PAGE);
+            ui.add_space(24.0);
+            wordmark(ui);
         });
         connection_menu(app, ui, corner);
     });
+}
+
+/// "VEIL" in light capitals with wide letter spacing, so it reads as a mark, not a heading.
+fn wordmark(ui: &mut egui::Ui) {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        "VEIL",
+        0.0,
+        egui::TextFormat {
+            font_id: w::font(ui, 20.0, false),
+            color: theme::TEXT,
+            extra_letter_spacing: 10.0,
+            ..Default::default()
+        },
+    );
+    ui.label(job);
 }
 
 /// Every control in one group at the bottom. Spacing stays on an 8 point grid.
@@ -99,13 +107,14 @@ fn connection_menu(app: &mut VeilApp, ui: &mut egui::Ui, corner: Rect) {
     });
 }
 
-/// A filled field with soft corners and no outline.
+/// A filled pill field with no outline. Its corners match the pill buttons, so the
+/// controls share one shape.
 fn boxed<R>(ui: &mut egui::Ui, right: i8, draw: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::new()
         .fill(theme::SURFACE)
-        .corner_radius(12)
+        .corner_radius(24)
         .inner_margin(Margin {
-            left: 12,
+            left: 20,
             right,
             top: 0,
             bottom: 0,
@@ -123,7 +132,7 @@ fn text<'a>(value: &'a mut String, hint: &str) -> egui::TextEdit<'a> {
 }
 
 fn field(ui: &mut egui::Ui, value: &mut String, hint: &str) {
-    boxed(ui, 12, |ui| {
+    boxed(ui, 20, |ui| {
         ui.add_sized([ui.available_width(), w::TARGET], text(value, hint));
     });
 }
