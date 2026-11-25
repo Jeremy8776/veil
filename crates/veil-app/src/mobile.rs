@@ -75,8 +75,8 @@ pub fn app_bar(
                     result.0 = w::back(ui).clicked();
                 } else {
                     let (rect, _) = ui.allocate_exact_size(vec2(36.0, 48.0), Sense::hover());
-                    crate::logo::mark(
-                        ui.painter(),
+                    crate::logo::animated(
+                        ui,
                         Rect::from_center_size(rect.center(), vec2(32.0, 32.0)),
                         theme::PAGE,
                     );
