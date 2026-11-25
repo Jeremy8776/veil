@@ -258,7 +258,8 @@ pub fn take_picked() -> Option<Option<(String, Vec<u8>)>> {
         if bytes.is_null() {
             return Ok(None);
         }
-        let bytes = env.convert_byte_array(JByteArray::cast_local(env, bytes)?)?;
+        let array = JByteArray::cast_local(env, bytes)?;
+        let bytes = env.convert_byte_array(array)?;
         Ok(Some((!name.is_empty()).then_some((name, bytes))))
     })
     .unwrap_or(Some(None))
