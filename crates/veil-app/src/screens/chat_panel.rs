@@ -70,10 +70,11 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     }
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        let input_width = (ui.available_width() - if cfg!(target_os = "android") { 112.0 } else { 76.0 }).max(1.0);
+        // The phone holds field, emoji and send inside one rounded pill, like iMessage.
+        let input_width = (ui.available_width() - if PHONE { 88.0 } else { 76.0 }).max(1.0);
         if PHONE {
-            // A rounded pill behind a frameless field, like the iMessage input.
-            let pill = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(input_width, 48.0));
+            ui.spacing_mut().item_spacing.x = 0.0;
+            let pill = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 48.0));
             ui.painter().rect_filled(pill, 24.0, theme::SURFACE);
         }
         let mut edit = TextEdit::singleline(&mut view.draft)
@@ -92,19 +93,47 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
             edit,
         );
         let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-        let emoji = widgets::icon_button(ui, Icon::Emoji, "Emoji");
+        let emoji = if PHONE {
+            round(ui, Icon::Emoji, "Emoji", None)
+        } else {
+            widgets::icon_button(ui, Icon::Emoji, "Emoji")
+        };
         if let Some(picked) = picker(&emoji) {
             if view.draft.chars().count() < veil_call::app_msg::MAX_CHAT_CHARS {
                 view.draft.push_str(picked);
             }
             field.request_focus();
         }
-        if widgets::icon_button(ui, Icon::Send, "Send message").clicked() || entered {
+        let send = if PHONE {
+            // An accent circle once there is something to send, as in iMessage.
+            let ready = !view.draft.trim().is_empty();
+            round(ui, Icon::Send, "Send message", ready.then_some(crate::mobile::widgets::PRIMARY))
+        } else {
+            widgets::icon_button(ui, Icon::Send, "Send message")
+        };
+        if send.clicked() || entered {
             view.call.send(&view.draft, now);
             view.draft.clear();
             field.request_focus();
         }
     });
+}
+
+/// A 44-point icon button inside the phone's input pill, on a 36-point circle of `fill`.
+fn round(ui: &mut egui::Ui, icon: Icon, text: &str, fill: Option<egui::Color32>) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(44.0, 48.0), egui::Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), text));
+    let centre = rect.center();
+    let ink = match fill {
+        Some(fill) => {
+            ui.painter().circle_filled(centre, 18.0, fill);
+            egui::Color32::WHITE
+        }
+        None if response.hovered() => theme::TEXT,
+        None => MUTED,
+    };
+    icon.paint(ui.painter(), centre, 20.0, ink);
+    response.on_hover_text(text)
 }
 
 /// One message with its reactions. Returns the reaction you chose, if any.
