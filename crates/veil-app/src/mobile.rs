@@ -388,32 +388,34 @@ pub fn ended(app: &mut VeilApp, ui: &mut egui::Ui) {
             } => (title.clone(), *lasted, reason.clone()),
             _ => return,
         };
-        ui.add_space(40.0);
-        let width = ui.available_width();
-        let (rect, _) = ui.allocate_exact_size(vec2(width, 64.0), Sense::hover());
-        Icon::Leave.paint(ui.painter(), rect.center(), 32.0, theme::MUTED);
-        ui.add_space(20.0);
-        w::label(ui, "Call ended", 28.0, true, theme::TEXT);
-        w::label(ui, reason, 16.0, false, theme::MUTED);
-        ui.add_space(8.0);
-        w::label(
-            ui,
-            format!("{title} · {}", crate::model::clock(lasted)),
-            13.0,
-            false,
-            theme::MUTED,
-        );
-        ui.add_space(28.0);
-        if action(ui, None, "Back to home", Tone::Primary) {
-            app.go_home();
-        }
-        // A secondary choice, so a quiet link under the one button.
-        if ui
-            .vertical_centered(|ui| w::link(ui, None, "Connection report"))
-            .inner
-            .clicked()
-        {
-            app.diagnostics.open();
-        }
+        // One centred column a third of the way down, in the Apple manner.
+        ui.add_space((ui.available_height() * 0.22).max(24.0));
+        ui.vertical_centered(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let (rect, _) = ui.allocate_exact_size(vec2(72.0, 72.0), Sense::hover());
+            ui.painter().circle_filled(rect.center(), 36.0, theme::RAISED);
+            Icon::Leave.paint(ui.painter(), rect.center(), 30.0, theme::MUTED);
+            ui.add_space(24.0);
+            w::label(ui, "Call ended", 28.0, true, theme::TEXT);
+            ui.add_space(8.0);
+            w::label(ui, reason, 16.0, false, theme::MUTED);
+            ui.add_space(4.0);
+            w::label(
+                ui,
+                format!("{title} · {}", crate::model::clock(lasted)),
+                14.0,
+                false,
+                theme::MUTED,
+            );
+            ui.add_space(32.0);
+            if action(ui, None, "Back to home", Tone::Primary) {
+                app.go_home();
+            }
+            ui.add_space(8.0);
+            // A secondary choice, so a quiet link under the one button.
+            if w::link(ui, None, "Connection report").clicked() {
+                app.diagnostics.open();
+            }
+        });
     });
 }
