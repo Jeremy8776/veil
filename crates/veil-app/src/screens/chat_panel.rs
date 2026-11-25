@@ -76,7 +76,11 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
             ui.spacing_mut().item_spacing.x = 0.0;
             let pill = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 48.0));
             ui.painter().rect_filled(pill, 24.0, theme::SURFACE);
+            // Inset the text inside the pill. The field's own margin is not applied when it
+            // is sized with `add_sized`, so the space is added outside it.
+            ui.add_space(18.0);
         }
+        let input_width = if PHONE { (input_width - 18.0).max(1.0) } else { input_width };
         let mut edit = TextEdit::singleline(&mut view.draft)
             .hint_text("Type a message")
             .font(theme::chat_font(ui))
