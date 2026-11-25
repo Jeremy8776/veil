@@ -11,6 +11,7 @@
 # | Windows x64 | `.msi` (for all users, adds the "Veil" firewall rule), `-portable.zip` | packaging/windows/package.ps1 |
 # | macOS (Apple Silicon and Intel) | `.dmg` with Veil.app, `.tar.gz` with veil-node and veil-probe | packaging/macos/package.sh |
 # | Linux x64 | `.AppImage`, `.deb`, `.rpm`, `.tar.gz` | packaging/linux/package.sh |
+# | Android (ARM64 phones) | `.apk`, signed with Veil's Android release key | packaging/android/package.ps1 |
 #
 # The packaging follows ArtCraft's (see its packaging/ folders). Signing secrets, all
 # optional (missing ones give unsigned files and a warning, never a failed build), live in
@@ -23,6 +24,10 @@
 #   AZURE_SIGNING_ENDPOINT, AZURE_SIGNING_ACCOUNT, AZURE_CERT_PROFILE).
 # - macOS: APPLE_CERTIFICATE (base64 Developer ID .p12), APPLE_CERTIFICATE_PASSWORD; and for
 #   notarisation APPLE_ID, APPLE_PASSWORD (app-specific), APPLE_TEAM_ID.
+# - Android: ANDROID_KEYSTORE (base64 .jks or .p12), ANDROID_KEYSTORE_PASSWORD,
+#   ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD. Without them the APK is left out (an unsigned
+#   APK cannot be installed) with a warning. Keep the key for the life of the app: Android
+#   installs an update only when it carries the same key.
 # - Updates: VEIL_UPDATE_KEY, the Ed25519 private key (PEM) from tools/release-key.sh. Its
 #   public half is crates/veil-app/release-key.pub. Once that file holds a key, a tag
 #   without the secret fails: the app would refuse every update from that release.
@@ -258,15 +263,71 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  android:
+    needs: version
+    runs-on: windows-2025
+    timeout-minutes: 90
+    environment: release
+    outputs:
+      signed: ${{ steps.key.outputs.signed }}
+    env:
+      VEIL_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Check for the Android release key
+        id: key
+        shell: pwsh
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          $on = if ($env:ANDROID_KEYSTORE) { 'true' } else { 'false' }
+          "signed=$on" >> $env:GITHUB_OUTPUT
+          if ($on -eq 'false') { Write-Output '::warning::ANDROID_KEYSTORE is not set: the release has no Android APK' }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.key.outputs.signed == 'true'
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        if: steps.key.outputs.signed == 'true'
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: aarch64-linux-android
+      # The same pinned SDK, NDK and JDK as android.yml.
+      - name: Pinned Android SDK and JDK
+        if: steps.key.outputs.signed == 'true'
+        shell: pwsh
+        run: |
+          $pins = Get-Content mobile/android/toolchain.json -Raw | ConvertFrom-Json
+          "JAVA_HOME=$env:JAVA_HOME_17_X64" >> $env:GITHUB_ENV
+          "$env:JAVA_HOME_17_X64\bin" >> $env:GITHUB_PATH
+          & "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat" "platforms;android-$($pins.compileSdk)" "build-tools;$($pins.buildTools)" "ndk;$($pins.ndk)"
+          if ($LASTEXITCODE -ne 0) { throw 'Android SDK installation failed.' }
+      - name: Build, sign, package
+        if: steps.key.outputs.signed == 'true'
+        shell: pwsh
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./packaging/android/package.ps1 -AndroidSdk $env:ANDROID_HOME
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.key.outputs.signed == 'true'
+        with:
+          name: release-android
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
   # Checks every file is there, writes SHA256SUMS.txt and signs it. Runs on manual runs too,
   # so the signing is checked before a tag; it cannot write to the repository.
   checksums:
-    needs: [version, windows, macos, linux]
+    needs: [version, windows, macos, linux, android]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: release
     env:
       VERSION: ${{ needs.version.outputs.version }}
+      ANDROID_SIGNED: ${{ needs.android.outputs.signed }}
     steps:
       # Only for release-key.pub, to check the signing key against the key the app trusts.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -294,6 +355,7 @@ jobs:
             "veil-$VERSION-linux-x64.rpm"
             "veil-$VERSION-linux-x64.tar.gz"
           )
+          if [ "$ANDROID_SIGNED" = true ]; then expected+=("veil-$VERSION-android-arm64.apk"); fi
           for f in "${expected[@]}"; do test -s "$f" || { echo "::error::missing $f"; exit 1; }; done
           test "$(ls | wc -l)" -eq "${#expected[@]}" || { ls; echo "::error::unexpected files"; exit 1; }
           sha256sum -- "${expected[@]}" | tee SHA256SUMS.txt

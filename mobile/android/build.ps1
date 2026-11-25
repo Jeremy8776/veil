@@ -4,9 +4,15 @@ param(
     [switch]$Check,
     [switch]$Install,
     # Builds for the x86_64 Android emulator instead of ARM64 phones, and installs to it.
-    [switch]$Emulator
+    [switch]$Emulator,
+    # An optimised, unsigned release APK (io.github.jeremy8776.veil) for
+    # packaging/android/package.ps1 to sign. Cannot be combined with -Install.
+    [switch]$Release
 )
 $ErrorActionPreference = 'Stop'
+if ($Release -and $Install) { throw 'A release APK is unsigned; sign it with packaging/android/package.ps1.' }
+$profileDir = if ($Release) { 'release' } else { 'debug' }
+$variant = if ($Release) { 'Release' } else { 'Debug' }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $pins = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'toolchain.json') -Raw | ConvertFrom-Json
 $ndk = Join-Path $AndroidSdk "ndk\$($pins.ndk)"
@@ -62,7 +68,9 @@ try {
     $env:RUSTFLAGS = (($previous.RUSTFLAGS + ' -C link-arg=-Wl,-z,max-page-size=16384').Trim())
     Push-Location $repo
     try {
-        cargo "+$($pins.rust)" build --locked -p veil-android --target $rustTarget
+        # A one-item array, so splatting passes the flag rather than its characters.
+        [string[]]$profileArgs = if ($Release) { '--release' } else { @() }
+        cargo "+$($pins.rust)" build --locked -p veil-android --target $rustTarget @profileArgs
         if ($LASTEXITCODE -ne 0) { throw 'Rust Android build failed.' }
         if ($Check) {
             cargo "+$($pins.rust)" clippy --locked -p veil-android -p veil-app -p veil-media --lib --target $rustTarget -- -D warnings
@@ -70,21 +78,35 @@ try {
         }
     } finally { Pop-Location }
     New-Item -ItemType Directory -Path $jniDir -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $targetRoot "$rustTarget\debug\libveil_android.so") -Destination $jniDir
+    Copy-Item -LiteralPath (Join-Path $targetRoot "$rustTarget\$profileDir\libveil_android.so") -Destination $jniDir
     Copy-Item -LiteralPath (Join-Path $ndk "toolchains\llvm\prebuilt\windows-x86_64\sysroot\usr\lib\$rustTarget\libc++_shared.so") -Destination $jniDir
     & (Join-Path $toolchain 'llvm-strip.exe') --strip-debug (Join-Path $jniDir 'libveil_android.so')
     if ($LASTEXITCODE -ne 0) { throw 'Cannot strip Android native library.' }
     Push-Location $PSScriptRoot
     try {
-        & $Gradle --no-daemon --console=plain "-PveilAbi=$abi" :app:assembleDebug
+        $versionArgs = @()
+        if ($Release) {
+            # A release carries the workspace version; versionCode is major*1000000 + minor*1000 + patch.
+            $cargo = Get-Content -LiteralPath (Join-Path $repo 'Cargo.toml') -Raw
+            if ($cargo -notmatch '(?m)^version = "(\d+)\.(\d+)\.(\d+)"') { throw 'Cannot read the workspace version.' }
+            $code = [int]$Matches[1] * 1000000 + [int]$Matches[2] * 1000 + [int]$Matches[3]
+            $versionArgs = @("-PveilVersionName=$($Matches[1]).$($Matches[2]).$($Matches[3])", "-PveilVersionCode=$code")
+        }
+        & $Gradle --no-daemon --console=plain "-PveilAbi=$abi" @versionArgs :app:assemble$variant
         if ($LASTEXITCODE -ne 0) { throw 'APK packaging failed.' }
     } finally { Pop-Location }
-    $apk = Join-Path $PSScriptRoot 'app\build\outputs\apk\debug\app-debug.apk'
+    $apk = if ($Release) {
+        Join-Path $PSScriptRoot 'app\build\outputs\apk\release\app-release-unsigned.apk'
+    } else {
+        Join-Path $PSScriptRoot 'app\build\outputs\apk\debug\app-debug.apk'
+    }
     $buildTools = Join-Path $AndroidSdk "build-tools\$($pins.buildTools)"
     & (Join-Path $buildTools 'zipalign.exe') -c -P 16 4 $apk
     if ($LASTEXITCODE -ne 0) { throw 'APK page alignment check failed.' }
-    & (Join-Path $buildTools 'apksigner.bat') verify $apk
-    if ($LASTEXITCODE -ne 0) { throw 'APK debug signature check failed.' }
+    if (-not $Release) {
+        & (Join-Path $buildTools 'apksigner.bat') verify $apk
+        if ($LASTEXITCODE -ne 0) { throw 'APK debug signature check failed.' }
+    }
     Push-Location $repo
     try {
         $revision = git rev-parse HEAD
@@ -94,7 +116,7 @@ try {
     [ordered]@{
         revision = $revision
         dirty = $dirty
-        packageId = 'io.github.jeremy8776.veil.preview'
+        packageId = if ($Release) { 'io.github.jeremy8776.veil' } else { 'io.github.jeremy8776.veil.preview' }
         preview = $pins.preview
         abi = $abi
         toolchain = $pins

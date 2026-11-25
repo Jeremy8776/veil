@@ -10,8 +10,9 @@ android {
         applicationId 'io.github.jeremy8776.veil'
         minSdk 29
         targetSdk 36
-        versionCode pins.preview.versionCode
-        versionName pins.preview.versionName
+        // build.ps1 -Release passes the workspace version; the preview keeps its own.
+        versionCode((project.findProperty('veilVersionCode') ?: pins.preview.versionCode) as int)
+        versionName(project.findProperty('veilVersionName') ?: pins.preview.versionName)
         // build.ps1 -Emulator passes -PveilAbi=x86_64; phones use ARM64.
         ndk { abiFilters(project.findProperty('veilAbi') ?: 'arm64-v8a') }
     }
