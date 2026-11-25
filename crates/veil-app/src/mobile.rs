@@ -123,39 +123,33 @@ pub fn copy(ctx: &egui::Context, value: &str) {
     let _ = ctx;
 }
 
-fn data_picker(app: &mut VeilApp, ui: &mut egui::Ui) {
+/// The Data use row of a menu. Tapping it sets `page`, and the caller shows
+/// [`data_choices`] in the same menu, since egui cannot open a pop-up from inside one.
+fn data_row(app: &VeilApp, ui: &mut egui::Ui, page: &mut bool) {
+    let value = match app.data_use.get() {
+        crate::data_use::DataUse::Auto => "Auto",
+        crate::data_use::DataUse::Saver => "Saver",
+        crate::data_use::DataUse::AudioOnly => "Audio",
+    };
+    if w::menu_value(ui, Some(Icon::Signal), "Data use", value).clicked() {
+        *page = true;
+    }
+}
+
+/// The Data use choices as menu rows, the current one checked. Closes the menu on a pick.
+fn data_choices(app: &mut VeilApp, ui: &mut egui::Ui) {
     let current = app.data_use.get();
-    ui.horizontal(|ui| {
-        let width = (ui.available_width() - 148.0).max(1.0);
-        ui.allocate_ui_with_layout(
-            vec2(width, 48.0),
-            Layout::left_to_right(Align::Center),
-            |ui| {
-                ui.set_min_width(width);
-                w::label(ui, "Data use", 16.0, false, theme::TEXT);
-            },
-        );
-        let label = match current {
-            crate::data_use::DataUse::Auto => "Auto",
-            crate::data_use::DataUse::Saver => "Data saver",
-            crate::data_use::DataUse::AudioOnly => "Audio only",
-        };
-        let response = w::action(ui, None, label, Tone::Quiet, 140.0);
-        data_menu(app, &response);
-    });
+    for choice in crate::data_use::DataUse::ALL {
+        if w::menu_item(ui, None, choice.label(), current == choice).clicked() {
+            app.set_data_use(choice);
+            ui.close();
+        }
+    }
 }
 
 /// The Data use choices, opened from `response`.
 fn data_menu(app: &mut VeilApp, response: &egui::Response) {
-    let current = app.data_use.get();
-    w::menu(response, |ui| {
-        for choice in crate::data_use::DataUse::ALL {
-            if w::menu_item(ui, None, choice.label(), current == choice).clicked() {
-                app.set_data_use(choice);
-                ui.close();
-            }
-        }
-    });
+    w::menu(response, |ui| data_choices(app, ui));
 }
 
 fn flip(app: &mut VeilApp) {
@@ -240,7 +234,16 @@ pub fn call(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
                     };
                 }
                 let more = w::more(ui);
-                w::menu(&more, |ui| {
+                let page_id = more.id.with("data-page");
+                let mut page = ui.ctx().data(|d| d.get_temp::<bool>(page_id)).unwrap_or(false);
+                let shown = w::menu(&more, |ui| {
+                    if page {
+                        if w::menu_back(ui, "Data use").clicked() {
+                            page = false;
+                        }
+                        data_choices(app, ui);
+                        return;
+                    }
                     if view.call.is_host
                         && w::menu_item(ui, Some(Icon::Link), "Invite someone", false).clicked()
                     {
@@ -263,8 +266,11 @@ pub fn call(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
                         app.diagnostics.open();
                         ui.close();
                     }
-                    data_picker(app, ui);
+                    data_row(app, ui, &mut page);
                 });
+                // A closed menu always reopens on its first page.
+                let page = page && shown.is_some();
+                ui.ctx().data_mut(|d| d.insert_temp(page_id, page));
             });
         });
     if !call_bar::show(view, app, ui) {

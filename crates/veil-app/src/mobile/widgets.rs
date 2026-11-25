@@ -313,9 +313,12 @@ pub fn chip(ui: &mut egui::Ui, icon: Icon, text: &str, hint: &str) -> Response {
 /// Width of a phone pop-up menu. Menus hug their content rather than spanning the screen.
 pub const MENU_WIDTH: f32 = 248.0;
 
-/// A compact pop-up menu under `anchor`, [`MENU_WIDTH`] wide.
+/// A compact pop-up menu under `anchor`, [`MENU_WIDTH`] wide. It closes on a tap outside;
+/// a row that acts calls `ui.close()` itself, so a row can switch the menu to a second
+/// page of choices without closing it.
 pub fn menu<R>(anchor: &Response, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<R> {
     egui::Popup::menu(anchor)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .width(MENU_WIDTH)
         .show(|ui| {
             ui.set_width(MENU_WIDTH);
@@ -326,20 +329,78 @@ pub fn menu<R>(anchor: &Response, add: impl FnOnce(&mut egui::Ui) -> R) -> Optio
 }
 
 /// One plain row in a [`menu`]: icon and label on the left, a soft fill on press. No
-/// outline, so a menu reads as one list rather than a stack of buttons.
+/// outline, so a menu reads as one list rather than a stack of buttons. A selected or
+/// switched-on row shows a check mark on the right, never a coloured block.
 pub fn menu_item(ui: &mut egui::Ui, icon: Option<Icon>, text: &str, selected: bool) -> Response {
+    let (rect, response) = menu_row(ui, icon, text, selected);
+    if selected {
+        let c = pos2(rect.right() - 22.0, rect.center().y);
+        let stroke = Stroke::new(2.0, ON_SELECTED);
+        ui.painter()
+            .line_segment([c + vec2(-6.0, 0.0), c + vec2(-2.0, 4.0)], stroke);
+        ui.painter()
+            .line_segment([c + vec2(-2.0, 4.0), c + vec2(6.0, -5.0)], stroke);
+    }
+    response
+}
+
+/// A [`menu`] row that opens more choices: label on the left, the current `value` muted
+/// on the right with a small chevron.
+pub fn menu_value(ui: &mut egui::Ui, icon: Option<Icon>, text: &str, value: &str) -> Response {
+    let (rect, response) = menu_row(ui, icon, text, false);
+    let c = pos2(rect.right() - 18.0, rect.center().y);
+    let stroke = Stroke::new(1.5, theme::MUTED);
+    ui.painter()
+        .line_segment([c + vec2(-2.0, -4.0), c + vec2(2.0, 0.0)], stroke);
+    ui.painter()
+        .line_segment([c + vec2(2.0, 0.0), c + vec2(-2.0, 4.0)], stroke);
+    ui.painter().text(
+        pos2(rect.right() - 32.0, rect.center().y),
+        Align2::RIGHT_CENTER,
+        value,
+        font(ui, 16.0, false),
+        theme::MUTED,
+    );
+    response
+}
+
+/// The first row of a second menu page: a back chevron and the page title.
+pub fn menu_back(ui: &mut egui::Ui, title: &str) -> Response {
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(ui.available_width(), TARGET), Sense::click());
+    response.widget_info(|| WidgetInfo::labeled(Role::MenuItem, ui.is_enabled(), "Back"));
+    if response.hovered() {
+        ui.painter().rect_filled(rect, 12, theme::RAISED);
+    }
+    focus(ui, &response, rect, 12);
+    let c = pos2(rect.left() + 22.0, rect.center().y);
+    let stroke = Stroke::new(1.5, theme::MUTED);
+    ui.painter()
+        .line_segment([c + vec2(2.0, -5.0), c + vec2(-3.0, 0.0)], stroke);
+    ui.painter()
+        .line_segment([c + vec2(-3.0, 0.0), c + vec2(2.0, 5.0)], stroke);
+    ui.painter().text(
+        pos2(rect.left() + 44.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        title,
+        font(ui, 16.0, true),
+        theme::TEXT,
+    );
+    response
+}
+
+/// The shared body of a menu row: hover fill, focus ring, icon and label.
+fn menu_row(ui: &mut egui::Ui, icon: Option<Icon>, text: &str, selected: bool) -> (Rect, Response) {
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), TARGET), Sense::click());
     response.widget_info(|| WidgetInfo::selected(Role::MenuItem, ui.is_enabled(), selected, text));
-    if selected || response.hovered() {
-        ui.painter()
-            .rect_filled(rect, 12, if selected { SELECTED } else { theme::RAISED });
+    if response.hovered() {
+        ui.painter().rect_filled(rect, 12, theme::RAISED);
     }
     focus(ui, &response, rect, 12);
-    let ink = if selected { ON_SELECTED } else { theme::TEXT };
     let mut left = rect.left() + 12.0;
     if let Some(icon) = icon {
-        icon.paint(ui.painter(), pos2(left + 10.0, rect.center().y), 20.0, ink);
+        icon.paint(ui.painter(), pos2(left + 10.0, rect.center().y), 20.0, theme::TEXT);
         left += 32.0;
     }
     ui.painter().text(
@@ -347,9 +408,9 @@ pub fn menu_item(ui: &mut egui::Ui, icon: Option<Icon>, text: &str, selected: bo
         Align2::LEFT_CENTER,
         text,
         font(ui, 16.0, false),
-        ink,
+        theme::TEXT,
     );
-    response
+    (rect, response)
 }
 
 /// A soft ring around a [`call_control`] circle that brightens with the microphone level,
