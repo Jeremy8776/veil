@@ -1,6 +1,7 @@
 //! Android layouts share the desktop call state, security panels and media engine.
 mod call_bar;
 mod home;
+mod prejoin;
 pub(crate) mod widgets;
 
 use crate::app::{Screen, VeilApp};
@@ -12,14 +13,15 @@ use crate::screens::{
     panels::{self, Panel},
 };
 use crate::theme;
-use crate::widgets::{self as shared, Tile, Tone};
+use crate::widgets::Tone;
 use eframe::egui::{
-    self, Align, Align2, Color32, CornerRadius, Layout, Margin, Rect, Sense, UiBuilder, pos2, vec2,
+    self, Align, Align2, Layout, Margin, Rect, Sense, UiBuilder, vec2,
 };
 use std::time::{Duration, Instant};
 use widgets as w;
 
 pub use home::home;
+pub use prejoin::prejoin;
 
 const EDGE: i8 = 20;
 
@@ -74,6 +76,8 @@ pub fn app_bar(
             top: 4,
             bottom: 4,
         }))
+        // No hairline under the bar: the page colour already separates it.
+        .show_separator_line(false)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 if back {
@@ -137,185 +141,28 @@ fn data_picker(app: &mut VeilApp, ui: &mut egui::Ui) {
             crate::data_use::DataUse::AudioOnly => "Audio only",
         };
         let response = w::action(ui, None, label, Tone::Quiet, 140.0);
-        egui::Popup::menu(&response).show(|ui| {
-            ui.set_min_width(240.0);
-            for choice in crate::data_use::DataUse::ALL {
-                if ui
-                    .add_sized(
-                        [ui.available_width(), 48.0],
-                        egui::Button::new(choice.label()).selected(current == choice),
-                    )
-                    .clicked()
-                {
-                    app.set_data_use(choice);
-                    ui.close();
-                }
-            }
-        });
+        data_menu(app, &response);
     });
 }
 
-pub fn prejoin(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
-    let (back, _) = app_bar(
-        ui,
-        "mobile-prejoin-bar",
-        if host { "Start a call" } else { "Join a call" },
-        true,
-        false,
-    );
-    if back {
-        app.go_home();
-        return;
-    }
-    #[cfg(target_os = "android")]
-    if veil_media::ffi::android::resumed() {
-        let (camera, mic) = veil_media::ffi::android::permission_state();
-        app.media.set_camera(app.want_camera && camera);
-        app.media.set_mic(app.want_mic && mic);
-    }
-    egui::Panel::bottom("mobile-join-action")
-        .frame(egui::Frame::new().fill(theme::PAGE).inner_margin(Margin {
-            left: EDGE,
-            right: EDGE,
-            top: 12,
-            bottom: 12,
-        }))
-        .show(ui, |ui| {
-            if let Some(why) = app.connection.config().conflict() {
-                w::label(ui, why, 13.0, false, theme::WARN);
-            } else if action(
-                ui,
-                Some(Icon::Video),
-                if host { "Start call" } else { "Join now" },
-                Tone::Primary,
-            ) {
-                app.go_call(host);
+/// The Data use choices, opened from `response`.
+fn data_menu(app: &mut VeilApp, response: &egui::Response) {
+    let current = app.data_use.get();
+    egui::Popup::menu(response).show(|ui| {
+        ui.set_min_width(240.0);
+        for choice in crate::data_use::DataUse::ALL {
+            if ui
+                .add_sized(
+                    [ui.available_width(), 48.0],
+                    egui::Button::new(choice.label()).selected(current == choice),
+                )
+                .clicked()
+            {
+                app.set_data_use(choice);
+                ui.close();
             }
-        });
-    // The controls sit in their own panel above the action, so the preview takes only the
-    // space left over and the screen never scrolls.
-    egui::Panel::bottom("mobile-prejoin-controls")
-        .frame(egui::Frame::new().fill(theme::PAGE).inner_margin(Margin {
-            left: EDGE,
-            right: EDGE,
-            top: 12,
-            bottom: 16,
-        }))
-        .show_separator_line(false)
-        .show(ui, |ui| prejoin_controls(app, ui));
-    egui::CentralPanel::default()
-        .frame(egui::Frame::new().fill(theme::PAGE).inner_margin(Margin {
-            left: EDGE,
-            right: EDGE,
-            top: EDGE,
-            bottom: 0,
-        }))
-        .show(ui, |ui| {
-            let tile = Tile {
-                name: &app.name,
-                video: app.preview_video(),
-                muted: !app.media.mic_on(),
-                speaking: false,
-                hand_raised: false,
-                is_you: true,
-            };
-            let rect = preview_card(ui, &tile);
-            let mut overlay = ui.new_child(UiBuilder::new().id_salt("mobile-camera-flip").max_rect(
-                Rect::from_min_size(rect.right_top() + vec2(-56.0, 8.0), vec2(48.0, 48.0)),
-            ));
-            if w::icon(&mut overlay, Icon::Refresh, "Switch camera", true).clicked() {
-                flip(app);
-            }
-        });
-    ui.ctx().request_repaint_after(Duration::from_millis(100));
-}
-
-/// Mute, video, mirror, level and data use, under the preview.
-fn prejoin_controls(app: &mut VeilApp, ui: &mut egui::Ui) {
-    ui.columns(3, |columns| {
-        if w::call_control(
-            &mut columns[0],
-            Icon::Mic,
-            if app.media.mic_on() { "Mute" } else { "Unmute" },
-            !app.media.mic_on(),
-            false,
-        )
-        .clicked()
-        {
-            controls::toggle_mic(app);
-        }
-        if w::call_control(
-            &mut columns[1],
-            Icon::Video,
-            if app.media.camera_on() {
-                "Stop video"
-            } else {
-                "Start video"
-            },
-            !app.media.camera_on(),
-            false,
-        )
-        .clicked()
-        {
-            controls::toggle_camera(app);
-        }
-        let mirrored = app.media.mirror();
-        if w::call_control(
-            &mut columns[2],
-            Icon::Mirror,
-            if mirrored { "Mirrored" } else { "Mirror" },
-            false,
-            false,
-        )
-        .on_hover_text(controls::MIRROR_HINT)
-        .clicked()
-        {
-            app.media.set_mirror(!mirrored);
         }
     });
-    ui.add_space(12.0);
-    ui.horizontal(|ui| {
-        w::label(ui, "Microphone", 13.0, false, theme::MUTED);
-        shared::level_meter(ui, app.level, ui.available_width());
-    });
-    if let Some(error) = app.media.camera_error() {
-        w::label(ui, error, 13.0, false, theme::WARN);
-    }
-    if let Some(error) = app.media.mic_error() {
-        w::label(ui, error, 13.0, false, theme::WARN);
-    }
-    #[cfg(target_os = "android")]
-    if !veil_media::ffi::android::permissions_ready()
-        && action(ui, None, "Allow camera and microphone", Tone::Quiet)
-    {
-        veil_media::ffi::android::request_permissions();
-    }
-    ui.add_space(8.0);
-    ui.separator();
-    data_picker(app, ui);
-}
-
-/// The camera preview: the video fills the card, with an equal mild border on every side
-/// and the name over the picture. Returns the video's rect, for controls laid over it.
-fn preview_card(ui: &mut egui::Ui, tile: &Tile<'_>) -> Rect {
-    const BORDER: f32 = 6.0;
-    let available = ui.available_rect_before_wrap();
-    let Some((texture, size)) = tile.video else {
-        let (rect, _) = ui.allocate_exact_size(available.size(), Sense::hover());
-        shared::tile(ui, rect, tile);
-        return rect.shrink(BORDER);
-    };
-    let picture = crate::layout::contain(size, available.shrink(BORDER));
-    let card = picture.expand(BORDER);
-    ui.allocate_rect(available, Sense::hover());
-    let painter = ui.painter_at(card);
-    painter.rect_filled(card, CornerRadius::same(theme::RADIUS + BORDER as u8), theme::TILE);
-    painter.add(
-        egui::epaint::RectShape::filled(picture, CornerRadius::same(theme::RADIUS), Color32::WHITE)
-            .with_texture(texture, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0))),
-    );
-    shared::name_tag(&painter, picture, tile);
-    picture
 }
 
 fn mirror_choice(app: &VeilApp, ui: &mut egui::Ui) {

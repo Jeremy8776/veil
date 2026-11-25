@@ -277,6 +277,21 @@ pub fn call_control(
     response
 }
 
+/// A soft ring around a [`call_control`] circle that brightens with the microphone level,
+/// 0 to 1. Silence draws nothing, so the control stays calm until you speak.
+pub fn level_ring(ui: &egui::Ui, control: &Response, level: f32) {
+    let level = level.clamp(0.0, 1.0);
+    if level < 0.02 {
+        return;
+    }
+    let center = pos2(control.rect.center().x, control.rect.top() + TARGET * 0.5);
+    ui.painter().circle_stroke(
+        center,
+        TARGET * 0.5 + 3.0,
+        Stroke::new(2.0 + level, theme::SPEAKING.gamma_multiply(0.35 + 0.65 * level)),
+    );
+}
+
 pub fn switch(ui: &mut egui::Ui, value: &mut bool, title: &str, detail: &str) -> Response {
     let width = ui.available_width();
     let text_width = (width - 72.0).max(1.0);
