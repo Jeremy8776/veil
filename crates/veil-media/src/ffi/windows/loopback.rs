@@ -25,10 +25,10 @@ use windows::Win32::Media::Audio::{
     AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK,
     AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, AUDIOCLIENT_ACTIVATION_PARAMS,
     AUDIOCLIENT_ACTIVATION_PARAMS_0, AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
-    AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS, ActivateAudioInterfaceAsync, IActivateAudioInterfaceAsyncOperation,
-    IActivateAudioInterfaceCompletionHandler, IActivateAudioInterfaceCompletionHandler_Impl,
-    IAudioCaptureClient, IAudioClient, PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
-    VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+    AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS, ActivateAudioInterfaceAsync,
+    IActivateAudioInterfaceAsyncOperation, IActivateAudioInterfaceCompletionHandler,
+    IActivateAudioInterfaceCompletionHandler_Impl, IAudioCaptureClient, IAudioClient,
+    PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE, VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
 };
 use windows::Win32::System::Com::StructuredStorage::{
     PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
@@ -122,7 +122,14 @@ impl LoopbackCapture {
         // SAFETY: `format` is a valid WAVEFORMATEXTENSIBLE whose first member is the
         // WAVEFORMATEX the pointer names, with `cbSize` covering the rest; it outlives the call.
         unsafe {
-            client.Initialize(AUDCLNT_SHAREMODE_SHARED, flags, duration, 0, &format.Format, None)
+            client.Initialize(
+                AUDCLNT_SHAREMODE_SHARED,
+                flags,
+                duration,
+                0,
+                &format.Format,
+                None,
+            )
         }
         .map_err(|_| MediaError::Capture("computer sound format"))?;
         // SAFETY: no pointers are passed: an unnamed auto-reset event, not signalled.
@@ -155,7 +162,9 @@ impl LoopbackCapture {
             if self.frames.ready() || now >= deadline {
                 break;
             }
-            let wait = u32::try_from((deadline - now).as_millis()).unwrap_or(u32::MAX).max(1);
+            let wait = u32::try_from((deadline - now).as_millis())
+                .unwrap_or(u32::MAX)
+                .max(1);
             // SAFETY: the event handle is open for as long as `self`.
             let _ = unsafe { WaitForSingleObject(self.event.0, wait) } == WAIT_OBJECT_0;
         }
@@ -186,8 +195,12 @@ impl LoopbackCapture {
                 // SAFETY: `data` points to `frames` frames of two 4-byte samples while the
                 // buffer is held, and the bytes are copied before ReleaseBuffer.
                 let bytes = unsafe { std::slice::from_raw_parts(data, samples * 4) };
-                let sound: Vec<f32> =
-                    bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
+                let sound: Vec<f32> = bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|b| f32::from_le_bytes(*b))
+                    .collect();
                 self.frames.push(&sound);
             }
             // SAFETY: releases exactly the frames GetBuffer gave.

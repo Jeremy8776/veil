@@ -2,6 +2,7 @@
 use super::{
     call::{CallView, View},
     share,
+    share_sound::{self, Owner},
 };
 use crate::{
     app::VeilApp,
@@ -16,7 +17,7 @@ use eframe::egui::{self, Rect, TextureId, UiBuilder};
 const WAITING: u64 = u64::MAX;
 enum Content {
     Person(Participant),
-    Screen(String, (TextureId, [usize; 2])),
+    Screen(String, (TextureId, [usize; 2]), Owner),
     Waiting,
 }
 struct Cell {
@@ -76,6 +77,14 @@ pub(crate) fn show(
                         format!("{} is sharing", person.name)
                     },
                     screen,
+                    if person.is_you {
+                        Owner::You
+                    } else {
+                        Owner::Them {
+                            id: person.id,
+                            sounding: view.sounding.contains(&person.id),
+                        }
+                    },
                 ),
             });
         }
@@ -152,7 +161,10 @@ pub(crate) fn show(
                     .rect_filled(placement.rect, theme::RADIUS, theme::TILE);
                 waiting_area = Some(placement.rect);
             }
-            Content::Screen(label, source) => share::stage(&child, placement.rect, *source, label),
+            Content::Screen(label, source, owner) => {
+                share::stage(&child, placement.rect, *source, label);
+                share_sound::overlay(&mut child, placement.rect, app, *owner);
+            }
             Content::Person(person) => widgets::tile(
                 &child,
                 placement.rect,

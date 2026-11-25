@@ -73,7 +73,8 @@ impl Graph {
     pub fn remove(&mut self, id: u32) {
         self.nodes.remove(&id);
         self.ports.remove(&id);
-        self.linked.retain(|(out, input)| *out != id && *input != id);
+        self.linked
+            .retain(|(out, input)| *out != id && *input != id);
     }
 
     /// The links still needed to bring every other app's sound into `capture`, a node of this
@@ -90,8 +91,7 @@ impl Graph {
             let Some(node) = self.nodes.get(&port.node) else {
                 continue;
             };
-            if !port.output || !node.playback || node.process == Some(own) || port.node == capture
-            {
+            if !port.output || !node.playback || node.process == Some(own) || port.node == capture {
                 continue;
             }
             let from = side(&port.channel);
@@ -128,7 +128,13 @@ mod tests {
 
     fn graph() -> Graph {
         let mut graph = Graph::default();
-        graph.add_node(CAPTURE, Node { playback: false, process: Some(OWN) });
+        graph.add_node(
+            CAPTURE,
+            Node {
+                playback: false,
+                process: Some(OWN),
+            },
+        );
         graph.add_port(10, port(CAPTURE, false, "FL"));
         graph.add_port(11, port(CAPTURE, false, "FR"));
         graph
@@ -137,7 +143,13 @@ mod tests {
     #[test]
     fn another_app_is_linked_channel_to_channel_once() {
         let mut graph = graph();
-        graph.add_node(2, Node { playback: true, process: Some(7) });
+        graph.add_node(
+            2,
+            Node {
+                playback: true,
+                process: Some(7),
+            },
+        );
         graph.add_port(20, port(2, true, "FL"));
         graph.add_port(21, port(2, true, "FR"));
         assert_eq!(graph.missing(CAPTURE, OWN), [(20, 10), (21, 11)]);
@@ -147,7 +159,13 @@ mod tests {
     #[test]
     fn veils_own_playback_is_never_linked() {
         let mut graph = graph();
-        graph.add_node(3, Node { playback: true, process: Some(OWN) });
+        graph.add_node(
+            3,
+            Node {
+                playback: true,
+                process: Some(OWN),
+            },
+        );
         graph.add_port(30, port(3, true, "FL"));
         assert!(graph.missing(CAPTURE, OWN).is_empty());
     }
@@ -156,10 +174,22 @@ mod tests {
     fn only_app_playback_is_linked() {
         let mut graph = graph();
         // A microphone or a speaker's monitor is not an app playing sound.
-        graph.add_node(4, Node { playback: false, process: None });
+        graph.add_node(
+            4,
+            Node {
+                playback: false,
+                process: None,
+            },
+        );
         graph.add_port(40, port(4, true, "FL"));
         // A playback stream that does not say its process is someone else's.
-        graph.add_node(5, Node { playback: true, process: None });
+        graph.add_node(
+            5,
+            Node {
+                playback: true,
+                process: None,
+            },
+        );
         graph.add_port(50, port(5, true, "MONO"));
         graph.add_port(51, port(5, true, "LFE"));
         assert_eq!(graph.missing(CAPTURE, OWN), [(50, 10), (50, 11)]);
@@ -170,14 +200,26 @@ mod tests {
         let mut graph = graph();
         graph.add_port(60, port(6, true, "FR"));
         assert!(graph.missing(CAPTURE, OWN).is_empty());
-        graph.add_node(6, Node { playback: true, process: Some(9) });
+        graph.add_node(
+            6,
+            Node {
+                playback: true,
+                process: Some(9),
+            },
+        );
         assert_eq!(graph.missing(CAPTURE, OWN), [(60, 11)]);
     }
 
     #[test]
     fn a_removed_port_can_be_linked_again_when_it_returns() {
         let mut graph = graph();
-        graph.add_node(2, Node { playback: true, process: Some(7) });
+        graph.add_node(
+            2,
+            Node {
+                playback: true,
+                process: Some(7),
+            },
+        );
         graph.add_port(20, port(2, true, "FL"));
         assert_eq!(graph.missing(CAPTURE, OWN), [(20, 10)]);
         graph.remove(20);

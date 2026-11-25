@@ -26,6 +26,8 @@ use crate::model::{Call, CallStatus, LinkPath, Participant, Reachable, RouterPor
 
 /// Chat messages and reactions that may wait for the interface; more drop the oldest.
 const CHAT_QUEUE: usize = 256;
+/// How long after its last packet a share's computer sound still counts as coming.
+const SOUNDING_FOR: Duration = Duration::from_secs(2);
 /// No sound for this long shows someone as muted.
 const QUIET: Duration = Duration::from_secs(1);
 /// No picture for this long shows someone's camera as off.
@@ -145,6 +147,8 @@ pub struct Shared {
     pub view: Mutex<View>,
     pictures: Mutex<HashMap<u32, Picture>>,
     heard: Mutex<HashMap<u32, Heard>>,
+    /// When each sharer's computer sound last arrived.
+    share_heard: Mutex<HashMap<u32, Instant>>,
     /// Chat that arrived, with the sender's device, not yet in the interface's call.
     chat: Mutex<Vec<(PublicId, Said)>>,
     /// Each other person's tile on screen, as (participant id, width in physical pixels).
@@ -175,6 +179,7 @@ impl Shared {
             }),
             pictures: Mutex::default(),
             heard: Mutex::default(),
+            share_heard: Mutex::default(),
             chat: Mutex::default(),
             tiles: Mutex::default(),
             stats: Mutex::default(),
@@ -277,6 +282,27 @@ impl Shared {
 
     pub fn forget_heard(&self, id: u32) {
         lock(&self.heard).remove(&id);
+    }
+
+    /// Computer sound from `id`'s share arrived now.
+    pub fn share_heard(&self, id: u32) {
+        lock(&self.share_heard).insert(id, Instant::now());
+    }
+
+    /// Sharers whose computer sound arrived in the last [`SOUNDING_FOR`], sorted.
+    pub fn sounding(&self) -> Vec<u32> {
+        let now = Instant::now();
+        let mut ids: Vec<u32> = lock(&self.share_heard)
+            .iter()
+            .filter(|(_, at)| now.saturating_duration_since(**at) < SOUNDING_FOR)
+            .map(|(id, _)| *id)
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    pub fn forget_share_heard(&self, id: u32) {
+        lock(&self.share_heard).remove(&id);
     }
 
     /// Queues a chat message or reaction that arrived for the interface.

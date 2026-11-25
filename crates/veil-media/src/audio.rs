@@ -249,7 +249,11 @@ mod tests {
         let payload = header.write(&[1, 2])?;
         assert_eq!(payload[0], AUDIO_VERSION | SHARE);
         assert_eq!(AudioHeader::read(&payload)?.0, header);
-        let voice = AudioHeader { share: false, ..header }.write(&[1, 2])?;
+        let voice = AudioHeader {
+            share: false,
+            ..header
+        }
+        .write(&[1, 2])?;
         assert!(!AudioHeader::read(&voice)?.0.share);
         // A reader that knows only version 1 compares the whole byte, so it drops share sound.
         assert_ne!(payload[0], AUDIO_VERSION);

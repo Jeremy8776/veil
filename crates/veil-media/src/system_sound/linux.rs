@@ -124,9 +124,12 @@ fn format() -> Result<Vec<u8>, &'static str> {
         id: ParamType::EnumFormat.as_raw(),
         properties: info.into(),
     };
-    PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &pod::Value::Object(object))
-        .map(|(cursor, _)| cursor.into_inner())
-        .map_err(|_| "pipewire format")
+    PodSerializer::serialize(
+        std::io::Cursor::new(Vec::new()),
+        &pod::Value::Object(object),
+    )
+    .map(|(cursor, _)| cursor.into_inner())
+    .map_err(|_| "pipewire format")
 }
 
 /// Runs PipeWire until the quit message. Sends the quit sender once capture is set up.
@@ -234,8 +237,12 @@ fn pump(feed: &Arc<Feed>, reply: &Reply) -> Result<(), &'static str> {
                 let Some(bytes) = data.data().and_then(|b| b.get(offset..offset + size)) else {
                     return;
                 };
-                let sound: Vec<f32> =
-                    bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
+                let sound: Vec<f32> = bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|b| f32::from_le_bytes(*b))
+                    .collect();
                 feed.push(&sound);
             }
         })
@@ -245,7 +252,12 @@ fn pump(feed: &Arc<Feed>, reply: &Reply) -> Result<(), &'static str> {
     let bytes = format()?;
     let mut params = [Pod::from_bytes(&bytes).ok_or("pipewire format")?];
     stream
-        .connect(Direction::Input, None, StreamFlags::MAP_BUFFERS, &mut params)
+        .connect(
+            Direction::Input,
+            None,
+            StreamFlags::MAP_BUFFERS,
+            &mut params,
+        )
         .map_err(|_| "pipewire stream connect")?;
     let (quit, quit_asked) = pipewire::channel::channel();
     let _attached = quit_asked.attach(main_loop.loop_(), {

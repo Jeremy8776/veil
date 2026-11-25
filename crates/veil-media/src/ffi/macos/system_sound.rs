@@ -165,12 +165,14 @@ unsafe impl<T> Send for Sendable<T> {}
 /// What macOS can capture, waited for.
 fn shareable_content() -> Result<Retained<SCShareableContent>, MediaError> {
     let (sender, answer): (Sender<Sendable<Option<Retained<SCShareableContent>>>>, _) = channel();
-    let block = RcBlock::new(move |content: *mut SCShareableContent, _error: *mut NSError| {
-        // SAFETY: `content` is null or a live object for the duration of the block; retaining
-        // it keeps it past the block.
-        let content = unsafe { Retained::retain(content) };
-        let _ = sender.send(Sendable(content));
-    });
+    let block = RcBlock::new(
+        move |content: *mut SCShareableContent, _error: *mut NSError| {
+            // SAFETY: `content` is null or a live object for the duration of the block; retaining
+            // it keeps it past the block.
+            let content = unsafe { Retained::retain(content) };
+            let _ = sender.send(Sendable(content));
+        },
+    );
     // SAFETY: the block has the signature the method documents, and outlives the call.
     unsafe { SCShareableContent::getShareableContentWithCompletionHandler(&block) };
     answer
@@ -198,7 +200,9 @@ impl SckAudio {
         let content = shareable_content()?;
         // SAFETY: a getter on a live object.
         let displays = unsafe { content.displays() };
-        let display = displays.firstObject().ok_or(MediaError::Unavailable("display"))?;
+        let display = displays
+            .firstObject()
+            .ok_or(MediaError::Unavailable("display"))?;
         // SAFETY: a fresh allocation, a live display and an empty list of windows to leave out.
         let filter = unsafe {
             SCContentFilter::initWithDisplay_excludingWindows(

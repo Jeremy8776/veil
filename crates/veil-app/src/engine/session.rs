@@ -4,7 +4,8 @@
 //! receiving. It seals each encoded picture (`FrameSender::encrypt_layer`, with the layer the
 //! schedule chose) and each Opus frame, sends them through the `MediaSession`, and opens what
 //! arrives: video goes to the decoder thread, sound to the playback thread. Keyframe requests
-//! go both ways. Names, chat and reactions go both ways as sealed app messages (`names.rs` decides when
+//! go both ways. Your microphone and your share's computer sound are separate streams
+//! (`sound_out.rs`). Names, chat and reactions go both ways as sealed app messages (`names.rs` decides when
 //! your name is sent); received chat waits in [`Shared`] for the interface. Through a
 //! forwarder it asks for the layers each tile needs (`wanted.rs`). [`Session::pump`]
 //! does one of these jobs per call, so the host and guest loops can wait on it next to their
@@ -30,7 +31,7 @@ use veil_call::{
     Routes,
 };
 use veil_forward::Wanted;
-use veil_media::{AudioHeader, AudioSettings, OpusEncoder};
+use veil_media::AudioHeader;
 use veil_security::frame::{FrameSender, frame_layer};
 use veil_security::group_code::group_number;
 use veil_security::safety::{safety_number, side};
@@ -40,6 +41,7 @@ use super::audio_out::AudioIn;
 use super::auto_step::AutoStep;
 use super::names::{Announcer, Names};
 use super::screen_proof;
+use super::sound_out::SoundOut;
 use super::stats::{Sampler, link_path};
 use super::video_in::VideoIn;
 use super::video_out::{Encoded, VideoControl};
@@ -53,6 +55,8 @@ use crate::model::{Action, LinkPath};
 pub struct Pipes {
     pub encoded: mpsc::Receiver<Encoded>,
     pub sound: mpsc::Receiver<Vec<f32>>,
+    /// Your share's computer sound, 20 ms of `AudioSettings::share_sound` at a time.
+    pub share_sound: mpsc::Receiver<Vec<f32>>,
     /// Participant ids whose video cannot decode until their next keyframe.
     pub keyframes: mpsc::Receiver<u32>,
     pub video_in: SyncSender<VideoIn>,
@@ -129,10 +133,9 @@ pub struct Session {
     sampler: Sampler,
     /// Whether Auto data use should save data, judged from the same link rows.
     auto: AutoStep,
-    opus: Option<OpusEncoder>,
-    /// The bitrate `opus` runs at, so a new data use choice changes it once.
-    opus_bitrate: u32,
-    audio_seq: u32,
+    /// Your microphone and your share's computer sound, each a stream of its own.
+    voice: SoundOut,
+    share_sound: SoundOut,
     frame_id: u32,
     clock: Instant,
     tick: Interval,
@@ -172,9 +175,8 @@ impl Session {
             subscribed: None,
             sampler: Sampler::default(),
             auto: AutoStep::default(),
-            opus: None,
-            opus_bitrate: 0,
-            audio_seq: 0,
+            voice: SoundOut::voice(),
+            share_sound: SoundOut::share(),
             frame_id: 0,
             clock: Instant::now(),
             tick,
@@ -295,7 +297,8 @@ impl Session {
         tokio::select! {
             Some(incoming) = self.media.recv() => self.on_incoming(&incoming),
             Some(encoded) = self.pipes.encoded.recv() => self.send_video(encoded).await,
-            Some(pcm) = self.pipes.sound.recv() => self.send_audio(&pcm),
+            Some(pcm) = self.pipes.sound.recv() => self.send_sound(&pcm, false),
+            Some(pcm) = self.pipes.share_sound.recv() => self.send_sound(&pcm, true),
             Some(id) = self.pipes.keyframes.recv() => self.ask_keyframe(id).await,
             _ = self.tick.tick() => {
                 self.media.redial();
@@ -434,50 +437,22 @@ impl Session {
         }
     }
 
-    fn send_audio(&mut self, pcm: &[f32]) {
+    /// Seals and sends one frame of your microphone, or of your share's computer sound.
+    fn send_sound(&mut self, pcm: &[f32], share: bool) {
         if self.others.is_empty() {
             return;
         }
         let Some(sender) = &mut self.sender else {
             return;
         };
-        let bitrate = self.pipes.data.effective().opus_bitrate();
-        if self.opus.is_none() {
-            let settings = AudioSettings {
-                bitrate,
-                ..AudioSettings::voice()
-            };
-            match OpusEncoder::new(&settings) {
-                Ok(encoder) => {
-                    self.opus = Some(encoder);
-                    self.opus_bitrate = bitrate;
-                }
-                Err(e) => {
-                    crate::note!("no audio encoder: {e}");
-                    return;
-                }
-            }
-        }
-        let Some(opus) = &mut self.opus else { return };
-        if self.opus_bitrate != bitrate {
-            match opus.set_bitrate(bitrate) {
-                Ok(()) => self.opus_bitrate = bitrate,
-                // Tried again on the next frame; the old rate still works meanwhile.
-                Err(e) => crate::note!("cannot change the sound bitrate: {e}"),
-            }
-        }
-        if pcm.len() != opus.frame_len() {
-            return;
-        }
-        let Ok(packet) = opus.encode(pcm) else { return };
-        self.audio_seq = self.audio_seq.wrapping_add(1);
-        let header = AudioHeader {
-            sequence: self.audio_seq,
-            timestamp_us: micros_since(self.clock),
+        let timestamp = micros_since(self.clock);
+        let payload = if share {
+            self.share_sound.payload(pcm, None, timestamp)
+        } else {
+            let bitrate = self.pipes.data.effective().opus_bitrate();
+            self.voice.payload(pcm, Some(bitrate), timestamp)
         };
-        let Ok(payload) = header.write(&packet) else {
-            return;
-        };
+        let Some(payload) = payload else { return };
         match sender.encrypt(&payload) {
             Ok(sealed) => {
                 self.media.send_audio(&sealed);

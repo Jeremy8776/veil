@@ -28,15 +28,15 @@ use std::time::{Duration, Instant};
 use crate::MediaError;
 use crate::audio::AudioSettings;
 
-#[cfg(target_os = "linux")]
-mod linux;
 #[cfg(any(target_os = "linux", test))]
 pub mod graph;
+#[cfg(target_os = "linux")]
+mod linux;
 
-#[cfg(windows)]
-pub use crate::ffi::windows::LoopbackCapture as SystemSound;
 #[cfg(target_os = "macos")]
 pub use crate::ffi::macos::SckAudio as SystemSound;
+#[cfg(windows)]
+pub use crate::ffi::windows::LoopbackCapture as SystemSound;
 #[cfg(target_os = "linux")]
 pub use linux::PipeWireSound as SystemSound;
 
@@ -150,7 +150,9 @@ struct FeedState {
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 impl Feed {
     fn lock(&self) -> std::sync::MutexGuard<'_, FeedState> {
-        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Called by the system's thread with interleaved stereo samples.
@@ -256,7 +258,10 @@ mod tests {
         let first = frames.deadline(start);
         assert_eq!(first, start + Duration::from_millis(20) + SLACK);
         frames.take();
-        assert_eq!(frames.deadline(start), start + Duration::from_millis(40) + SLACK);
+        assert_eq!(
+            frames.deadline(start),
+            start + Duration::from_millis(40) + SLACK
+        );
         let late = start + Duration::from_secs(2);
         assert_eq!(frames.deadline(late), late + SLACK, "no burst to catch up");
     }
