@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "revision": 28,
-  "updated_at": "2026-11-25T10:57:36+00:00",
+  "revision": 30,
+  "updated_at": "2026-11-25T11:36:35+00:00",
   "next_step": {
     "capability": "LOCAL-01",
     "title": "Prove a useful call with WAN and DNS unavailable",
@@ -207,6 +207,24 @@
       "note": "Full capability acceptance gate remains open.",
       "evidence": [],
       "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "SHARE-01": {
+      "status": "planned",
+      "note": "Requested 25 November 2026; full acceptance gate open.",
+      "evidence": [],
+      "updated_at": "2026-11-25T11:36:35+00:00"
+    },
+    "SHARE-02": {
+      "status": "planned",
+      "note": "Requested 25 November 2026; full acceptance gate open.",
+      "evidence": [],
+      "updated_at": "2026-11-25T11:36:35+00:00"
+    },
+    "FX-01": {
+      "status": "planned",
+      "note": "Requested 25 November 2026; full acceptance gate open.",
+      "evidence": [],
+      "updated_at": "2026-11-25T11:36:35+00:00"
     }
   },
   "sessions": {
@@ -226,13 +244,23 @@
     },
     "claude-5341dbf7": {
       "title": "Roadmap review",
-      "status": "active",
+      "status": "idle",
       "started_at": "2026-11-25T10:53:47+00:00",
-      "updated_at": "2026-11-25T10:57:36+00:00",
-      "note": "Starting AND-02: reviewing the release-0.1.13 Android candidate against main"
+      "updated_at": "2026-11-25T11:36:35+00:00",
+      "note": "AND-02 marked done on docs/and-02-done (local commit, not pushed). Next: LOCAL-01 WAN/DNS-off call."
     }
   },
   "activity": [
+    {
+      "at": "2026-11-25T11:36:35+00:00",
+      "session": "claude-5341dbf7",
+      "note": "Added SHARE-01 (share computer sound), SHARE-02 (Android screen sharing) and FX-01 (LUTs and effect strength) to 0.2.0, prioritised after LOCAL-01"
+    },
+    {
+      "at": "2026-11-25T10:57:41+00:00",
+      "session": "claude-5341dbf7",
+      "note": "AND-02 marked done on docs/and-02-done (local commit, not pushed). Next: LOCAL-01 WAN/DNS-off call."
+    },
     {
       "at": "2026-11-25T10:57:36+00:00",
       "session": "claude-5341dbf7",

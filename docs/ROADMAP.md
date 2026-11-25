@@ -259,7 +259,7 @@ capacity and continuity**. Security review, test evidence and diagnostics accomp
 | Priority | Work | Reason |
 |---|---|---|
 | Now | AND-02, SDK-01, TRUST-02, LOCAL-01, DIAG-01 and immediate TRUST-01 design | Capture the existing work, define the provider boundary, defend expanded exposure, and prove the offline premise |
-| Next | MOB-01, MOB-02, INVITE-01, DIST-01 | Turn a successful connection into a usable repeatable phone/local experience |
+| Next | SHARE-01, FX-01, SHARE-02, MOB-01, MOB-02, INVITE-01, DIST-01 | Requested sharing and camera features first, then a usable repeatable phone/local experience |
 | Then | SDK-02, NET-01, NET-02, NET-03, DATA-01, OPS-01 | Expose the shared engine and widen permitted reach while preserving privacy choices |
 | Alongside platform work | DESK-01, ID-01, TEST-01, BIND-01, EMBED-01 | Stable identities, a cross-language boundary and a reference host prove shared use |
 | Before broad group claims | TRUST-01, GROUP-01, MEDIA-01 | Fix attribution and explicitly handle members a forwarder cannot serve |
@@ -308,7 +308,7 @@ or reordered when testing exposes a dependency.
 | Target | User outcome | Required capabilities | Exit evidence |
 |---|---|---|---|
 | 0.1.14 | The preview is reproducible and the provider boundary is designed | AND-02, SDK-01 | Reviewed Android integration, clean-checkout build, green desktop CI and an agreed headless engine/provider design |
-| 0.2.0 | I can make a safe everyday call, including without internet | LOCAL-01, TRUST-02, MOB-01, MOB-02, INVITE-01, DIAG-01, DIST-01, TEST-01 | WAN/DNS-off hardware call, admission/revocation checks, sustained mobile calls, usable audio and signed upgradeable preview |
+| 0.2.0 | I can make a safe everyday call, including without internet | LOCAL-01, TRUST-02, MOB-01, MOB-02, INVITE-01, DIAG-01, DIST-01, TEST-01, SHARE-01, SHARE-02, FX-01 | WAN/DNS-off hardware call, admission/revocation checks, sustained mobile calls, usable audio, signed upgradeable preview, screen sharing with sound from desktop and Android, and LUT effects with strength |
 | 0.3.0 | Apps share a headless engine and calls find more permitted paths | SDK-02, NET-01, NET-02, NET-03, DATA-01, OPS-01 | Non-GUI SDK sample, full joining over TCP fallback, independent-helper failure tests and measured receive/data controls |
 | 0.4.0 | Other apps can provide Veil calls while identity stays locally controlled | DESK-01, ID-01, BIND-01, EMBED-01 | Stable desktop identity/settings, scoped host storage, local IPC contract and standalone/reference-host interoperability |
 | 0.5.0 | Group calls preserve attribution, reachability and usable media | GROUP-01, TRUST-01, MEDIA-01 | Adversarial sender tests, measured five-person calls, visible partial failures and safe forwarding/recovery |
@@ -673,6 +673,73 @@ user-reported connection. Hardware/network tests remain explicit actions; CI mus
 carrier or audible-quality coverage from localhost tests. Never fabricate population success
 rates from a handful of manual calls.
 
+### SHARE-01 Share computer sound with a screen
+
+**Outcome:** A person sharing a screen can choose to include their computer's sound, and set
+or mute its level during the share.
+**Status:** Requested 25 November 2026. Screen sharing sends video only today. **Target:** 0.2.0.
+**Depends on:** BASE-01.
+
+- Add an **Include computer sound** choice to the share picker. It starts off for each share.
+- Capture system output per platform: Windows WASAPI loopback, macOS ScreenCaptureKit audio and
+  Linux PipeWire through the desktop portal. Exclude Veil's own call playback, so other people
+  do not hear themselves echoed back.
+- Send share sound as its own encoded stream, separate from the microphone, so it can be mixed,
+  muted and measured on its own.
+- Give the sharer a level slider with mute on the share controls. Give each receiver a local
+  volume and mute for that share's sound. Neither control changes the other person's setting.
+- Show clearly while computer sound is being sent. Stopping the share stops sound capture.
+
+**Complete when:** On Windows, macOS and Linux, a share with sound plays clearly for a remote
+receiver. Sender mute and level take effect within one second. Receiver volume changes only
+that receiver. Call audio is not echoed back to its speakers. Hardware listening results are
+recorded separately from automated tests. A platform that cannot capture system sound says so
+in the picker rather than failing silently.
+
+### SHARE-02 Share a phone screen
+
+**Outcome:** A person on Android can share their screen into a call, with the same controls
+as desktop.
+**Status:** Requested 25 November 2026. The Android preview can receive shared screens but
+cannot send one. **Target:** 0.2.0. **Depends on:** AND-02.
+
+- Use Android MediaProjection, with the system consent prompt for every share and a
+  foreground service of type `mediaProjection`. Offer a single app or the whole screen where
+  the Android version supports it.
+- Show that sharing is active, and stop it from the call controls, the notification or the
+  system indicator. Stop the share when consent is revoked or the call ends.
+- Include phone sound through Android playback capture, using SHARE-01's choice, slider and
+  separate stream. Apps that block capture and secure windows stay silent or blank; say so.
+- Reuse the shared encoder and screen-share path; do not create an Android-only protocol.
+
+**Complete when:** On a real Android phone, a share reaches a desktop receiver with picture
+and optional sound. Start, stop, consent denial, revoked consent, screen lock and leaving the
+call each end in a clear state with capture stopped. Results are recorded with device and
+Android version. iPhone sharing remains IOS-01 scope.
+
+### FX-01 Apply LUTs and set the strength of every effect
+
+**Outcome:** A person can load a colour look-up table (LUT) as a camera effect, and set how
+strongly any effect is applied.
+**Status:** Requested 25 November 2026. Four built-in colour filters and background blur
+exist, with no strength control and no loadable LUTs. **Target:** 0.2.0. **Depends on:** BASE-01.
+
+- Import standard `.cube` 3D LUT files on desktop and Android. Copy each into app-private
+  storage, show it in the effects picker by name, and allow removal.
+- Treat a LUT file as untrusted input: cap file size and grid size, reject malformed values,
+  and report a plain error. A bad file never stops the camera.
+- Add a strength slider, 0 to 100%, for every effect, including built-in filters, LUTs and
+  blur. Strength blends the effect with the original picture.
+- Apply effects on the sender before encoding, as today, so everyone sees the same result.
+  Remember the chosen effect and strength in preferences.
+- Pre-compute LUTs into a form that keeps per-frame cost bounded; measure it at 1080p30 on
+  desktop and on a phone before shipping.
+
+**Complete when:** A valid LUT loads and shows correctly on Windows, macOS, Linux and Android.
+Invalid and oversized files are rejected with tests. Strength 0% leaves the picture unchanged
+and 100% equals the full effect, with tests for each effect type. Measured frame cost stays
+within the camera's frame budget on the tested devices.
+
 ### NET-02 Fail over between genuinely independent chosen helpers
 
 **Outcome:** One helper failing does not make a reachable call depend on that machine forever.
@@ -989,8 +1056,8 @@ These are work packages, not calendar promises or authorization to implement all
 
 ## Work after the core milestones
 
-QR camera scanning is now in the proposed 0.2 INVITE-01 scope. Android screen sharing remains
-a separately scoped platform extension. IOS-01 is conditional on hardware/tooling; HOST-01,
+QR camera scanning is now in the proposed 0.2 INVITE-01 scope. Android screen sharing is now
+SHARE-02 in 0.2. IOS-01 is conditional on hardware/tooling; HOST-01,
 NEAR-01, MSG-01, SCALE-01, PERF-01 and ORG-01 have design gates but no reserved version.
 Allocate their release numbers after feasibility and scope decisions instead of implying a
 fixed serial path to 0.7/0.8/0.9. Their absence does not remove the requirement for a reusable

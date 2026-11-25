@@ -11,7 +11,8 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / 'docs/roadmap-state.json'
 STATUSES = ('planned', 'in_progress', 'blocked', 'done')
-PRIORITY = ['AND-02', 'SDK-01', 'TRUST-02', 'DIAG-01', 'LOCAL-01', 'TEST-01',
+PRIORITY = ['AND-02', 'SDK-01', 'TRUST-02', 'DIAG-01', 'LOCAL-01',
+            'SHARE-01', 'FX-01', 'SHARE-02', 'TEST-01',
             'MOB-01', 'MOB-02', 'INVITE-01', 'DIST-01', 'TRUST-01', 'SDK-02',
             'DATA-01', 'NET-01', 'NET-02', 'NET-03', 'OPS-01', 'DESK-01',
             'ID-01', 'BIND-01', 'EMBED-01', 'MEDIA-01', 'GROUP-01', 'READY-01']
