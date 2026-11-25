@@ -112,9 +112,16 @@ pub(crate) fn show(
         });
     }
     let aspects: Vec<_> = cells.iter().map(|cell| cell.aspect).collect();
+    // Gallery: justified rows, so each card fills a cell of its own shape and no space is
+    // wasted. Speaker view and screen shares keep the featured mosaic.
+    let gallery = !waiting && !shares && view.view != View::Speaker;
+    let rects = gallery
+        .then(|| layout::justified(&aspects, area, 12.0))
+        .flatten()
+        .unwrap_or_else(|| layout::bento(&aspects, featured, area, 12.0));
     let targets: Vec<_> = cells
         .iter()
-        .zip(layout::bento(&aspects, featured, area, 12.0))
+        .zip(rects)
         .map(|(cell, rect)| (cell.key, rect))
         .collect();
     // Request final widths once, rather than changing subscriptions on every animation frame.

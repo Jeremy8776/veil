@@ -155,9 +155,117 @@ pub fn bento(aspects: &[f32], featured: usize, area: Rect, gap: f32) -> Vec<Rect
     best
 }
 
+/// Justified rows in input order: every cell has exactly its source's aspect ratio, so a
+/// card that hugs its picture fills its cell and no space is wasted inside cells. Tries
+/// every way to break the list into rows (up to [`JUSTIFY_MAX`] people) and keeps the one
+/// that shows the most picture, then centres the block in `area`. `None` past the limit.
+pub fn justified(aspects: &[f32], area: Rect, gap: f32) -> Option<Vec<Rect>> {
+    let count = aspects.len();
+    if count == 0 || count > JUSTIFY_MAX || !area.is_finite() || area.width() <= 0.0 || area.height() <= 0.0 {
+        return None;
+    }
+    let aspects: Vec<f32> = aspects.iter().map(|a| a.clamp(0.25, 4.0)).collect();
+    let mut best: Option<(f32, Vec<usize>, f32)> = None;
+    // Bit i set = a new row starts after item i.
+    for mask in 0u32..(1 << (count - 1)) {
+        let rows = row_lengths(mask, count);
+        let (scale, area_shown) = fit(&aspects, &rows, area, gap);
+        if best.as_ref().is_none_or(|(shown, _, _)| area_shown > *shown) {
+            best = Some((area_shown, rows, scale));
+        }
+    }
+    let (_, rows, scale) = best?;
+    let heights: Vec<f32> = row_heights(&aspects, &rows, area.width(), gap)
+        .into_iter()
+        .map(|h| h * scale)
+        .collect();
+    let block = heights.iter().sum::<f32>() + gap * (rows.len() - 1) as f32;
+    let mut y = area.top() + ((area.height() - block) * 0.5).max(0.0);
+    let mut cells = Vec::with_capacity(count);
+    let mut start = 0;
+    for (len, height) in rows.iter().zip(&heights) {
+        let row = &aspects[start..start + len];
+        let width = row.iter().map(|a| a * height).sum::<f32>() + gap * (len - 1) as f32;
+        let mut x = area.left() + ((area.width() - width) * 0.5).max(0.0);
+        for aspect in row {
+            let cell = Rect::from_min_size(pos2(x, y), vec2(aspect * height, *height));
+            x = cell.right() + gap;
+            cells.push(cell);
+        }
+        y += height + gap;
+        start += len;
+    }
+    Some(cells)
+}
+
+/// Above this many people, justified rows are not searched (2^(n-1) splits).
+pub const JUSTIFY_MAX: usize = 9;
+
+fn row_lengths(mask: u32, count: usize) -> Vec<usize> {
+    let mut rows = Vec::new();
+    let mut len = 0;
+    for i in 0..count {
+        len += 1;
+        if i + 1 == count || mask & (1 << i) != 0 {
+            rows.push(len);
+            len = 0;
+        }
+    }
+    rows
+}
+
+/// Each row's height when it spans the full `width`.
+fn row_heights(aspects: &[f32], rows: &[usize], width: f32, gap: f32) -> Vec<f32> {
+    let mut start = 0;
+    rows.iter()
+        .map(|len| {
+            let sum: f32 = aspects[start..start + len].iter().sum();
+            start += len;
+            ((width - gap * (len - 1) as f32).max(1.0)) / sum
+        })
+        .collect()
+}
+
+/// The scale that fits the rows into `area`, and the picture area shown at that scale.
+fn fit(aspects: &[f32], rows: &[usize], area: Rect, gap: f32) -> (f32, f32) {
+    let heights = row_heights(aspects, rows, area.width(), gap);
+    let room = (area.height() - gap * (rows.len() - 1) as f32).max(1.0);
+    let scale = (room / heights.iter().sum::<f32>()).min(1.0);
+    let mut start = 0;
+    let shown = rows
+        .iter()
+        .zip(&heights)
+        .map(|(len, h)| {
+            let h = h * scale;
+            let row: f32 = aspects[start..start + len].iter().map(|a| a * h * h).sum();
+            start += len;
+            row
+        })
+        .sum();
+    (scale, shown)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn justified_cells_keep_their_shape_and_stay_inside() {
+        let area = Rect::from_min_size(pos2(10.0, 20.0), vec2(390.0, 600.0));
+        let aspects = [16.0 / 9.0, 9.0 / 16.0, 1.25];
+        let cells = justified(&aspects, area, 12.0).expect("three people fit");
+        assert_eq!(cells.len(), 3);
+        for (cell, aspect) in cells.iter().zip(aspects) {
+            assert!((cell.width() / cell.height() - aspect).abs() < 0.01);
+            assert!(area.expand(0.5).contains_rect(*cell));
+        }
+        for (i, a) in cells.iter().enumerate() {
+            for b in &cells[i + 1..] {
+                assert!(a.intersect(*b).area() < 1.0, "cells overlap");
+            }
+        }
+        assert!(justified(&[1.0; JUSTIFY_MAX + 1], area, 12.0).is_none());
+    }
     #[test]
     fn mixed_portrait_and_landscape_members_fit_without_overlap_at_every_size() {
         for size in [
