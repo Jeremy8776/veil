@@ -1,7 +1,8 @@
 //! The floating "you are sharing" bar, shown over other apps until hidden or stopped.
 //!
 //! Purpose: lets you move the bar by its handle, change what you share, hide the bar or stop,
-//! wherever you are working.
+//! wherever you are working. While the share includes computer sound, the bar says so, shows
+//! its level as it goes out, and mutes it.
 //!
 //! Invariants:
 //! - On Windows the bar is kept out of screen captures, so people watching a share of the whole
@@ -20,13 +21,16 @@ use eframe::egui::{
 };
 
 use crate::app::VeilApp;
+use crate::icons::Icon;
 use crate::share::ShareBar;
 use crate::theme::{self, MUTED, TEXT};
-use crate::widgets::{Tone, pill};
+use crate::widgets::{Tone, named_level_meter, pill};
 
 /// Also how the window is found to keep it out of captures.
 const TITLE: &str = "Veil is sharing your screen";
 const SIZE: egui::Vec2 = vec2(540.0, 56.0);
+/// Wider while sound is shared, for its meter and Mute.
+const SIZE_WITH_SOUND: egui::Vec2 = vec2(700.0, 56.0);
 /// How far above the bottom of the screen the bar opens.
 const MARGIN: f32 = 96.0;
 const RETRY: Duration = Duration::from_millis(100);
@@ -35,15 +39,20 @@ pub fn show(app: &VeilApp, ctx: &egui::Context) {
     if !app.share.is_sharing() || app.share.bar_hidden() || ctx.embed_viewports() {
         return;
     }
+    let size = if app.share.sound.state().is_on() {
+        SIZE_WITH_SOUND
+    } else {
+        SIZE
+    };
     let monitor = ctx
         .input(|i| i.viewport().monitor_size)
         .unwrap_or(vec2(1_920.0, 1_080.0));
     let builder = ViewportBuilder::default()
         .with_title(TITLE)
-        .with_inner_size(SIZE)
+        .with_inner_size(size)
         .with_position(pos2(
-            (monitor.x - SIZE.x) / 2.0,
-            monitor.y - SIZE.y - MARGIN,
+            (monitor.x - size.x) / 2.0,
+            monitor.y - size.y - MARGIN,
         ))
         .with_decorations(false)
         .with_resizable(false)
@@ -80,7 +89,13 @@ fn contents(ui: &mut Ui, control: &ShareBar) {
     egui::CentralPanel::default().frame(frame).show(ui, |ui| {
         ui.horizontal_centered(|ui| {
             let grip = handle(ui);
-            let text = RichText::new("Sharing your screen").color(TEXT);
+            let sound = control.sound();
+            let text = if sound.is_on() {
+                "Sharing your screen and sound"
+            } else {
+                "Sharing your screen"
+            };
+            let text = RichText::new(text).color(TEXT);
             let label = ui.add(egui::Label::new(text).sense(Sense::drag()));
             if grip.drag_started() || label.drag_started() {
                 ctx.send_viewport_cmd(ViewportCommand::StartDrag);
@@ -93,6 +108,22 @@ fn contents(ui: &mut Ui, control: &ShareBar) {
                 if pill(ui, None, "Stop sharing", Tone::Danger, 130.0).clicked() {
                     control.stop();
                     close = true;
+                }
+                if sound.is_on() {
+                    let muted = sound.muted();
+                    let label = if muted { "Unmute sound" } else { "Mute sound" };
+                    let hint = "Your computer's sound, for everyone. Your screen stays shared.";
+                    if pill(ui, Some(Icon::Volume), label, Tone::Quiet, 140.0)
+                        .on_hover_text(hint)
+                        .clicked()
+                    {
+                        sound.set_muted(!muted);
+                    }
+                    let level = if muted { 0.0 } else { sound.meter() };
+                    named_level_meter(ui, level, 48.0, "Shared sound level")
+                        .on_hover_text("Sound going out");
+                    // The meter moves only while it is drawn again.
+                    ctx.request_repaint_after(Duration::from_millis(200));
                 }
                 let change = pill(ui, None, "Change", Tone::Quiet, 90.0)
                     .on_hover_text("Share something else");

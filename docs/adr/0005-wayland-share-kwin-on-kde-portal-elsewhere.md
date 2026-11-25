@@ -34,3 +34,5 @@ file). Veil shares on Wayland in one of two ways (`veil-media/src/screen/`):
 - A Flatpak build is sandboxed and always uses the portal.
 - `zkde_screencast_unstable_v1` and `org_kde_plasma_window_management` are KDE-specific and the
   first is still "unstable"; if KWin changes them, the portal is the fallback.
+- Planned share sound ([ADR 0007](0007-share-sound-is-a-separate-opt-in-stream.md)) reuses the
+  same PipeWire connection on both paths. This decision about pictures is unchanged.

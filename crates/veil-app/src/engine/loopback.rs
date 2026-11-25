@@ -340,7 +340,8 @@ fn loopback_a_raised_hand_reaches_the_others() {
     wait_for("the host's hand lowered", &guest, &mut guest_call, theirs(false));
 }
 
-/// A shared screen arrives as its own stream, beside the sender's camera.
+/// A shared screen arrives as its own stream, beside the sender's camera, and so does its
+/// computer sound (silence here), beside the microphone.
 #[test]
 #[ignore = "opens ports, the H.264 encoder and the speaker"]
 fn loopback_a_shared_screen_arrives_beside_the_camera() {
@@ -365,16 +366,23 @@ fn loopback_a_shared_screen_arrives_beside_the_camera() {
     while start.elapsed() < Duration::from_secs(20) {
         let _ = taps.video.try_send(picture(n));
         let _ = taps.screen.try_send(picture(n));
+        // Two 20 ms frames per 33 ms picture keeps sound ahead of real time.
+        for _ in 0..2 {
+            let _ = taps.share_sound.try_send(vec![0.0; 1_920]);
+        }
         n += 1;
         std::thread::sleep(Duration::from_millis(33));
         keys.extend(guest.take_pictures().into_iter().map(|(key, _)| key));
-        if keys.contains(&sender) && keys.contains(&screen_key(sender)) {
+        let sounding = guest.sounding() == [sender];
+        if keys.contains(&sender) && keys.contains(&screen_key(sender)) && sounding {
             break;
         }
     }
     assert!(keys.contains(&sender), "the camera arrives");
     assert!(keys.contains(&screen_key(sender)), "the screen arrives");
     assert_eq!(guest.sharers(), [sender]);
+    assert_eq!(guest.sounding(), [sender], "the share's sound arrives");
+    assert!(host.sounding().is_empty(), "only the guest received share sound");
     assert!(host.sharers().is_empty(), "only the guest received a share");
 
     // Stopping is silence: those watching drop the share after a few seconds.

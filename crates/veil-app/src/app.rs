@@ -202,6 +202,7 @@ impl VeilApp {
                 Ok(engine) => {
                     self.media.set_taps(Some(engine.taps()));
                     self.share.set_tap(Some(engine.taps().screen));
+                    self.share.sound.set_tap(Some(engine.taps().share_sound));
                     let title = if host {
                         format!("{name}'s call")
                     } else {
@@ -265,6 +266,7 @@ impl VeilApp {
     fn stop_sharing(&mut self) {
         self.share.stop();
         self.share.set_tap(None);
+        self.share.sound.set_tap(None);
     }
 
     /// Drops the pictures of shares that have ended.

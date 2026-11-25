@@ -1,6 +1,6 @@
 //! Windows Media Foundation: H.264 encoding, one encoder transform per simulcast rung, H.264
 //! decoding (`decoder.rs`), camera capture (`camera.rs`), and microphone and speakers through
-//! WASAPI (`audio.rs`).
+//! WASAPI (`audio.rs`), and computer sound for a screen share (`loopback.rs`).
 //!
 //! Purpose: the [`RungEncoder`] behind [`MediaFoundationEncoder`]. It prefers a hardware
 //! encoder (GPU, through `MFTEnumEx`) and falls back to Microsoft's software H.264 encoder,
@@ -28,6 +28,7 @@ mod audio_devices;
 mod camera;
 mod decoder;
 mod enumerate;
+mod loopback;
 mod pick;
 mod protect;
 mod sample;
@@ -39,6 +40,7 @@ pub use audio::{WasapiCapture, WasapiPlayback};
 pub use audio_devices::{AudioDevice, microphones, speakers};
 pub use camera::{CameraInfo, MfCamera, cameras};
 pub use decoder::MfDecoder;
+pub use loopback::{LoopbackCapture, loopback_support};
 pub use pick::pick_file;
 pub use protect::{protect, unprotect};
 pub use screen_stream::ScreenStream;

@@ -8,9 +8,12 @@
 //! - Volumes are software gains: the microphone from 0 to [`MIC_MAX`], the speaker from 0 to
 //!   [`SPEAKER_MAX`]. The device's own volume (in the operating system) is never changed.
 //! - Scaled samples are clamped to -1..1, so a boost clips rather than wraps.
+//! - Each share's computer sound has its own volume and mute ([`ShareLevel`]), on this device
+//!   only: the sharer's own level is theirs, and nobody else's changes. Read every 20 ms.
 //! - A speaker change bumps a counter; the playback thread compares it each 20 ms frame and
 //!   reopens the device when it moved. The lock is held only to copy the id.
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
@@ -56,6 +59,30 @@ impl Gain {
     }
 }
 
+/// How loud one share's computer sound plays here.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShareLevel {
+    /// 0 to [`SPEAKER_MAX`].
+    pub volume: f32,
+    pub muted: bool,
+}
+
+impl Default for ShareLevel {
+    fn default() -> Self {
+        Self {
+            volume: 1.0,
+            muted: false,
+        }
+    }
+}
+
+impl ShareLevel {
+    /// The gain to play at: 0 while muted.
+    pub fn gain(self) -> f32 {
+        if self.muted { 0.0 } else { self.volume }
+    }
+}
+
 /// The speaker the call plays through, and how loud.
 #[derive(Default)]
 pub struct Playback {
@@ -66,6 +93,8 @@ pub struct Playback {
     /// Remove background noise from everyone else's sound, one model per person.
     /// shortcut: forgotten when Veil closes; save it once the app has saved preferences.
     pub clean_others: AtomicBool,
+    /// Each sharer's computer sound, by participant id; absent is [`ShareLevel::default`].
+    shares: Mutex<HashMap<u32, ShareLevel>>,
 }
 
 impl Playback {
@@ -80,6 +109,21 @@ impl Playback {
 
     pub fn device(&self) -> Option<String> {
         lock(&self.device).clone()
+    }
+
+    pub fn share_level(&self, id: u32) -> ShareLevel {
+        lock(&self.shares).get(&id).copied().unwrap_or_default()
+    }
+
+    /// Sets how loud `id`'s share sound plays here. The volume is clamped to 0 to
+    /// [`SPEAKER_MAX`]; anything not a number counts as 100%.
+    pub fn set_share_level(&self, id: u32, level: ShareLevel) {
+        let volume = if level.volume.is_finite() {
+            level.volume.clamp(0.0, SPEAKER_MAX)
+        } else {
+            1.0
+        };
+        lock(&self.shares).insert(id, ShareLevel { volume, ..level });
     }
 
     /// Moves on every change of device.
@@ -115,6 +159,34 @@ mod tests {
         assert_eq!(gain.get(), 0.0);
         gain.set(f32::INFINITY, MIC_MAX);
         assert_eq!(gain.get(), 0.0, "ignored");
+    }
+
+    #[test]
+    fn each_share_has_its_own_level_here() {
+        let playback = Playback::default();
+        assert_eq!(playback.share_level(3), ShareLevel::default());
+        playback.set_share_level(
+            3,
+            ShareLevel {
+                volume: 0.4,
+                muted: true,
+            },
+        );
+        playback.set_share_level(
+            4,
+            ShareLevel {
+                volume: 9.0,
+                muted: false,
+            },
+        );
+        assert_eq!(playback.share_level(3).gain(), 0.0, "muted");
+        assert_eq!(playback.share_level(3).volume, 0.4, "kept for unmuting");
+        assert_eq!(playback.share_level(4).gain(), SPEAKER_MAX);
+        assert_eq!(
+            playback.share_level(5),
+            ShareLevel::default(),
+            "others untouched"
+        );
     }
 
     #[test]

@@ -404,8 +404,13 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
 
 /// A row of segments lighting up with the microphone level, 0 to 1.
 pub fn level_meter(ui: &mut Ui, level: f32, width: f32) -> Response {
+    named_level_meter(ui, level, width, "Microphone level")
+}
+
+/// [`level_meter`] for another sound, named `name` for screen readers.
+pub fn named_level_meter(ui: &mut Ui, level: f32, width: f32, name: &str) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(width, 8.0), Sense::hover());
-    response.widget_info(|| WidgetInfo::labeled(Role::ProgressIndicator, true, "Microphone level"));
+    response.widget_info(|| WidgetInfo::labeled(Role::ProgressIndicator, true, name));
     let segments = 16;
     let gap = 3.0;
     let w = (rect.width() - gap * (segments - 1) as f32) / segments as f32;

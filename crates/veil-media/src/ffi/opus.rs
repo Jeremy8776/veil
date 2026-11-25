@@ -33,6 +33,7 @@ struct RawDecoder {
 
 const OPUS_OK: c_int = 0;
 const OPUS_APPLICATION_VOIP: c_int = 2048;
+const OPUS_APPLICATION_AUDIO: c_int = 2049;
 const OPUS_SET_BITRATE_REQUEST: c_int = 4002;
 const OPUS_SET_VBR_REQUEST: c_int = 4006;
 const OPUS_SET_COMPLEXITY_REQUEST: c_int = 4010;
@@ -41,6 +42,7 @@ const OPUS_SET_PACKET_LOSS_PERC_REQUEST: c_int = 4014;
 const OPUS_SET_DTX_REQUEST: c_int = 4016;
 const OPUS_SET_SIGNAL_REQUEST: c_int = 4024;
 const OPUS_SIGNAL_VOICE: i32 = 3001;
+const OPUS_SIGNAL_MUSIC: i32 = 3002;
 
 // `opus_int32` is `int32_t` on every platform Veil builds for (`opus_types.h`).
 unsafe extern "C" {
@@ -99,13 +101,18 @@ impl OpusEncoder {
         settings.check()?;
         let channels = settings.channels.count();
         let mut error: c_int = OPUS_OK;
-        // SAFETY: 48 kHz, one or two channels and VoIP are all valid arguments, and `error`
-        // is a live `c_int` for libopus to write the result code into.
+        let (application, signal) = if settings.music {
+            (OPUS_APPLICATION_AUDIO, OPUS_SIGNAL_MUSIC)
+        } else {
+            (OPUS_APPLICATION_VOIP, OPUS_SIGNAL_VOICE)
+        };
+        // SAFETY: 48 kHz, one or two channels and VoIP or audio are all valid arguments, and
+        // `error` is a live `c_int` for libopus to write the result code into.
         let raw = unsafe {
             opus_encoder_create(
                 SAMPLE_RATE as i32,
                 channels as c_int,
-                OPUS_APPLICATION_VOIP,
+                application,
                 &raw mut error,
             )
         };
@@ -118,7 +125,7 @@ impl OpusEncoder {
         if error != OPUS_OK {
             return Err(MediaError::Encoder("opus_encoder_create"));
         }
-        encoder.ctl(OPUS_SET_SIGNAL_REQUEST, OPUS_SIGNAL_VOICE)?;
+        encoder.ctl(OPUS_SET_SIGNAL_REQUEST, signal)?;
         // Constant bitrate unless asked otherwise: variable packet sizes can leak words.
         encoder.ctl(OPUS_SET_VBR_REQUEST, i32::from(!settings.constant_bitrate))?;
         encoder.ctl(OPUS_SET_COMPLEXITY_REQUEST, i32::from(settings.complexity))?;

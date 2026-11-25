@@ -12,6 +12,9 @@
 //! - Nothing goes to the call until a source is chosen and Share is pressed.
 //! - While you share, the picker changes the source only when you press Switch.
 //! - The crop is held as fractions of the source (`veil_media::screen::Crop`).
+//! - "Include computer sound" starts off for each new share, and keeps the current choice when
+//!   you change what you share. Where this computer cannot capture its sound, it is greyed
+//!   out and says why.
 
 use std::collections::HashMap;
 
@@ -25,6 +28,7 @@ use veil_media::screen::{self, Crop, ScreenChoice, ScreenSource};
 use crate::app::VeilApp;
 use crate::convert::Rgba;
 use crate::icons::Icon;
+use crate::share::SoundSupport;
 use crate::theme::{self, MUTED, TEXT};
 use crate::widgets::{Tone, card, device_error, pill};
 
@@ -79,6 +83,8 @@ pub struct SharePicker {
     drag_from: Option<Pos2>,
     preview: Option<TextureHandle>,
     thumbnails: HashMap<ScreenSource, TextureHandle>,
+    /// "Include computer sound" is ticked.
+    with_sound: bool,
 }
 
 fn image_of(picture: &Rgba) -> egui::ColorImage {
@@ -102,6 +108,7 @@ impl SharePicker {
             drag_from: None,
             preview: None,
             thumbnails: HashMap::new(),
+            with_sound: app.share.is_sharing() && app.share.sound.state().is_on(),
         }
     }
 
@@ -153,6 +160,7 @@ impl SharePicker {
         let choices = app.share.choices();
         let error = app.share.error();
         let sharing = app.share.is_sharing();
+        let sound = app.share.sound.support();
         let screen = ctx.content_rect().size();
         let width = (screen.x - 80.0).clamp(540.0, 900.0);
         let height = (screen.y - 230.0).clamp(240.0, 500.0);
@@ -183,6 +191,8 @@ impl SharePicker {
                 }
                 device_error(ui, error.clone());
                 ui.add_space(12.0);
+                self.sound_choice(ui, sound.as_ref());
+                ui.add_space(8.0);
                 self.footer(ui, sharing, &mut clicked);
             });
         self.apply(app, clicked, modal.should_close())
@@ -196,7 +206,8 @@ impl SharePicker {
             self.crop = None;
         }
         if let (true, Some(source)) = (clicked.share, self.selected) {
-            app.share.start(source, self.crop.map(to_crop));
+            app.share
+                .start(source, self.crop.map(to_crop), self.with_sound);
             return false;
         }
         if clicked.close || dismissed {
@@ -338,6 +349,30 @@ impl SharePicker {
             clicked.pick = Some(choice.source);
             clicked.share = true;
         }
+    }
+
+    /// The "Include computer sound" choice, greyed out with the reason where it cannot work.
+    fn sound_choice(&mut self, ui: &mut Ui, support: Option<&SoundSupport>) {
+        let why = match support {
+            Some(SoundSupport::Ready) => None,
+            Some(SoundSupport::Unavailable(why)) => Some(*why),
+            None => Some("Checking…"),
+        };
+        if why.is_some() {
+            self.with_sound = false;
+        }
+        ui.horizontal(|ui| {
+            ui.add_enabled_ui(why.is_none(), |ui| {
+                ui.checkbox(&mut self.with_sound, "Include computer sound")
+                    .on_hover_text(
+                        "Send what your computer plays, such as a video. Call sound is left                          out, so nobody hears an echo.",
+                    )
+                    .on_disabled_hover_text("Sharing sound is not available on this computer");
+            });
+            if let Some(why) = why {
+                ui.label(RichText::new(why).small().color(MUTED));
+            }
+        });
     }
 
     fn footer(&self, ui: &mut Ui, sharing: bool, clicked: &mut Clicked) {
