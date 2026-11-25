@@ -8,6 +8,7 @@
 //! `connection.rs`.
 
 pub(crate) mod bento;
+pub(crate) mod cover;
 pub mod call;
 pub mod call_menus;
 pub mod call_top;

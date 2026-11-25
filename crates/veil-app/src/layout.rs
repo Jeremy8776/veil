@@ -155,6 +155,9 @@ pub fn bento(aspects: &[f32], featured: usize, area: Rect, gap: f32) -> Vec<Rect
     best
 }
 
+/// The shape of the Focus strip's tiles, width over height.
+const STRIP_SHAPE: f32 = 4.0 / 3.0;
+
 /// Focus view: the featured cell fills the stage and everyone else sits small in one strip,
 /// along the bottom on a tall area and down the right on a wide one. Input order is kept.
 pub fn focus(aspects: &[f32], featured: usize, area: Rect, gap: f32) -> Vec<Rect> {
@@ -167,10 +170,6 @@ pub fn focus(aspects: &[f32], featured: usize, area: Rect, gap: f32) -> Vec<Rect
     }
     let featured = featured.min(count - 1);
     let gap = gap.max(0.0).min(area.width().min(area.height()) / 4.0);
-    let rest: Vec<f32> = (0..count)
-        .filter(|i| *i != featured)
-        .map(|i| aspects[i])
-        .collect();
     let tall = area.height() >= area.width();
     let (hero, strip) = if tall {
         let edge = area.bottom() - (area.height() * 0.2).min(150.0);
@@ -185,17 +184,26 @@ pub fn focus(aspects: &[f32], featured: usize, area: Rect, gap: f32) -> Vec<Rect
             Rect::from_min_max(pos2(edge, area.top()), area.max),
         )
     };
-    // One row (or column): cells share the strip evenly, so a big group shrinks rather than
-    // wrapping over the stage.
-    let n = rest.len() as f32;
-    let mut others = (0..rest.len()).map(|i| {
-        let i = i as f32;
+    // One centred row (or column) of 4:3 tiles that crop to fill, so a picture of any shape
+    // makes the same calm strip. A big group shrinks rather than wrapping over the stage.
+    let n = (count - 1) as f32;
+    let (along, across) = if tall {
+        (strip.width(), strip.height())
+    } else {
+        (strip.height(), strip.width())
+    };
+    let shape = if tall { STRIP_SHAPE } else { 1.0 / STRIP_SHAPE };
+    let length = (across * shape).min((along - gap * (n - 1.0)) / n).max(0.0);
+    let thick = length / shape;
+    let start = (along - (length * n + gap * (n - 1.0))) / 2.0;
+    let mut others = (0..count - 1).map(|i| {
+        let offset = start + i as f32 * (length + gap);
         if tall {
-            let w = (strip.width() - gap * (n - 1.0)) / n;
-            Rect::from_min_size(strip.min + vec2(i * (w + gap), 0.0), vec2(w, strip.height()))
+            let min = pos2(strip.left() + offset, strip.center().y - thick / 2.0);
+            Rect::from_min_size(min, vec2(length, thick))
         } else {
-            let h = (strip.height() - gap * (n - 1.0)) / n;
-            Rect::from_min_size(strip.min + vec2(0.0, i * (h + gap)), vec2(strip.width(), h))
+            let min = pos2(strip.center().x - thick / 2.0, strip.top() + offset);
+            Rect::from_min_size(min, vec2(thick, length))
         }
     });
     (0..count)

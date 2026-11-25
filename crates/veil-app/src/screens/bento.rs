@@ -1,6 +1,7 @@
 //! One responsive, identity-keyed call canvas for desktop and Android.
 use super::{
     call::{CallView, View},
+    cover,
     share,
     share_sound::{self, Owner},
 };
@@ -112,6 +113,10 @@ pub(crate) fn show(
     let aspects: Vec<_> = cells.iter().map(|cell| cell.aspect).collect();
     // Group: justified rows, so each card fills a cell of its own shape and no space is
     // wasted. Focus: the speaker on stage over a strip. Screen shares keep the mosaic.
+    // In Focus the strip's tiles crop to fill, framed on each face; the stage keeps its card.
+    let strip = (focus && !waiting && !shares)
+        .then(|| cells.get(featured).map(|c| c.key))
+        .flatten();
     let rects = if waiting || shares {
         layout::bento(&aspects, featured, area, 12.0)
     } else if focus {
@@ -172,6 +177,9 @@ pub(crate) fn show(
             Content::Screen(label, source, owner) => {
                 share::stage(&child, placement.rect, *source, label);
                 share_sound::overlay(&mut child, placement.rect, app, *owner);
+            }
+            Content::Person(person) if strip.is_some_and(|key| key != cell.key) => {
+                cover::tile(&child, child.painter(), app, placement.rect, person, true);
             }
             Content::Person(person) => widgets::tile(
                 &child,

@@ -2,14 +2,12 @@
 //! edge, your own picture floats small in the bottom-right corner, and everyone else sits
 //! in a row of small tiles along the bottom.
 //!
-//! Invariants: pictures here fill their tile and are cropped to it (unlike the desktop card
-//! rule), the speaker is drawn first so the small tiles float above it, and tiles keep
+//! Invariants: pictures here fill their tile, cropped around the person's head
+//! (`screens::cover`, unlike the desktop card rule), the speaker is drawn first so the small tiles float above it, and tiles keep
 //! their identity keys so a new speaker glides onto the stage.
 use crate::app::VeilApp;
-use crate::screens::{bento, call::CallView};
-use crate::theme;
-use crate::widgets::{self, Tile};
-use eframe::egui::{self, Color32, CornerRadius, Rect, Stroke, StrokeKind, pos2, vec2};
+use crate::screens::{bento, call::CallView, cover};
+use eframe::egui::{self, Rect, pos2, vec2};
 
 const INSET: f32 = 16.0;
 const GAP: f32 = 8.0;
@@ -56,19 +54,6 @@ pub fn arrange(area: Rect, you: Option<f32>, others: usize) -> Stage {
         you,
         others,
     }
-}
-
-/// Texture coordinates that fill `rect` from a picture of `size`, cropping the overflow
-/// evenly from both sides.
-pub fn cover_uv(size: [usize; 2], rect: Rect) -> Rect {
-    let picture = size[0].max(1) as f32 / size[1].max(1) as f32;
-    let shape = rect.width().max(1.0) / rect.height().max(1.0);
-    let (u, v) = if picture > shape {
-        (shape / picture, 1.0)
-    } else {
-        (1.0, picture / shape)
-    };
-    Rect::from_center_size(pos2(0.5, 0.5), vec2(u, v))
 }
 
 pub fn show(view: &mut CallView, app: &VeilApp, ui: &mut egui::Ui, area: Rect) {
@@ -126,55 +111,9 @@ pub fn show(view: &mut CallView, app: &VeilApp, ui: &mut egui::Ui, area: Rect) {
             continue;
         };
         let small = Some(person.id) != hero_id;
-        let tile = Tile {
-            name: &person.name,
-            video: bento::video(app, person),
-            muted: person.muted,
-            speaking: person.speaking && small,
-            hand_raised: person.hand_raised,
-            is_you: person.is_you,
-        };
         let mut layer = painter.clone();
         layer.set_opacity(placement.opacity);
-        draw(&layer, placement.rect, &tile, small);
-    }
-}
-
-fn draw(painter: &egui::Painter, rect: Rect, tile: &Tile<'_>, small: bool) {
-    let radius = CornerRadius::same(if small { 12 } else { 16 });
-    match tile.video {
-        Some((texture, size)) => {
-            painter.add(
-                egui::epaint::RectShape::filled(rect, radius, Color32::WHITE)
-                    .with_texture(texture, cover_uv(size, rect)),
-            );
-        }
-        None => {
-            painter.rect_filled(rect, radius, theme::TILE);
-            let r = (rect.height() * 0.2).clamp(14.0, 64.0);
-            widgets::avatar(painter, rect.center(), r, tile.name);
-        }
-    }
-    if small {
-        // A thin edge keeps a small tile apart from the picture behind it.
-        painter.rect_stroke(
-            rect,
-            radius,
-            Stroke::new(1.0, Color32::from_white_alpha(40)),
-            StrokeKind::Inside,
-        );
-    }
-    if tile.speaking {
-        painter.rect_stroke(
-            rect,
-            radius,
-            Stroke::new(2.5, theme::SPEAKING),
-            StrokeKind::Inside,
-        );
-    }
-    // FaceTime labels nobody's own picture, and keeps small tiles clean.
-    if !small {
-        widgets::name_tag(painter, rect, tile);
+        cover::tile(ui, &layer, app, placement.rect, person, small);
     }
 }
 
@@ -210,16 +149,5 @@ mod tests {
                 .iter()
                 .all(|r| r.right() <= crowd.you.unwrap().left())
         );
-    }
-
-    #[test]
-    fn cover_crops_evenly_and_never_stretches() {
-        let square = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 100.0));
-        let uv = cover_uv([1600, 900], square);
-        assert!((uv.width() - 900.0 / 1600.0).abs() < 0.001 && uv.height() == 1.0);
-        assert!((uv.center().x - 0.5).abs() < 0.001);
-        let tall = Rect::from_min_size(pos2(0.0, 0.0), vec2(90.0, 160.0));
-        let uv = cover_uv([900, 1600], tall);
-        assert!((uv.width() - 1.0).abs() < 0.01 && (uv.height() - 1.0).abs() < 0.01);
     }
 }

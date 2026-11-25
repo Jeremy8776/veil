@@ -24,6 +24,7 @@ mod devices;
 mod diagnostics;
 mod engine;
 mod firewall;
+mod framing;
 mod icons;
 mod invite_qr;
 mod json_file;

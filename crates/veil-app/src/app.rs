@@ -66,6 +66,8 @@ pub struct VeilApp {
     pub demo: bool,
     /// Everyone else's video in the current call, by participant id.
     pub remote: HashMap<u32, TextureHandle>,
+    /// Where each person's head is, for tiles that crop their picture.
+    pub framing: crate::framing::Framing,
     /// Whether Windows lets guests reach you, checked before you host.
     pub firewall: crate::firewall::Firewall,
     /// Your device key and the keys you verified, kept between calls.
@@ -124,6 +126,7 @@ impl VeilApp {
             joining: None,
             demo: false,
             remote: HashMap::new(),
+            framing: crate::framing::Framing::new(ctx.clone()),
             firewall: crate::firewall::Firewall::new(),
             keys: Arc::new(Mutex::new(KeyStore::open(keystore::default_dir()))),
             confirm_new_key: false,
@@ -278,6 +281,8 @@ impl VeilApp {
     /// Uploads pictures that arrived for other people's tiles.
     pub fn upload_remote(&mut self, pictures: Vec<(u32, crate::convert::Rgba)>) {
         for (id, picture) in pictures {
+            self.framing
+                .offer(id, picture.width, picture.height, &picture.pixels);
             let image = egui::ColorImage::from_rgba_unmultiplied(
                 [picture.width, picture.height],
                 &picture.pixels,
@@ -320,6 +325,9 @@ impl VeilApp {
         if !self.media.camera_on() {
             self.preview = None;
         } else if let Some(picture) = self.media.take_picture() {
+            let you = crate::framing::YOU;
+            self.framing
+                .offer(you, picture.width, picture.height, &picture.pixels);
             let image = egui::ColorImage::from_rgba_unmultiplied(
                 [picture.width, picture.height],
                 &picture.pixels,
