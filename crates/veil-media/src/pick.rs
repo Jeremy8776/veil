@@ -93,10 +93,11 @@ pub fn start(title: &'static str, kind: &'static str, pattern: &'static str, max
 
 /// The outcome once the chooser has closed, once.
 pub fn poll() -> Option<Outcome> {
+    // Read `open` on its own, so the lock is released before `finish` takes it again.
     #[cfg(target_os = "android")]
-    if state().open
-        && let Some(result) = crate::ffi::android::take_picked()
-    {
+    let open = state().open;
+    #[cfg(target_os = "android")]
+    if open && let Some(result) = crate::ffi::android::take_picked() {
         finish(match result {
             Some((name, bytes)) => Outcome::Picked(Picked { name, bytes }),
             None => Outcome::Cancelled,
