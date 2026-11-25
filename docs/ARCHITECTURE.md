@@ -176,6 +176,12 @@ own chooser picks the source, and its PipeWire stream feeds both the area previe
 (`veil-media/src/screen/wayland.rs`). ADR 0005 has the reasons. `xcap` is not used there, because it would write each
 picture to a file.
 
+Shares carry no sound today, and Android cannot share. [ADR 0007](adr/0007-share-sound-is-a-separate-opt-in-stream.md)
+records the planned design for both (SHARE-01, SHARE-02): an opt-in share-sound stream of its
+own, which excludes Veil's call playback, and Android MediaProjection on the same path.
+[ADR 0008](adr/0008-lut-effects-and-effect-strength.md) records planned LUT effects and a
+strength for every effect (FX-01).
+
 ## 4. Enterprise integration (planned)
 
 The role interfaces and `veil-node` binary exist. The enterprise behaviours below describe

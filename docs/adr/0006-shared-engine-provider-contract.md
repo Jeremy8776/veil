@@ -114,7 +114,7 @@ These are conceptual names, not callable APIs shipped in this milestone:
 | Create / Join | Validate policy/invite, load scoped identity, open permitted network paths | Session state progresses or a typed failure; guest admission remains explicit |
 | Admit / Decline | Host role, live matching knock and participant handle | Accepted request ID, then applied/rejected result and actual lobby/roster transition |
 | Remove | Host role, current member; protocol commits revocation | Membership/epoch change or rejection; removed identity cannot recover |
-| Set microphone/camera/screen | Current session, user consent and OS permission, current device generation | Requested, starting, active, stopped or failed media state; mute revokes source taps first |
+| Set microphone/camera/screen/share sound | Current session, user consent and OS permission, current device generation | Requested, starting, active, stopped or failed media state; mute revokes source taps first |
 | Set playback / select device | Authorised local choice; exclusive device lease and replacement validation | Actual route/device state; a failed switch is visible rather than reported as successful |
 | Send chat / react / raise hand | Current admitted membership and protocol size/rate limits | Correlated local send result; no invented remote delivery/read receipt |
 | Verify / forget | Exact public device identity and comparison challenge from current snapshot | Scoped local trust persisted or a storage error; verification never admits a person |
@@ -166,8 +166,9 @@ through an explicit user action; the platform reports OS permission and a grant 
 scope, session/source, device generation and lifetime. A boolean passed to `join` is not a
 capture grant. Grant/revoke callbacks are asynchronous and cancellation-safe; late grants
 cannot restart a muted/ended session. Changing devices or screen sources needs an authorised
-replacement. Permission denial permits receive-only joining; it must not auto-enable another
-source. Background policy can stop video while leaving permitted audio independently active.
+replacement. Share sound (planned, [ADR 0007](0007-share-sound-is-a-separate-opt-in-stream.md))
+is its own capture source with its own grant; a screen grant does not include it. Permission
+denial permits receive-only joining; it must not auto-enable another source. Background policy can stop video while leaving permitted audio independently active.
 A native trusted host can implement a dishonest broker; this design does not sandbox it.
 
 Network policy is an immutable session snapshot. Local only rejects relay-only conflicts,

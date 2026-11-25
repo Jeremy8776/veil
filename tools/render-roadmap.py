@@ -39,6 +39,7 @@ streams = {
     'NET': 'Networks and helpers', 'OPS': 'Networks and helpers',
     'DATA': 'Media and groups', 'GROUP': 'Media and groups', 'MEDIA': 'Media and groups',
     'SCALE': 'Media and groups', 'PERF': 'Media and groups', 'HOST': 'Media and groups',
+    'SHARE': 'Media and groups', 'FX': 'Media and groups',
     'AND': 'Platforms and experience', 'MOB': 'Platforms and experience', 'DIST': 'Platforms and experience',
     'IOS': 'Platforms and experience', 'DESK': 'Platforms and experience',
     'DIAG': 'Evidence and release', 'TEST': 'Evidence and release', 'READY': 'Evidence and release',

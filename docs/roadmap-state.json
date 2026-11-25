@@ -1,13 +1,14 @@
 {
   "schema_version": 1,
-  "revision": 28,
-  "updated_at": "2026-11-25T10:57:36+00:00",
+  "revision": 34,
+  "updated_at": "2026-11-25T11:48:32+00:00",
   "next_step": {
-    "capability": "LOCAL-01",
-    "title": "Prove a useful call with WAN and DNS unavailable",
-    "why": "Next eligible core capability in the recorded priority order; full acceptance criteria remain in its detail.",
+    "capability": "SHARE-01",
+    "title": "Share computer sound with a screen",
+    "why": "Jeremy prioritised screen-share sound, LUT effects and Android sharing ahead of LOCAL-01 on 25/11/2026",
     "checks": [
-      "Complete the capability acceptance criteria and attach verification evidence."
+      "Include computer sound choice, sender level and mute, receiver volume, on Windows, macOS and Linux",
+      "Call audio is not echoed back; hardware listening results recorded"
     ]
   },
   "capabilities": {
@@ -207,6 +208,24 @@
       "note": "Full capability acceptance gate remains open.",
       "evidence": [],
       "updated_at": "2026-11-23T12:57:42+00:00"
+    },
+    "SHARE-01": {
+      "status": "planned",
+      "note": "Requested 25 November 2026; full acceptance gate open.",
+      "evidence": [],
+      "updated_at": "2026-11-25T11:36:35+00:00"
+    },
+    "SHARE-02": {
+      "status": "planned",
+      "note": "Requested 25 November 2026; full acceptance gate open.",
+      "evidence": [],
+      "updated_at": "2026-11-25T11:36:35+00:00"
+    },
+    "FX-01": {
+      "status": "planned",
+      "note": "Requested 25 November 2026; full acceptance gate open.",
+      "evidence": [],
+      "updated_at": "2026-11-25T11:36:35+00:00"
     }
   },
   "sessions": {
@@ -226,13 +245,43 @@
     },
     "claude-5341dbf7": {
       "title": "Roadmap review",
-      "status": "active",
+      "status": "idle",
       "started_at": "2026-11-25T10:53:47+00:00",
-      "updated_at": "2026-11-25T10:57:36+00:00",
-      "note": "Starting AND-02: reviewing the release-0.1.13 Android candidate against main"
+      "updated_at": "2026-11-25T11:48:32+00:00",
+      "note": "Handoff written in docs/HANDOFF.md (local commit on docs/share-fx-roadmap). Next session starts SHARE-01."
     }
   },
   "activity": [
+    {
+      "at": "2026-11-25T11:48:32+00:00",
+      "session": "claude-5341dbf7",
+      "note": "Handoff written in docs/HANDOFF.md (local commit on docs/share-fx-roadmap). Next session starts SHARE-01."
+    },
+    {
+      "at": "2026-11-25T11:44:30+00:00",
+      "session": "claude-5341dbf7",
+      "note": "SHARE-01, FX-01, SHARE-02 moved ahead of LOCAL-01; SHARE-01 is next. Local commits on docs/share-fx-roadmap, unpushed."
+    },
+    {
+      "at": "2026-11-25T11:44:28+00:00",
+      "session": "claude-5341dbf7",
+      "note": "Next step: SHARE-01 — Share computer sound with a screen"
+    },
+    {
+      "at": "2026-11-25T11:37:10+00:00",
+      "session": "claude-5341dbf7",
+      "note": "Added SHARE-01, SHARE-02 and FX-01 to 0.2.0 on docs/share-fx-roadmap (local commit, stacked on PR #90). Next: LOCAL-01."
+    },
+    {
+      "at": "2026-11-25T11:36:35+00:00",
+      "session": "claude-5341dbf7",
+      "note": "Added SHARE-01 (share computer sound), SHARE-02 (Android screen sharing) and FX-01 (LUTs and effect strength) to 0.2.0, prioritised after LOCAL-01"
+    },
+    {
+      "at": "2026-11-25T10:57:41+00:00",
+      "session": "claude-5341dbf7",
+      "note": "AND-02 marked done on docs/and-02-done (local commit, not pushed). Next: LOCAL-01 WAN/DNS-off call."
+    },
     {
       "at": "2026-11-25T10:57:36+00:00",
       "session": "claude-5341dbf7",

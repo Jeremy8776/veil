@@ -70,6 +70,7 @@ until a different setup or mode is saved; internet tests stay disabled until the
 - Choose **Share**, pick a screen or application, optionally select an area, then press
   **Share**. A preview and a small sharing bar show what is being sent. Stop sharing from
   that bar or the call controls. Background blur applies to your camera, not your screen.
+  A share sends pictures only for now; computer sound is planned.
 - KDE Plasma Wayland uses Veil's picker where KWin permits it. Other Wayland desktops use
   the system chooser first. macOS requires Screen Recording permission. A cancelled choice
   sends nothing.

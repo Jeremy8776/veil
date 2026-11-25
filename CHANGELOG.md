@@ -39,6 +39,8 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   started call can keep microphone capture active in the background.
 - Avoid starting an Android capture service for receive-only calls when camera and microphone
   permissions are both denied.
+- Keep the Connection report inside a phone-width window whatever the device key's characters.
+  A long key could wrap one character past the edge and widen the window.
 
 ## 0.1.13, 22/11/2026
 
