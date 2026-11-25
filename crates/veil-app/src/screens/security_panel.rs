@@ -28,8 +28,13 @@ use crate::screens::group_check::{self, Group};
 use crate::theme::{self, ACCENT, MUTED, RAISED, RAISED_HOVER, TEXT};
 use crate::widgets::{self, Tone, pill};
 
-const ROW_H: f32 = 48.0;
-const NAME_LEFT: f32 = 46.0;
+/// The phone gets a centred header, taller rows and larger type, in the Apple manner.
+const PHONE: bool = cfg!(target_os = "android");
+const ROW_H: f32 = if PHONE { 60.0 } else { 48.0 };
+const NAME_LEFT: f32 = if PHONE { 56.0 } else { 46.0 };
+const AVATAR_R: f32 = if PHONE { 20.0 } else { 16.0 };
+const NAME_SIZE: f32 = if PHONE { 16.0 } else { 14.0 };
+const STATUS_SIZE: f32 = if PHONE { 14.0 } else { 12.5 };
 
 /// The person open in the panel, and what has been entered for them.
 pub struct Verifying {
@@ -201,6 +206,31 @@ pub fn show(view: &mut CallView, ui: &mut Ui) {
 }
 
 fn header(ui: &mut Ui, epoch: u64, demo: bool, verified: usize, total: usize) {
+    let tip = format!(
+        "Encrypted on each device. Relays and forwarders cannot open it.\n\
+         Key {epoch}: a new key starts whenever someone joins or leaves.\n\
+         Verifying is optional. It proves nobody is secretly between you and each person."
+    );
+    if PHONE {
+        // A calm centred hero: shield, title, one short summary. Detail in the tooltip.
+        ui.vertical_centered(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.add_space(8.0);
+            let (rect, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
+            Icon::Shield.paint(ui.painter(), rect.center(), 36.0, theme::SPEAKING);
+            ui.add_space(8.0);
+            ui.label(RichText::new("Encrypted").size(20.0).strong().color(TEXT))
+                .on_hover_text(tip);
+            ui.add_space(4.0);
+            let mut line = summary(verified, total);
+            if demo {
+                line.push_str(" · demo");
+            }
+            ui.label(RichText::new(line).size(14.0).color(MUTED));
+            ui.add_space(8.0);
+        });
+        return;
+    }
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(26.0, 36.0), Sense::hover());
         Icon::Shield.paint(ui.painter(), rect.center(), 20.0, theme::SPEAKING);
@@ -253,7 +283,7 @@ fn row(ui: &mut Ui, person: &Participant, open: bool) -> Response {
         painter.rect_stroke(rect, corners, Stroke::new(2.0, ACCENT), StrokeKind::Inside);
     }
     let y = rect.center().y;
-    widgets::avatar(painter, pos2(rect.left() + 22.0, y), 16.0, &person.name);
+    widgets::avatar(painter, pos2(rect.left() + 6.0 + AVATAR_R, y), AVATAR_R, &person.name);
 
     let mut right = rect.right() - 8.0;
     if can_open {
@@ -269,7 +299,7 @@ fn row(ui: &mut Ui, person: &Participant, open: bool) -> Response {
         pos2(right, y),
         Align2::RIGHT_CENTER,
         status.label(),
-        FontId::proportional(12.5),
+        FontId::proportional(STATUS_SIZE),
         colour,
     );
     let mut name_right = text.left() - 8.0;
@@ -282,7 +312,7 @@ fn row(ui: &mut Ui, person: &Participant, open: bool) -> Response {
     let name_left = rect.left() + NAME_LEFT;
     let mut job = egui::text::LayoutJob::single_section(
         person.name.clone(),
-        egui::TextFormat::simple(FontId::proportional(14.0), TEXT),
+        egui::TextFormat::simple(FontId::proportional(NAME_SIZE), TEXT),
     );
     job.wrap = egui::text::TextWrapping::truncate_at_width(name_right - name_left);
     let galley = ui.fonts_mut(|f| f.layout_job(job));

@@ -333,7 +333,7 @@ pub fn call(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
                 if action(
                     ui,
                     Some(Icon::People),
-                    &format!("{} waiting to join", view.call.lobby.len()),
+                    &format!("{} waiting", view.call.lobby.len()),
                     Tone::Primary,
                 ) {
                     view.panel = Some(Panel::People);
