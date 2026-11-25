@@ -1,13 +1,14 @@
 {
   "schema_version": 1,
-  "revision": 30,
-  "updated_at": "2026-11-25T11:36:35+00:00",
+  "revision": 32,
+  "updated_at": "2026-11-25T11:44:28+00:00",
   "next_step": {
-    "capability": "LOCAL-01",
-    "title": "Prove a useful call with WAN and DNS unavailable",
-    "why": "Next eligible core capability in the recorded priority order; full acceptance criteria remain in its detail.",
+    "capability": "SHARE-01",
+    "title": "Share computer sound with a screen",
+    "why": "Jeremy prioritised screen-share sound, LUT effects and Android sharing ahead of LOCAL-01 on 25/11/2026",
     "checks": [
-      "Complete the capability acceptance criteria and attach verification evidence."
+      "Include computer sound choice, sender level and mute, receiver volume, on Windows, macOS and Linux",
+      "Call audio is not echoed back; hardware listening results recorded"
     ]
   },
   "capabilities": {
@@ -246,11 +247,21 @@
       "title": "Roadmap review",
       "status": "idle",
       "started_at": "2026-11-25T10:53:47+00:00",
-      "updated_at": "2026-11-25T11:36:35+00:00",
-      "note": "AND-02 marked done on docs/and-02-done (local commit, not pushed). Next: LOCAL-01 WAN/DNS-off call."
+      "updated_at": "2026-11-25T11:44:28+00:00",
+      "note": "Added SHARE-01, SHARE-02 and FX-01 to 0.2.0 on docs/share-fx-roadmap (local commit, stacked on PR #90). Next: LOCAL-01."
     }
   },
   "activity": [
+    {
+      "at": "2026-11-25T11:44:28+00:00",
+      "session": "claude-5341dbf7",
+      "note": "Next step: SHARE-01 — Share computer sound with a screen"
+    },
+    {
+      "at": "2026-11-25T11:37:10+00:00",
+      "session": "claude-5341dbf7",
+      "note": "Added SHARE-01, SHARE-02 and FX-01 to 0.2.0 on docs/share-fx-roadmap (local commit, stacked on PR #90). Next: LOCAL-01."
+    },
     {
       "at": "2026-11-25T11:36:35+00:00",
       "session": "claude-5341dbf7",

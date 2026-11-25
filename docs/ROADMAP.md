@@ -258,8 +258,8 @@ capacity and continuity**. Security review, test evidence and diagnostics accomp
 
 | Priority | Work | Reason |
 |---|---|---|
-| Now | AND-02, SDK-01, TRUST-02, LOCAL-01, DIAG-01 and immediate TRUST-01 design | Capture the existing work, define the provider boundary, defend expanded exposure, and prove the offline premise |
-| Next | SHARE-01, FX-01, SHARE-02, MOB-01, MOB-02, INVITE-01, DIST-01 | Requested sharing and camera features first, then a usable repeatable phone/local experience |
+| Now | SHARE-01, FX-01, SHARE-02, then LOCAL-01 and immediate TRUST-01 design (AND-02, SDK-01, TRUST-02 and DIAG-01 are done) | Jeremy asked on 25 November 2026 for the sharing and camera features first; then prove the offline premise |
+| Next | MOB-01, MOB-02, INVITE-01, DIST-01 | Turn a successful connection into a usable repeatable phone/local experience |
 | Then | SDK-02, NET-01, NET-02, NET-03, DATA-01, OPS-01 | Expose the shared engine and widen permitted reach while preserving privacy choices |
 | Alongside platform work | DESK-01, ID-01, TEST-01, BIND-01, EMBED-01 | Stable identities, a cross-language boundary and a reference host prove shared use |
 | Before broad group claims | TRUST-01, GROUP-01, MEDIA-01 | Fix attribution and explicitly handle members a forwarder cannot serve |
