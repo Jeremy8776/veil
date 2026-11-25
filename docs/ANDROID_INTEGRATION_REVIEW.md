@@ -85,8 +85,13 @@ teardown are not supported claims. Remaining device stress/denial/storage checks
 MOB-01/MOB-02/DIST-01 and the SDK-02 migration gates. A device was subsequently connected;
 the bounded hardware observations below extend this review without claiming soak coverage.
 
-AND-02 stays **in progress** until the committed candidate's Android and existing desktop CI
-pass and the integration is complete. The short solo-call test below exchanged no remote media.
+**AND-02 closed on 25 November 2026.** The candidate was merged in
+[PR #86](https://github.com/Jeremy8776/veil/pull/86) (`f2a01a3`). On `main` at `816b789`,
+[CI](https://github.com/Jeremy8776/veil/actions/runs/45496676064) passed (Windows test and
+Clippy, macOS 15 and Ubuntu 24.04 build and Clippy, supply chain), and
+[Android preview](https://github.com/Jeremy8776/veil/actions/runs/45496676122) built the
+`veil-android-arm64-preview` artifact from a fresh CI checkout. Lifecycle cases not covered
+above stay in MOB-01, MOB-02, DIST-01 and SDK-02. The short solo-call test below exchanged no remote media.
 The earlier LAN test and Jeremy's successful 5G report remain valid, separately scoped evidence.
 
 ## Connected-device and requested layout increment
