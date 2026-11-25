@@ -415,21 +415,25 @@ impl eframe::App for VeilApp {
                 egui::Panel::left("android-left-inset")
                     .exact_size(left as f32 / scale)
                     .frame(egui::Frame::new().fill(crate::theme::PAGE))
+                    .show_separator_line(false)
                     .show(ui, |_| {});
             }
             if right > 0 {
                 egui::Panel::right("android-right-inset")
                     .exact_size(right as f32 / scale)
                     .frame(egui::Frame::new().fill(crate::theme::PAGE))
+                    .show_separator_line(false)
                     .show(ui, |_| {});
             }
             egui::Panel::top("android-status-bar")
                 .exact_size(top as f32 / scale)
                 .frame(egui::Frame::new().fill(crate::theme::PAGE))
+                .show_separator_line(false)
                 .show(ui, |_| {});
             egui::Panel::bottom("android-navigation-bar")
                 .exact_size(bottom as f32 / scale)
                 .frame(egui::Frame::new().fill(crate::theme::PAGE))
+                .show_separator_line(false)
                 .show(ui, |_| {});
             if matches!(self.screen, Screen::Home)
                 && let Some(invite) = veil_media::ffi::android::take_invite()

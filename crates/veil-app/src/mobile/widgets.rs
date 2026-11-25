@@ -9,6 +9,9 @@ pub const TARGET: f32 = 48.0;
 pub const PRIMARY: Color32 = Color32::from_rgb(0x62, 0x5C, 0xDB);
 pub const SELECTED: Color32 = Color32::from_rgb(0x32, 0x2E, 0x53);
 pub const ON_SELECTED: Color32 = Color32::from_rgb(0xDE, 0xDA, 0xFF);
+/// Accent text on the dark page, for links and inline actions. Lighter than PRIMARY so it
+/// reads as text at 13 to 16 points.
+pub const LINK: Color32 = Color32::from_rgb(0x9C, 0x98, 0xFF);
 
 pub fn font(ui: &egui::Ui, size: f32, bold: bool) -> FontId {
     let scale = egui::TextStyle::Body.resolve(ui.style()).size / 16.0;
@@ -118,6 +121,58 @@ pub fn back(ui: &mut egui::Ui) -> Response {
             Stroke::new(2.0, ink),
         );
     })
+}
+
+/// An inline forward arrow, tinted like a link, for Join. Grey until it can be used.
+pub fn go(ui: &mut egui::Ui) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(TARGET, TARGET), Sense::click());
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), "Join"));
+    let ink = if ui.is_enabled() { LINK } else { theme::MUTED };
+    if ui.is_enabled() && response.hovered() {
+        ui.painter().rect_filled(rect, 24, theme::RAISED);
+    }
+    let c = rect.center();
+    let stroke = Stroke::new(2.5, ink);
+    ui.painter()
+        .line_segment([c - vec2(8.0, 0.0), c + vec2(8.0, 0.0)], stroke);
+    ui.painter()
+        .line_segment([c + vec2(8.0, 0.0), c + vec2(1.0, -7.0)], stroke);
+    ui.painter()
+        .line_segment([c + vec2(8.0, 0.0), c + vec2(1.0, 7.0)], stroke);
+    focus(ui, &response, rect, 24);
+    response.on_hover_text("Join")
+}
+
+/// A quiet text button for a secondary choice. It keeps a 48 point touch height.
+pub fn link(ui: &mut egui::Ui, icon: Option<Icon>, text: &str) -> Response {
+    let galley = ui.painter().layout_no_wrap(
+        text.to_owned(),
+        font(ui, 16.0, false),
+        LINK,
+    );
+    let icon_space = if icon.is_some() { 26.0 } else { 0.0 };
+    let width = (galley.size().x + icon_space + 24.0).min(ui.available_width());
+    let (rect, response) = ui.allocate_exact_size(vec2(width, TARGET), Sense::click());
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), text));
+    let ink = if ui.is_enabled() {
+        LINK
+    } else {
+        theme::MUTED
+    };
+    if response.hovered() {
+        ui.painter().rect_filled(rect, 24, theme::RAISED);
+    }
+    focus(ui, &response, rect, 24);
+    let left = rect.left() + 12.0;
+    if let Some(icon) = icon {
+        icon.paint(ui.painter(), pos2(left + 9.0, rect.center().y), 18.0, ink);
+    }
+    ui.painter().galley_with_override_text_color(
+        pos2(left + icon_space, rect.center().y - galley.size().y * 0.5),
+        galley,
+        ink,
+    );
+    response
 }
 
 pub fn more(ui: &mut egui::Ui) -> Response {

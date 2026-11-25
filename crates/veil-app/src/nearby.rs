@@ -176,6 +176,24 @@ impl Nearby {
             if search_control(ui).clicked() {
                 self.stop();
             }
+        } else if cfg!(target_os = "android") {
+            // On the phone this is a secondary choice, so it is a quiet link, not a button.
+            let find = ui
+                .vertical_centered(|ui| {
+                    ui.add_enabled_ui(!self.fetching, |ui| {
+                        crate::mobile::widgets::link(
+                            ui,
+                            Some(crate::icons::Icon::Signal),
+                            "Find nearby calls",
+                        )
+                        .on_hover_text("Calls on the same Wi-Fi or hotspot")
+                    })
+                    .inner
+                })
+                .inner;
+            if find.clicked() {
+                self.search(ui.ctx().clone());
+            }
         } else {
             let find = ui
                 .add_enabled_ui(!self.fetching, |ui| {
@@ -184,7 +202,7 @@ impl Nearby {
                         Some(crate::icons::Icon::Signal),
                         "Find nearby calls",
                         Tone::Quiet,
-                        if cfg!(target_os = "android") { ui.available_width() } else { ui.available_width().min(theme::FORM_CONTROL_WIDTH) },
+                        ui.available_width().min(theme::FORM_CONTROL_WIDTH),
                     )
                 })
                 .inner;
