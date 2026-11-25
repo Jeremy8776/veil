@@ -101,9 +101,26 @@ block2 = "0.6.2"
 dispatch2 = "0.3.1"
 objc2 = "0.6.5"
 objc2-av-foundation = { version = "0.3.2", features = ["objc2-core-media"] }
-objc2-core-media = { version = "0.3.2", features = ["objc2-core-video"] }
+objc2-core-media = { version = "0.3.2", features = ["objc2-core-video", "objc2-core-audio-types"] }
 objc2-core-video = "0.3.2"
 objc2-foundation = "0.3.2"
+# Computer sound for a screen share (src/ffi/macos/system_sound.rs): ScreenCaptureKit's audio,
+# which can leave out Veil's own playback. Same objc2 family and version as above.
+objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "block2",
+    "dispatch2",
+    "objc2-core-foundation",
+    "objc2-core-graphics",
+    "objc2-core-media",
+    "SCError",
+    "SCShareableContent",
+    "SCStream",
+] }
+# The sound buffer list and its block buffer's release, for the module above. Already in the
+# tree through cpal and xcap.
+objc2-core-audio-types = "0.3.2"
+objc2-core-foundation = "0.3.2"
 # Lobby notifications (src/ffi/macos/notify.rs). Same objc2 family and version as above.
 objc2-user-notifications = { version = "0.3.2", default-features = false, features = [
     "std",
