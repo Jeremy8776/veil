@@ -125,6 +125,13 @@ fn reach(ui: &mut egui::Ui, reach: &Reachable) {
     }
 }
 
+/// The host's connection lines (server, router, reach), each with detail in its tooltip.
+pub(crate) fn host_status(view: &CallView, ui: &mut egui::Ui) {
+    server(ui, view.call.server_down);
+    router(ui, &view.call.router);
+    reach(ui, &view.call.reach);
+}
+
 fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     let copy = pill(
         ui,
@@ -141,9 +148,7 @@ fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
         crate::screens::invite::lifetime(view, ui);
     }
     if view.call.is_host {
-        server(ui, view.call.server_down);
-        router(ui, &view.call.router);
-        reach(ui, &view.call.reach);
+        host_status(view, ui);
     }
     ui.add_space(8.0);
     let mut admit = None;

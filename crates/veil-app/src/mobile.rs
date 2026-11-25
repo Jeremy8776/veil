@@ -1,6 +1,7 @@
 //! Android layouts share the desktop call state, security panels and media engine.
 mod call_bar;
 mod home;
+mod people;
 mod prejoin;
 pub mod sheet;
 mod waiting;
@@ -305,7 +306,12 @@ pub fn call(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
                     );
                 });
                 ui.add_space(8.0);
-                if panel == Panel::Chat {
+                if panel == Panel::People {
+                    egui::ScrollArea::vertical()
+                        .id_salt(page_id)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| people::show(view, ui, Instant::now()));
+                } else if panel == Panel::Chat {
                     panels::mobile_content(view, ui, panel, Instant::now());
                 } else {
                     egui::ScrollArea::vertical()
