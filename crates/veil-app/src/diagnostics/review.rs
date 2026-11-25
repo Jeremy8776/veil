@@ -182,11 +182,13 @@ impl Review {
             .max_height(180.0)
             .show(ui, |ui| {
                 let mut shown = self.preview.as_str();
+                let mut layouter = preview_layouter;
                 ui.add(
                     egui::TextEdit::multiline(&mut shown)
                         .font(egui::TextStyle::Monospace)
                         .desired_width(ui.available_width())
-                        .desired_rows(8),
+                        .desired_rows(8)
+                        .layouter(&mut layouter),
                 );
             });
         ui.horizontal_wrapped(|ui| {
@@ -201,6 +203,26 @@ impl Review {
             }
         });
     }
+}
+
+/// Lays out the read-only report preview. epaint 0.37 can leave a row up to one glyph past the
+/// wrap width when a word longer than the row (a device key) follows a space break, which
+/// widened the window on phones depending on the key's characters. Reserving one monospace
+/// glyph of wrap width keeps every row inside the box.
+fn preview_layouter(
+    ui: &egui::Ui,
+    text: &dyn egui::TextBuffer,
+    wrap_width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let glyph = ui.fonts_mut(|fonts| fonts.glyph_width(&font, 'W'));
+    let job = egui::text::LayoutJob::simple(
+        text.as_str().to_owned(),
+        font,
+        ui.visuals().text_color(),
+        (wrap_width - glyph).max(glyph),
+    );
+    ui.fonts_mut(|fonts| fonts.layout_job(job))
 }
 
 fn capture_label(state: Capture) -> &'static str {
@@ -304,6 +326,56 @@ mod tests {
                 output.textures_delta.clear();
                 assert!(used <= width + 1.0, "report expanded {used} beyond {width}");
             }
+        }
+    }
+
+    /// Device keys are random, and some keys used to wrap one glyph past the phone width.
+    #[test]
+    fn report_fits_a_phone_for_any_device_key() {
+        let ctx = egui::Context::default();
+        theme::load_fonts(&ctx).expect("system fonts");
+        theme::apply(&ctx);
+        let width = 264.0;
+        for _ in 0..100 {
+            let snapshot = super::super::tests::example();
+            let key = veil_net::node_addr::key_text(&snapshot.own_device.expect("device"));
+            let mut review = Review {
+                call: Some(snapshot),
+                ..Default::default()
+            };
+            review.open();
+            review.include = Include {
+                addresses: true,
+                device_keys: true,
+            };
+            review.rebuild();
+            let mut used = 0.0;
+            for _ in 0..3 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width + 32.0, 2400.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(
+                            egui::Rect::from_min_size(
+                                egui::pos2(8.0, 8.0),
+                                egui::vec2(width, 2300.0),
+                            ),
+                        ));
+                        review.content(&mut child);
+                        used = child.min_rect().width();
+                    },
+                );
+                output.textures_delta.clear();
+            }
+            assert!(
+                used <= width + 1.0,
+                "key {key} expanded the report to {used}"
+            );
         }
     }
 }
