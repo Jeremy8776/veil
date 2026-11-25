@@ -113,7 +113,7 @@ pub fn show(view: &mut CallView, app: &VeilApp, ui: &mut egui::Ui, area: Rect) {
         let small = Some(person.id) != hero_id;
         let mut layer = painter.clone();
         layer.set_opacity(placement.opacity);
-        cover::tile(ui, &layer, app, placement.rect, person, small);
+        cover::tile(ui, &layer, app, placement.rect, person, small, small);
     }
 }
 

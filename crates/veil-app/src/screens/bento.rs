@@ -11,7 +11,7 @@ use crate::{
     layout,
     model::Participant,
     theme,
-    widgets::{self, Tile},
+    widgets,
 };
 use eframe::egui::{self, Rect, TextureId, UiBuilder};
 
@@ -171,28 +171,19 @@ pub(crate) fn show(
             Content::Waiting => {
                 child
                     .painter()
-                    .rect_filled(placement.rect, theme::RADIUS, theme::TILE);
+                    .rect_filled(placement.rect, widgets::CARD_RADIUS, theme::TILE);
                 waiting_area = Some(placement.rect);
             }
             Content::Screen(label, source, owner) => {
                 share::stage(&child, placement.rect, *source, label);
                 share_sound::overlay(&mut child, placement.rect, app, *owner);
             }
-            Content::Person(person) if strip.is_some_and(|key| key != cell.key) => {
-                cover::tile(&child, child.painter(), app, placement.rect, person, true);
+            Content::Person(person) => {
+                // Every tile fills its cell, cropped around the face where the cell's shape
+                // differs from the picture. Group's cells already match their pictures.
+                let small = strip.is_some_and(|key| key != cell.key);
+                cover::tile(&child, child.painter(), app, placement.rect, person, small, true);
             }
-            Content::Person(person) => widgets::tile(
-                &child,
-                placement.rect,
-                &Tile {
-                    name: &person.name,
-                    video: video(app, person),
-                    muted: person.muted,
-                    speaking: person.speaking,
-                    hand_raised: person.hand_raised,
-                    is_you: person.is_you,
-                },
-            ),
         }
     }
     waiting_area

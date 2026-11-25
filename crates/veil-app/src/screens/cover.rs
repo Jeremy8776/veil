@@ -8,7 +8,7 @@ use crate::framing;
 use crate::model::Participant;
 use crate::theme;
 use crate::widgets::{self, Tile};
-use eframe::egui::{self, Color32, CornerRadius, Rect, Stroke, StrokeKind, pos2, vec2};
+use eframe::egui::{self, Color32, CornerRadius, Rect, pos2, vec2};
 
 /// Where the head sits in a crop that is shorter than the picture: a little above middle.
 const HEAD_HEIGHT: f32 = 0.42;
@@ -48,8 +48,9 @@ fn centre(ui: &egui::Ui, app: &VeilApp, person: &Participant) -> Option<[f32; 2]
     Some([glide("x", x), glide("y", y)])
 }
 
-/// Paints `person` filling `rect`. `small` tiles get a thin edge and no name tag, the
-/// FaceTime way; `name` puts the name tag on a large one.
+/// Paints `person` filling `rect`, with the card rule's marks (`widgets::card_marks`).
+/// `small` tiles drop the name tag when short and on your own picture, the FaceTime way;
+/// `ring` shows the speaking ring.
 pub fn tile(
     ui: &egui::Ui,
     painter: &egui::Painter,
@@ -57,17 +58,18 @@ pub fn tile(
     rect: Rect,
     person: &Participant,
     small: bool,
+    ring: bool,
 ) {
     app.framing.want();
     let tile = Tile {
         name: &person.name,
         video: crate::screens::bento::video(app, person),
         muted: person.muted,
-        speaking: person.speaking && small,
+        speaking: person.speaking,
         hand_raised: person.hand_raised,
         is_you: person.is_you,
     };
-    let radius = CornerRadius::same(if small { 12 } else { 16 });
+    let radius = CornerRadius::same(widgets::CARD_RADIUS);
     match tile.video {
         Some((texture, size)) => {
             let uv = cover_uv(size, rect, centre(ui, app, person));
@@ -82,18 +84,8 @@ pub fn tile(
             widgets::avatar(painter, rect.center(), r, tile.name);
         }
     }
-    if small {
-        // A thin edge keeps a small tile apart from what is behind it.
-        let edge = Stroke::new(1.0, Color32::from_white_alpha(40));
-        painter.rect_stroke(rect, radius, edge, StrokeKind::Inside);
-    }
-    if tile.speaking {
-        let ring = Stroke::new(2.5, theme::SPEAKING);
-        painter.rect_stroke(rect, radius, ring, StrokeKind::Inside);
-    }
-    if !small || (!person.is_you && rect.height() >= 120.0) {
-        widgets::name_tag(painter, rect, &tile);
-    }
+    let name = !small || (!person.is_you && rect.height() >= 120.0);
+    widgets::card_marks(painter, rect, &tile, ring && person.speaking, name);
 }
 
 #[cfg(test)]
