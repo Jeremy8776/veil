@@ -344,7 +344,7 @@ fn details(
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             if person.verified {
-                let forget = pill(ui, None, "Forget", Tone::Quiet, ui.available_width())
+                let forget = wide(ui, None, "Forget", Tone::Quiet)
                     .on_hover_text("Stop treating this device as verified.");
                 return forget.clicked().then_some(Step::Forgot);
             }
@@ -383,14 +383,16 @@ fn by_paste(
     .on_hover_text("Someone between you could change a code sent through this call.");
     ui.add_space(2.0);
     let width = ui.available_width();
-    if pill(ui, Some(Icon::Copy), "Copy my code", Tone::Quiet, width).clicked() {
+    if wide(ui, Some(Icon::Copy), "Copy my code", Tone::Quiet).clicked() {
         let code = share_code(&person.safety, person.side);
         ui.ctx().copy_text(share_message(first_name(me), name, &code));
         step = Some(Step::Copied);
     }
-    ui.add(
+    ui.add_sized(
+        [width, if PHONE { 48.0 } else { 20.0 }],
         TextEdit::singleline(&mut state.pasted)
             .hint_text(format!("Paste {name}'s message"))
+            .align(Align2::LEFT_CENTER)
             .char_limit(PASTE_LIMIT)
             .desired_width(width),
     );
@@ -431,10 +433,10 @@ fn by_hand(ui: &mut Ui, person: &Participant, state: &mut Verifying) -> Option<S
     );
     let groups: Vec<&str> = person.safety.split(' ').collect();
     for line in groups.chunks(4) {
-        ui.label(RichText::new(line.join("  ")).monospace().size(13.0));
+        ui.label(RichText::new(line.join("  ")).monospace().size(if PHONE { 16.0 } else { 13.0 }));
     }
     ui.add_space(2.0);
-    let matched = pill(ui, None, "They match", Tone::Quiet, ui.available_width())
+    let matched = wide(ui, None, "They match", Tone::Quiet)
         .on_hover_text("Remembers this device for future calls.");
     if quiet_link(ui, "Swap codes instead", MUTED).clicked() {
         state.by_hand = false;
@@ -443,7 +445,20 @@ fn by_hand(ui: &mut Ui, person: &Participant, state: &mut Verifying) -> Option<S
 }
 
 fn quiet_link(ui: &mut Ui, text: &str, colour: egui::Color32) -> Response {
+    if PHONE {
+        return crate::mobile::widgets::link(ui, None, text);
+    }
     ui.add(Button::new(RichText::new(text).small().color(colour)).frame(false))
+}
+
+/// A full-width button: the phone's 48-point action, or the desktop pill.
+fn wide(ui: &mut Ui, icon: Option<Icon>, text: &str, tone: Tone) -> Response {
+    let width = ui.available_width();
+    if PHONE {
+        crate::mobile::widgets::action(ui, icon, text, tone, width)
+    } else {
+        pill(ui, icon, text, tone, width)
+    }
 }
 
 #[cfg(test)]

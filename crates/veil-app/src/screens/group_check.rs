@@ -176,15 +176,23 @@ pub fn show<'a>(
                  Each matching code verifies the person who posted it.",
             );
             let width = ui.available_width();
-            if pill(ui, Some(Icon::Copy), "Copy my group code", Tone::Quiet, width).clicked() {
+            // The phone uses its 48-point action; desktop keeps the pill.
+            let copy = if cfg!(target_os = "android") {
+                crate::mobile::widgets::action(ui, Some(Icon::Copy), "Copy my group code", Tone::Quiet, width)
+            } else {
+                pill(ui, Some(Icon::Copy), "Copy my group code", Tone::Quiet, width)
+            };
+            if copy.clicked() {
                 ui.ctx().copy_text(format!(
                     "Veil group code from {}. Paste everyone's codes into Veil to check.\n{code}",
                     first_name(group.your_name)
                 ));
             }
-            ui.add(
+            ui.add_sized(
+                [width, if cfg!(target_os = "android") { 48.0 } else { 20.0 }],
                 TextEdit::singleline(&mut pasted)
                     .hint_text("Paste the codes from the group chat")
+                    .align(egui::Align2::LEFT_CENTER)
                     .char_limit(PASTE_LIMIT)
                     .desired_width(width),
             );
