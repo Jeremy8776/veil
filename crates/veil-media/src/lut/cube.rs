@@ -56,14 +56,20 @@ pub enum LutError {
 impl fmt::Display for LutError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::TooLarge => write!(f, "The file is too large for a LUT (over {} MB).", MAX_FILE / (1024 * 1024)),
+            Self::TooLarge => write!(
+                f,
+                "The file is too large for a LUT (over {} MB).",
+                MAX_FILE / (1024 * 1024)
+            ),
             Self::NotText => f.write_str("The file is not a .cube text file."),
             Self::NoSize => f.write_str("The file has no LUT_3D_SIZE line, so it is not a 3D LUT."),
             Self::OneDimensional => f.write_str("1D LUTs are not supported. Use a 3D .cube LUT."),
             Self::BadSize => write!(f, "The LUT size must be between {MIN_GRID} and {MAX_GRID}."),
             Self::BadLine(n) => write!(f, "Line {n} is not valid in a .cube file."),
             Self::BadValue(n) => write!(f, "Line {n} has a missing or out-of-range number."),
-            Self::Misplaced(n) => write!(f, "Line {n} repeats a setting or comes after the colours."),
+            Self::Misplaced(n) => {
+                write!(f, "Line {n} repeats a setting or comes after the colours.")
+            }
             Self::WrongCount => f.write_str("The number of colours does not match the LUT size."),
             Self::BadDomain => f.write_str("The LUT's input range is empty or reversed."),
         }

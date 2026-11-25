@@ -4,7 +4,7 @@
 //! stats overlay (`stats.rs`) and the side panels (`panels.rs`, with Security in
 //! `security_panel.rs` and its group check in `group_check.rs`). Screen sharing's picker and
 //! stage are `share.rs`, its floating bar `share_bar.rs`. Settings > Connection is
-//! `connection.rs`.
+//! `connection.rs`. Filters, LUTs, blur and their strength are `effects.rs`.
 
 pub(crate) mod bento;
 pub mod call;
@@ -13,6 +13,7 @@ pub mod call_top;
 pub mod chat_panel;
 pub mod connection;
 pub mod controls;
+pub mod effects;
 pub mod group_check;
 pub mod home;
 mod home_setup;

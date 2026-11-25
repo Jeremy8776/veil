@@ -34,6 +34,10 @@ public final class VeilActivity extends NativeActivity {
     private volatile int topInset = 0, bottomInset = 0, leftInset = 0, rightInset = 0;
     private final AtomicReference<String> pendingInvite = new AtomicReference<>("");
     private WifiManager.MulticastLock multicast;
+    private static final int PICK_FILE = 0x5649;
+    private final AtomicReference<byte[]> picked = new AtomicReference<>();
+    private volatile String pickedName = "";
+    private volatile int pickMax = 0;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -135,6 +139,42 @@ public final class VeilActivity extends NativeActivity {
             AudioManager audio = getSystemService(AudioManager.class);
             audio.setMode(active ? AudioManager.MODE_IN_COMMUNICATION : AudioManager.MODE_NORMAL);
         });
+    }
+
+    /** Opens the system file picker; the result is read off the UI thread, capped at max + 1 bytes. */
+    public void veilPickFile(int max) {
+        pickMax = max; pickedName = ""; picked.set(null);
+        runOnUiThread(() -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            try { startActivityForResult(intent, PICK_FILE); } catch (Exception e) { picked.set(new byte[0]); }
+        });
+    }
+    public String veilPickedName() { return pickedName; }
+    public byte[] veilTakePicked() { return picked.getAndSet(null); }
+
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != PICK_FILE) return;
+        android.net.Uri uri = result == RESULT_OK && data != null ? data.getData() : null;
+        if (uri == null) { picked.set(new byte[0]); return; }
+        new Thread(() -> {
+            String name = "LUT";
+            try (android.database.Cursor c = getContentResolver().query(uri,
+                    new String[] { android.provider.OpenableColumns.DISPLAY_NAME }, null, null, null)) {
+                if (c != null && c.moveToFirst() && c.getString(0) != null) name = c.getString(0);
+            } catch (Exception ignored) { }
+            try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                byte[] chunk = new byte[65536];
+                int n;
+                while (in != null && out.size() <= pickMax && (n = in.read(chunk)) > 0) out.write(chunk, 0, n);
+                byte[] bytes = out.toByteArray();
+                pickedName = name;
+                picked.set(bytes.length > pickMax + 1 ? Arrays.copyOf(bytes, pickMax + 1) : bytes);
+            } catch (Exception e) { pickedName = ""; picked.set(new byte[0]); }
+        }, "veil-pick").start();
     }
 
     public String veilClipboard(String value, boolean copy) {

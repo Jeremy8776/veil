@@ -141,7 +141,12 @@ impl YuvLut {
             let (top, rest) = luma[2 * c * stride..].split_at_mut(stride);
             let bottom = &mut rest[..width];
             let top = &mut top[..width];
-            for (bx, uv) in uv_row[..width].chunks_exact_mut(2).enumerate() {
+            for (bx, uv) in uv_row[..width]
+                .as_chunks_mut::<2>()
+                .0
+                .iter_mut()
+                .enumerate()
+            {
                 let x = 2 * bx;
                 let Some(block) = Block::new(self, uv[0], uv[1]) else {
                     continue;
@@ -183,7 +188,12 @@ impl<'a> Block<'a> {
         let luma = |c: usize| lut.luma.get(c..c + LEVELS)?.try_into().ok();
         let chroma = |c: usize| lut.chroma.get(c..c + LEVELS)?.try_into().ok();
         Some(Self {
-            luma: [luma(cols[0])?, luma(cols[1])?, luma(cols[2])?, luma(cols[3])?],
+            luma: [
+                luma(cols[0])?,
+                luma(cols[1])?,
+                luma(cols[2])?,
+                luma(cols[3])?,
+            ],
             chroma: [
                 chroma(cols[0])?,
                 chroma(cols[1])?,

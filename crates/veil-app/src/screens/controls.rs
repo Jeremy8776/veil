@@ -223,10 +223,10 @@ fn video_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
 
 fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
     call_menus::section(ui, Icon::Effects, "Background blur");
-    call_menus::blur_switch(ui, &app.media);
+    crate::screens::effects::blur_menu(app, ui);
     call_menus::divider(ui);
     call_menus::section(ui, Icon::Effects, "Filter");
-    call_menus::filter_swatches(ui, &app.media);
+    crate::screens::effects::look_menu(app, ui);
     call_menus::divider(ui);
     let mirrored = app.media.mirror();
     let mirror = call_menus::toggle_button(ui, Icon::Mirror, "Mirror my camera", mirrored);

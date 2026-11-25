@@ -70,7 +70,10 @@ fn refuses_hostile_and_malformed_files() {
         ("LUT_1D_SIZE 4\n".into(), LutError::OneDimensional),
         ("LUT_3D_SIZE 1\n".into(), LutError::BadSize),
         (format!("LUT_3D_SIZE {}\n", MAX_GRID + 1), LutError::BadSize),
-        ("LUT_3D_SIZE 99999999999999999999\n".into(), LutError::BadSize),
+        (
+            "LUT_3D_SIZE 99999999999999999999\n".into(),
+            LutError::BadSize,
+        ),
         ("LUT_3D_SIZE -2\n".into(), LutError::BadSize),
         (ok.replace(last, "1 1"), LutError::BadValue(10)),
         (ok.replace(last, "1 1 1 1"), LutError::BadLine(10)),
@@ -81,20 +84,32 @@ fn refuses_hostile_and_malformed_files() {
         (ok.replace(&format!("{last}\n"), ""), LutError::WrongCount),
         (format!("{ok}0 0 0\n"), LutError::WrongCount),
         (format!("{ok}TITLE \"late\"\n"), LutError::Misplaced(11)),
-        (ok.replace("TITLE \"test\"", "LUT_3D_SIZE 2"), LutError::Misplaced(2)),
-        (ok.replace("TITLE \"test\"", "EVIL_KEYWORD 1"), LutError::BadLine(1)),
+        (
+            ok.replace("TITLE \"test\"", "LUT_3D_SIZE 2"),
+            LutError::Misplaced(2),
+        ),
+        (
+            ok.replace("TITLE \"test\"", "EVIL_KEYWORD 1"),
+            LutError::BadLine(1),
+        ),
         (
             ok.replace("TITLE \"test\"", "DOMAIN_MIN 1 1 1\nDOMAIN_MAX 0 0 0"),
             LutError::BadDomain,
         ),
-        (ok.replace("TITLE \"test\"", &"#".repeat(300)), LutError::BadLine(1)),
+        (
+            ok.replace("TITLE \"test\"", &"#".repeat(300)),
+            LutError::BadLine(1),
+        ),
     ];
     for (text, want) in cases {
         assert_eq!(cube::parse(text.as_bytes()), Err(want.clone()), "{want:?}");
         assert!(!want.to_string().is_empty());
     }
     assert_eq!(cube::parse(&[0xff, 0xfe, 0x00]), Err(LutError::NotText));
-    assert_eq!(cube::parse(&vec![b'#'; MAX_FILE + 1]), Err(LutError::TooLarge));
+    assert_eq!(
+        cube::parse(&vec![b'#'; MAX_FILE + 1]),
+        Err(LutError::TooLarge)
+    );
 }
 
 #[test]
@@ -109,7 +124,8 @@ fn garbage_never_panics() {
             })
             .collect();
         let _ = cube::parse(&bytes);
-        let _ = cube::parse(format!("LUT_3D_SIZE 2\n{}", String::from_utf8_lossy(&bytes)).as_bytes());
+        let _ =
+            cube::parse(format!("LUT_3D_SIZE 2\n{}", String::from_utf8_lossy(&bytes)).as_bytes());
     }
 }
 
@@ -119,7 +135,11 @@ fn shown(d: &[u8]) -> Vec<[f32; 3]> {
     for y in 0..32 {
         for x in 0..64 {
             let c = 64 * 32 + (y / 2) * 64 + (x / 2) * 2;
-            let rgb = super::table::yuv_to_rgb(f32::from(d[y * 64 + x]), f32::from(d[c]), f32::from(d[c + 1]));
+            let rgb = super::table::yuv_to_rgb(
+                f32::from(d[y * 64 + x]),
+                f32::from(d[c]),
+                f32::from(d[c + 1]),
+            );
             out.push(rgb.map(|v| v.clamp(0.0, 1.0) * 255.0));
         }
     }
@@ -165,7 +185,11 @@ fn invert_lut_inverts_and_mixes_by_strength() {
     lut.mixed(50).apply(&mut half, 64, 32, 64);
     for i in 0..orig.len() {
         let want = mix(orig[i], full[i], 50);
-        assert!(half[i].abs_diff(want) <= 1, "byte {i}: {} vs {want}", half[i]);
+        assert!(
+            half[i].abs_diff(want) <= 1,
+            "byte {i}: {} vs {want}",
+            half[i]
+        );
     }
 }
 

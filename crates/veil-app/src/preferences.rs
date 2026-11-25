@@ -1,6 +1,6 @@
-//! Your device and video choices, kept between runs: camera, microphone, speaker, filter,
-//! background blur, mirror, both volumes and the sound switches (Noise suppression, Auto
-//! volume, Remove noise from others).
+//! Your device and video choices, kept between runs: camera, microphone, speaker, filter or
+//! imported LUT (by name), background blur, both effect strengths, mirror, both volumes and
+//! the sound switches (Noise suppression, Auto volume, Remove noise from others).
 //!
 //! Purpose: [`Store::observe`] is fed what [`LocalMedia`] holds once a frame, so a choice
 //! made anywhere (the pre-join card or a call menu) is saved without each control having to
@@ -41,8 +41,14 @@ pub struct Prefs {
     pub speaker: Option<String>,
     #[serde(with = "filter_key")]
     pub filter: Filter,
+    /// An imported LUT's name (`luts.rs`), used instead of `filter` while it still exists.
+    pub lut: Option<String>,
+    /// Filter or LUT strength in percent; `None` until first changed (100%).
+    pub look_strength: Option<u8>,
     #[serde(with = "blur_key")]
     pub blur: Blur,
+    /// Background blur strength in percent; `None` until first changed (100%).
+    pub blur_strength: Option<u8>,
     pub mirror: bool,
     /// `None` until first changed: Veil's own default is used.
     pub mic_volume: Option<f32>,
@@ -54,11 +60,20 @@ pub struct Prefs {
 }
 
 impl Prefs {
-    /// Sets the filter, blur, mirror, volumes and sound switches. Devices wait for the lists
-    /// ([`Prefs::devices`]), since a saved one may not be plugged in.
-    pub fn apply(&self, media: &LocalMedia) {
+    /// Sets the filter or LUT, blur, strengths, mirror, volumes and sound switches. Devices
+    /// wait for the lists ([`Prefs::devices`]), since a saved one may not be plugged in.
+    pub fn apply(&self, media: &LocalMedia, luts: &crate::luts::Library) {
         media.set_filter(self.filter);
+        if let Some(look) = self.lut.as_deref().and_then(|name| luts.load(name)) {
+            media.set_lut(Some(look));
+        }
+        if let Some(percent) = self.look_strength {
+            media.set_look_strength(percent);
+        }
         media.set_blur(self.blur);
+        if let Some(percent) = self.blur_strength {
+            media.set_blur_strength(percent);
+        }
         media.set_mirror(self.mirror);
         if let Some(on) = self.noise_suppression {
             media.set_noise_suppression(on);
@@ -96,7 +111,10 @@ impl Prefs {
             mic: kept(&saved.mic, &choice.mic, &lists.mics),
             speaker: kept(&saved.speaker, &choice.speaker, &lists.speakers),
             filter: media.filter(),
+            lut: media.lut().map(|look| look.name),
+            look_strength: Some(media.look_strength()),
             blur: media.blur(),
+            blur_strength: Some(media.blur_strength()),
             mirror: media.mirror(),
             mic_volume: Some(media.mic_volume()),
             speaker_volume: Some(media.speaker_volume()),
@@ -269,7 +287,10 @@ mod tests {
             mic: Some(String::from("mic-1")),
             speaker: None,
             filter: Filter::Warm,
+            lut: Some(String::from("Film")),
+            look_strength: Some(60),
             blur: Blur::Strong,
+            blur_strength: Some(35),
             mirror: true,
             mic_volume: Some(1.5),
             speaker_volume: Some(0.4),

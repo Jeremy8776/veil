@@ -50,7 +50,11 @@ fn half_strength_lies_between_original_and_full() {
     let half = composite(&orig, 50);
     for i in 0..W * H {
         let want = mix(orig[i], full[i], 50);
-        assert!(half[i].abs_diff(want) <= 2, "pixel {i}: {} vs {want}", half[i]);
+        assert!(
+            half[i].abs_diff(want) <= 2,
+            "pixel {i}: {} vs {want}",
+            half[i]
+        );
     }
 }
 

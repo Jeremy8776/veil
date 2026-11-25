@@ -1,4 +1,5 @@
 //! Android layouts share the desktop call state, security panels and media engine.
+mod effects;
 pub(crate) mod widgets;
 
 use crate::app::{Screen, VeilApp};
@@ -367,6 +368,7 @@ pub fn prejoin(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
         });
         ui.add_space(8.0);
         mirror_choice(app, ui);
+        effects::section(app, ui);
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             w::label(ui, "Microphone", 13.0, false, theme::MUTED);
