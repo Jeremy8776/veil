@@ -7,7 +7,8 @@
 //! - The camera encoder (`engine/video_out.rs`) picks its ladder from it, and sends nothing
 //!   in Audio only.
 //! - A shared screen is capped in Data saver and Audio only (`video_out::screen_ladder`).
-//! - Opus runs at [`DataUse::opus_bitrate`] (`engine/session.rs`).
+//! - Opus runs at [`DataUse::opus_bitrate`], and a share's computer sound at
+//!   [`DataUse::share_sound_bitrate`] (`engine/session.rs`).
 //! - Through a forwarder, the layers asked for are capped at [`DataUse::wanted_cap`]
 //!   (`engine/wanted.rs`).
 //!
@@ -46,6 +47,9 @@ pub enum DataUse {
 const FULL_OPUS: u32 = 32_000;
 /// Opus rate for Data saver and Audio only. Speech stays clear well below this.
 const LOW_OPUS: u32 = 16_000;
+/// A share's computer sound, stereo music: on Auto, and in Data saver and Audio only.
+const FULL_SHARE_SOUND: u32 = 64_000;
+const LOW_SHARE_SOUND: u32 = 32_000;
 
 impl DataUse {
     /// In the order the menus show them, the recommended one first.
@@ -88,6 +92,14 @@ impl DataUse {
         match self {
             Self::Auto => FULL_OPUS,
             Self::Saver | Self::AudioOnly => LOW_OPUS,
+        }
+    }
+
+    /// The bitrate of a share's computer sound (ADR 0007: it counts towards data use).
+    pub fn share_sound_bitrate(self) -> u32 {
+        match self {
+            Self::Auto => FULL_SHARE_SOUND,
+            Self::Saver | Self::AudioOnly => LOW_SHARE_SOUND,
         }
     }
 
@@ -209,6 +221,7 @@ mod tests {
         for low in [DataUse::Saver, DataUse::AudioOnly] {
             assert!(low.opus_bitrate() < DataUse::Auto.opus_bitrate());
             assert!(low.opus_bitrate() >= 6_000, "Opus refuses less than 6 kbit/s");
+            assert!(low.share_sound_bitrate() < DataUse::Auto.share_sound_bitrate());
         }
         assert_eq!(DataUse::AudioOnly.wanted_cap(), Some(Wanted::THUMB));
     }

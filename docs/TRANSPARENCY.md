@@ -211,9 +211,10 @@ which an app outside a sandbox may do without asking; the desktop portal carries
 floating bar and your share's tile say while sound is being sent, with a level, a mute and a
 meter. Stopping the share, from anywhere, stops the sound capture. Receivers get their own
 volume and mute for each share's sound, which change nothing for anyone else, and Veil plays
-that sound only while the same person's signed share is showing. Like your microphone, the
-sound itself is not signed, so through a forwarder a member who changes their copy of Veil
-could still send sound under a real share; they cannot start a share in someone's name.
+that sound only while the same person's signed share is showing. Each packet of share sound is signed with your device key, as screen pictures are, so no member
+can play sound into someone else's share. Computer sound includes whatever your computer plays
+while you share, such as notification sounds or another call's sound, so mute it or leave it
+off when that matters.
 
 **Filters and Background blur** run on your device, on each camera picture before your
 self-view and before it is encoded, so other members receive only the changed picture. Finding

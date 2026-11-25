@@ -13,7 +13,8 @@
 //!
 //! Invariants:
 //! - Who sent a frame or message is its authenticated sender index (MLS leaf), never the link
-//!   it came on. A shared screen also needs that leaf's device signature (`screen_proof.rs`).
+//!   it came on. A shared screen, and its computer sound, also need that leaf's device
+//!   signature (`screen_proof.rs`, `sound_proof.rs`).
 //! - Nothing is sent before the first epoch's keys; nothing is encoded while you are alone.
 //! - Full queues to the decoder and playback threads drop the packet; this task never blocks
 //!   on them.
@@ -42,6 +43,7 @@ use super::auto_step::AutoStep;
 use super::names::{Announcer, Names};
 use super::screen_proof;
 use super::sound_out::SoundOut;
+use super::sound_proof;
 use super::stats::{Sampler, link_path};
 use super::video_in::VideoIn;
 use super::video_out::{Encoded, VideoControl};
@@ -446,11 +448,13 @@ impl Session {
             return;
         };
         let timestamp = micros_since(self.clock);
+        let data = self.pipes.data.effective();
         let payload = if share {
-            self.share_sound.payload(pcm, None, timestamp)
+            let payload = self.share_sound.payload(pcm, Some(data.share_sound_bitrate()), timestamp);
+            let (binding, id) = (sender.binding(), sender.next_frame_id());
+            payload.and_then(|p| sound_proof::sign(&self.identity, binding, &id, &p))
         } else {
-            let bitrate = self.pipes.data.effective().opus_bitrate();
-            self.voice.payload(pcm, Some(bitrate), timestamp)
+            self.voice.payload(pcm, Some(data.opus_bitrate()), timestamp)
         };
         let Some(payload) = payload else { return };
         match sender.encrypt(&payload) {
@@ -506,6 +510,18 @@ impl Session {
             let _ = self.pipes.video_in.try_send(VideoIn { id, layer, payload });
             return;
         }
+        // Share sound must carry the signature of the device that holds this leaf.
+        let plain = if sound_proof::is_share_sound(&plain) {
+            let Some((device, binding)) = ring.signer(packet, leaf, Instant::now()) else {
+                return;
+            };
+            match sound_proof::check(&device, &binding, packet, plain) {
+                Some(plain) => plain,
+                None => return,
+            }
+        } else {
+            plain
+        };
         let Ok((header, opus)) = AudioHeader::read(&plain) else {
             return;
         };

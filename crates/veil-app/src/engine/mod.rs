@@ -38,6 +38,7 @@ mod router;
 mod screen_proof;
 mod session;
 mod sound_out;
+mod sound_proof;
 pub mod stats;
 mod video_in;
 mod video_out;

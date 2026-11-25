@@ -6,9 +6,8 @@
 //!
 //! Invariants:
 //! - The encoder is made on the first frame, so a stream that never sends costs nothing.
-//! - The microphone follows the data use choice's bitrate, changed at most once per change.
-//!   shortcut: share sound keeps its fixed 64 kbit/s whatever the data use choice; lower it
-//!   with Save data once someone needs share sound on a poor link.
+//! - Each stream follows the data use choice's bitrate for it (`DataUse::opus_bitrate`,
+//!   `DataUse::share_sound_bitrate`), changed at most once per change.
 //! - A frame of the wrong length is dropped, never padded.
 
 use veil_media::{AudioHeader, AudioSettings, OpusEncoder};
