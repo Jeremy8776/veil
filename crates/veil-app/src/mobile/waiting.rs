@@ -114,6 +114,8 @@ pub(super) fn controls(view: &mut CallView, ui: &mut egui::Ui) {
         })
         .inner;
     if qr.clicked() {
+        // One sheet at a time: the QR sheet replaces the invite sheet.
+        view.mobile_invite = false;
         crate::invite_qr::open(row.ctx());
     }
 }

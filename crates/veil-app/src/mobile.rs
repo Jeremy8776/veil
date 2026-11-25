@@ -2,6 +2,7 @@
 mod call_bar;
 mod home;
 mod prejoin;
+pub mod sheet;
 mod waiting;
 pub(crate) mod widgets;
 
@@ -317,28 +318,10 @@ pub fn call(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
                 return;
             }
             if view.mobile_invite && view.call.is_host {
-                egui::Frame::new()
-                    .fill(theme::SURFACE)
-                    .corner_radius(16)
-                    .inner_margin(16)
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            let width = (ui.available_width() - 56.0).max(1.0);
-                            ui.allocate_ui_with_layout(
-                                vec2(width, 48.0),
-                                Layout::left_to_right(Align::Center),
-                                |ui| {
-                                    ui.set_min_width(width);
-                                    w::label(ui, "Invite someone", 20.0, true, theme::TEXT);
-                                },
-                            );
-                            if w::icon(ui, Icon::Close, "Close invitation", false).clicked() {
-                                view.mobile_invite = false;
-                            }
-                        });
-                        invitation(view, ui);
-                    });
-                ui.add_space(12.0);
+                let ctx = ui.ctx().clone();
+                view.mobile_invite = sheet::show(&ctx, "invite-sheet", "Invite", |ui| {
+                    invitation(view, ui);
+                });
             }
             if !view.call.lobby.is_empty() {
                 if action(
@@ -418,7 +401,12 @@ pub fn ended(app: &mut VeilApp, ui: &mut egui::Ui) {
         if action(ui, None, "Back to home", Tone::Primary) {
             app.go_home();
         }
-        if action(ui, Some(Icon::Info), "Connection report", Tone::Quiet) {
+        // A secondary choice, so a quiet link under the one button.
+        if ui
+            .vertical_centered(|ui| w::link(ui, None, "Connection report"))
+            .inner
+            .clicked()
+        {
             app.diagnostics.open();
         }
     });

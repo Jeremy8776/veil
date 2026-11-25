@@ -14,7 +14,7 @@
 //! - Stop share here, Stop sharing in the notification and Android's own indicator all end
 //!   the share. Leaving the call ends it too (`app.rs`).
 
-use eframe::egui::{self, Align2, Margin, vec2};
+use eframe::egui::{self, Margin};
 
 use super::widgets as w;
 use super::{action, setting};
@@ -129,37 +129,22 @@ fn step(sheet: Sheet, view: &mut CallView, app: &mut VeilApp, ctx: &egui::Contex
                 with_sound = false;
             }
             let mut next = Some(Sheet::Asking { with_sound });
-            egui::Window::new("Share your screen")
-                .collapsible(false)
-                .resizable(false)
-                .default_width(300.0)
-                .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-                .show(ctx, |ui| {
-                    w::label(
-                        ui,
-                        "Android asks what to share: your whole screen or one app.",
-                        14.0,
-                        false,
-                        theme::TEXT,
-                    );
-                    ui.add_space(8.0);
-                    ui.add_enabled_ui(why.is_none(), |ui| {
-                        let detail = why.unwrap_or("Send what other apps play. Call sound is left out.");
-                        setting(ui, &mut with_sound, "Include phone sound", detail);
-                    });
-                    ui.add_space(4.0);
-                    w::label(ui, NOT_CAPTURED, 13.0, false, theme::MUTED);
-                    ui.add_space(8.0);
-                    if action(ui, Some(Icon::Share), "Continue", Tone::Primary) {
-                        app.share.choose_on_desktop();
-                        next = Some(Sheet::Waiting { with_sound });
-                    } else if action(ui, None, "Cancel", Tone::Quiet) {
-                        next = None;
-                    } else {
-                        next = Some(Sheet::Asking { with_sound });
-                    }
-                });
-            next
+            let open = super::sheet::show(ctx, "share-sheet", "Share screen", |ui| {
+                // Android's own prompt asks what to share; its limits stay in the tooltip.
+                ui.add_enabled_ui(why.is_none(), |ui| {
+                    let detail = why.unwrap_or("Send what other apps play. Call sound is left out.");
+                    setting(ui, &mut with_sound, "Include phone sound", detail);
+                })
+                .response
+                .on_hover_text(NOT_CAPTURED);
+                ui.add_space(16.0);
+                next = Some(Sheet::Asking { with_sound });
+                if action(ui, Some(Icon::Share), "Continue", Tone::Primary) {
+                    app.share.choose_on_desktop();
+                    next = Some(Sheet::Waiting { with_sound });
+                }
+            });
+            if open { next } else { None }
         }
     }
 }
