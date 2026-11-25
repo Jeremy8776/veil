@@ -58,7 +58,7 @@ pub(super) fn show(view: &mut CallView, app: &VeilApp, ui: &mut egui::Ui, area: 
     let Some(you) = view.call.participants.iter().find(|person| person.is_you) else {
         return;
     };
-    crate::widgets::tile(
+    super::prejoin::video_card(
         ui,
         picture,
         &crate::widgets::Tile {

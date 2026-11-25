@@ -165,16 +165,20 @@ fn data_label(choice: DataUse) -> &'static str {
 /// The camera preview: the video fills the card, with an equal mild border on every side
 /// and the name over the picture. Returns the video's rect, for controls laid over it.
 fn preview_card(ui: &mut egui::Ui, tile: &Tile<'_>) -> Rect {
+    let (available, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
+    video_card(ui, available, tile)
+}
+
+/// Paints `tile` as a video card within `available` without allocating space. Shared with
+/// the in-call waiting stage so both pictures look the same.
+pub(super) fn video_card(ui: &egui::Ui, available: Rect, tile: &Tile<'_>) -> Rect {
     const BORDER: f32 = 6.0;
-    let available = ui.available_rect_before_wrap();
     let Some((texture, size)) = tile.video else {
-        let (rect, _) = ui.allocate_exact_size(available.size(), Sense::hover());
-        shared::tile(ui, rect, tile);
-        return rect.shrink(BORDER);
+        shared::tile(ui, available, tile);
+        return available.shrink(BORDER);
     };
     let picture = crate::layout::contain(size, available.shrink(BORDER));
     let card = picture.expand(BORDER);
-    ui.allocate_rect(available, Sense::hover());
     let painter = ui.painter_at(card);
     painter.rect_filled(card, CornerRadius::same(theme::RADIUS + BORDER as u8), theme::TILE);
     painter.add(
