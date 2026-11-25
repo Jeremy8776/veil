@@ -33,8 +33,10 @@ use crate::widgets::{ControlState, Tone, control, pill};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum View {
-    Gallery,
-    Speaker,
+    /// Everyone at once, in justified rows.
+    Group,
+    /// The active speaker large, everyone else small in a strip.
+    Focus,
 }
 
 pub struct CallView {
@@ -57,6 +59,8 @@ pub struct CallView {
     /// Who is sending computer sound with their share, by participant id.
     pub(super) sounding: Vec<u32>,
     pub(crate) tile_motion: layout::Motion,
+    /// Who holds the stage in Focus view, kept between frames for the speaker hold.
+    pub(crate) focus: Option<crate::screens::speaker::Focus>,
     /// The real call; `None` in a demo. Dropping it leaves the call.
     engine: Option<Engine>,
 }
@@ -67,7 +71,7 @@ impl CallView {
             engine,
             call,
             panel: None,
-            view: View::Gallery,
+            view: View::Group,
             draft: String::new(),
             verifying: None,
             notice: None,
@@ -78,6 +82,7 @@ impl CallView {
             sharers: Vec::new(),
             sounding: Vec::new(),
             tile_motion: layout::Motion::default(),
+            focus: None,
         }
     }
 

@@ -11,7 +11,7 @@ use crate::app::{Screen, VeilApp};
 use crate::icons::Icon;
 use crate::model::CallStatus;
 use crate::screens::{
-    call::CallView,
+    call::{CallView, View},
     controls,
     panels::{self, Panel},
 };
@@ -246,6 +246,15 @@ pub fn call(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
                         }
                         data_choices(app, ui);
                         return;
+                    }
+                    for (icon, label, choice) in [
+                        (Icon::Grid, "Group", View::Group),
+                        (Icon::SpeakerView, "Focus", View::Focus),
+                    ] {
+                        if w::menu_item(ui, Some(icon), label, view.view == choice).clicked() {
+                            view.view = choice;
+                            ui.close();
+                        }
                     }
                     if view.call.is_host
                         && w::menu_item(ui, Some(Icon::Link), "Invite someone", false).clicked()

@@ -309,16 +309,6 @@ impl Call {
             self.outbox.push(Action::Verify(id, verified));
         }
     }
-
-    /// Whoever should fill the stage in speaker view: the speaker, else the first other
-    /// person, else you.
-    pub fn focus(&self) -> Option<&Participant> {
-        self.participants
-            .iter()
-            .find(|p| p.speaking && !p.is_you)
-            .or_else(|| self.participants.iter().find(|p| !p.is_you))
-            .or_else(|| self.participants.first())
-    }
 }
 
 /// `mm:ss`, or `h:mm:ss` past an hour.

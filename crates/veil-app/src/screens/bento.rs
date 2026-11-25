@@ -3,6 +3,7 @@ use super::{
     call::{CallView, View},
     share,
     share_sound::{self, Owner},
+    speaker::{self, Seat},
 };
 use crate::{
     app::VeilApp,
@@ -13,6 +14,7 @@ use crate::{
     widgets::{self, Tile},
 };
 use eframe::egui::{self, Rect, TextureId, UiBuilder};
+use std::time::Instant;
 
 const WAITING: u64 = u64::MAX;
 enum Content {
@@ -90,14 +92,14 @@ pub(crate) fn show(
         }
     }
     let shares = cells.len() > usize::from(waiting);
+    // Track the speaker in both views, so switching to Focus opens on whoever is talking.
+    let seats: Vec<Seat> = view.call.participants.iter().map(Seat::from).collect();
+    view.focus = speaker::pick(view.focus, &seats, Instant::now());
+    let focus = view.view == View::Focus;
     let featured = if waiting || shares {
         0
     } else {
-        let focused = if view.view == View::Speaker {
-            view.call.focus().map(|p| p.id)
-        } else {
-            None
-        };
+        let focused = view.focus.filter(|_| focus).map(|f| f.id);
         view.call
             .participants
             .iter()
@@ -112,13 +114,16 @@ pub(crate) fn show(
         });
     }
     let aspects: Vec<_> = cells.iter().map(|cell| cell.aspect).collect();
-    // Gallery: justified rows, so each card fills a cell of its own shape and no space is
-    // wasted. Speaker view and screen shares keep the featured mosaic.
-    let gallery = !waiting && !shares && view.view != View::Speaker;
-    let rects = gallery
-        .then(|| layout::justified(&aspects, area, 12.0))
-        .flatten()
-        .unwrap_or_else(|| layout::bento(&aspects, featured, area, 12.0));
+    // Group: justified rows, so each card fills a cell of its own shape and no space is
+    // wasted. Focus: the speaker on stage over a strip. Screen shares keep the mosaic.
+    let rects = if waiting || shares {
+        layout::bento(&aspects, featured, area, 12.0)
+    } else if focus {
+        layout::focus(&aspects, featured, area, 12.0)
+    } else {
+        layout::justified(&aspects, area, 12.0)
+            .unwrap_or_else(|| layout::bento(&aspects, featured, area, 12.0))
+    };
     let targets: Vec<_> = cells
         .iter()
         .zip(rects)

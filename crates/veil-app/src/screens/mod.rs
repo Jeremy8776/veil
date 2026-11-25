@@ -25,4 +25,5 @@ pub mod security_panel;
 pub mod share;
 pub mod share_bar;
 pub mod share_sound;
+pub(crate) mod speaker;
 pub mod stats;

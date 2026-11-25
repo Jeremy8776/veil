@@ -67,8 +67,12 @@ fn right_side(view: &mut CallView, app: &mut crate::app::VeilApp, ui: &mut Ui) {
         app.diagnostics.open();
     }
     let (icon, label, next) = match view.view {
-        View::Gallery => (Icon::SpeakerView, "Speaker view", View::Speaker),
-        View::Speaker => (Icon::Grid, "Gallery view", View::Gallery),
+        View::Group => (
+            Icon::SpeakerView,
+            "Focus: the person speaking fills the stage",
+            View::Focus,
+        ),
+        View::Focus => (Icon::Grid, "Group: see everyone at once", View::Group),
     };
     if widgets::icon_button(ui, icon, label).clicked() {
         view.view = next;

@@ -155,6 +155,54 @@ pub fn bento(aspects: &[f32], featured: usize, area: Rect, gap: f32) -> Vec<Rect
     best
 }
 
+/// Focus view: the featured cell fills the stage and everyone else sits small in one strip,
+/// along the bottom on a tall area and down the right on a wide one. Input order is kept.
+pub fn focus(aspects: &[f32], featured: usize, area: Rect, gap: f32) -> Vec<Rect> {
+    let count = aspects.len();
+    if count == 0 || !area.is_finite() || area.width() <= 0.0 || area.height() <= 0.0 {
+        return Vec::new();
+    }
+    if count == 1 {
+        return vec![area];
+    }
+    let featured = featured.min(count - 1);
+    let gap = gap.max(0.0).min(area.width().min(area.height()) / 4.0);
+    let rest: Vec<f32> = (0..count)
+        .filter(|i| *i != featured)
+        .map(|i| aspects[i])
+        .collect();
+    let tall = area.height() >= area.width();
+    let (hero, strip) = if tall {
+        let edge = area.bottom() - (area.height() * 0.2).min(150.0);
+        (
+            Rect::from_min_max(area.min, pos2(area.right(), edge - gap)),
+            Rect::from_min_max(pos2(area.left(), edge), area.max),
+        )
+    } else {
+        let edge = area.right() - (area.width() * 0.2).min(240.0);
+        (
+            Rect::from_min_max(area.min, pos2(edge - gap, area.bottom())),
+            Rect::from_min_max(pos2(edge, area.top()), area.max),
+        )
+    };
+    // One row (or column): cells share the strip evenly, so a big group shrinks rather than
+    // wrapping over the stage.
+    let n = rest.len() as f32;
+    let mut others = (0..rest.len()).map(|i| {
+        let i = i as f32;
+        if tall {
+            let w = (strip.width() - gap * (n - 1.0)) / n;
+            Rect::from_min_size(strip.min + vec2(i * (w + gap), 0.0), vec2(w, strip.height()))
+        } else {
+            let h = (strip.height() - gap * (n - 1.0)) / n;
+            Rect::from_min_size(strip.min + vec2(0.0, i * (h + gap)), vec2(strip.width(), h))
+        }
+    });
+    (0..count)
+        .filter_map(|i| if i == featured { Some(hero) } else { others.next() })
+        .collect()
+}
+
 /// Justified rows in input order: every cell has exactly its source's aspect ratio, so a
 /// card that hugs its picture fills its cell and no space is wasted inside cells. Tries
 /// every way to break the list into rows (up to [`JUSTIFY_MAX`] people) and keeps the one
@@ -248,6 +296,31 @@ fn fit(aspects: &[f32], rows: &[usize], area: Rect, gap: f32) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn focus_puts_one_large_stage_above_a_strip() {
+        for (size, tall) in [(vec2(390.0, 700.0), true), (vec2(1280.0, 720.0), false)] {
+            let area = Rect::from_min_size(pos2(5.0, 5.0), size);
+            let cells = focus(&[ASPECT; 4], 2, area, 12.0);
+            assert_eq!(cells.len(), 4);
+            let hero = cells[2];
+            for (i, cell) in cells.iter().enumerate() {
+                assert!(area.expand(0.5).contains_rect(*cell));
+                if i != 2 {
+                    assert!(cell.area() * 3.0 < hero.area(), "the stage is largest");
+                    assert!(cell.intersect(hero).area() < 1.0, "the strip is apart");
+                    if tall {
+                        assert!(cell.top() > hero.bottom());
+                    } else {
+                        assert!(cell.left() > hero.right());
+                    }
+                }
+            }
+        }
+        let one = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 100.0));
+        assert_eq!(focus(&[1.0], 0, one, 12.0), vec![one]);
+        assert!(focus(&[], 0, one, 12.0).is_empty());
+    }
 
     #[test]
     fn justified_cells_keep_their_shape_and_stay_inside() {
