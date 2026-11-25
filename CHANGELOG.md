@@ -4,7 +4,27 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+## 0.1.14, 25/11/2026
+
 ### Added
+
+- **Android in the release.** `veil-<version>-android-arm64.apk` for ARM64 phones, signed with
+  Veil's own Android key and listed in `SHA256SUMS.txt`. Android asks once to allow installs
+  from the browser or file manager you open it with.
+- **Share your phone screen** (SHARE-02): share the whole screen or one app into a call, with
+  optional phone sound, using Android's own consent prompt. Stop from the call bar, the
+  notification or Android's indicator.
+- **Group and Focus views** on desktop and phone. Group shows everyone; Focus puts the person
+  speaking on stage and follows the conversation, holding each speaker for 2 seconds so the
+  stage does not flicker. Your own picture takes the stage only when you are alone.
+- On the phone, Focus works like FaceTime: the speaker fills the screen, your picture floats in
+  the corner and everyone else sits in a small row.
+- **Face framing:** tiles that crop their picture keep the person's face in view. It reuses the
+  on-device person finder from Background blur; nothing leaves the device.
+- One card look for every video tile: the picture is the card, with rounded corners, the name
+  on the picture and a ring while speaking.
+- Calmer phone screens: Home, Start a call, waiting room, People, chat, Security, invite and QR
+  sheets, and Call ended.
 
 - Local **Connection report** with separate helper, hosting, invitation, admission, membership,
   recovery, route and decoded-media evidence. Reports remain available after leaving a call.
