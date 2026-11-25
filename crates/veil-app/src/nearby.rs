@@ -283,8 +283,10 @@ fn search_control(ui: &mut egui::Ui) -> egui::Response {
         let text_width = measure(ui, "Searching…");
         let cancel_width = measure(ui, "Cancel") + 24.0;
         let total = 16.0 + 8.0 + text_width + 8.0 + cancel_width;
+        // A full-height row so the 48-point Cancel link and the label share one centre line.
+        let row = egui::vec2(ui.available_width(), 48.0);
         return ui
-            .horizontal(|ui| {
+            .allocate_ui_with_layout(row, egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 ui.add_space(((ui.available_width() - total) * 0.5).max(0.0));
                 ui.add(egui::Spinner::new().size(16.0).color(MUTED));
