@@ -4872,6 +4872,7 @@ dependencies = [
  "wayland-client",
  "wayland-protocols-plasma",
  "windows",
+ "windows-core",
  "xcap",
  "zbus 5.13.2",
  "zeroize",

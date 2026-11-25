@@ -57,6 +57,9 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Variant",
 ] }
+# The `implement` macro for the process loopback completion handler (src/ffi/windows/loopback.rs)
+# names this crate. Already in the tree through `windows`.
+windows-core = "0.62"
 
 # Linux and macOS: microphone and speakers through cpal (ALSA, Core Audio), and H.264 through
 # OpenH264 built from source (see src/ffi/openh264.rs about patents).
