@@ -398,8 +398,12 @@ impl Pipeline {
     }
 
     /// `out = m * orig + (1 - m) * blur_up`, in place. `mask` is 256x144, 255 = person.
-    pub fn composite(&mut self, data: &mut [u8], stride: usize, mask: &[u8]) {
+    /// `strength` (percent) scales how much of the blurred background replaces the original:
+    /// each sharp weight `m` becomes `255 - (255 - m) * strength / 100`.
+    pub fn composite(&mut self, data: &mut [u8], stride: usize, mask: &[u8], strength: u8) {
         let (w, h) = (self.w, self.h);
+        let keep: [u8; 256] =
+            std::array::from_fn(|i| crate::effects::mix(255, self.lut[i], strength));
         self.guide(mask);
         for (f, row) in self.full.iter_mut().zip(mask.chunks_exact(MW)) {
             *f = row.iter().all(|&v| v == 255);
@@ -412,7 +416,7 @@ impl Pipeline {
             }
             self.mask_row(mask, y, &py[y * stride..][..w]);
             for m in self.m_row.iter_mut() {
-                *m = self.lut[usize::from(*m)];
+                *m = keep[usize::from(*m)];
             }
             lerp(
                 &self.ya[a * MW..][..MW],

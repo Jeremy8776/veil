@@ -38,10 +38,16 @@ pub fn load<T: DeserializeOwned>(dir: &Path, name: &str, max: u64) -> Result<Opt
 /// Writes `value` to `dir/name`, creating `dir` if needed.
 pub fn write<T: Serialize>(dir: &Path, name: &str, value: &T) -> Result<(), String> {
     let text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+    write_bytes(dir, name, text.as_bytes())
+}
+
+/// Writes `bytes` to `dir/name` the same safe way, creating `dir` if needed. Also used for
+/// imported LUTs (`luts.rs`).
+pub fn write_bytes(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let temp = dir.join(format!("{name}.new"));
     let mut file = fs::File::create(&temp).map_err(|e| e.to_string())?;
-    file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    file.write_all(bytes).map_err(|e| e.to_string())?;
     // On disk before the rename, so a crash never leaves the name on an empty file.
     file.sync_all().map_err(|e| e.to_string())?;
     drop(file);

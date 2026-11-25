@@ -25,13 +25,17 @@
 //!   touched. A malformed picture (odd or zero size, `stride < width`, short buffer) is left
 //!   untouched and reported as `Blurred`, as there is nothing to retry. Nothing here panics.
 //! - Pictures smaller than 256x144 work: they are stretched to the grid and back.
-//! - [`Blur::Off`] leaves the picture untouched.
+//! - [`Blur::Off`] and a strength of 0 leave the picture untouched and hand nothing to the
+//!   worker. Strength (percent, see [`crate::effects::FULL`]) blends the blurred background
+//!   with the original; full strength is exactly the full blur.
 //! - The worker steadies each mask against the one before it (see [`steady`]): small changes
 //!   are damped so a still outline does not flicker, large ones are taken at once so a moving
 //!   person is not trailed. A new engine starts with no history.
 
 mod grid;
 mod kernels;
+#[cfg(test)]
+mod strength_tests;
 #[cfg(test)]
 mod tests;
 
@@ -165,7 +169,8 @@ impl BlurEngine {
         }
     }
 
-    /// Blurs the NV12 picture (`width` x `height`, row pitch `stride`) in place at `level`.
+    /// Blurs the NV12 picture (`width` x `height`, row pitch `stride`) in place at `level`,
+    /// blended over the original at `amount` percent.
     pub fn apply(
         &mut self,
         data: &mut [u8],
@@ -173,8 +178,10 @@ impl BlurEngine {
         height: usize,
         stride: usize,
         level: Blur,
+        amount: u8,
     ) -> BlurStatus {
         let strength = match level {
+            _ if amount == 0 => return BlurStatus::Blurred,
             Blur::Off => return BlurStatus::Blurred,
             Blur::Light => Strength {
                 radius: 2,
@@ -222,7 +229,7 @@ impl BlurEngine {
             return BlurStatus::TooBusy;
         }
         pipe.blur(strength, &self.mask);
-        pipe.composite(data, stride, &self.mask);
+        pipe.composite(data, stride, &self.mask, amount);
         BlurStatus::Blurred
     }
 }
@@ -323,7 +330,7 @@ fn steady(mask: &mut [u8], prev: &mut [u8]) {
 }
 
 /// True when the buffer holds a whole even-sized NV12 picture at this pitch.
-fn fits(len: usize, width: usize, height: usize, stride: usize) -> bool {
+pub(crate) fn fits(len: usize, width: usize, height: usize, stride: usize) -> bool {
     if width == 0
         || height == 0
         || !width.is_multiple_of(2)

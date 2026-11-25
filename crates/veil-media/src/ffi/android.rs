@@ -219,6 +219,52 @@ pub fn paste_text() -> Result<String, MediaError> {
     })
 }
 
+/// Opens the system file picker. The chosen file is read by Java, at most `max` + 1 bytes,
+/// and collected with [`take_picked`].
+pub fn pick_file(max: usize) -> Result<(), MediaError> {
+    let max = i32::try_from(max).unwrap_or(i32::MAX - 1);
+    activity(|env, object| {
+        env.call_method(
+            object,
+            jni_str!("veilPickFile"),
+            jni_sig!((int) -> void),
+            &[JValue::Int(max)],
+        )?;
+        Ok(())
+    })
+}
+
+/// `None` while the picker is open; then `Some(None)` if nothing was chosen, or the file's
+/// display name and bytes.
+pub fn take_picked() -> Option<Option<(String, Vec<u8>)>> {
+    activity(|env, object| {
+        let name = env
+            .call_method(
+                object,
+                jni_str!("veilPickedName"),
+                jni_sig!(() -> java.lang.String),
+                &[],
+            )?
+            .l()?;
+        let name = JString::cast_local(env, name)?.to_string();
+        let bytes = env
+            .call_method(
+                object,
+                jni_str!("veilTakePicked"),
+                jni_sig!(() -> byte[]),
+                &[],
+            )?
+            .l()?;
+        if bytes.is_null() {
+            return Ok(None);
+        }
+        let array = JByteArray::cast_local(env, bytes)?;
+        let bytes = env.convert_byte_array(array)?;
+        Ok(Some((!name.is_empty()).then_some((name, bytes))))
+    })
+    .unwrap_or(Some(None))
+}
+
 pub fn permissions_ready() -> bool {
     activity(|env, object| {
         env.call_method(

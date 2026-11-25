@@ -45,6 +45,8 @@ pub struct VeilApp {
     pub log_opener: crate::log::FolderOpener,
     pub diagnostics: crate::diagnostics::review::Review,
     pub media: LocalMedia,
+    /// Imported LUTs (`luts.rs`), listed with the Filters.
+    pub luts: crate::luts::Library,
     /// Sharing your screen (`share.rs`).
     pub share: crate::share::ScreenShare,
     /// What you are sending while you share, as last uploaded.
@@ -97,7 +99,8 @@ impl VeilApp {
         let data_use = Arc::new(crate::data_use::DataUseCell::new(connection.saved.data_use));
         let prefs = crate::preferences::Store::open(keystore::default_dir());
         let media = LocalMedia::new(ctx.clone());
-        prefs.saved.apply(&media);
+        let luts = crate::luts::Library::open(keystore::default_dir());
+        prefs.saved.apply(&media, &luts);
         #[cfg(target_os = "android")]
         let name = prefs.saved.display_name.clone();
         #[cfg(not(target_os = "android"))]
@@ -113,6 +116,7 @@ impl VeilApp {
             log_opener: crate::log::FolderOpener::default(),
             diagnostics: crate::diagnostics::review::Review::default(),
             media,
+            luts,
             share: crate::share::ScreenShare::new(ctx.clone()),
             share_view: None,
             preview: None,
@@ -353,6 +357,7 @@ impl VeilApp {
         // Fast attack, slow release, like a hardware meter.
         let rate = if target > self.level { 0.6 } else { 0.15 };
         self.level += (target - self.level) * rate;
+        crate::screens::effects::take_imports(self, ctx);
         self.remember_prefs(ctx);
     }
 

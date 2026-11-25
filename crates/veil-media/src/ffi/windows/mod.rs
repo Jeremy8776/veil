@@ -29,6 +29,7 @@ mod camera;
 mod decoder;
 mod enumerate;
 mod loopback;
+mod pick;
 mod protect;
 mod sample;
 mod screen_stream;
@@ -40,6 +41,7 @@ pub use audio_devices::{AudioDevice, microphones, speakers};
 pub use camera::{CameraInfo, MfCamera, cameras};
 pub use decoder::MfDecoder;
 pub use loopback::{LoopbackCapture, loopback_support};
+pub use pick::pick_file;
 pub use protect::{protect, unprotect};
 pub use screen_stream::ScreenStream;
 

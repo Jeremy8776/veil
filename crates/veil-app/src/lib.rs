@@ -32,6 +32,7 @@ mod layout;
 mod lobby_alert;
 mod log;
 mod logo;
+mod luts;
 mod media;
 mod mobile;
 mod model;

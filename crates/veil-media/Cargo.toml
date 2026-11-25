@@ -53,6 +53,7 @@ windows = { version = "0.62", features = [
     "Win32_System_WinRT",
     "Win32_System_WinRT_Direct3D11",
     "Win32_System_WinRT_Graphics_Capture",
+    "Win32_UI_Shell_Common",
     "Win32_UI_Shell_PropertiesSystem",
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Variant",
@@ -87,7 +88,8 @@ v4l = "0.14.0"
 zune-jpeg = "0.5.15"
 # Screen sharing on Wayland through the desktop's portal and PipeWire (src/screen/wayland.rs).
 # xcap already builds these three; listing them adds no crate.
-ashpd = { version = "0.14.0", default-features = false, features = ["async-io", "screencast"] }
+# The same portal's file chooser imports a LUT (src/pick.rs); serde_repr is already in the tree.
+ashpd = { version = "0.14.0", default-features = false, features = ["async-io", "file_chooser", "screencast"] }
 pipewire = "0.10"
 pollster = "1.0"
 # Veil's own share picker on KDE Plasma through KWin's interfaces (src/screen/kde.rs). winit
@@ -104,6 +106,17 @@ objc2-av-foundation = { version = "0.3.2", features = ["objc2-core-media"] }
 objc2-core-media = { version = "0.3.2", features = ["objc2-core-video", "objc2-core-audio-types"] }
 objc2-core-video = "0.3.2"
 objc2-foundation = "0.3.2"
+# The open panel for importing a LUT (src/ffi/macos/pick.rs). Already in the tree through
+# eframe's macOS windowing, at this version.
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "NSApplication",
+    "NSPanel",
+    "NSResponder",
+    "NSSavePanel",
+    "NSOpenPanel",
+    "NSWindow",
+] }
 # Computer sound for a screen share (src/ffi/macos/system_sound.rs): ScreenCaptureKit's audio,
 # which can leave out Veil's own playback. Same objc2 family and version as above.
 objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = [
