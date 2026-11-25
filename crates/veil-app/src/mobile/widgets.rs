@@ -277,6 +277,39 @@ pub fn call_control(
     response
 }
 
+/// A filled status pill: icon, short label and a small down chevron, so it reads as a
+/// control that opens a menu. The touch target stays 48 points tall.
+pub fn chip(ui: &mut egui::Ui, icon: Icon, text: &str, hint: &str) -> Response {
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), font(ui, 14.0, true), theme::TEXT);
+    let width = 16.0 + 20.0 + 8.0 + galley.size().x + 8.0 + 10.0 + 16.0;
+    let (rect, response) = ui.allocate_exact_size(vec2(width, TARGET), Sense::click());
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), text));
+    let pill = Rect::from_center_size(rect.center(), vec2(width, 36.0));
+    let fill = if response.hovered() {
+        theme::RAISED_HOVER
+    } else {
+        theme::SURFACE
+    };
+    ui.painter().rect_filled(pill, 18, fill);
+    focus(ui, &response, pill, 18);
+    let y = pill.center().y;
+    let mut x = pill.left() + 16.0;
+    icon.paint(ui.painter(), pos2(x + 10.0, y), 18.0, LINK);
+    x += 28.0;
+    let text_height = galley.size().y;
+    ui.painter()
+        .galley_with_override_text_color(pos2(x, y - text_height * 0.5), galley, theme::TEXT);
+    let c = pos2(pill.right() - 21.0, y);
+    let stroke = Stroke::new(1.5, theme::MUTED);
+    ui.painter()
+        .line_segment([c + vec2(-4.0, -2.0), c + vec2(0.0, 2.0)], stroke);
+    ui.painter()
+        .line_segment([c + vec2(0.0, 2.0), c + vec2(4.0, -2.0)], stroke);
+    response.on_hover_text(hint)
+}
+
 /// Width of a phone pop-up menu. Menus hug their content rather than spanning the screen.
 pub const MENU_WIDTH: f32 = 248.0;
 
