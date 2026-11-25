@@ -92,15 +92,14 @@ fn connection_menu(app: &mut VeilApp, ui: &mut egui::Ui, corner: Rect) {
         "Connection: internet and local calls"
     };
     let menu = w::icon(&mut ui, Icon::Signal, route, false);
-    egui::Popup::menu(&menu).show(|ui| {
-        ui.set_min_width(240.0);
-        if action(ui, Some(Icon::Signal), "Connection settings", Tone::Quiet) {
+    w::menu(&menu, |ui| {
+        if w::menu_item(ui, Some(Icon::Signal), "Connection settings", false).clicked() {
             app.screen = Screen::Connection(Box::new(crate::screens::connection::Form::new(
                 &app.connection,
             )));
             ui.close();
         }
-        if action(ui, Some(Icon::Info), "Connection report", Tone::Quiet) {
+        if w::menu_item(ui, Some(Icon::Info), "Connection report", false).clicked() {
             app.diagnostics.open();
             ui.close();
         }

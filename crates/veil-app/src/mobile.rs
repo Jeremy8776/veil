@@ -148,28 +148,14 @@ fn data_picker(app: &mut VeilApp, ui: &mut egui::Ui) {
 /// The Data use choices, opened from `response`.
 fn data_menu(app: &mut VeilApp, response: &egui::Response) {
     let current = app.data_use.get();
-    egui::Popup::menu(response).show(|ui| {
-        ui.set_min_width(240.0);
+    w::menu(response, |ui| {
         for choice in crate::data_use::DataUse::ALL {
-            if ui
-                .add_sized(
-                    [ui.available_width(), 48.0],
-                    egui::Button::new(choice.label()).selected(current == choice),
-                )
-                .clicked()
-            {
+            if w::menu_item(ui, None, choice.label(), current == choice).clicked() {
                 app.set_data_use(choice);
                 ui.close();
             }
         }
     });
-}
-
-fn mirror_choice(app: &VeilApp, ui: &mut egui::Ui) {
-    let mut mirrored = app.media.mirror();
-    if w::switch(ui, &mut mirrored, "Mirror my camera", controls::MIRROR_HINT).changed() {
-        app.media.set_mirror(mirrored);
-    }
 }
 
 fn flip(app: &mut VeilApp) {
@@ -254,21 +240,26 @@ pub fn call(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
                     };
                 }
                 let more = w::more(ui);
-                egui::Popup::menu(&more).show(|ui| {
-                    ui.set_min_width(240.0);
+                w::menu(&more, |ui| {
                     if view.call.is_host
-                        && action(ui, Some(Icon::Link), "Invite someone", Tone::Quiet)
+                        && w::menu_item(ui, Some(Icon::Link), "Invite someone", false).clicked()
                     {
                         view.mobile_invite = !view.mobile_invite;
                         view.panel = None;
                         ui.close();
                     }
-                    if action(ui, Some(Icon::Lock), "Call security", Tone::Quiet) {
+                    if w::menu_item(ui, Some(Icon::Lock), "Call security", false).clicked() {
                         view.panel = Some(Panel::Security);
                         ui.close();
                     }
-                    mirror_choice(app, ui);
-                    if action(ui, Some(Icon::Info), "Connection report", Tone::Quiet) {
+                    let mirrored = app.media.mirror();
+                    if w::menu_item(ui, Some(Icon::Mirror), "Mirror my camera", mirrored)
+                        .on_hover_text(controls::MIRROR_HINT)
+                        .clicked()
+                    {
+                        app.media.set_mirror(!mirrored);
+                    }
+                    if w::menu_item(ui, Some(Icon::Info), "Connection report", false).clicked() {
                         app.diagnostics.open();
                         ui.close();
                     }

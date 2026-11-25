@@ -277,6 +277,48 @@ pub fn call_control(
     response
 }
 
+/// Width of a phone pop-up menu. Menus hug their content rather than spanning the screen.
+pub const MENU_WIDTH: f32 = 248.0;
+
+/// A compact pop-up menu under `anchor`, [`MENU_WIDTH`] wide.
+pub fn menu<R>(anchor: &Response, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<R> {
+    egui::Popup::menu(anchor)
+        .width(MENU_WIDTH)
+        .show(|ui| {
+            ui.set_width(MENU_WIDTH);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            add(ui)
+        })
+        .map(|inner| inner.inner)
+}
+
+/// One plain row in a [`menu`]: icon and label on the left, a soft fill on press. No
+/// outline, so a menu reads as one list rather than a stack of buttons.
+pub fn menu_item(ui: &mut egui::Ui, icon: Option<Icon>, text: &str, selected: bool) -> Response {
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(ui.available_width(), TARGET), Sense::click());
+    response.widget_info(|| WidgetInfo::selected(Role::MenuItem, ui.is_enabled(), selected, text));
+    if selected || response.hovered() {
+        ui.painter()
+            .rect_filled(rect, 12, if selected { SELECTED } else { theme::RAISED });
+    }
+    focus(ui, &response, rect, 12);
+    let ink = if selected { ON_SELECTED } else { theme::TEXT };
+    let mut left = rect.left() + 12.0;
+    if let Some(icon) = icon {
+        icon.paint(ui.painter(), pos2(left + 10.0, rect.center().y), 20.0, ink);
+        left += 32.0;
+    }
+    ui.painter().text(
+        pos2(left, rect.center().y),
+        Align2::LEFT_CENTER,
+        text,
+        font(ui, 16.0, false),
+        ink,
+    );
+    response
+}
+
 /// A soft ring around a [`call_control`] circle that brightens with the microphone level,
 /// 0 to 1. Silence draws nothing, so the control stays calm until you speak.
 pub fn level_ring(ui: &egui::Ui, control: &Response, level: f32) {
