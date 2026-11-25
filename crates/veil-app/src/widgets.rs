@@ -365,6 +365,16 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
             StrokeKind::Inside,
         );
     }
+    name_tag(&painter, rect, tile);
+    if tile.hand_raised {
+        let mark = Rect::from_min_size(pos2(rect.left() + 8.0, rect.top() + 8.0), vec2(30.0, 26.0));
+        painter.rect_filled(mark, CornerRadius::same(6), theme::WARN);
+        Icon::Hand.paint(&painter, mark.center(), 15.0, theme::PAGE);
+    }
+}
+
+/// The name tag in the bottom-left corner of `rect`, with a mute mark when muted.
+pub fn name_tag(painter: &egui::Painter, rect: Rect, tile: &Tile<'_>) {
     let small = rect.height() < 120.0;
     let label = if tile.is_you {
         format!("{} (You)", tile.name)
@@ -385,7 +395,7 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
     let mut x = tag.left() + 8.0;
     if tile.muted {
         Icon::MicOff.paint(
-            &painter,
+            painter,
             pos2(x + 7.0, tag.center().y),
             12.0,
             theme::DANGER_HOVER,
@@ -397,11 +407,6 @@ pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
         galley,
         TEXT,
     );
-    if tile.hand_raised {
-        let mark = Rect::from_min_size(pos2(rect.left() + 8.0, rect.top() + 8.0), vec2(30.0, 26.0));
-        painter.rect_filled(mark, CornerRadius::same(6), theme::WARN);
-        Icon::Hand.paint(&painter, mark.center(), 15.0, theme::PAGE);
-    }
 }
 
 /// A row of segments lighting up with the microphone level, 0 to 1.
