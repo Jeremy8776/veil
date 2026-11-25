@@ -190,86 +190,105 @@ pub fn prejoin(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
                 app.go_call(host);
             }
         });
-    page(ui, "mobile-prejoin", |ui| {
-        let available = ui.available_size();
-        let aspect = app
-            .preview_video()
-            .map_or(0.75, |(_, size)| size[0] as f32 / size[1].max(1) as f32);
-        let height = (available.x / aspect)
-            .min((available.y - 260.0).max(128.0))
-            .clamp(128.0, 560.0);
-        let (rect, _) = ui.allocate_exact_size(vec2(available.x, height), Sense::hover());
-        shared::tile(
-            ui,
-            rect,
-            &Tile {
-                name: &app.name,
-                video: app.preview_video(),
-                muted: !app.media.mic_on(),
-                speaking: false,
-                hand_raised: false,
-                is_you: true,
-            },
-        );
-        let mut overlay = ui.new_child(UiBuilder::new().id_salt("mobile-camera-flip").max_rect(
-            Rect::from_min_size(rect.right_top() + vec2(-56.0, 8.0), vec2(48.0, 48.0)),
-        ));
-        if w::icon(&mut overlay, Icon::Refresh, "Switch camera", true).clicked() {
-            flip(app);
-        }
-        ui.add_space(12.0);
-        ui.columns(2, |columns| {
-            if w::call_control(
-                &mut columns[0],
-                Icon::Mic,
-                if app.media.mic_on() { "Mute" } else { "Unmute" },
-                !app.media.mic_on(),
-                false,
-            )
-            .clicked()
-            {
-                controls::toggle_mic(app);
-            }
-            if w::call_control(
-                &mut columns[1],
-                Icon::Video,
-                if app.media.camera_on() {
-                    "Stop video"
-                } else {
-                    "Start video"
+    // The controls sit in their own panel above the action, so the preview takes only the
+    // space left over and the screen never scrolls.
+    egui::Panel::bottom("mobile-prejoin-controls")
+        .frame(egui::Frame::new().fill(theme::PAGE).inner_margin(Margin {
+            left: EDGE,
+            right: EDGE,
+            top: 12,
+            bottom: 0,
+        }))
+        .show_separator_line(false)
+        .show(ui, |ui| prejoin_controls(app, ui));
+    egui::CentralPanel::default()
+        .frame(egui::Frame::new().fill(theme::PAGE).inner_margin(Margin {
+            left: EDGE,
+            right: EDGE,
+            top: EDGE,
+            bottom: 0,
+        }))
+        .show(ui, |ui| {
+            let available = ui.available_size();
+            let aspect = app
+                .preview_video()
+                .map_or(0.75, |(_, size)| size[0] as f32 / size[1].max(1) as f32);
+            let height = (available.x / aspect).min(available.y).max(1.0);
+            let (rect, _) = ui.allocate_exact_size(vec2(available.x, height), Sense::hover());
+            shared::tile(
+                ui,
+                rect,
+                &Tile {
+                    name: &app.name,
+                    video: app.preview_video(),
+                    muted: !app.media.mic_on(),
+                    speaking: false,
+                    hand_raised: false,
+                    is_you: true,
                 },
-                !app.media.camera_on(),
-                false,
-            )
-            .clicked()
-            {
-                controls::toggle_camera(app);
+            );
+            let mut overlay = ui.new_child(UiBuilder::new().id_salt("mobile-camera-flip").max_rect(
+                Rect::from_min_size(rect.right_top() + vec2(-56.0, 8.0), vec2(48.0, 48.0)),
+            ));
+            if w::icon(&mut overlay, Icon::Refresh, "Switch camera", true).clicked() {
+                flip(app);
             }
         });
-        ui.add_space(8.0);
-        mirror_choice(app, ui);
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            w::label(ui, "Microphone", 13.0, false, theme::MUTED);
-            shared::level_meter(ui, app.level, ui.available_width());
-        });
-        if let Some(error) = app.media.camera_error() {
-            w::label(ui, error, 13.0, false, theme::WARN);
-        }
-        if let Some(error) = app.media.mic_error() {
-            w::label(ui, error, 13.0, false, theme::WARN);
-        }
-        #[cfg(target_os = "android")]
-        if !veil_media::ffi::android::permissions_ready()
-            && action(ui, None, "Allow camera and microphone", Tone::Quiet)
+    ui.ctx().request_repaint_after(Duration::from_millis(100));
+}
+
+/// Mute, video, mirror, level and data use, under the preview.
+fn prejoin_controls(app: &mut VeilApp, ui: &mut egui::Ui) {
+    ui.columns(2, |columns| {
+        if w::call_control(
+            &mut columns[0],
+            Icon::Mic,
+            if app.media.mic_on() { "Mute" } else { "Unmute" },
+            !app.media.mic_on(),
+            false,
+        )
+        .clicked()
         {
-            veil_media::ffi::android::request_permissions();
+            controls::toggle_mic(app);
         }
-        ui.add_space(8.0);
-        ui.separator();
-        data_picker(app, ui);
-        ui.ctx().request_repaint_after(Duration::from_millis(100));
+        if w::call_control(
+            &mut columns[1],
+            Icon::Video,
+            if app.media.camera_on() {
+                "Stop video"
+            } else {
+                "Start video"
+            },
+            !app.media.camera_on(),
+            false,
+        )
+        .clicked()
+        {
+            controls::toggle_camera(app);
+        }
     });
+    ui.add_space(8.0);
+    mirror_choice(app, ui);
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        w::label(ui, "Microphone", 13.0, false, theme::MUTED);
+        shared::level_meter(ui, app.level, ui.available_width());
+    });
+    if let Some(error) = app.media.camera_error() {
+        w::label(ui, error, 13.0, false, theme::WARN);
+    }
+    if let Some(error) = app.media.mic_error() {
+        w::label(ui, error, 13.0, false, theme::WARN);
+    }
+    #[cfg(target_os = "android")]
+    if !veil_media::ffi::android::permissions_ready()
+        && action(ui, None, "Allow camera and microphone", Tone::Quiet)
+    {
+        veil_media::ffi::android::request_permissions();
+    }
+    ui.add_space(8.0);
+    ui.separator();
+    data_picker(app, ui);
 }
 
 fn mirror_choice(app: &VeilApp, ui: &mut egui::Ui) {
