@@ -325,7 +325,8 @@ lifecycle and call behaviour are understood, without waiting for every desktop/g
 ### AND-02 Integrate the Android preview
 
 **Outcome:** Another developer can build the preview without recreating a local session.
-**Status:** Reviewed integration candidate; committed build/CI gate is being verified.
+**Status:** Done. Integrated in PR #86 (`f2a01a3`); desktop CI and the Android ARM64 artifact
+build passed on `main` at `816b789`.
 **Target:** 0.1.14. **Depends on:** AND-01.
 
 - Review the shared library extraction, Android JNI/media boundaries, key storage, permissions

@@ -1,25 +1,24 @@
 {
   "schema_version": 1,
-  "revision": 23,
-  "updated_at": "2026-11-24T21:53:06+00:00",
+  "revision": 28,
+  "updated_at": "2026-11-25T10:57:36+00:00",
   "next_step": {
-    "capability": "AND-02",
-    "title": "Integrate the reviewed Android candidate and verify CI/lifecycle",
-    "why": "Local build repeatability is proven; committed cross-platform CI and explicit native lifecycle disposition are still needed before closing AND-02.",
+    "capability": "LOCAL-01",
+    "title": "Prove a useful call with WAN and DNS unavailable",
+    "why": "Next eligible core capability in the recorded priority order; full acceptance criteria remain in its detail.",
     "checks": [
-      "Integrate the reviewed source in coherent changes, preserving the existing unrelated work.",
-      "Run Android artifact and Windows/Linux/macOS CI against the committed candidate.",
-      "Verify or explicitly disposition teardown, permission denial, service/background and Keystore failure cases from the review."
+      "Complete the capability acceptance criteria and attach verification evidence."
     ]
   },
   "capabilities": {
     "AND-02": {
-      "status": "in_progress",
-      "note": "Reviewed native ownership; fixed camera frame publication after close; pinned Android build and CI added. Fresh candidate-source ARM64 build/APK checks, Android Clippy and 810 Windows tests passed. Integration, remote desktop/Android CI and device lifecycle evidence remain open.",
+      "status": "done",
+      "note": "Integrated in PR #86 (f2a01a3); desktop CI and Android ARM64 artifact build green on main 816b789; lifecycle dispositions recorded",
       "evidence": [
-        "main/ on codex/release-0.1.13, base c032a89; docs/ANDROID_INTEGRATION_REVIEW.md records scope, findings and actual verification. Fresh validation checkout: main/target/and-02-source-check (detached candidate overlay); no generated build inputs copied."
+        "main/ on codex/release-0.1.13, base c032a89; docs/ANDROID_INTEGRATION_REVIEW.md records scope, findings and actual verification. Fresh validation checkout: main/target/and-02-source-check (detached candidate overlay); no generated build inputs copied.",
+        "https://github.com/Jeremy8776/veil/pull/86; CI run 45496676064 and Android preview run 45496676122 on 816b789; docs/ANDROID_INTEGRATION_REVIEW.md"
       ],
-      "updated_at": "2026-11-23T13:16:05+00:00"
+      "updated_at": "2026-11-25T10:57:36+00:00"
     },
     "MOB-01": {
       "status": "in_progress",
@@ -224,9 +223,41 @@
       "started_at": "2026-11-23T13:05:24+00:00",
       "updated_at": "2026-11-23T14:07:25+00:00",
       "note": "SDK-01 design committed. Verifying the user-requested full portrait bento canvas and join/reflow animation on desktop and connected Android, including the hardware-found background pre-join microphone fix; final CI follows."
+    },
+    "claude-5341dbf7": {
+      "title": "Roadmap review",
+      "status": "active",
+      "started_at": "2026-11-25T10:53:47+00:00",
+      "updated_at": "2026-11-25T10:57:36+00:00",
+      "note": "Starting AND-02: reviewing the release-0.1.13 Android candidate against main"
     }
   },
   "activity": [
+    {
+      "at": "2026-11-25T10:57:36+00:00",
+      "session": "claude-5341dbf7",
+      "note": "AND-02: done — Integrated in PR #86 (f2a01a3); desktop CI and Android ARM64 artifact build green on main 816b789; lifecycle dispositions recorded"
+    },
+    {
+      "at": "2026-11-25T10:56:45+00:00",
+      "session": "claude-5341dbf7",
+      "note": "Starting AND-02: reviewing the release-0.1.13 Android candidate against main"
+    },
+    {
+      "at": "2026-11-25T10:54:03+00:00",
+      "session": "claude-5341dbf7",
+      "note": "Reviewed roadmap state with user; no product changes. Next: AND-02 integration, CI and lifecycle checks."
+    },
+    {
+      "at": "2026-11-25T10:53:55+00:00",
+      "session": "claude-5341dbf7",
+      "note": "Session opened: Roadmap review"
+    },
+    {
+      "at": "2026-11-25T10:53:47+00:00",
+      "session": "claude-5341dbf7",
+      "note": "Session opened: Roadmap review"
+    },
     {
       "at": "2026-11-24T21:53:06+00:00",
       "session": null,
