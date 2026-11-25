@@ -176,6 +176,25 @@ impl Nearby {
             if search_control(ui).clicked() {
                 self.stop();
             }
+        } else if cfg!(target_os = "android") {
+            // On the phone this is a secondary choice, so it is a quiet link, not a button.
+            let find = ui
+                .vertical_centered(|ui| {
+                    ui.add_enabled_ui(!self.fetching, |ui| {
+                        crate::mobile::widgets::link(
+                            ui,
+                            // Not Signal: that is the connection icon in the top-right corner.
+                            Some(crate::icons::Icon::People),
+                            "Find nearby calls",
+                        )
+                        .on_hover_text("Calls on the same Wi-Fi or hotspot")
+                    })
+                    .inner
+                })
+                .inner;
+            if find.clicked() {
+                self.search(ui.ctx().clone());
+            }
         } else {
             let find = ui
                 .add_enabled_ui(!self.fetching, |ui| {
@@ -184,7 +203,7 @@ impl Nearby {
                         Some(crate::icons::Icon::Signal),
                         "Find nearby calls",
                         Tone::Quiet,
-                        if cfg!(target_os = "android") { ui.available_width() } else { ui.available_width().min(theme::FORM_CONTROL_WIDTH) },
+                        ui.available_width().min(theme::FORM_CONTROL_WIDTH),
                     )
                 })
                 .inner;
@@ -229,7 +248,8 @@ impl Nearby {
                     self.code.clear();
                 }
             }
-        } else if searching {
+        } else if searching && !cfg!(target_os = "android") {
+            // The phone keeps this detail in the search row's tooltip.
             ui.label(
                 RichText::new("Hosts must enable nearby discovery in Connection.")
                     .small()
@@ -252,13 +272,29 @@ impl Nearby {
 /// Keep the running search on the same centred, 40-point control row as its idle button.
 fn search_control(ui: &mut egui::Ui) -> egui::Response {
     if cfg!(target_os = "android") {
-        return ui.horizontal(|ui| {
-            ui.allocate_ui_with_layout(egui::vec2((ui.available_width() - 96.0).max(1.0), 48.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.spinner();
-                ui.label(RichText::new("Searching nearby").small().color(MUTED));
-            });
-            crate::mobile::widgets::action(ui, None, "Stop", Tone::Quiet, 88.0)
-        }).inner;
+        // Same centred spot as the idle "Find nearby calls" link: spinner, status, Cancel.
+        let label = RichText::new("Searching…").size(16.0).color(MUTED);
+        let measure = |ui: &egui::Ui, text: &str| {
+            ui.painter()
+                .layout_no_wrap(text.into(), egui::FontId::proportional(16.0), MUTED)
+                .size()
+                .x
+        };
+        let text_width = measure(ui, "Searching…");
+        let cancel_width = measure(ui, "Cancel") + 24.0;
+        let total = 16.0 + 8.0 + text_width + 8.0 + cancel_width;
+        // A full-height row so the 48-point Cancel link and the label share one centre line.
+        let row = egui::vec2(ui.available_width(), 48.0);
+        return ui
+            .allocate_ui_with_layout(row, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                ui.add_space(((ui.available_width() - total) * 0.5).max(0.0));
+                ui.add(egui::Spinner::new().size(16.0).color(MUTED));
+                ui.label(label)
+                    .on_hover_text("Hosts must turn on nearby discovery in Connection.");
+                crate::mobile::widgets::link(ui, None, "Cancel")
+            })
+            .inner;
     }
     let width = ui.available_width().min(theme::FORM_CONTROL_WIDTH);
     let stop_width = 88.0_f32.min(width * 0.4);

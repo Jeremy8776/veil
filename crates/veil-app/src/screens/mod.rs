@@ -8,6 +8,7 @@
 //! strength are `effects.rs`.
 
 pub(crate) mod bento;
+pub(crate) mod cover;
 pub mod call;
 pub mod call_menus;
 pub mod call_top;
@@ -26,4 +27,5 @@ pub mod security_panel;
 pub mod share;
 pub mod share_bar;
 pub mod share_sound;
+pub(crate) mod speaker;
 pub mod stats;

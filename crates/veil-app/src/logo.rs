@@ -1,5 +1,5 @@
-//! Veil's mark, drawn live on the home screen: a white disc with the V cut out, and waves that
-//! ripple out from it.
+//! Veil's mark, drawn live on the desktop home screen and the phone's top bar: a white disc
+//! with the V cut out, and waves that ripple out from it.
 //!
 //! Purpose: the same mark as the app icon (`tools/make-icons.py`, whose geometry this copies),
 //! with the two static rings replaced by slow waves.
@@ -32,26 +32,18 @@ const WAVE_TO: f32 = 1.0 - RING_WIDTH * 0.5;
 /// A wave's strongest opacity.
 const WAVE_ALPHA: f32 = 0.65;
 
-/// Draws the logo `size` points square, centred in the row, on a `behind` coloured page.
-pub fn mark(painter: &egui::Painter, rect: egui::Rect, behind: Color32) {
-    let centre = rect.center();
-    let unit = rect.width().min(rect.height()) / 2.0;
-    for radius in [0.73, 0.94] {
-        painter.circle_stroke(centre, radius * unit, Stroke::new(RING_WIDTH * unit, LOGO));
-    }
-    painter.circle_filled(centre, DISC * unit, LOGO);
-    let points: Vec<Pos2> = V.iter().map(|&(x, y)| centre + vec2(x, y) * unit).collect();
-    painter.add(Shape::line(points.clone(), Stroke::new(V_WIDTH * unit, behind)));
-    for point in points { painter.circle_filled(point, V_WIDTH * unit / 2.0, behind); }
-}
-
-/// Draws the animated desktop mark.
+/// Draws the animated mark `size` points square in the row.
 pub fn show(ui: &mut egui::Ui, size: f32, behind: Color32) {
     let (rect, _) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
+    animated(ui, rect, behind);
+}
+
+/// Draws the animated mark in `rect`, on a `behind` coloured page.
+pub fn animated(ui: &egui::Ui, rect: egui::Rect, behind: Color32) {
     let time = ui.input(|i| i.time) as f32;
     let painter = ui.painter_at(rect.expand(1.0));
     let centre = rect.center();
-    let unit = size / 2.0;
+    let unit = rect.width().min(rect.height()) / 2.0;
     for (radius, alpha) in waves(time) {
         painter.circle_stroke(
             centre,

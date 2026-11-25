@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "revision": 34,
-  "updated_at": "2026-11-25T11:48:32+00:00",
+  "revision": 38,
+  "updated_at": "2026-11-25T17:13:17+00:00",
   "next_step": {
     "capability": "SHARE-01",
     "title": "Share computer sound with a screen",
@@ -216,10 +216,10 @@
       "updated_at": "2026-11-25T11:36:35+00:00"
     },
     "SHARE-02": {
-      "status": "planned",
-      "note": "Requested 25 November 2026; full acceptance gate open.",
+      "status": "in_progress",
+      "note": "Code complete on branch claude/hungry-bhaskara-a660c7: MediaProjection consent per share, mediaProjection service with Stop, phone sound via AudioPlaybackCapture on the shared share path. Verified: veil-media and veil-app targeted tests, desktop Clippy, Android build -Check (Android Clippy, APK checks). Needs Jeremy's phone test (SM-S9260, Android 17): start, stop (bar, notification, system indicator), denial, revoked consent, screen lock, leaving the call, picture and sound reaching a desktop receiver.",
       "evidence": [],
-      "updated_at": "2026-11-25T11:36:35+00:00"
+      "updated_at": "2026-11-25T17:12:37+00:00"
     },
     "FX-01": {
       "status": "planned",
@@ -249,9 +249,36 @@
       "started_at": "2026-11-25T10:53:47+00:00",
       "updated_at": "2026-11-25T11:48:32+00:00",
       "note": "Handoff written in docs/HANDOFF.md (local commit on docs/share-fx-roadmap). Next session starts SHARE-01."
+    },
+    "share-02-hungry-bhaskara": {
+      "title": "SHARE-02 Android screen share",
+      "status": "idle",
+      "started_at": "2026-11-25T16:58:55+00:00",
+      "updated_at": "2026-11-25T17:13:17+00:00",
+      "note": "SHARE-02 PR #94 open; CI pending; awaiting Jeremy's phone test"
     }
   },
   "activity": [
+    {
+      "at": "2026-11-25T17:13:17+00:00",
+      "session": "share-02-hungry-bhaskara",
+      "note": "SHARE-02 PR #94 open; CI pending; awaiting Jeremy's phone test"
+    },
+    {
+      "at": "2026-11-25T17:12:37+00:00",
+      "session": "share-02-hungry-bhaskara",
+      "note": "SHARE-02: in_progress — Code complete on branch claude/hungry-bhaskara-a660c7: MediaProjection consent per share, mediaProjection service with Stop, phone sound via AudioPlaybackCapture on the shared share path. Verified: veil-media and veil-app targeted tests, desktop Clippy, Android build -Check (Android Clippy, APK checks). Needs Jeremy's phone test (SM-S9260, Android 17): start, stop (bar, notification, system indicator), denial, revoked consent, screen lock, leaving the call, picture and sound reaching a desktop receiver."
+    },
+    {
+      "at": "2026-11-25T16:58:56+00:00",
+      "session": "share-02-hungry-bhaskara",
+      "note": "SHARE-02: in_progress — Designing MediaProjection share path into the shared encoder"
+    },
+    {
+      "at": "2026-11-25T16:58:55+00:00",
+      "session": "share-02-hungry-bhaskara",
+      "note": "Session opened: SHARE-02 Android screen share"
+    },
     {
       "at": "2026-11-25T11:48:32+00:00",
       "session": "claude-5341dbf7",

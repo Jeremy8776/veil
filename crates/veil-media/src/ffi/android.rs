@@ -41,7 +41,7 @@ pub fn init(app: android_activity::AndroidApp) -> Result<(), MediaError> {
     Ok(())
 }
 
-fn activity<T>(
+pub(crate) fn activity<T>(
     f: impl FnOnce(&mut Env<'_>, &JObject<'_>) -> jni::errors::Result<T>,
 ) -> Result<T, MediaError> {
     let app = APP
@@ -304,6 +304,19 @@ pub fn back_requested() -> bool {
         .z()
     })
     .unwrap_or(false)
+}
+
+/// Show or hide the on-screen keyboard. The Activity does it on the UI thread.
+pub fn keyboard(show: bool) {
+    let _ = activity(|env, object| {
+        env.call_method(
+            object,
+            jni_str!("veilKeyboard"),
+            jni_sig!((boolean) -> void),
+            &[JValue::Bool(show)],
+        )?;
+        Ok(())
+    });
 }
 
 pub fn call_active(active: bool) {

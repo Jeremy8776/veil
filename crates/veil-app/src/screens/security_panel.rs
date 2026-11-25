@@ -28,8 +28,13 @@ use crate::screens::group_check::{self, Group};
 use crate::theme::{self, ACCENT, MUTED, RAISED, RAISED_HOVER, TEXT};
 use crate::widgets::{self, Tone, pill};
 
-const ROW_H: f32 = 48.0;
-const NAME_LEFT: f32 = 46.0;
+/// The phone gets a centred header, taller rows and larger type, in the Apple manner.
+const PHONE: bool = cfg!(target_os = "android");
+const ROW_H: f32 = if PHONE { 60.0 } else { 48.0 };
+const NAME_LEFT: f32 = if PHONE { 56.0 } else { 46.0 };
+const AVATAR_R: f32 = if PHONE { 20.0 } else { 16.0 };
+const NAME_SIZE: f32 = if PHONE { 16.0 } else { 14.0 };
+const STATUS_SIZE: f32 = if PHONE { 14.0 } else { 12.5 };
 
 /// The person open in the panel, and what has been entered for them.
 pub struct Verifying {
@@ -201,6 +206,31 @@ pub fn show(view: &mut CallView, ui: &mut Ui) {
 }
 
 fn header(ui: &mut Ui, epoch: u64, demo: bool, verified: usize, total: usize) {
+    let tip = format!(
+        "Encrypted on each device. Relays and forwarders cannot open it.\n\
+         Key {epoch}: a new key starts whenever someone joins or leaves.\n\
+         Verifying is optional. It proves nobody is secretly between you and each person."
+    );
+    if PHONE {
+        // A calm centred hero: shield, title, one short summary. Detail in the tooltip.
+        ui.vertical_centered(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.add_space(8.0);
+            let (rect, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
+            Icon::Shield.paint(ui.painter(), rect.center(), 36.0, theme::SPEAKING);
+            ui.add_space(8.0);
+            ui.label(RichText::new("Encrypted").size(20.0).strong().color(TEXT))
+                .on_hover_text(tip);
+            ui.add_space(4.0);
+            let mut line = summary(verified, total);
+            if demo {
+                line.push_str(" · demo");
+            }
+            ui.label(RichText::new(line).size(14.0).color(MUTED));
+            ui.add_space(8.0);
+        });
+        return;
+    }
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(26.0, 36.0), Sense::hover());
         Icon::Shield.paint(ui.painter(), rect.center(), 20.0, theme::SPEAKING);
@@ -253,7 +283,7 @@ fn row(ui: &mut Ui, person: &Participant, open: bool) -> Response {
         painter.rect_stroke(rect, corners, Stroke::new(2.0, ACCENT), StrokeKind::Inside);
     }
     let y = rect.center().y;
-    widgets::avatar(painter, pos2(rect.left() + 22.0, y), 16.0, &person.name);
+    widgets::avatar(painter, pos2(rect.left() + 6.0 + AVATAR_R, y), AVATAR_R, &person.name);
 
     let mut right = rect.right() - 8.0;
     if can_open {
@@ -269,7 +299,7 @@ fn row(ui: &mut Ui, person: &Participant, open: bool) -> Response {
         pos2(right, y),
         Align2::RIGHT_CENTER,
         status.label(),
-        FontId::proportional(12.5),
+        FontId::proportional(STATUS_SIZE),
         colour,
     );
     let mut name_right = text.left() - 8.0;
@@ -282,7 +312,7 @@ fn row(ui: &mut Ui, person: &Participant, open: bool) -> Response {
     let name_left = rect.left() + NAME_LEFT;
     let mut job = egui::text::LayoutJob::single_section(
         person.name.clone(),
-        egui::TextFormat::simple(FontId::proportional(14.0), TEXT),
+        egui::TextFormat::simple(FontId::proportional(NAME_SIZE), TEXT),
     );
     job.wrap = egui::text::TextWrapping::truncate_at_width(name_right - name_left);
     let galley = ui.fonts_mut(|f| f.layout_job(job));
@@ -314,7 +344,7 @@ fn details(
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             if person.verified {
-                let forget = pill(ui, None, "Forget", Tone::Quiet, ui.available_width())
+                let forget = wide(ui, None, "Forget", Tone::Quiet)
                     .on_hover_text("Stop treating this device as verified.");
                 return forget.clicked().then_some(Step::Forgot);
             }
@@ -353,14 +383,16 @@ fn by_paste(
     .on_hover_text("Someone between you could change a code sent through this call.");
     ui.add_space(2.0);
     let width = ui.available_width();
-    if pill(ui, Some(Icon::Copy), "Copy my code", Tone::Quiet, width).clicked() {
+    if wide(ui, Some(Icon::Copy), "Copy my code", Tone::Quiet).clicked() {
         let code = share_code(&person.safety, person.side);
         ui.ctx().copy_text(share_message(first_name(me), name, &code));
         step = Some(Step::Copied);
     }
-    ui.add(
+    ui.add_sized(
+        [width, if PHONE { 48.0 } else { 20.0 }],
         TextEdit::singleline(&mut state.pasted)
             .hint_text(format!("Paste {name}'s message"))
+            .align(Align2::LEFT_CENTER)
             .char_limit(PASTE_LIMIT)
             .desired_width(width),
     );
@@ -401,10 +433,10 @@ fn by_hand(ui: &mut Ui, person: &Participant, state: &mut Verifying) -> Option<S
     );
     let groups: Vec<&str> = person.safety.split(' ').collect();
     for line in groups.chunks(4) {
-        ui.label(RichText::new(line.join("  ")).monospace().size(13.0));
+        ui.label(RichText::new(line.join("  ")).monospace().size(if PHONE { 16.0 } else { 13.0 }));
     }
     ui.add_space(2.0);
-    let matched = pill(ui, None, "They match", Tone::Quiet, ui.available_width())
+    let matched = wide(ui, None, "They match", Tone::Quiet)
         .on_hover_text("Remembers this device for future calls.");
     if quiet_link(ui, "Swap codes instead", MUTED).clicked() {
         state.by_hand = false;
@@ -413,7 +445,20 @@ fn by_hand(ui: &mut Ui, person: &Participant, state: &mut Verifying) -> Option<S
 }
 
 fn quiet_link(ui: &mut Ui, text: &str, colour: egui::Color32) -> Response {
+    if PHONE {
+        return crate::mobile::widgets::link(ui, None, text);
+    }
     ui.add(Button::new(RichText::new(text).small().color(colour)).frame(false))
+}
+
+/// A full-width button: the phone's 48-point action, or the desktop pill.
+fn wide(ui: &mut Ui, icon: Option<Icon>, text: &str, tone: Tone) -> Response {
+    let width = ui.available_width();
+    if PHONE {
+        crate::mobile::widgets::action(ui, icon, text, tone, width)
+    } else {
+        pill(ui, icon, text, tone, width)
+    }
 }
 
 #[cfg(test)]

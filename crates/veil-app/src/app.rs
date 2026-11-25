@@ -68,6 +68,8 @@ pub struct VeilApp {
     pub demo: bool,
     /// Everyone else's video in the current call, by participant id.
     pub remote: HashMap<u32, TextureHandle>,
+    /// Where each person's head is, for tiles that crop their picture.
+    pub framing: crate::framing::Framing,
     /// Whether Windows lets guests reach you, checked before you host.
     pub firewall: crate::firewall::Firewall,
     /// Your device key and the keys you verified, kept between calls.
@@ -128,6 +130,7 @@ impl VeilApp {
             joining: None,
             demo: false,
             remote: HashMap::new(),
+            framing: crate::framing::Framing::new(ctx.clone()),
             firewall: crate::firewall::Firewall::new(),
             keys: Arc::new(Mutex::new(KeyStore::open(keystore::default_dir()))),
             confirm_new_key: false,
@@ -282,6 +285,8 @@ impl VeilApp {
     /// Uploads pictures that arrived for other people's tiles.
     pub fn upload_remote(&mut self, pictures: Vec<(u32, crate::convert::Rgba)>) {
         for (id, picture) in pictures {
+            self.framing
+                .offer(id, picture.width, picture.height, &picture.pixels);
             let image = egui::ColorImage::from_rgba_unmultiplied(
                 [picture.width, picture.height],
                 &picture.pixels,
@@ -324,6 +329,9 @@ impl VeilApp {
         if !self.media.camera_on() {
             self.preview = None;
         } else if let Some(picture) = self.media.take_picture() {
+            let you = crate::framing::YOU;
+            self.framing
+                .offer(you, picture.width, picture.height, &picture.pixels);
             let image = egui::ColorImage::from_rgba_unmultiplied(
                 [picture.width, picture.height],
                 &picture.pixels,
@@ -415,26 +423,37 @@ impl eframe::App for VeilApp {
                 crate::mobile::apply_style(&ctx, font_scale);
                 ctx.data_mut(|data| data.insert_temp(font_id, font_scale));
             }
+            // Open the keyboard when a text field takes focus, close it when none has it.
+            let typing = ctx.text_edit_focused();
+            let keyboard_id = egui::Id::unique("android-keyboard");
+            if ctx.data(|data| data.get_temp::<bool>(keyboard_id)).unwrap_or(false) != typing {
+                veil_media::ffi::android::keyboard(typing);
+                ctx.data_mut(|data| data.insert_temp(keyboard_id, typing));
+            }
             let (left, right) = veil_media::ffi::android::side_insets();
             if left > 0 {
                 egui::Panel::left("android-left-inset")
                     .exact_size(left as f32 / scale)
                     .frame(egui::Frame::new().fill(crate::theme::PAGE))
+                    .show_separator_line(false)
                     .show(ui, |_| {});
             }
             if right > 0 {
                 egui::Panel::right("android-right-inset")
                     .exact_size(right as f32 / scale)
                     .frame(egui::Frame::new().fill(crate::theme::PAGE))
+                    .show_separator_line(false)
                     .show(ui, |_| {});
             }
             egui::Panel::top("android-status-bar")
                 .exact_size(top as f32 / scale)
                 .frame(egui::Frame::new().fill(crate::theme::PAGE))
+                .show_separator_line(false)
                 .show(ui, |_| {});
             egui::Panel::bottom("android-navigation-bar")
                 .exact_size(bottom as f32 / scale)
                 .frame(egui::Frame::new().fill(crate::theme::PAGE))
+                .show_separator_line(false)
                 .show(ui, |_| {});
             if matches!(self.screen, Screen::Home)
                 && let Some(invite) = veil_media::ffi::android::take_invite()

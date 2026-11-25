@@ -75,6 +75,8 @@ public final class VeilActivity extends NativeActivity {
     @Override public void onDestroy() {
         callActive = false;
         veilCloseCamera();
+        ScreenShare.stopAll();
+        stopService(new Intent(this, ShareService.class));
         stopService(new Intent(this, CallService.class));
         if (cameraThread != null) cameraThread.quitSafely();
         super.onDestroy();
@@ -94,6 +96,24 @@ public final class VeilActivity extends NativeActivity {
     public long veilInsets() { return ((long)topInset << 32) | (bottomInset & 0xffffffffL); }
     public long veilSideInsets() { return ((long)leftInset << 32) | (rightInset & 0xffffffffL); }
     public float veilFontScale() { return getResources().getConfiguration().fontScale; }
+    /** winit asks for the keyboard from the native thread with an implicit flag, which
+     *  Android 11+ refuses. Ask from the UI thread, explicitly, on the focused content view. */
+    public void veilKeyboard(boolean show) {
+        runOnUiThread(() -> {
+            android.view.View view = getWindow().getDecorView();
+            android.view.inputmethod.InputMethodManager input =
+                getSystemService(android.view.inputmethod.InputMethodManager.class);
+            if (show) {
+                view.setFocusable(true); view.setFocusableInTouchMode(true); view.requestFocus();
+                if (Build.VERSION.SDK_INT >= 30) view.getWindowInsetsController().show(android.view.WindowInsets.Type.ime());
+                else input.showSoftInput(view, 0);
+            } else if (Build.VERSION.SDK_INT >= 30) {
+                view.getWindowInsetsController().hide(android.view.WindowInsets.Type.ime());
+            } else {
+                input.hideSoftInputFromWindow(view.getWindowToken(), 0);
+            }
+        });
+    }
     public void veilBackground() { runOnUiThread(() -> moveTaskToBack(true)); }
     public boolean veilBackRequested() { boolean value = backRequested; backRequested = false; return value; }
     public boolean veilResumed() { return resumed; }
@@ -141,6 +161,39 @@ public final class VeilActivity extends NativeActivity {
         });
     }
 
+    // Screen sharing (SHARE-02). ScreenShare.java owns the projection; these only forward.
+    private static final int SHARE_REQUEST = 7;
+    private volatile int pendingShare = -1;
+
+    /** Opens Android's consent prompt for a new share and returns its generation. */
+    public int veilShareRequest() {
+        int asked = ScreenShare.request();
+        runOnUiThread(() -> {
+            try {
+                pendingShare = asked;
+                startActivityForResult(getSystemService(android.media.projection.MediaProjectionManager.class)
+                    .createScreenCaptureIntent(), SHARE_REQUEST);
+            } catch (RuntimeException problem) { ScreenShare.denied(asked); }
+        });
+        return asked;
+    }
+    private void shareResult(int result, Intent consent) {
+        int asked = pendingShare;
+        if (result != RESULT_OK || consent == null) { ScreenShare.denied(asked); return; }
+        Intent service = new Intent(this, ShareService.class).putExtra(ShareService.CODE, result)
+            .putExtra(ShareService.CONSENT, consent).putExtra(ShareService.GENERATION, asked);
+        try { startForegroundService(service); } catch (RuntimeException problem) { ScreenShare.denied(asked); }
+    }
+    public int veilShareStatus(int asked) { return ScreenShare.status(asked); }
+    public byte[] veilShareFrame(int asked) { return ScreenShare.frame(asked); }
+    public void veilShareStop(int asked) { ScreenShare.stop(asked); }
+    public boolean veilShareSoundPermitted() {
+        return checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+    }
+    public boolean veilShareSoundStart(int asked) { return ScreenShare.soundStart(this, asked); }
+    public byte[] veilShareSoundRead(int asked) { return ScreenShare.soundRead(asked); }
+    public void veilShareSoundStop(int asked) { ScreenShare.soundStop(asked); }
+
     /** Opens the system file picker; the result is read off the UI thread, capped at max + 1 bytes. */
     public void veilPickFile(int max) {
         pickMax = max; pickedName = ""; picked.set(null);
@@ -154,8 +207,10 @@ public final class VeilActivity extends NativeActivity {
     public String veilPickedName() { return pickedName; }
     public byte[] veilTakePicked() { return picked.getAndSet(null); }
 
+    @SuppressWarnings("deprecation")
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == SHARE_REQUEST) { shareResult(result, data); return; }
         if (request != PICK_FILE) return;
         android.net.Uri uri = result == RESULT_OK && data != null ? data.getData() : null;
         if (uri == null) { picked.set(new byte[0]); return; }

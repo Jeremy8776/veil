@@ -12,6 +12,7 @@
 //! - A real call reads the engine once per frame, before drawing, and hands it the host's
 //!   decisions from the model's outbox. It ends when the engine says so.
 
+use crate::screens::speaker::{self, Seat};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{
@@ -33,8 +34,10 @@ use crate::widgets::{ControlState, Tone, control, pill};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum View {
-    Gallery,
-    Speaker,
+    /// Everyone at once, in justified rows.
+    Group,
+    /// The active speaker large, everyone else small in a strip.
+    Focus,
 }
 
 pub struct CallView {
@@ -57,6 +60,8 @@ pub struct CallView {
     /// Who is sending computer sound with their share, by participant id.
     pub(super) sounding: Vec<u32>,
     pub(crate) tile_motion: layout::Motion,
+    /// Who holds the stage in Focus view, kept between frames for the speaker hold.
+    pub(crate) focus: Option<speaker::Focus>,
     /// The real call; `None` in a demo. Dropping it leaves the call.
     engine: Option<Engine>,
 }
@@ -67,7 +72,7 @@ impl CallView {
             engine,
             call,
             panel: None,
-            view: View::Gallery,
+            view: View::Group,
             draft: String::new(),
             verifying: None,
             notice: None,
@@ -78,11 +83,24 @@ impl CallView {
             sharers: Vec::new(),
             sounding: Vec::new(),
             tile_motion: layout::Motion::default(),
+            focus: None,
         }
     }
 
     pub fn notify(&mut self, text: &str) {
         self.notice = Some((text.to_string(), Instant::now()));
+    }
+
+    /// Moves the stage to whoever is speaking, with the speaker hold. Runs in both views,
+    /// so switching to Focus opens on whoever is talking.
+    pub(crate) fn update_focus(&mut self) {
+        let seats: Vec<_> = self.call.participants.iter().map(Seat::from).collect();
+        self.focus = speaker::pick(self.focus, &seats, Instant::now());
+    }
+
+    /// Whether anyone, you included, is sharing a screen.
+    pub(crate) fn sharing(&self, app: &VeilApp) -> bool {
+        !self.sharers.is_empty() || app.share_video().is_some()
     }
 
     pub(crate) fn watch_tiles(&self, tiles: Vec<(u32, f32)>) {

@@ -57,6 +57,18 @@ impl Review {
         }
         let mut open = self.open;
         let available = ctx.content_rect().size();
+        if cfg!(target_os = "android") {
+            // The phone's bottom sheet, tall and scrolling, instead of a desktop window.
+            self.open = crate::mobile::sheet::show(ctx, "diagnostic-review", "Connection report", |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(available.y * 0.75)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| self.content(ui));
+                    });
+            });
+            return;
+        }
         egui::Window::new("Connection report")
             .id(egui::Id::unique("diagnostic-review"))
             .open(&mut open)

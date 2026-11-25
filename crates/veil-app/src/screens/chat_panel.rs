@@ -23,6 +23,9 @@ use crate::widgets;
 /// Emoji per row in the picker.
 const PICKER_COLUMNS: usize = 8;
 
+/// The phone gets iMessage-style bubbles, a centred empty state and a rounded input.
+const PHONE: bool = cfg!(target_os = "android");
+
 pub fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     if view.call.demo {
         ui.label(
@@ -30,7 +33,8 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
                 .small()
                 .color(theme::WARN),
         );
-    } else {
+    } else if !PHONE {
+        // The phone's call bar already says Encrypted.
         ui.label(RichText::new("Encrypted").small().color(MUTED))
             .on_hover_text(
                 "Sent to everyone in the call, encrypted on your device. \
@@ -46,7 +50,14 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
         .stick_to_bottom(true)
         .show(ui, |ui| {
             if view.call.chat.is_empty() {
-                ui.label(RichText::new("No messages yet.").color(MUTED));
+                if PHONE {
+                    ui.add_space(list_h * 0.4);
+                    ui.vertical_centered(|ui| {
+                        ui.label(RichText::new("No messages yet").size(15.0).color(MUTED))
+                    });
+                } else {
+                    ui.label(RichText::new("No messages yet.").color(MUTED));
+                }
             }
             for message in &view.call.chat {
                 if let Some(chosen) = message_row(ui, message) {
@@ -59,30 +70,74 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     }
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        let input_width = (ui.available_width() - if cfg!(target_os = "android") { 112.0 } else { 76.0 }).max(1.0);
+        // The phone holds field, emoji and send inside one rounded pill, like iMessage.
+        let input_width = (ui.available_width() - if PHONE { 88.0 } else { 76.0 }).max(1.0);
+        if PHONE {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            let pill = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 48.0));
+            ui.painter().rect_filled(pill, 24.0, theme::SURFACE);
+            // Inset the text inside the pill. The field's own margin is not applied when it
+            // is sized with `add_sized`, so the space is added outside it.
+            ui.add_space(18.0);
+        }
+        let input_width = if PHONE { (input_width - 18.0).max(1.0) } else { input_width };
+        let mut edit = TextEdit::singleline(&mut view.draft)
+            .hint_text("Type a message")
+            .font(theme::chat_font(ui))
+            .align(egui::Align2::LEFT_CENTER)
+            .char_limit(veil_call::app_msg::MAX_CHAT_CHARS)
+            .desired_width(input_width);
+        if PHONE {
+            edit = edit
+                .frame(egui::Frame::NONE)
+                .margin(egui::Margin::symmetric(18, 0));
+        }
         let field = ui.add_sized(
             [input_width, if cfg!(target_os = "android") { 48.0 } else { 24.0 }],
-            TextEdit::singleline(&mut view.draft)
-                .hint_text("Type a message")
-                .font(theme::chat_font(ui))
-                .align(egui::Align2::LEFT_CENTER)
-                .char_limit(veil_call::app_msg::MAX_CHAT_CHARS)
-                .desired_width(input_width),
+            edit,
         );
         let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-        let emoji = widgets::icon_button(ui, Icon::Emoji, "Emoji");
+        let emoji = if PHONE {
+            round(ui, Icon::Emoji, "Emoji", None)
+        } else {
+            widgets::icon_button(ui, Icon::Emoji, "Emoji")
+        };
         if let Some(picked) = picker(&emoji) {
             if view.draft.chars().count() < veil_call::app_msg::MAX_CHAT_CHARS {
                 view.draft.push_str(picked);
             }
             field.request_focus();
         }
-        if widgets::icon_button(ui, Icon::Send, "Send message").clicked() || entered {
+        let send = if PHONE {
+            // An accent circle once there is something to send, as in iMessage.
+            let ready = !view.draft.trim().is_empty();
+            round(ui, Icon::Send, "Send message", ready.then_some(crate::mobile::widgets::PRIMARY))
+        } else {
+            widgets::icon_button(ui, Icon::Send, "Send message")
+        };
+        if send.clicked() || entered {
             view.call.send(&view.draft, now);
             view.draft.clear();
             field.request_focus();
         }
     });
+}
+
+/// A 44-point icon button inside the phone's input pill, on a 36-point circle of `fill`.
+fn round(ui: &mut egui::Ui, icon: Icon, text: &str, fill: Option<egui::Color32>) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(44.0, 48.0), egui::Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), text));
+    let centre = rect.center();
+    let ink = match fill {
+        Some(fill) => {
+            ui.painter().circle_filled(centre, 18.0, fill);
+            egui::Color32::WHITE
+        }
+        None if response.hovered() => theme::TEXT,
+        None => MUTED,
+    };
+    icon.paint(ui.painter(), centre, 20.0, ink);
+    response.on_hover_text(text)
 }
 
 /// One message with its reactions. Returns the reaction you chose, if any.
@@ -99,18 +154,25 @@ fn message_row(ui: &mut egui::Ui, message: &Message) -> Option<(u64, String)> {
                 .small()
                 .color(MUTED),
         );
-        let fill = if message.mine {
-            theme::ACCENT.gamma_multiply(0.35)
-        } else {
-            RAISED
+        // The phone uses solid, rounder bubbles in the iMessage manner.
+        let fill = match (message.mine, PHONE) {
+            (true, true) => crate::mobile::widgets::PRIMARY,
+            (true, false) => theme::ACCENT.gamma_multiply(0.35),
+            (false, _) => RAISED,
         };
+        let max = if PHONE { ui.available_width() * 0.75 } else { 250.0 };
         let bubble = egui::Frame::new()
             .fill(fill)
-            .corner_radius(egui::CornerRadius::same(8))
-            .inner_margin(egui::Margin::symmetric(10, 6))
+            .corner_radius(egui::CornerRadius::same(if PHONE { 18 } else { 8 }))
+            .inner_margin(if PHONE {
+                egui::Margin::symmetric(14, 9)
+            } else {
+                egui::Margin::symmetric(10, 6)
+            })
             .show(ui, |ui| {
-                ui.set_max_width(250.0);
-                ui.label(RichText::new(&message.text).family(theme::chat_family()));
+                ui.set_max_width(max);
+                let text = RichText::new(&message.text).family(theme::chat_family());
+                ui.label(if PHONE { text.size(16.0).color(egui::Color32::WHITE) } else { text });
             })
             .response;
         let id = message.id?;
@@ -120,7 +182,7 @@ fn message_row(ui: &mut egui::Ui, message: &Message) -> Option<(u64, String)> {
         let mut chosen = quick_reactions(&bubble).map(|emoji| (id, emoji.to_string()));
         if !message.reactions.is_empty() {
             ui.horizontal_wrapped(|ui| {
-                ui.set_max_width(250.0);
+                ui.set_max_width(max);
                 ui.spacing_mut().item_spacing.x = 4.0;
                 for reaction in &message.reactions {
                     if chip(ui, reaction).clicked() {

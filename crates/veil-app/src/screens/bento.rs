@@ -1,6 +1,7 @@
 //! One responsive, identity-keyed call canvas for desktop and Android.
 use super::{
     call::{CallView, View},
+    cover,
     share,
     share_sound::{self, Owner},
 };
@@ -10,7 +11,7 @@ use crate::{
     layout,
     model::Participant,
     theme,
-    widgets::{self, Tile},
+    widgets,
 };
 use eframe::egui::{self, Rect, TextureId, UiBuilder};
 
@@ -26,7 +27,7 @@ struct Cell {
     content: Content,
 }
 
-fn video(app: &VeilApp, person: &Participant) -> Option<(TextureId, [usize; 2])> {
+pub(crate) fn video(app: &VeilApp, person: &Participant) -> Option<(TextureId, [usize; 2])> {
     if !person.camera {
         return None;
     }
@@ -90,14 +91,12 @@ pub(crate) fn show(
         }
     }
     let shares = cells.len() > usize::from(waiting);
+    view.update_focus();
+    let focus = view.view == View::Focus;
     let featured = if waiting || shares {
         0
     } else {
-        let focused = if view.view == View::Speaker {
-            view.call.focus().map(|p| p.id)
-        } else {
-            None
-        };
+        let focused = view.focus.filter(|_| focus).map(|f| f.id);
         view.call
             .participants
             .iter()
@@ -112,9 +111,23 @@ pub(crate) fn show(
         });
     }
     let aspects: Vec<_> = cells.iter().map(|cell| cell.aspect).collect();
+    // Group: justified rows, so each card fills a cell of its own shape and no space is
+    // wasted. Focus: the speaker on stage over a strip. Screen shares keep the mosaic.
+    // In Focus the strip's tiles crop to fill, framed on each face; the stage keeps its card.
+    let strip = (focus && !waiting && !shares)
+        .then(|| cells.get(featured).map(|c| c.key))
+        .flatten();
+    let rects = if waiting || shares {
+        layout::bento(&aspects, featured, area, 12.0)
+    } else if focus {
+        layout::focus(&aspects, featured, area, 12.0)
+    } else {
+        layout::justified(&aspects, area, 12.0)
+            .unwrap_or_else(|| layout::bento(&aspects, featured, area, 12.0))
+    };
     let targets: Vec<_> = cells
         .iter()
-        .zip(layout::bento(&aspects, featured, area, 12.0))
+        .zip(rects)
         .map(|(cell, rect)| (cell.key, rect))
         .collect();
     // Request final widths once, rather than changing subscriptions on every animation frame.
@@ -158,25 +171,19 @@ pub(crate) fn show(
             Content::Waiting => {
                 child
                     .painter()
-                    .rect_filled(placement.rect, theme::RADIUS, theme::TILE);
+                    .rect_filled(placement.rect, widgets::CARD_RADIUS, theme::TILE);
                 waiting_area = Some(placement.rect);
             }
             Content::Screen(label, source, owner) => {
                 share::stage(&child, placement.rect, *source, label);
                 share_sound::overlay(&mut child, placement.rect, app, *owner);
             }
-            Content::Person(person) => widgets::tile(
-                &child,
-                placement.rect,
-                &Tile {
-                    name: &person.name,
-                    video: video(app, person),
-                    muted: person.muted,
-                    speaking: person.speaking,
-                    hand_raised: person.hand_raised,
-                    is_you: person.is_you,
-                },
-            ),
+            Content::Person(person) => {
+                // Every tile fills its cell, cropped around the face where the cell's shape
+                // differs from the picture. Group's cells already match their pictures.
+                let small = strip.is_some_and(|key| key != cell.key);
+                cover::tile(&child, child.painter(), app, placement.rect, person, small, true);
+            }
         }
     }
     waiting_area

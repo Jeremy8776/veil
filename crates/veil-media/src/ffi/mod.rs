@@ -4,6 +4,8 @@
 
 #[cfg(target_os = "android")]
 pub mod android;
+#[cfg(target_os = "android")]
+pub mod android_share;
 #[cfg(target_os = "macos")]
 pub mod macos;
 // Also built for tests on Windows, so its unsafe code runs on the machine it is written on.

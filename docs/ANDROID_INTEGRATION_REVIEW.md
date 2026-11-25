@@ -178,3 +178,12 @@ verified identity retention. No new remote-media delivery was claimed from this 
 the shared NV12 mirror's existing padding/chroma and invalid-buffer tests both passed, and
 all six preference tests passed. The Android build, expanded Clippy and same-signer install
 also passed with the new control.
+
+## Screen share ownership (SHARE-02)
+
+| Boundary | Behaviour | Remaining evidence |
+|---|---|---|
+| Consent and service | Each share opens Android's MediaProjection prompt. On yes, `ShareService` enters the foreground with type `mediaProjection`, then obtains the projection. No yes, no service. | Phone test: start, denial, rapid start/stop. |
+| Frame hand-off | `ScreenShare.java` copies each RGBA image into a new array with a size header, then publishes it only if its generation is current and the share live, under the same lock that stops it. Rust checks the Java array length before copying and validates the header and size cap (`projection.rs`). | Phone test of frame rate and memory use at the share size. |
+| JNI references | All calls go through `ffi/android.rs`'s owned global Activity reference and current-thread attachment. No JNI reference is kept on the share or sound workers. | None beyond the existing bridge. |
+| Teardown | Stop share, the notification's Stop sharing, Android's indicator (`MediaProjection.Callback.onStop`), screen off, leaving the call, task removal and Activity destruction release sound, display, reader, projection and service together. A second stop does nothing. | Phone test: each route ends in a clear state with capture stopped. |

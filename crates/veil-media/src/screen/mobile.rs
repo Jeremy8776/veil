@@ -1,9 +1,51 @@
-//! Mobile does not offer desktop screen capture. Camera and received screen video still work.
+//! Android screen sharing (SHARE-02) through MediaProjection, behind the same interface as
+//! desktop capture, so the app's share thread, encoder and wire format are shared.
+//!
+//! Purpose: Android's consent prompt is the system chooser ([`uses_system_chooser`]), as the
+//! portal is on Wayland. It offers the whole screen or a single app where the Android version
+//! supports that. A yes gives a [`ScreenSource::Picked`] holding the consent's generation.
+//!
+//! Invariants:
+//! - Every share asks for consent again. Nothing is kept from one share to the next.
+//! - The projection stops when the chooser's answer, every capture and the share sound have
+//!   all let go (`projection::Holds`), or when Android ends it (Stop in the notification or
+//!   the system indicator, revoked consent, screen lock). [`ScreenCapture::has_ended`] then
+//!   says so, and the app's share thread stops.
+//! - Pictures arrive copied and size-capped; Java's generation check drops any from an older
+//!   share. Secure windows arrive black: Android blanks them, not Veil.
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
 use crate::MediaError;
+use crate::ffi::android_share as bridge;
 use crate::ladder::MAX_DIMENSION;
+use crate::projection::{self, Holds, Status};
 const MIN_SIZE: u32 = 16;
-const UNAVAILABLE: MediaError =
-    MediaError::Unavailable("screen sharing is not available in the mobile preview");
+const UNAVAILABLE: MediaError = MediaError::Unavailable("this screen source on Android");
+/// How long the consent prompt may stay open before the share is given up.
+const CONSENT_WAIT: Duration = Duration::from_secs(300);
+
+static HOLDS: Mutex<Holds> = Mutex::new(Holds::new());
+
+fn holds() -> std::sync::MutexGuard<'static, Holds> {
+    HOLDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Adds a holder to the projection in use. Its generation, if there is one.
+pub(crate) fn hold_current() -> Option<u32> {
+    let mut holds = holds();
+    let generation = holds.current()?;
+    holds.take(generation).then_some(generation)
+}
+
+/// Lets go of one hold, stopping the projection after the last.
+pub(crate) fn let_go(generation: u32) {
+    let last = holds().release(generation);
+    if last {
+        bridge::stop(generation);
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ScreenSource {
     Monitor(u32),
@@ -45,38 +87,96 @@ pub struct Grabbed {
     pub rgba: Vec<u8>,
 }
 
+/// Android's consent prompt chooses what to share.
 pub fn uses_system_chooser() -> bool {
-    false
+    true
 }
+
+/// Opens Android's consent prompt and waits for the answer: a source, or `None` if the person
+/// said no. Blocks, so call it off the interface thread.
 pub fn choose_on_desktop() -> Result<Option<ScreenSource>, MediaError> {
-    Err(UNAVAILABLE)
+    let generation = bridge::request()?;
+    let asked = Instant::now();
+    loop {
+        match bridge::status(generation) {
+            Status::Waiting if asked.elapsed() < CONSENT_WAIT => {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Status::Live => {
+                holds().granted(generation);
+                return Ok(Some(ScreenSource::Picked(generation)));
+            }
+            Status::Waiting => {
+                bridge::stop(generation);
+                return Ok(None);
+            }
+            Status::Denied | Status::Ended => return Ok(None),
+        }
+    }
 }
-pub fn release(_: ScreenSource) {}
+
+/// Lets go of the chooser's answer. The projection stops unless a capture holds it.
+pub fn release(source: ScreenSource) {
+    if let ScreenSource::Picked(generation) = source {
+        let_go(generation);
+    }
+}
 pub fn hide_window_from_capture(_: &str) -> bool {
     false
 }
 pub fn set_main_window_hidden(_: &str, _: bool) -> bool {
     false
 }
+/// Android lists nothing: its consent prompt chooses.
 pub fn open_all(_: u32) -> Result<Vec<(ScreenChoice, ScreenCapture)>, MediaError> {
     Ok(Vec::new())
 }
-pub struct ScreenCapture;
+
+/// A hold on the running projection, reading its pictures.
+pub struct ScreenCapture {
+    generation: u32,
+}
+
 impl ScreenCapture {
-    pub fn open(_: ScreenSource) -> Result<Self, MediaError> {
-        Err(UNAVAILABLE)
+    pub fn open(source: ScreenSource) -> Result<Self, MediaError> {
+        let ScreenSource::Picked(generation) = source else {
+            return Err(UNAVAILABLE);
+        };
+        if !holds().take(generation) {
+            return Err(MediaError::Capture("the screen share has ended"));
+        }
+        Ok(Self { generation })
     }
-    pub fn open_live(_: ScreenSource) -> Result<Self, MediaError> {
-        Err(UNAVAILABLE)
+    pub fn open_live(source: ScreenSource) -> Result<Self, MediaError> {
+        Self::open(source)
     }
     pub fn open_thumbnail(_: ScreenSource) -> Result<Self, MediaError> {
         Err(UNAVAILABLE)
     }
+    /// True once Android has stopped the projection.
     pub fn has_ended(&self) -> bool {
-        true
+        bridge::status(self.generation) != Status::Live
     }
+    /// The newest picture, or `None` if the screen has not changed since the last one.
     pub fn grab(&self) -> Result<Option<Grabbed>, MediaError> {
-        Err(UNAVAILABLE)
+        if self.has_ended() {
+            return Err(MediaError::Capture("the screen share has ended"));
+        }
+        let Some(bytes) = bridge::frame(self.generation)? else {
+            return Ok(None);
+        };
+        let frame = projection::unpack_frame(bytes)?;
+        Ok(Some(Grabbed {
+            width: frame.width,
+            height: frame.height,
+            rgba: frame.rgba,
+        }))
+    }
+}
+
+impl Drop for ScreenCapture {
+    fn drop(&mut self) {
+        let_go(self.generation);
     }
 }
 /// The pixels `crop` covers in a `width` x `height` picture (all of it without a crop), with

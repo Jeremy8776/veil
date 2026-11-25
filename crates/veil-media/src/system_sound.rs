@@ -9,6 +9,7 @@
 //! | Windows | WASAPI process loopback (`ffi/windows/loopback.rs`) | excluding Veil's process tree |
 //! | macOS | ScreenCaptureKit audio (`ffi/macos/system_sound.rs`) | `excludesCurrentProcessAudio` |
 //! | Linux | PipeWire (`system_sound/linux.rs`) | linking every app's output except Veil's |
+//! | Android | `AudioPlaybackCapture` (`system_sound/android.rs`) | excluding Veil's app; call audio is never matched |
 //!
 //! Invariants:
 //! - Veil's own playback (everyone else in the call) is never captured, so nobody hears
@@ -30,9 +31,13 @@ use crate::audio::AudioSettings;
 
 #[cfg(any(target_os = "linux", test))]
 pub mod graph;
+#[cfg(target_os = "android")]
+mod android;
 #[cfg(target_os = "linux")]
 mod linux;
 
+#[cfg(target_os = "android")]
+pub use android::PhoneSound as SystemSound;
 #[cfg(target_os = "macos")]
 pub use crate::ffi::macos::SckAudio as SystemSound;
 #[cfg(windows)]
@@ -64,7 +69,9 @@ pub fn support() -> Support {
     return crate::ffi::macos::sck_audio_support();
     #[cfg(target_os = "linux")]
     return linux::support();
-    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "android")]
+    return android::support();
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux", target_os = "android")))]
     Support::Unavailable("Not available on this device")
 }
 

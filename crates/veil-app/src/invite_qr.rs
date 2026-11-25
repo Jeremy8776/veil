@@ -76,6 +76,42 @@ pub fn show(ctx: &egui::Context, text: &str) {
             ctx.data_mut(|data| data.insert_temp(cache_id(), code.clone()));
         }),
     };
+    if cfg!(target_os = "android") {
+        open = crate::mobile::sheet::show(ctx, "invite-qr", "Invite", |ui| {
+            match &code {
+                Ok(code) => {
+                    let side = ui.available_width().min(280.0);
+                    // A white rounded card, the code inset by its quiet zone.
+                    let (card, _) = ui.allocate_exact_size(vec2(side, side), egui::Sense::hover());
+                    ui.painter().rect_filled(card, 16.0, Color32::WHITE);
+                    paint(ui, code, card.shrink(12.0), false);
+                }
+                Err(problem) => {
+                    ui.label(RichText::new(problem.as_str()).color(crate::theme::MUTED));
+                }
+            }
+            ui.add_space(24.0);
+            let (slot, _) = ui.allocate_exact_size(vec2(88.0, 72.0), egui::Sense::hover());
+            let mut slot = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(slot)
+                    .layout(egui::Layout::top_down(egui::Align::Center)),
+            );
+            if crate::mobile::widgets::call_control(&mut slot, crate::icons::Icon::Copy, "Copy invite", false, false)
+                .on_hover_text("Anyone who sees this code can ask to join. You still decide who gets in.")
+                .clicked()
+            {
+                ctx.copy_text(text.to_string());
+            }
+        });
+        ctx.data_mut(|data| {
+            data.insert_temp(open_id(), open);
+            if !open {
+                data.remove::<Code>(cache_id());
+            }
+        });
+        return;
+    }
     egui::Window::new("Full invitation QR")
         .open(&mut open).collapsible(false).resizable(false)
         .default_width(420.0).show(ctx, |ui| {
@@ -85,24 +121,10 @@ pub fn show(ctx: &egui::Context, text: &str) {
             ui.add_space(8.0);
             match &code {
                 Ok(code) => {
-                    let scale = ctx.pixels_per_point();
-                    let cells = code.size + 8; // Four-module quiet zone on every side.
-                    let pixel = ((ui.available_width().min(420.0)*scale)/cells as f32).floor().max(1.0);
-                    let unit = pixel/scale;
-                    let side = cells as f32 * unit;
-                    let (rect, _) = ui.allocate_exact_size(vec2(side,side), egui::Sense::hover());
-                    let painter = ui.painter();
-                    painter.rect_filled(rect, 0.0, Color32::WHITE);
-                    for y in 0..code.size {
-                        for x in 0..code.size {
-                            let index = (y*code.size+x) as usize;
-                            if code.modules.get(index).copied().unwrap_or(false) {
-                                let at = pos2((rect.left()*scale).round()/scale+(x+4) as f32*unit,
-                                    (rect.top()*scale).round()/scale+(y+4) as f32*unit);
-                                painter.rect_filled(egui::Rect::from_min_size(at,vec2(unit,unit)),0.0,Color32::BLACK);
-                            }
-                        }
-                    }
+                    let side = ui.available_width().min(420.0);
+                    let (rect, _) = ui.allocate_exact_size(vec2(side, side), egui::Sense::hover());
+                    ui.painter().rect_filled(rect, 0.0, Color32::WHITE);
+                    paint(ui, code, rect, true);
                 }
                 Err(problem) => { ui.label(problem); }
             }
@@ -115,6 +137,27 @@ pub fn show(ctx: &egui::Context, text: &str) {
             data.remove::<Code>(cache_id());
         }
     });
+}
+
+/// Paints `code` in black modules on whole device pixels, centred in `area`. With `quiet`,
+/// a four-module quiet zone is kept inside `area`; without it, the caller's white margin is
+/// the quiet zone.
+fn paint(ui: &egui::Ui, code: &Code, area: egui::Rect, quiet: bool) {
+    let scale = ui.ctx().pixels_per_point();
+    let cells = code.size + if quiet { 8 } else { 0 };
+    let unit = ((area.width().min(area.height()) * scale) / cells as f32).floor().max(1.0) / scale;
+    let side = code.size as f32 * unit;
+    let origin = area.center() - vec2(side, side) * 0.5;
+    let origin = pos2((origin.x * scale).round() / scale, (origin.y * scale).round() / scale);
+    let painter = ui.painter();
+    for y in 0..code.size {
+        for x in 0..code.size {
+            if code.modules.get((y * code.size + x) as usize).copied().unwrap_or(false) {
+                let at = origin + vec2(x as f32 * unit, y as f32 * unit);
+                painter.rect_filled(egui::Rect::from_min_size(at, vec2(unit, unit)), 0.0, Color32::BLACK);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
