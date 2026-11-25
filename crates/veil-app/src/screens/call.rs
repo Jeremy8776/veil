@@ -54,6 +54,8 @@ pub struct CallView {
     pub picker: Option<SharePicker>,
     /// Who is sharing their screen, by participant id.
     pub(super) sharers: Vec<u32>,
+    /// Who is sending computer sound with their share, by participant id.
+    pub(super) sounding: Vec<u32>,
     pub(crate) tile_motion: layout::Motion,
     /// The real call; `None` in a demo. Dropping it leaves the call.
     engine: Option<Engine>,
@@ -74,6 +76,7 @@ impl CallView {
             stats: false,
             picker: None,
             sharers: Vec::new(),
+            sounding: Vec::new(),
             tile_motion: layout::Motion::default(),
         }
     }
@@ -145,6 +148,7 @@ impl CallView {
             app.diagnostics.call = Some(snapshot);
             app.upload_remote(engine.take_pictures());
             self.sharers = engine.sharers();
+            self.sounding = engine.sounding();
             app.keep_screens(&self.sharers);
             // A guest's timer starts when the host lets them in, not in the lobby.
             if !was_live && self.call.status == CallStatus::Live && !self.call.is_host {
@@ -160,6 +164,9 @@ impl CallView {
         }
         if app.share.take_stopped() {
             self.notify("Screen sharing stopped.");
+        }
+        if let Some(why) = app.share.sound.take_error() {
+            self.notify(&why);
         }
         self.sync_you(app);
         if cfg!(target_os = "android") {

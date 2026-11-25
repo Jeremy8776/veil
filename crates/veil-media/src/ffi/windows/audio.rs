@@ -164,7 +164,7 @@ impl Drop for Endpoint {
 }
 
 /// 48 kHz 32-bit float in the requested channel count.
-fn float_format(channels: Channels) -> WAVEFORMATEXTENSIBLE {
+pub(super) fn float_format(channels: Channels) -> WAVEFORMATEXTENSIBLE {
     let count = channels.count() as u16;
     WAVEFORMATEXTENSIBLE {
         Format: WAVEFORMATEX {

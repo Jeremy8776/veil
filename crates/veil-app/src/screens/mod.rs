@@ -3,7 +3,8 @@
 //! menus (`call_menus.rs`), the bar's device controls (`controls.rs`), the
 //! stats overlay (`stats.rs`) and the side panels (`panels.rs`, with Security in
 //! `security_panel.rs` and its group check in `group_check.rs`). Screen sharing's picker and
-//! stage are `share.rs`, its floating bar `share_bar.rs`. Settings > Connection is
+//! stage are `share.rs`, its floating bar `share_bar.rs` and its sound controls
+//! `share_sound.rs`. Settings > Connection is
 //! `connection.rs`.
 
 pub(crate) mod bento;
@@ -23,4 +24,5 @@ pub mod prejoin;
 pub mod security_panel;
 pub mod share;
 pub mod share_bar;
+pub mod share_sound;
 pub mod stats;

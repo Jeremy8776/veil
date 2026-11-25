@@ -7,7 +7,8 @@
 //!   and the host's layout of each key epoch;
 //! - `video_out.rs`, a thread that encodes your camera (H.264 simulcast);
 //! - `video_in.rs`, a thread that checks and decodes everyone else's video;
-//! - `audio_out.rs`, a thread that orders, decodes, mixes and plays everyone's sound.
+//! - `audio_out.rs`, a thread that orders, decodes, mixes and plays everyone's sound, and the
+//!   computer sound of their shares.
 //!
 //! Your camera and microphone threads (`media.rs`) feed the engine through [`Taps`].
 //! Every call uses your saved device key (`keystore.rs`), and [`Engine::act`] saves the keys
@@ -36,6 +37,8 @@ mod reach;
 mod router;
 mod screen_proof;
 mod session;
+mod sound_out;
+mod sound_proof;
 pub mod stats;
 mod video_in;
 mod video_out;
@@ -77,6 +80,8 @@ pub struct Taps {
     pub screen: SyncSender<Captured>,
     /// One 20 ms frame of interleaved samples (`AudioSettings::voice`).
     pub audio: mpsc::Sender<Vec<f32>>,
+    /// One 20 ms frame of your share's computer sound (`AudioSettings::share_sound`).
+    pub share_sound: mpsc::Sender<Vec<f32>>,
 }
 
 /// Start a call, or join one from an invite.
@@ -156,6 +161,7 @@ impl Engine {
         let (video_tx, video_rx) = sync_channel(1);
         let (screen_tx, screen_rx) = sync_channel(1);
         let (sound_tx, sound_rx) = mpsc::channel(8);
+        let (share_sound_tx, share_sound_rx) = mpsc::channel(8);
         let (encoded_tx, encoded_rx) = mpsc::channel(32);
         let (video_in_tx, video_in_rx) = sync_channel(64);
         let (audio_in_tx, audio_in_rx) = sync_channel(128);
@@ -185,6 +191,7 @@ impl Engine {
         let pipes = session::Pipes {
             encoded: encoded_rx,
             sound: sound_rx,
+            share_sound: share_sound_rx,
             keyframes: keyframe_rx,
             video_in: video_in_tx,
             audio_in: audio_in_tx,
@@ -241,6 +248,7 @@ impl Engine {
                 video: video_tx,
                 screen: screen_tx,
                 audio: sound_tx,
+                share_sound: share_sound_tx,
             },
             _workers: workers,
         })
@@ -367,6 +375,11 @@ impl Engine {
     /// Who is sharing their screen now, by participant id.
     pub fn sharers(&self) -> Vec<u32> {
         self.shared.sharers()
+    }
+
+    /// Who is sending computer sound with their share now, by participant id.
+    pub fn sounding(&self) -> Vec<u32> {
+        self.shared.sounding()
     }
 
     /// Pictures decoded since the last call: by participant id, or [`screen_key`] of it.

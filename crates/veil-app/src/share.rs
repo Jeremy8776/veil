@@ -24,6 +24,7 @@
 //! - Pictures keep flowing while the screen is still, so receivers can tell that sharing goes
 //!   on: they drop a share that has been silent for a few seconds (`engine/video_in.rs`).
 //! - Window titles are never logged or sent.
+//! - Computer sound goes only with a share it was chosen for, and stops with it (`sound.rs`).
 //! - Where the desktop's own chooser picks the source (Wayland), it opens in place of the list
 //!   and thumbnails. A picked source stays open only while the picker or a share uses it.
 
@@ -40,7 +41,10 @@ use crate::convert::{Rgba, nv12_to_rgba};
 use crate::engine::Captured;
 use crate::media::{Worker, lock};
 
+mod sound;
 mod thumbnails;
+
+pub use sound::{SoundShare, SoundState, SoundSupport};
 
 use thumbnails::{browse_loop, shrink};
 
@@ -133,7 +137,7 @@ struct State {
 
 /// What the floating sharing bar can do. It runs apart from the main window.
 #[derive(Clone)]
-pub struct ShareBar(Arc<State>);
+pub struct ShareBar(Arc<State>, Arc<SoundState>);
 
 impl ShareBar {
     pub fn stop(&self) {
@@ -148,6 +152,11 @@ impl ShareBar {
     pub fn change(&self) {
         cover_picker(&self.0);
         self.0.change_asked.store(true, Ordering::Release);
+    }
+
+    /// The share's computer sound: whether it is on, its level and mute.
+    pub fn sound(&self) -> &SoundState {
+        &self.1
     }
 
     /// Keeps the bar's window, found by `title`, out of captures. True means try again soon:
@@ -176,10 +185,13 @@ pub struct ScreenShare {
     browser: Option<Worker>,
     /// A source picked in the desktop's chooser that no share has taken yet.
     picked: Option<ScreenSource>,
+    /// The share's computer sound, when chosen.
+    pub sound: SoundShare,
 }
 
 impl ScreenShare {
     pub fn new(ctx: egui::Context) -> Self {
+        let sound = SoundShare::new(ctx.clone());
         Self {
             ctx,
             state: Arc::default(),
@@ -187,6 +199,7 @@ impl ScreenShare {
             preview: None,
             browser: None,
             picked: None,
+            sound,
         }
     }
 
@@ -200,7 +213,7 @@ impl ScreenShare {
     }
 
     pub fn bar(&self) -> ShareBar {
-        ShareBar(self.state.clone())
+        ShareBar(self.state.clone(), self.sound.state())
     }
 
     pub fn bar_hidden(&self) -> bool {
@@ -359,8 +372,9 @@ impl ScreenShare {
         }
     }
 
-    /// Starts sharing `source`, or the part of it `crop` covers.
-    pub fn start(&mut self, source: ScreenSource, crop: Option<Crop>) {
+    /// Starts sharing `source`, or the part of it `crop` covers, with the computer's sound if
+    /// `with_sound`.
+    pub fn start(&mut self, source: ScreenSource, crop: Option<Crop>, with_sound: bool) {
         // The share thread lets go of a picked source once it has opened it.
         if self.picked == Some(source) {
             self.picked = None;
@@ -380,9 +394,15 @@ impl ScreenShare {
         self.live = Some(Worker::spawn(move |stop| {
             share_loop(&state, &ctx, &stop, source, crop);
         }));
+        if with_sound {
+            self.sound.start(self.state.clone());
+        } else {
+            self.sound.stop();
+        }
     }
 
     pub fn stop(&mut self) {
+        self.sound.stop();
         if self.live.take().is_some() {
             crate::note!("screen share: stopped");
         }
@@ -402,6 +422,7 @@ impl ScreenShare {
             return false;
         }
         self.live = None;
+        self.sound.stop();
         *lock(&self.state.sending) = None;
         true
     }

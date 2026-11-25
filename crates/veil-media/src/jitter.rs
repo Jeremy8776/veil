@@ -222,6 +222,7 @@ mod tests {
         AudioHeader {
             sequence,
             timestamp_us: u64::from(sequence) * FRAME_US,
+            share: false,
         }
     }
 
@@ -356,6 +357,7 @@ mod tests {
         let forged = AudioHeader {
             sequence: 4 + 0x7FFF_FFFF,
             timestamp_us: 0,
+            share: false,
         };
         buffer.push(forged, &[0xAA], 0);
         let mut played = 0;
@@ -378,6 +380,7 @@ mod tests {
         let forged = AudioHeader {
             sequence: 4 + 0x7FFF_FFFF,
             timestamp_us: u64::MAX / 2,
+            share: false,
         };
         buffer.push(forged, &[0xAA], 0);
         let mut played = 0;

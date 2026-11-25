@@ -8,7 +8,7 @@
 //!
 //! | Bytes | Field |
 //! |---|---|
-//! | 0 | version, 1 |
+//! | 0 | version, 1, in the low seven bits; the top bit marks computer sound from a share |
 //! | 1..5 | sequence number, one per packet, wrapping |
 //! | 5..13 | capture time of the packet's first sample in microseconds, sender's own clock |
 //!
@@ -16,6 +16,10 @@
 //! - Always 48 kHz. Opus decodes any packet at any rate, so receivers never negotiate.
 //! - A header parses only if its version is known and an Opus packet of 1 to
 //!   [`MAX_PACKET_LEN`] bytes follows.
+//! - Computer sound from a screen share ([`AudioHeader::share`]) is a stream of its own beside
+//!   the microphone, with its own sequence numbers. The mark is inside the sealed datagram, so
+//!   a forwarder cannot tell the two apart. A version without it reads the first byte as an
+//!   unknown version and drops the packet, rather than playing a share as someone's voice.
 
 use crate::MediaError;
 
@@ -27,6 +31,8 @@ pub const MAX_FRAME_SAMPLES: usize = SAMPLE_RATE as usize * 120 / 1000;
 
 pub const AUDIO_VERSION: u8 = 1;
 pub const AUDIO_HEADER_LEN: usize = 13;
+/// The top bit of the first byte: this packet is computer sound from a screen share.
+const SHARE: u8 = 0x80;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Channels {
@@ -62,6 +68,8 @@ pub struct AudioSettings {
     /// Every packet the same size. Variable-bitrate packet sizes follow the speech closely
     /// enough to give away words even when encrypted; constant bitrate gives away nothing.
     pub constant_bitrate: bool,
+    /// Tune the encoder for music and other full-range sound rather than speech.
+    pub music: bool,
 }
 
 impl AudioSettings {
@@ -77,6 +85,19 @@ impl AudioSettings {
             dtx: false,
             complexity: 9,
             constant_bitrate: true,
+            music: false,
+        }
+    }
+
+    /// Computer sound from a screen share: stereo, 20 ms, 64 kbit/s at a constant bitrate,
+    /// tuned for music, with FEC on for 10% loss. Constant bitrate for the same reason as
+    /// [`Self::voice`]: a share may carry speech too.
+    pub fn share_sound() -> Self {
+        Self {
+            channels: Channels::Stereo,
+            bitrate: 64_000,
+            music: true,
+            ..Self::voice()
         }
     }
 
@@ -111,6 +132,8 @@ impl AudioSettings {
 pub struct AudioHeader {
     pub sequence: u32,
     pub timestamp_us: u64,
+    /// Computer sound from the sender's screen share, not their microphone.
+    pub share: bool,
 }
 
 impl AudioHeader {
@@ -118,7 +141,7 @@ impl AudioHeader {
     pub fn write(&self, packet: &[u8]) -> Result<Vec<u8>, MediaError> {
         check_packet(packet)?;
         let mut out = Vec::with_capacity(AUDIO_HEADER_LEN + packet.len());
-        out.push(AUDIO_VERSION);
+        out.push(AUDIO_VERSION | if self.share { SHARE } else { 0 });
         out.extend_from_slice(&self.sequence.to_be_bytes());
         out.extend_from_slice(&self.timestamp_us.to_be_bytes());
         out.extend_from_slice(packet);
@@ -133,9 +156,10 @@ impl AudioHeader {
         let (version, rest) = head
             .split_first()
             .ok_or(MediaError::Malformed("short audio payload"))?;
-        if *version != AUDIO_VERSION {
+        if *version & !SHARE != AUDIO_VERSION {
             return Err(MediaError::Malformed("audio version"));
         }
+        let share = *version & SHARE != 0;
         let (sequence, timestamp) = rest.split_at(4);
         let sequence = u32::from_be_bytes(
             sequence
@@ -152,6 +176,7 @@ impl AudioHeader {
             Self {
                 sequence,
                 timestamp_us,
+                share,
             },
             packet,
         ))
@@ -177,6 +202,7 @@ mod tests {
         let header = AudioHeader {
             sequence: u32::MAX,
             timestamp_us: 123_456_789,
+            share: false,
         };
         let payload = header.write(&[0xF8, 1, 2])?;
         assert_eq!(payload.len(), AUDIO_HEADER_LEN + 3);
@@ -191,6 +217,7 @@ mod tests {
         let header = AudioHeader {
             sequence: 1,
             timestamp_us: 2,
+            share: false,
         };
         assert_eq!(
             header.write(&[]),
@@ -210,6 +237,39 @@ mod tests {
             Err(MediaError::Malformed("audio version"))
         );
         Ok(())
+    }
+
+    #[test]
+    fn share_sound_is_marked_and_old_readers_refuse_it() -> Result<(), MediaError> {
+        let header = AudioHeader {
+            sequence: 7,
+            timestamp_us: 9,
+            share: true,
+        };
+        let payload = header.write(&[1, 2])?;
+        assert_eq!(payload[0], AUDIO_VERSION | SHARE);
+        assert_eq!(AudioHeader::read(&payload)?.0, header);
+        let voice = AudioHeader {
+            share: false,
+            ..header
+        }
+        .write(&[1, 2])?;
+        assert!(!AudioHeader::read(&voice)?.0.share);
+        // A reader that knows only version 1 compares the whole byte, so it drops share sound.
+        assert_ne!(payload[0], AUDIO_VERSION);
+        let mut unknown = payload.clone();
+        unknown[0] = SHARE | 2;
+        assert!(AudioHeader::read(&unknown).is_err(), "unknown version with the mark");
+        Ok(())
+    }
+
+    #[test]
+    fn share_sound_settings_are_stereo_music() {
+        let share = AudioSettings::share_sound();
+        assert_eq!(share.check(), Ok(()));
+        assert_eq!(share.channels, Channels::Stereo);
+        assert!(share.music && share.constant_bitrate && !share.dtx);
+        assert!(!AudioSettings::voice().music);
     }
 
     #[test]

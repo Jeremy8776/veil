@@ -53,3 +53,30 @@ records how the sound and the phone share should work before the code is written
   notification sounds.
 - The headless provider ([ADR 0006](0006-shared-engine-provider-contract.md)) treats share
   sound as its own capture source, with its own grant.
+
+## Implementation notes (PR #92)
+
+The desktop part follows this decision, with these differences and details:
+
+- **Linux capture.** Veil opens its own capture stream on the session's PipeWire with
+  `node.autoconnect` off, and links each app's playback stream (`Stream/Output/Audio`) to it,
+  except streams of Veil's own process. This leaves Veil out more reliably than filtering a
+  sink's monitor, which already holds the mix. The portal's PipeWire connection
+  ([ADR 0005](0005-wayland-share-kwin-on-kde-portal-elsewhere.md)) cannot be reused: the
+  portal's remote exposes only the screen's node, not the apps' playback streams. Outside a
+  sandbox this needs no extra permission. A Flatpak build would need PipeWire access.
+- **Changing what you share.** "Include computer sound" is off whenever the picker opens for a
+  new share. Using the picker's Switch during a share keeps that share's choice, because it is
+  the same share. It is never kept from one share to the next.
+- **Wire mark.** The top bit of the sealed audio header's first byte marks share sound. Older
+  versions read it as an unknown version and drop the packet.
+- **Signature.** Each share sound packet carries an Ed25519 signature of the sender's device
+  between the audio header and the Opus packet, bound to the epoch and frame id
+  (`engine/sound_proof.rs`). Receivers also play share sound only while that sender's signed
+  screen share is showing.
+- **Data use.** Share sound is stereo at 64 kbit/s on Auto and 32 kbit/s in Data saver and
+  Audio only.
+- **Playback.** Receivers hear share sound in mono, because the call's speaker is opened in mono.
+  This is a noted shortcut.
+- **Provider grant.** The headless provider ([ADR 0006](0006-shared-engine-provider-contract.md))
+  does not exist yet. When it does, share sound needs its own grant, as stated above.

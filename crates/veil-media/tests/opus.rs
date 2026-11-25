@@ -140,6 +140,7 @@ fn the_jitter_buffer_feeds_the_decoder_through_loss() -> Result<(), MediaError> 
         let header = AudioHeader {
             sequence: seq as u32,
             timestamp_us: seq as u64 * 20_000,
+            share: false,
         };
         let delay = 10_000 + (seq as u64 * 37 % 5) * 10_000;
         let packet = encoder.encode(frame)?;
