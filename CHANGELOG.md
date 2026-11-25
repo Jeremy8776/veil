@@ -23,6 +23,11 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   and smooth identity-preserving join/reflow animations. Names sit below the picture.
 - Remembered **Mirror my camera** control before joining and during calls on desktop and
   Android. It flips both your preview and the video others receive; screen shares stay normal.
+- **Import LUT**: add your own colour looks from `.cube` files, chosen with the system file
+  chooser (or dropped on the window on desktop). They sit next to the built-in Filters and can
+  be removed. Bad or oversized files are refused with a plain reason.
+- A **Strength** slider (0 to 100%) for the Filter or LUT and for Background blur. 100% is the
+  look you had before. Filters and blur are now also on the Android pre-join page.
 
 ### Fixed
 

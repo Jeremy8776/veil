@@ -136,6 +136,10 @@ fn controls_row(app: &mut VeilApp, ui: &mut egui::Ui) {
         .on_hover_text("Data use");
         data_menu(app, &data);
     });
+    // shortcut: the effects rows (main's FX-01) keep their form layout; restyle them as
+    // round controls or a sheet in the next phone polish pass.
+    ui.add_space(16.0);
+    super::effects::section(app, ui);
     if let Some(error) = app.media.camera_error() {
         ui.add_space(8.0);
         w::label(ui, error, 13.0, false, theme::WARN);

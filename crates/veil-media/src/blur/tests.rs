@@ -1,5 +1,6 @@
 use super::grid::{Pipeline, Strength};
 use super::*;
+use crate::effects::FULL;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -31,7 +32,7 @@ fn settle(e: &mut BlurEngine, orig: &[u8], w: usize, h: usize, stride: usize) ->
     let end = Instant::now() + Duration::from_secs(5);
     while Instant::now() < end {
         let mut d = orig.to_vec();
-        e.apply(&mut d, w, h, stride, Blur::Strong);
+        e.apply(&mut d, w, h, stride, Blur::Strong, FULL);
         if d == orig {
             return true;
         }
@@ -67,7 +68,7 @@ fn all_background_changes_picture_and_keeps_padding() {
     for _ in 0..20 {
         let mut d = orig.clone();
         assert_eq!(
-            e.apply(&mut d, w, h, stride, Blur::Light),
+            e.apply(&mut d, w, h, stride, Blur::Light, FULL),
             BlurStatus::Blurred
         );
         assert_ne!(d, orig);
@@ -92,7 +93,7 @@ fn before_first_mask_whole_picture_is_blurred() {
     let orig = picture(320, 180, 320);
     let mut d = orig.clone();
     assert_eq!(
-        e.apply(&mut d, 320, 180, 320, Blur::Strong),
+        e.apply(&mut d, 320, 180, 320, Blur::Strong, FULL),
         BlurStatus::Blurred
     );
     assert!(roughness(&d, 320, 180, 320) < roughness(&orig, 320, 180, 320) / 2);
@@ -118,7 +119,7 @@ fn slow_segmenter_gives_too_busy_and_never_blocks() {
     for i in 0..12 {
         let mut d = orig.clone();
         let t = Instant::now();
-        let st = e.apply(&mut d, 320, 180, 320, Blur::Light);
+        let st = e.apply(&mut d, 320, 180, 320, Blur::Light, FULL);
         assert!(t.elapsed() < Duration::from_millis(200), "apply blocked");
         if st == BlurStatus::TooBusy {
             assert_eq!(d, orig, "TooBusy leaves the picture");
@@ -150,7 +151,7 @@ fn dropping_engine_joins_worker() {
         let _keep = &guard;
         m.fill(0);
     });
-    e.apply(&mut picture(64, 48, 64), 64, 48, 64, Blur::Light);
+    e.apply(&mut picture(64, 48, 64), 64, 48, 64, Blur::Light, FULL);
     drop(e);
     assert!(
         done.load(Ordering::SeqCst),
@@ -163,7 +164,7 @@ fn off_and_malformed_pictures_are_untouched_and_do_not_panic() {
     let mut e = BlurEngine::with_segmenter(constant(0));
     let orig = picture(64, 48, 64);
     let mut d = orig.clone();
-    e.apply(&mut d, 64, 48, 64, Blur::Off);
+    e.apply(&mut d, 64, 48, 64, Blur::Off, FULL);
     assert_eq!(d, orig);
     let cases = [
         (0, 0, 0),
@@ -175,12 +176,12 @@ fn off_and_malformed_pictures_are_untouched_and_do_not_panic() {
     ];
     for (w, h, s) in cases {
         let mut d = orig.clone();
-        e.apply(&mut d, w, h, s, Blur::Strong);
+        e.apply(&mut d, w, h, s, Blur::Strong, FULL);
         assert_eq!(d, orig, "{w}x{h} stride {s}");
     }
     for len in 0..orig.len() {
         let mut d = orig[..len].to_vec();
-        e.apply(&mut d, 64, 48, 64, Blur::Strong);
+        e.apply(&mut d, 64, 48, 64, Blur::Strong, FULL);
         assert_eq!(d, orig[..len], "len {len}");
     }
 }
@@ -210,7 +211,7 @@ fn general_path_matches_fast_path_at_720p() {
             },
             &mask,
         );
-        p.composite(&mut d, w, &mask);
+        p.composite(&mut d, w, &mask, FULL);
         d
     };
     let (a, b) = (run(false), run(true));
@@ -237,7 +238,7 @@ fn other_sizes_work() {
         let mut e = BlurEngine::with_segmenter(constant(0));
         let mut d = orig.clone();
         assert_eq!(
-            e.apply(&mut d, w, h, stride, Blur::Strong),
+            e.apply(&mut d, w, h, stride, Blur::Strong, FULL),
             BlurStatus::Blurred
         );
         if w > 4 {
@@ -252,7 +253,7 @@ fn fast_segmenter_gives_the_current_pictures_mask() {
     let orig = picture(320, 180, 320);
     for _ in 0..10 {
         let mut d = orig.clone();
-        e.apply(&mut d, 320, 180, 320, Blur::Light);
+        e.apply(&mut d, 320, 180, 320, Blur::Light, FULL);
     }
     assert_eq!(
         e.mask_age(),
@@ -283,7 +284,7 @@ fn person_colour_does_not_bleed_into_background() {
         },
         &mask,
     );
-    p.composite(&mut d, w, &mask);
+    p.composite(&mut d, w, &mask, FULL);
     // Background 10 to 40 pixels right of the edge stays dark: no bright halo.
     for x in w / 2 + 10..w / 2 + 40 {
         assert!(d[360 * w + x] <= 34, "halo at x={x}: {}", d[360 * w + x]);
@@ -314,7 +315,7 @@ fn mask_lag_real_network() {
     for i in 0..330 {
         buf.copy_from_slice(&frames[i % 4]);
         let t = Instant::now();
-        e.apply(&mut buf, w, h, w, Blur::Strong);
+        e.apply(&mut buf, w, h, w, Blur::Strong, FULL);
         if i >= 30 {
             times.push(t.elapsed().as_secs_f64() * 1e3);
             let age = e.mask_age().unwrap_or(4).min(4) as usize;
@@ -361,7 +362,7 @@ fn bench_apply_720p() {
     for i in 0..630 {
         buf.copy_from_slice(&frames[i % 4]);
         let t = Instant::now();
-        e.apply(&mut buf, w, h, w, Blur::Strong);
+        e.apply(&mut buf, w, h, w, Blur::Strong, FULL);
         if i >= 30 {
             times.push(t.elapsed().as_secs_f64() * 1e3);
         }
@@ -517,7 +518,7 @@ fn bench_pipeline_720p() {
         p.downscale(&buf, w);
         p.make_input();
         p.blur(s, &mask);
-        p.composite(&mut buf, w, &mask);
+        p.composite(&mut buf, w, &mask, FULL);
         if i >= 30 {
             times.push(t.elapsed().as_secs_f64() * 1e3);
         }

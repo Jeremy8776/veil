@@ -176,7 +176,7 @@ fn gain_at(t: f32, max: f32) -> f32 {
 
 /// A slim slider: a track filled in the accent colour up to a round knob, with a mark at 100%
 /// when the slider goes past it. Drag, click, or use the arrow keys when focused.
-fn slider(ui: &mut Ui, gain: &mut f32, max: f32, width: f32, label: &str) -> Response {
+pub(crate) fn slider(ui: &mut Ui, gain: &mut f32, max: f32, width: f32, label: &str) -> Response {
     let (rect, mut response) = ui.allocate_exact_size(vec2(width, 24.0), Sense::click_and_drag());
     let track = Rect::from_min_max(
         pos2(rect.left() + KNOB, rect.center().y - 2.0),
@@ -332,6 +332,8 @@ fn blur_label(blur: Blur) -> &'static str {
 
 /// One round swatch per filter, its short name below; the chosen one ringed in the accent.
 pub fn filter_swatches(ui: &mut Ui, media: &LocalMedia) {
+    // A chosen LUT (`screens/effects.rs`) rings no swatch; choosing a swatch clears it.
+    let lut_on = media.lut().is_some();
     let current = media.filter();
     let count = Filter::ALL.len() as f32;
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::hover());
@@ -339,7 +341,7 @@ pub fn filter_swatches(ui: &mut Ui, media: &LocalMedia) {
     for (i, filter) in Filter::ALL.into_iter().enumerate() {
         let cell = Rect::from_min_size(pos2(rect.left() + i as f32 * w, rect.top()), vec2(w, 62.0));
         let (short, full) = filter_label(filter);
-        let chosen = filter == current;
+        let chosen = !lut_on && filter == current;
         let response = ui
             .interact(cell, ui.scope_id().with(("filter", i)), Sense::click())
             .on_hover_text(full);

@@ -4,7 +4,8 @@
 //! not `Send`. The camera thread hands the newest picture to the interface; the microphone
 //! thread hands over a level from 0 to 1. During a call, [`Taps`] also pass each picture and
 //! each 20 ms of sound to the call engine, which encodes and encrypts them. Mirroring, a chosen
-//! [`Blur`] and then a [`Filter`] are applied to each picture before either of those, and noise
+//! [`Blur`] and then a [`Filter`] or imported LUT, each at its strength, are applied to each
+//! picture before either of those (`media/effects.rs`), and noise
 //! suppression, automatic volume and then the microphone volume (`volume.rs`) to each 20 ms of sound (`media/mic.rs`). The speaker choice and volume live
 //! here too ([`LocalMedia::playback`]) and the call's playback thread follows them.
 //!
@@ -21,7 +22,7 @@
 //! - A device error is kept as text for the interface and the thread ends.
 //! - The taps never block capture: a full engine queue drops the picture or frame.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 
@@ -30,9 +31,12 @@ use eframe::egui;
 use crate::convert::Rgba;
 use crate::devices::Choice;
 use crate::engine::{Captured, Taps};
+use crate::luts::ChosenLut;
 use crate::volume::{Gain, MIC_MAX, Playback, SPEAKER_MAX};
-use veil_media::{Blur, BlurEngine, BlurStatus, Filter};
+use veil_media::effects::FULL;
+use veil_media::{Blur, Filter};
 
+mod effects;
 mod mic;
 
 /// What the interface reads from the workers.
@@ -49,7 +53,13 @@ struct Shared {
     /// Where the call engine takes pictures and sound, while in a call.
     taps: Mutex<Option<Taps>>,
     filter: Mutex<Filter>,
+    /// An imported look, used instead of `filter` while set.
+    lut: Mutex<Option<ChosenLut>>,
+    /// How strongly the Filter or LUT is applied, 0 to 100 percent.
+    look_strength: AtomicU8,
     blur: Mutex<Blur>,
+    /// How strongly the background is blurred, 0 to 100 percent.
+    blur_strength: AtomicU8,
     /// Flip each picture left to right, for the preview and the call. Kept between runs by
     /// `preferences.rs`.
     mirror: AtomicBool,
@@ -137,6 +147,8 @@ impl LocalMedia {
             shared: Arc::new(Shared {
                 suppress_noise: AtomicBool::new(true),
                 auto_gain: AtomicBool::new(true),
+                look_strength: AtomicU8::new(FULL),
+                blur_strength: AtomicU8::new(FULL),
                 ..Shared::default()
             }),
             camera: None,
@@ -281,36 +293,6 @@ impl LocalMedia {
         *lock(&self.shared.taps) = taps;
     }
 
-    pub fn filter(&self) -> Filter {
-        *lock(&self.shared.filter)
-    }
-
-    /// Takes effect on the next picture, for the preview and the call alike.
-    pub fn set_filter(&self, filter: Filter) {
-        *lock(&self.shared.filter) = filter;
-    }
-
-    pub fn mirror(&self) -> bool {
-        self.shared.mirror.load(Ordering::Relaxed)
-    }
-
-    /// Takes effect on the next picture, for the preview and the call alike.
-    pub fn set_mirror(&self, mirror: bool) {
-        self.shared.mirror.store(mirror, Ordering::Relaxed);
-    }
-
-    pub fn blur(&self) -> Blur {
-        *lock(&self.shared.blur)
-    }
-
-    /// Takes effect on the next picture. Choosing blur again clears an old notice.
-    pub fn set_blur(&self, blur: Blur) {
-        *lock(&self.shared.blur) = blur;
-        if blur != Blur::Off {
-            *lock(&self.shared.blur_notice) = None;
-        }
-    }
-
     /// True once after the camera thread closed the camera because blur could not keep up.
     /// Drops the ended worker, so [`Self::camera_on`] reads false from then on.
     pub fn take_camera_stopped(&mut self) -> bool {
@@ -414,10 +396,7 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
     };
     let mode = camera.mode();
     let fps = (mode.fps_num / mode.fps_den.max(1)).clamp(1, 60);
-    // Changed copy of the picture; reused so effects cost no allocation per picture.
-    let mut filtered = Vec::new();
-    // Exists only while blur is on; dropping it stops the segmentation thread.
-    let mut blur_engine: Option<BlurEngine> = None;
+    let mut chain = effects::Chain::default();
     while !stop.load(Ordering::Relaxed) {
         let picture = match camera.read() {
             Ok(Some(picture)) => picture,
@@ -430,31 +409,11 @@ fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Opti
             }
         };
         let (w, h) = (usize::from(picture.width), usize::from(picture.height));
-        let filter = *lock(&shared.filter);
-        let blur = *lock(&shared.blur);
-        if blur == Blur::Off {
-            blur_engine = None;
-        }
-        let mirror = shared.mirror.load(Ordering::Relaxed);
-        let pixels: &[u8] = if !mirror && filter == Filter::None && blur == Blur::Off {
-            picture.data
-        } else {
-            filtered.clear();
-            filtered.extend_from_slice(picture.data);
-            if mirror {
-                veil_media::effects::mirror(&mut filtered, w, h, picture.stride);
-            }
-            if blur != Blur::Off {
-                let engine = blur_engine.get_or_insert_with(BlurEngine::start);
-                if engine.apply(&mut filtered, w, h, picture.stride, blur) == BlurStatus::TooBusy {
-                    // Never show or send this picture's background sharp: close the camera.
-                    *lock(&shared.blur_notice) = Some(BLUR_TOO_BUSY.to_string());
-                    shared.camera_stopped.store(true, Ordering::Release);
-                    break;
-                }
-            }
-            veil_media::effects::apply_filter(&mut filtered, w, h, picture.stride, filter);
-            &filtered
+        let Ok(pixels) = chain.apply(shared, picture.data, w, h, picture.stride) else {
+            // Never show or send this picture's background sharp: close the camera.
+            *lock(&shared.blur_notice) = Some(BLUR_TOO_BUSY.to_string());
+            shared.camera_stopped.store(true, Ordering::Release);
+            break;
         };
         if let Some(taps) = lock(&shared.taps).as_ref() {
             let _ = taps.video.try_send(Captured {

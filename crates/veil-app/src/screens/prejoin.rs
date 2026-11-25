@@ -260,8 +260,8 @@ fn video_section(app: &mut VeilApp, ui: &mut egui::Ui) {
         app.media.choose_camera(id);
     }
     status(ui, app.media.camera_error());
-    widgets::filter_picker(ui, &app.media);
-    widgets::blur_picker(ui, &app.media);
+    crate::screens::effects::look_picker(app, ui);
+    crate::screens::effects::blur_picker(app, ui);
 }
 
 fn audio_section(app: &mut VeilApp, ui: &mut egui::Ui) {

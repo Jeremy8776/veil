@@ -37,11 +37,13 @@ mod freedesktop;
 pub mod gate;
 pub mod jitter;
 pub mod ladder;
+pub mod lut;
 #[cfg(any(target_os = "linux", test))]
 pub mod mjpeg;
 #[cfg(target_os = "macos")]
 mod notify_macos;
 pub mod payload;
+pub mod pick;
 pub mod platform;
 #[cfg(any(target_os = "android", test))]
 pub mod projection;
@@ -74,6 +76,7 @@ pub use ffi::opus::{OpusDecoder, OpusEncoder, opus_version};
 pub use gate::{Gate, Verdict};
 pub use jitter::{JitterBuffer, Playout};
 pub use ladder::{Ladder, Rung, Tier};
+pub use lut::{LutError, YuvLut};
 pub use payload::{Codec, VideoHeader};
 pub use schedule::{PicturePlan, Schedule};
 pub use simulcast::{RungEncoder, Simulcast};

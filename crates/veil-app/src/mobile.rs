@@ -1,5 +1,6 @@
 //! Android layouts share the desktop call state, security panels and media engine.
 mod call_bar;
+mod effects;
 mod focus;
 mod home;
 mod people;
