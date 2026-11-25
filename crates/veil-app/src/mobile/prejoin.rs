@@ -10,7 +10,7 @@ use crate::icons::Icon;
 use crate::screens::controls;
 use crate::theme;
 use crate::widgets::{self as shared, Tile, Tone};
-use eframe::egui::{self, Color32, CornerRadius, Margin, Rect, Sense, UiBuilder, pos2, vec2};
+use eframe::egui::{self, Margin, Rect, Sense, UiBuilder, vec2};
 use std::time::Duration;
 
 fn margin(top: i8, bottom: i8) -> Margin {
@@ -169,24 +169,10 @@ fn preview_card(ui: &mut egui::Ui, tile: &Tile<'_>) -> Rect {
     video_card(ui, available, tile)
 }
 
-/// Paints `tile` as a video card within `available` without allocating space. Shared with
-/// the in-call waiting stage so both pictures look the same.
+/// Paints `tile` as a video card within `available` without allocating space: the shared
+/// card rule in `widgets::tile_card`, so the preview and the call look the same.
 pub(super) fn video_card(ui: &egui::Ui, available: Rect, tile: &Tile<'_>) -> Rect {
-    const BORDER: f32 = 6.0;
-    let Some((texture, size)) = tile.video else {
-        shared::tile(ui, available, tile);
-        return available.shrink(BORDER);
-    };
-    let picture = crate::layout::contain(size, available.shrink(BORDER));
-    let card = picture.expand(BORDER);
-    let painter = ui.painter_at(card);
-    painter.rect_filled(card, CornerRadius::same(theme::RADIUS + BORDER as u8), theme::TILE);
-    painter.add(
-        egui::epaint::RectShape::filled(picture, CornerRadius::same(theme::RADIUS), Color32::WHITE)
-            .with_texture(texture, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0))),
-    );
-    shared::name_tag(&painter, picture, tile);
-    picture
+    shared::tile_card(ui, available, tile)
 }
 
 #[cfg(test)]

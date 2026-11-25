@@ -334,43 +334,52 @@ pub struct Tile<'a> {
 /// Paints a tile: the picture or an avatar, the name tag, mute and hand marks, and a ring
 /// while speaking.
 pub fn tile(ui: &Ui, rect: Rect, tile: &Tile<'_>) {
+    tile_card(ui, rect, tile);
+}
+
+/// The even border between a video card's edge and its picture.
+pub const CARD_BORDER: f32 = 6.0;
+
+/// The card rule, shared by every video on every screen: the card hugs the whole picture
+/// (portrait or landscape) with an even [`CARD_BORDER`] on every side, and the name sits on
+/// the picture. With no video, the card fills `rect` around an avatar. Returns the picture
+/// (or card) rect, for controls laid over it.
+pub fn tile_card(ui: &Ui, rect: Rect, tile: &Tile<'_>) -> Rect {
     let painter = ui.painter_at(rect.expand(3.0));
-    let radius = CornerRadius::same(RADIUS);
-    painter.rect_filled(rect, radius, theme::TILE);
-    match tile.video {
+    let (card, inner) = match tile.video {
         Some((texture, size)) => {
-            // A textured rounded rect, so the picture itself has round corners on any
-            // background.
-            // Keep the complete sensor frame, including portrait video. Reserve a footer
-            // so names and mute controls cannot obscure the bottom of the picture.
-            let picture = crate::layout::contain(size, Rect::from_min_max(
-                rect.min + vec2(4.0, 4.0),
-                pos2((rect.right() - 4.0).max(rect.left() + 4.0), (rect.bottom() - 36.0).max(rect.top() + 4.0)),
-            ));
+            // Keep the complete sensor frame; the card shrinks to fit it.
+            let picture = crate::layout::contain(size, rect.shrink(CARD_BORDER));
+            let card = picture.expand(CARD_BORDER);
+            painter.rect_filled(card, CornerRadius::same(RADIUS + CARD_BORDER as u8), theme::TILE);
             painter.add(
-                egui::epaint::RectShape::filled(picture, radius, Color32::WHITE)
+                egui::epaint::RectShape::filled(picture, CornerRadius::same(RADIUS), Color32::WHITE)
                     .with_texture(texture, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0))),
             );
+            (card, picture)
         }
         None => {
+            painter.rect_filled(rect, CornerRadius::same(RADIUS), theme::TILE);
             let r = (rect.height() * 0.2).clamp(14.0, 64.0);
             avatar(&painter, rect.center(), r, tile.name);
+            (rect, rect.shrink(CARD_BORDER))
         }
-    }
+    };
     if tile.speaking {
         painter.rect_stroke(
-            rect,
-            radius,
+            card,
+            CornerRadius::same(RADIUS + CARD_BORDER as u8),
             Stroke::new(2.5, theme::SPEAKING),
             StrokeKind::Inside,
         );
     }
-    name_tag(&painter, rect, tile);
+    name_tag(&painter, inner, tile);
     if tile.hand_raised {
-        let mark = Rect::from_min_size(pos2(rect.left() + 8.0, rect.top() + 8.0), vec2(30.0, 26.0));
+        let mark = Rect::from_min_size(pos2(inner.left() + 8.0, inner.top() + 8.0), vec2(30.0, 26.0));
         painter.rect_filled(mark, CornerRadius::same(6), theme::WARN);
         Icon::Hand.paint(&painter, mark.center(), 15.0, theme::PAGE);
     }
+    inner
 }
 
 /// The name tag in the bottom-left corner of `rect`, with a mute mark when muted.
