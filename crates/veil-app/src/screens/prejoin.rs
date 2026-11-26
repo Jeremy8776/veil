@@ -1,62 +1,50 @@
-//! Before joining: see yourself, check the microphone moves the meter, choose whether to come
-//! in muted or with the camera off. A host whose firewall would block guests gets an Allow
-//! button (`crate::firewall`), and before their first hosted call is asked once whether Veil
-//! may open a port on the router (`engine/router.rs`).
+//! Before joining: see yourself, check the microphone, choose whether to come in muted or
+//! with the camera off. One column: the preview, then a dock under it with the call bar's own
+//! Mute, Video and Effects buttons and their menus (`controls::media`), then Start and Back.
+//! A host whose firewall would block guests gets an Allow button (`crate::firewall`), and
+//! before their first hosted call is asked once whether Veil may open a port on the router
+//! (`engine/router.rs`).
+//!
+//! Invariants:
+//! - The dock is the call bar's controls, so a setting chosen here looks and works the same
+//!   once the call starts. Nothing here opens a pop-up from inside another pop-up.
+//! - The preview shrinks to keep the dock and Start in the window; below the smallest preview
+//!   the page scrolls.
 
-use eframe::egui::{self, Align, Layout, Rect, RichText, Sense, UiBuilder, Vec2, vec2};
+use eframe::egui::{self, Align, CornerRadius, Layout, RichText, Sense, Vec2, vec2};
 
 use crate::app::VeilApp;
 use crate::firewall::{Profile, State};
 use crate::icons::Icon;
-use crate::screens::controls::MIRROR_HINT;
+use crate::screens::controls;
 use crate::theme::{self, MUTED};
-use crate::widgets::{
-    self, ControlState, Tile, Tone, card, control, device_error as status, device_picker as picker,
-    level_meter, pill,
-};
+use crate::widgets::{self, Tile, Tone, pill};
 
-/// Above this width the preview and the card sit side by side.
-const WIDE_FROM: f32 = 1000.0;
-const GAP: f32 = 16.0;
 /// The title and the space under it.
 const HEADER_H: f32 = 46.0;
-/// The space under the preview and the row of buttons.
-const CONTROLS_H: f32 = 66.0;
+/// The space between the preview and the dock.
+const GAP: f32 = 12.0;
+/// The dock: one row of call bar buttons and its margins.
+const DOCK_H: f32 = 78.0;
+const DOCK_MARGIN_X: f32 = 12.0;
+/// The note under the dock and the space around it.
+const BELOW_H: f32 = 40.0;
 const MIN_PREVIEW_W: f32 = 320.0;
 const MAX_PREVIEW_W: f32 = 1200.0;
-/// The card's size until it has been measured, on the first frame.
-const CARD_GUESS: Vec2 = vec2(322.0, 730.0);
-/// The width inside the card. Every picker, slider, line and button in it is this wide, so
-/// they share one right edge (the shared pickers are 280 wide).
-const CARD_W: f32 = 280.0;
-const PICKER_W: f32 = CARD_W;
-/// The card's margins and border, top and bottom together (`widgets::card`).
-const CARD_FRAME_H: f32 = 42.0;
-/// The card's parts that never scroll: its margins, your name, Start, Back and the note.
-const FIXED_H: f32 = 200.0;
-/// The settings stay at least this tall, however short the window; the page scrolls then.
-const MIN_SCROLL_H: f32 = 160.0;
+/// Below this width, Start and Back move to a second row in the dock.
+const ONE_ROW_FROM: f32 = 560.0;
+const START_W: f32 = 140.0;
+const BACK_W: f32 = 96.0;
 
-/// Where the side-by-side layout goes in the space available.
-#[derive(Debug, PartialEq)]
-struct WidePlan {
-    preview_w: f32,
-    offset: Vec2,
-}
-
-/// Makes the preview as large as the window allows, then centres the title, preview and card
-/// together. A block too large for the window starts at its top left corner.
-fn wide_plan(space: Vec2, card: Vec2, gap: f32) -> WidePlan {
-    let tallest = (space.y - HEADER_H - CONTROLS_H) * 16.0 / 9.0;
-    let preview_w = (space.x - card.x - gap)
-        .min(tallest)
-        .clamp(MIN_PREVIEW_W, MAX_PREVIEW_W);
-    let column_h = preview_w * 9.0 / 16.0 + CONTROLS_H;
-    let block = vec2(preview_w + gap + card.x, HEADER_H + column_h.max(card.y));
-    WidePlan {
-        preview_w,
-        offset: ((space - block) / 2.0).max(Vec2::ZERO),
-    }
+/// The preview's width: as large as the window allows with the title, dock and note still
+/// in view, kept 16:9. Never wider than the window.
+fn preview_width(space: Vec2) -> f32 {
+    let by_height = (space.y - HEADER_H - GAP - DOCK_H - BELOW_H) * 16.0 / 9.0;
+    space
+        .x
+        .min(by_height)
+        .clamp(MIN_PREVIEW_W, MAX_PREVIEW_W)
+        .min(space.x)
 }
 
 pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
@@ -73,74 +61,39 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
                 (false, false) => "Join a call",
             };
             let space = ui.available_size();
-            if space.x > WIDE_FROM {
-                wide(app, ui, host, title, space);
-            } else {
-                // Stacked, the page itself scrolls, so the card never needs to.
-                egui::ScrollArea::vertical()
-                    .id_salt("prejoin-page")
-                    .show(ui, |ui| {
-                        heading(ui, title);
-                        let preview_w = space.x.min(720.0);
-                        ui.with_layout(Layout::top_down(Align::Min), |ui| {
-                            preview_column(app, ui, preview_w);
-                            ui.add_space(GAP);
-                            ui.vertical(|ui| details(app, ui, host, None));
-                        });
+            let width = preview_width(space);
+            // The column's height depends on the notes under the dock, so it is measured and
+            // used to centre it next frame.
+            let height_id = ui.make_persistent_id("prejoin-height");
+            let last: f32 = ui.ctx().data(|d| d.get_temp(height_id)).unwrap_or(0.0);
+            let top = ((space.y - last) / 2.0).max(0.0);
+            egui::ScrollArea::vertical()
+                .id_salt("prejoin-page")
+                .show(ui, |ui| {
+                    ui.add_space(top);
+                    let column = ui.with_layout(Layout::top_down(Align::Center), |ui| {
+                        ui.allocate_ui_with_layout(
+                            vec2(width, 0.0),
+                            Layout::top_down(Align::Min),
+                            |ui| {
+                                ui.set_width(width);
+                                ui.label(RichText::new(title).font(theme::bold(26.0)));
+                                ui.add_space(12.0);
+                                preview(app, ui, width);
+                                ui.add_space(GAP);
+                                dock(app, ui, host, width);
+                                ui.add_space(10.0);
+                                below(app, ui, host);
+                            },
+                        )
                     });
-            }
+                    let height = column.response.rect.height();
+                    if (height - last).abs() > 0.5 {
+                        ui.ctx().data_mut(|d| d.insert_temp(height_id, height));
+                        ui.ctx().request_repaint();
+                    }
+                });
         });
-}
-
-fn heading(ui: &mut egui::Ui, title: &str) {
-    ui.label(RichText::new(title).font(theme::bold(26.0)));
-    ui.add_space(12.0);
-}
-
-fn wide(app: &mut VeilApp, ui: &mut egui::Ui, host: bool, title: &str, space: Vec2) {
-    // The card's height depends on what it shows, so it is measured and used next frame.
-    let id = ui.scope_id().with("prejoin-card-size");
-    let card = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(CARD_GUESS);
-    let gap = GAP + ui.spacing().item_spacing.x;
-    let plan = wide_plan(space, card, gap);
-    let area = Rect::from_min_size(
-        ui.available_rect_before_wrap().min + plan.offset,
-        space - plan.offset,
-    );
-    ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
-        heading(ui, title);
-        let measured = ui
-            .with_layout(Layout::left_to_right(Align::Min), |ui| {
-                let column_h = preview_column(app, ui, plan.preview_w);
-                ui.add_space(GAP);
-                // Its own column: inside the row, a card would lay its contents out sideways.
-                // As tall as the preview and its buttons, so both columns share a top and a
-                // bottom edge; the settings scroll inside it instead.
-                let outer_h = column_h.max(FIXED_H + MIN_SCROLL_H);
-                ui.vertical(|ui| details(app, ui, host, Some(outer_h - CARD_FRAME_H)))
-                    .response
-                    .rect
-                    .size()
-            })
-            .inner;
-        if (measured - card).length() > 0.5 {
-            ui.ctx().data_mut(|d| d.insert_temp(id, measured));
-            ui.ctx().request_repaint();
-        }
-    });
-}
-
-/// The preview and its buttons. Returns the column's height.
-fn preview_column(app: &mut VeilApp, ui: &mut egui::Ui, width: f32) -> f32 {
-    ui.vertical(|ui| {
-        ui.set_width(width);
-        preview(app, ui, width);
-        ui.add_space(8.0);
-        ui.horizontal(|ui| toggles(app, ui));
-    })
-    .response
-    .rect
-    .height()
 }
 
 fn preview(app: &VeilApp, ui: &mut egui::Ui, width: f32) {
@@ -174,185 +127,53 @@ fn preview(app: &VeilApp, ui: &mut egui::Ui, width: f32) {
     }
 }
 
-fn toggles(app: &mut VeilApp, ui: &mut egui::Ui) {
-    let mic = ControlState {
-        off: !app.want_mic,
-        ..Default::default()
-    };
-    let label = if app.want_mic { "Mute" } else { "Unmute" };
-    if control(ui, Icon::Mic, label, "Microphone on or off", mic).clicked() {
-        app.want_mic = !app.want_mic;
-        app.media.set_mic(app.want_mic);
-    }
-    let cam = ControlState {
-        off: !app.want_camera,
-        ..Default::default()
-    };
-    let label = if app.want_camera {
-        "Stop video"
-    } else {
-        "Start video"
-    };
-    if control(ui, Icon::Video, label, "Camera on or off", cam).clicked() {
-        app.want_camera = !app.want_camera;
-        app.media.set_camera(app.want_camera);
-    }
-    let mirrored = app.media.mirror();
-    let mirror = ControlState {
-        selected: mirrored,
-        ..Default::default()
-    };
-    if control(ui, Icon::Mirror, "Mirror", MIRROR_HINT, mirror).clicked() {
-        app.media.set_mirror(!mirrored);
-    }
-}
-
-/// The card: your name, the settings in sections, then Start and Back. Given an inner
-/// `height` (side by side), the card is exactly that tall: Start and Back sit on its bottom
-/// edge and the settings scroll in the space between. Without one (stacked), it is as tall as
-/// its contents and the page scrolls.
-fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool, height: Option<f32>) {
-    card().show(ui, |ui| {
-        ui.set_width(CARD_W);
-        ui.label(RichText::new(app.name.trim()).font(theme::bold(18.0)));
-        ui.add_space(4.0);
-        let Some(height) = height else {
-            settings(app, ui, host);
-            ui.add_space(12.0);
-            actions(app, ui, host);
-            return;
-        };
-        ui.set_height(height);
-        // Bottom up: the actions claim the bottom edge first, the settings fill what is left.
-        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
-            ui.label(RichText::new(lobby_note(app, host)).small().color(MUTED));
-            ui.add_space(6.0);
-            if pill(ui, None, "Back", Tone::Quiet, CARD_W).clicked() {
-                app.go_home();
-            }
-            if pill(
-                ui,
-                Some(Icon::Video),
-                start_label(host),
-                Tone::Primary,
-                CARD_W,
-            )
-            .clicked()
-            {
-                app.go_call(host);
-            }
-            ui.add_space(12.0);
-            ui.with_layout(Layout::top_down(Align::Min), |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("prejoin-settings")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| settings(app, ui, host));
+/// The bar under the preview: the call bar's media buttons on the left, Back and Start on
+/// the right (or on a second row when narrow).
+fn dock(app: &mut VeilApp, ui: &mut egui::Ui, host: bool, width: f32) {
+    egui::Frame::new()
+        .fill(theme::SURFACE)
+        .corner_radius(CornerRadius::same(12))
+        .inner_margin(egui::Margin::symmetric(DOCK_MARGIN_X as i8, 10))
+        .show(ui, |ui| {
+            ui.set_width(width - 2.0 * DOCK_MARGIN_X);
+            let one_row = width >= ONE_ROW_FROM;
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                controls::media(app, ui);
+                if one_row {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        actions(app, ui, host);
+                    });
+                }
             });
+            if !one_row {
+                ui.add_space(8.0);
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    actions(app, ui, host);
+                });
+            }
         });
-    });
 }
 
-fn settings(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
-    video_section(app, ui);
-    audio_section(app, ui);
-    connection_section(app, ui, host);
-}
-
+/// Start, then Back to its left. Drawn right to left.
 fn actions(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
-    if pill(
-        ui,
-        Some(Icon::Video),
-        start_label(host),
-        Tone::Primary,
-        CARD_W,
-    )
-    .clicked()
-    {
+    let start = if host { "Start call" } else { "Join now" };
+    if pill(ui, Some(Icon::Video), start, Tone::Primary, START_W).clicked() {
         app.go_call(host);
     }
-    if pill(ui, None, "Back", Tone::Quiet, CARD_W).clicked() {
+    if pill(ui, None, "Back", Tone::Quiet, BACK_W).clicked() {
         app.go_home();
     }
-    ui.add_space(6.0);
-    ui.label(RichText::new(lobby_note(app, host)).small().color(MUTED));
 }
 
-fn start_label(host: bool) -> &'static str {
-    if host { "Start call" } else { "Join now" }
-}
-
-fn lobby_note(app: &VeilApp, host: bool) -> &'static str {
-    match (app.demo, host) {
+/// Who lets you in, then a host's firewall and router questions when they apply.
+fn below(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
+    let note = match (app.demo, host) {
         (true, _) => "Other people are simulated.",
         (false, true) => "You let people in from the lobby.",
         (false, false) => "The host lets you in.",
-    }
-}
-
-/// A section title, with a thin line above every section but the first.
-fn section(ui: &mut egui::Ui, title: &str, first: bool) {
-    if !first {
-        ui.add_space(10.0);
-        let (rect, _) = ui.allocate_exact_size(vec2(PICKER_W, 1.0), Sense::hover());
-        ui.painter().rect_filled(rect, 0.0, theme::LINE);
-        ui.add_space(6.0);
-    }
-    ui.label(RichText::new(title).font(theme::bold(14.0)));
-    ui.add_space(2.0);
-}
-
-fn video_section(app: &mut VeilApp, ui: &mut egui::Ui) {
-    section(ui, "Video", true);
-    let chosen = app.media.choice().camera.clone();
-    if let Some(id) = picker(
-        ui,
-        Icon::Video,
-        "Camera",
-        &app.devices.cameras,
-        chosen.as_deref(),
-        "Default camera",
-    ) {
-        app.media.choose_camera(id);
-    }
-    status(ui, app.media.camera_error());
-    crate::screens::effects::look_picker(app, ui);
-    crate::screens::effects::blur_picker(app, ui);
-}
-
-fn audio_section(app: &mut VeilApp, ui: &mut egui::Ui) {
-    section(ui, "Audio", false);
-    let choice = app.media.choice().clone();
-    if let Some(id) = picker(
-        ui,
-        Icon::Mic,
-        "Microphone",
-        &app.devices.mics,
-        choice.mic.as_deref(),
-        "System default",
-    ) {
-        app.media.choose_mic(id);
-    }
-    status(ui, app.media.mic_error());
-    if app.media.mic_on() {
-        level_meter(ui, app.level, PICKER_W);
-    }
-    if let Some(id) = picker(
-        ui,
-        Icon::Volume,
-        "Speaker",
-        &app.devices.speakers,
-        choice.speaker.as_deref(),
-        "System default",
-    ) {
-        app.media.choose_speaker(id);
-    }
-}
-
-fn connection_section(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
-    section(ui, "Connection", false);
-    if let Some(choice) = widgets::data_use_picker(ui, app.data_use.get()) {
-        app.set_data_use(choice);
-    }
+    };
+    ui.label(RichText::new(note).small().color(MUTED));
     if host && !app.demo {
         firewall(app, ui);
         router_question(app, ui);
@@ -458,30 +279,31 @@ fn router_question(app: &mut VeilApp, ui: &mut egui::Ui) {
 mod tests {
     use super::*;
 
-    const CARD: Vec2 = vec2(360.0, 700.0);
-
-    #[test]
-    fn a_large_window_centres_a_large_preview() {
-        let plan = wide_plan(vec2(2400.0, 1300.0), CARD, 24.0);
-        assert_eq!(plan.preview_w, MAX_PREVIEW_W);
-        assert_eq!(plan.offset.x, (2400.0 - (1200.0 + 24.0 + 360.0)) / 2.0);
-        assert!(plan.offset.y > 0.0);
+    fn fits(space: Vec2, width: f32) -> bool {
+        HEADER_H + width * 9.0 / 16.0 + GAP + DOCK_H + BELOW_H <= space.y + 0.5
     }
 
     #[test]
-    fn a_short_window_limits_the_preview_by_height() {
-        let plan = wide_plan(vec2(1800.0, 700.0), CARD, 24.0);
-        assert!(plan.preview_w * 9.0 / 16.0 + HEADER_H + CONTROLS_H <= 700.5);
-        assert!(
-            plan.offset.x > 0.0,
-            "the spare width is shared on both sides"
-        );
+    fn a_large_window_gets_the_largest_preview() {
+        assert_eq!(preview_width(vec2(2400.0, 1400.0)), MAX_PREVIEW_W);
     }
 
     #[test]
-    fn a_block_too_large_for_the_window_starts_at_the_corner() {
-        let plan = wide_plan(vec2(1001.0, 500.0), vec2(360.0, 900.0), 24.0);
-        assert_eq!(plan.offset.y, 0.0);
-        assert!(plan.preview_w >= MIN_PREVIEW_W);
+    fn a_short_window_shrinks_the_preview_to_keep_the_dock_in_view() {
+        let space = vec2(1800.0, 700.0);
+        let width = preview_width(space);
+        assert!(width < MAX_PREVIEW_W);
+        assert!(fits(space, width));
+    }
+
+    #[test]
+    fn a_narrow_window_never_gets_a_wider_preview() {
+        assert_eq!(preview_width(vec2(300.0, 900.0)), 300.0);
+        assert_eq!(preview_width(vec2(500.0, 900.0)), 500.0);
+    }
+
+    #[test]
+    fn a_tiny_window_keeps_the_smallest_preview_and_scrolls() {
+        assert_eq!(preview_width(vec2(1000.0, 300.0)), MIN_PREVIEW_W);
     }
 }

@@ -469,68 +469,6 @@ pub fn card() -> egui::Frame {
         .inner_margin(egui::Margin::same(20))
 }
 
-/// The small muted icon and name above a drop-down.
-pub fn picker_label(ui: &mut Ui, icon: Icon, kind: &str) {
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-        icon.paint(ui.painter(), rect.center(), 15.0, MUTED);
-        ui.label(egui::RichText::new(kind).small().color(MUTED));
-    });
-}
-
-/// A labelled drop-down of devices, shared by the pre-join screen and the in-call menus. Returns the new choice when it changed (`Some(None)` for
-/// the default).
-pub fn device_picker(
-    ui: &mut Ui,
-    icon: Icon,
-    kind: &str,
-    list: &[crate::devices::Device],
-    chosen: Option<&str>,
-    default: &str,
-) -> Option<Option<String>> {
-    let mut picked = chosen.map(str::to_string);
-    picker_label(ui, icon, kind);
-    let selected = crate::devices::label(list, chosen, default);
-    // Truncated, so a long device name keeps the picker one line and 280 wide like the
-    // others; the full name is in the tooltip and the open list.
-    egui::ComboBox::from_id_salt(kind)
-        .width(280.0)
-        .truncate()
-        .selected_text(selected)
-        .show_ui(ui, |ui| {
-            ui.selectable_value(&mut picked, None, default);
-            for device in list {
-                ui.selectable_value(&mut picked, Some(device.id.clone()), &device.name);
-            }
-        })
-        .response
-        .on_hover_text(selected);
-    (picked.as_deref() != chosen).then_some(picked)
-}
-
-/// The data use drop-down for the pre-join screen: Auto (recommended) first, each choice
-/// explained in its tooltip. Returns the new choice when it changed.
-pub fn data_use_picker(
-    ui: &mut Ui,
-    chosen: crate::data_use::DataUse,
-) -> Option<crate::data_use::DataUse> {
-    use crate::data_use::DataUse;
-    let mut picked = chosen;
-    picker_label(ui, Icon::Signal, "Data use");
-    egui::ComboBox::from_id_salt("data use")
-        .width(280.0)
-        .selected_text(chosen.label())
-        .show_ui(ui, |ui| {
-            for choice in DataUse::ALL {
-                ui.selectable_value(&mut picked, choice, choice.label())
-                    .on_hover_text(choice.help());
-            }
-        })
-        .response
-        .on_hover_text(chosen.help());
-    (picked != chosen).then_some(picked)
-}
-
 /// A device error, in short, under its picker.
 pub fn device_error(ui: &mut Ui, error: Option<String>) {
     if let Some(error) = error {

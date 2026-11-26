@@ -4,7 +4,8 @@
 //! Purpose: during a call you can pick another microphone, speaker or camera and set the
 //! microphone and speaker volume without leaving, from the small arrow beside Mute and beside
 //! Stop video, as in Zoom or Teams. The menus are tick lists built from
-//! `call_menus` (not the pre-join drop-downs, which cannot open inside a pop-up), and the choice goes through `LocalMedia`, so the call follows:
+//! `call_menus` (drop-downs cannot open inside a pop-up), and the choice goes through
+//! `LocalMedia`, so the call follows. The pre-join dock uses the same buttons (`media`):
 //! a new microphone or camera reopens its capture thread (the engine's taps stay), and a new
 //! speaker or speaker volume reaches the playback thread through `volume::Playback`.
 //!
@@ -40,7 +41,8 @@ const AUTO_GAIN_HINT: &str = "Turns your voice up or down to a steady level, so 
 const CLEAN_OTHERS_HINT: &str = "Removes background sound from everyone else, on this computer. \
      Uses a little more processor for each person in the call.";
 /// Shown wherever mirroring can be turned on or off.
-pub const MIRROR_HINT: &str = "Flips your camera left to right, for you and everyone in the call. Your choice is remembered.";
+pub const MIRROR_HINT: &str =
+    "Flips your camera left to right, for you and everyone in the call. Your choice is remembered.";
 /// The Auto row while Auto is saving data because the connection is slow.
 const AUTO_SAVING: &str = "Auto: saving data";
 const AUTO_SAVING_HINT: &str = "Your connection is slow, so Veil sends and asks for a smaller \
@@ -48,6 +50,38 @@ const AUTO_SAVING_HINT: &str = "Your connection is slow, so Veil sends and asks 
      connection has been steady for a while.";
 
 pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
+    media(app, ui);
+    let sharing = app.share.is_sharing();
+    let state = ControlState {
+        selected: sharing,
+        ..Default::default()
+    };
+    let (label, hint) = if sharing {
+        ("Stop share", "Stop sharing your screen")
+    } else {
+        ("Share", "Share a screen, a window or part of one")
+    };
+    if control(ui, Icon::Share, label, hint, state).clicked() {
+        if sharing {
+            app.share.stop();
+        } else {
+            view.picker = Some(SharePicker::open(app));
+        }
+    }
+    let raised = view.call.you().is_some_and(|p| p.hand_raised);
+    let state = ControlState {
+        selected: raised,
+        ..Default::default()
+    };
+    let label = if raised { "Lower" } else { "Raise" };
+    if control(ui, Icon::Hand, label, "Raise or lower your hand", state).clicked() {
+        view.call.raise_hand(!raised);
+    }
+}
+
+/// Mute and Stop video, each with its device menu, then Effects. Shared by the call bar and
+/// the pre-join dock, so both look and work the same.
+pub fn media(app: &mut VeilApp, ui: &mut egui::Ui) {
     let mic_on = app.media.mic_on();
     let state = ControlState {
         off: !mic_on,
@@ -84,32 +118,6 @@ pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
         ControlState::default(),
     );
     menu(&effects, |ui| effects_menu(app, ui));
-    let sharing = app.share.is_sharing();
-    let state = ControlState {
-        selected: sharing,
-        ..Default::default()
-    };
-    let (label, hint) = if sharing {
-        ("Stop share", "Stop sharing your screen")
-    } else {
-        ("Share", "Share a screen, a window or part of one")
-    };
-    if control(ui, Icon::Share, label, hint, state).clicked() {
-        if sharing {
-            app.share.stop();
-        } else {
-            view.picker = Some(SharePicker::open(app));
-        }
-    }
-    let raised = view.call.you().is_some_and(|p| p.hand_raised);
-    let state = ControlState {
-        selected: raised,
-        ..Default::default()
-    };
-    let label = if raised { "Lower" } else { "Raise" };
-    if control(ui, Icon::Hand, label, "Raise or lower your hand", state).clicked() {
-        view.call.raise_hand(!raised);
-    }
 }
 
 /// A pop-up above the bar, opened and closed by `button`. Its contents must not open a
@@ -186,7 +194,9 @@ fn audio_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     }
     ui.add_space(4.0);
     let playback = app.media.playback();
-    let clean = playback.clean_others.load(std::sync::atomic::Ordering::Relaxed);
+    let clean = playback
+        .clean_others
+        .load(std::sync::atomic::Ordering::Relaxed);
     let button = call_menus::toggle_button(ui, Icon::Volume, "Remove noise from others", clean);
     if button.on_hover_text(CLEAN_OTHERS_HINT).clicked() {
         playback
