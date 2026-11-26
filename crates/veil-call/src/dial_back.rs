@@ -242,7 +242,7 @@ mod tests {
         assert_eq!(kept(Reach::Internet), 1, "a public helper names public addresses only");
         assert_eq!(kept(Reach::LocalNetwork), 5, "a LAN helper may name LAN addresses");
         assert_eq!(kept(Reach::Loopback), 8);
-        assert!(!is_shared("100.63.255.255".parse().unwrap_or(IpAddr::from([0, 0, 0, 0]))));
+        assert!(!is_shared("100.63.255.255".parse().unwrap_or(IpAddr::from([100, 64, 0, 0]))));
         assert!(!is_shared("100.128.0.0".parse().unwrap_or(IpAddr::from([100, 64, 0, 0]))));
 
         let helper = |a: &[&str]| Reach::of_helper(&a.iter().map(|a| parse(a)).collect::<Vec<_>>());

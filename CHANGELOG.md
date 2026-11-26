@@ -9,7 +9,8 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 - Camera video is sent at up to 1080p (was 720p), so an HD tile uses about 3 Mbit/s instead
   of 1.3. A shared screen no longer pulses in and out of focus every 4 s: the periodic
   keyframe is now every 30 s, and receivers and the forwarder repeat a keyframe request that
-  went unanswered.
+  went unanswered. Update self-run forwarders (`veil-node`) with the app: an older one does
+  not repeat the request, so a tile switched to HD can wait up to 30 s.
 
 ### Fixed
 
