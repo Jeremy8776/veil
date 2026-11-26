@@ -207,6 +207,14 @@ impl Shared {
         lock(&self.tiles).clone()
     }
 
+    /// The width of participant `id`'s tile in physical pixels, if it is on screen.
+    pub fn tile_width(&self, id: u32) -> Option<f32> {
+        lock(&self.tiles)
+            .iter()
+            .find(|(tile, _)| *tile == id)
+            .map(|(_, w)| *w)
+    }
+
     /// Changes the view and asks the interface to draw it.
     /// A change of status (connecting, lobby, live, ended and why) goes to the log.
     pub fn update(&self, change: impl FnOnce(&mut View)) {

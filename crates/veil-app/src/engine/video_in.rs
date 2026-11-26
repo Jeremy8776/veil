@@ -14,7 +14,9 @@
 //!   used (it then waits for its own keyframe, through the gate).
 //! - A decoder error drops that decoder and asks for a keyframe; someone silent for 10 s is
 //!   forgotten, and a shared screen after 3 s, which is how a share ends for those watching.
-//! - A shared screen keeps its full size, so its text stays readable.
+//! - A shared screen keeps its full size, so its text stays readable. A camera picture is
+//!   halved only when its tile is no wider than half of it ([`halves`]); halving every
+//!   picture over 960 wide showed a 720p camera at 640x360 even in a full-screen tile.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -134,7 +136,8 @@ fn run(
                 continue;
             }
         }
-        match decode(source, bitstream, &header) {
+        let tile = shared.tile_width(frame.id);
+        match decode(source, bitstream, &header, tile) {
             Ok(Some((rgba, size))) => shared.put_picture(picture_key(stream), rgba, size),
             Ok(None) => {}
             Err(e) => {
@@ -161,6 +164,7 @@ fn decode(
     source: &mut Source,
     bitstream: &[u8],
     header: &VideoHeader,
+    tile: Option<f32>,
 ) -> Result<Option<Decoded>, MediaError> {
     if source.decoder.is_none() {
         source.decoder = Some(platform_decoder()?);
@@ -173,11 +177,16 @@ fn decode(
     };
     let size = (picture.width, picture.height);
     let (w, h) = (usize::from(picture.width), usize::from(picture.height));
-    // Tiles are rarely wider than half a 1080p picture; halving costs a quarter of the work.
-    Ok(
-        crate::convert::nv12_to_rgba(picture.data, w, h, picture.stride, w > 960 && !header.screen)
-            .map(|rgba| (rgba, size)),
-    )
+    let halve = halves(picture.width, header.screen, tile);
+    Ok(crate::convert::nv12_to_rgba(picture.data, w, h, picture.stride, halve).map(|rgba| (rgba, size)))
+}
+
+/// Whether to convert a decoded picture `width` wide at half size, which costs a quarter of
+/// the work. Only a camera over 960 wide whose tile (physical pixels; `None` when it is not
+/// on screen) is no wider than half the picture, so halving loses nothing visible.
+fn halves(width: u16, screen: bool, tile: Option<f32>) -> bool {
+    let half = f32::from(width) / 2.0;
+    !screen && width > 960 && tile.is_none_or(|tile| tile <= half)
 }
 
 fn forget_quiet(sources: &mut HashMap<StreamId, Source>, shared: &Shared) {
@@ -220,6 +229,16 @@ mod tests {
         request_keyframe(&requests, 2, &mut gate);
         assert_eq!(received.try_recv().unwrap(), 2);
         assert_eq!(gate.admit(layer, &header), Verdict::Drop, "a delivered request stays coalesced");
+    }
+
+    #[test]
+    fn a_camera_is_halved_only_for_a_small_tile() {
+        assert!(!halves(1_920, false, Some(1_400.0)), "large tile keeps 1080p");
+        assert!(!halves(1_280, false, Some(700.0)), "720p in a 700 px tile");
+        assert!(halves(1_920, false, Some(960.0)));
+        assert!(halves(1_920, false, None), "not on screen");
+        assert!(!halves(1_920, true, None), "a screen keeps its size");
+        assert!(!halves(960, false, Some(100.0)), "small pictures are never halved");
     }
 
     #[test]
