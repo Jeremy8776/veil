@@ -55,6 +55,7 @@ use veil_rendezvous::{Refusal, RendezvousServer, room_tag};
 use veil_security::{Identity, PublicId};
 
 mod forwarder_check;
+mod moderated;
 
 use super::helper_evidence::HelperWatch;
 use super::pinhole::V6Port;
@@ -63,7 +64,7 @@ use super::reach::Reachability;
 use super::router::{Event, PortStatus, Router};
 use super::session::{Pipes, Session};
 use super::view::{Knocker, Shared};
-use super::{Command, Ids, invites, short};
+use super::{Command, invites, short};
 use crate::diagnostics::{Problem, State, Step};
 use crate::model::{Action, CallStatus};
 use forwarder_check::{checked_plan, finish_checked_plan, own_check};
@@ -263,7 +264,7 @@ pub async fn run(
                     until_end = chosen;
                     expires = new_invite(&host, &call, &addrs, &relay, until_end, config.local_only, &shared).await;
                 }
-                Some(Command::Act(action)) => act(&host, &session.ids, &mut knocks, action).await,
+                Some(Command::Act(action)) => moderated::act(&host, &mut session, &mut knocks, action).await,
             },
             event = events.recv() => match event {
                 None => break Err("The call stopped unexpectedly.".into()),
@@ -439,6 +440,7 @@ pub async fn run(
             }
             verdict = reach.next() => shared.update(|view| view.reach = verdict),
         }
+        moderated::carry_out(&host, &mut session, &mut knocks).await;
     };
     let close_v6 = async {
         if let Some(v6_port) = v6_port {
@@ -510,35 +512,6 @@ async fn next_router(router: &mut Option<Router>) -> Event {
     match router {
         Some(router) => router.next().await,
         None => std::future::pending().await,
-    }
-}
-
-async fn act(host: &HostHandle, ids: &Ids, knocks: &mut Vec<(u32, PublicId)>, action: Action) {
-    let result = match action {
-        Action::Admit(id) | Action::Decline(id) => {
-            let Some(index) = knocks.iter().position(|(k, _)| *k == id) else {
-                return;
-            };
-            let (_, device) = knocks.remove(index);
-            host.decide(device, matches!(action, Action::Admit(_)))
-                .await
-        }
-        Action::Lobby(on) => host.set_gate(on).await,
-        Action::Remove(id) => match ids.device(id) {
-            Some(device) => host.remove(device).await,
-            None => return,
-        },
-        // The session sends chat (see `run`); the engine saves verified keys.
-        Action::Chat(..)
-        | Action::React(..)
-        | Action::Hand(_)
-        | Action::Verify(..)
-        | Action::InviteUntilEnd(_) => {
-            return;
-        }
-    };
-    if let Err(e) = result {
-        crate::note!("{action:?} failed: {e}");
     }
 }
 

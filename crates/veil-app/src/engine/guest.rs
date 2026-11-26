@@ -219,7 +219,18 @@ pub async fn run(
                         session.set_hand(raised).await;
                         Flow::Stay
                     }
-                    // Only the host decides; the interface offers a guest nothing else to act on.
+                    // A moderator asks the host; the session drops it unless the host named you.
+                    Some(Command::Act(Action::Mute(id))) => {
+                        session.ask_mute(id).await;
+                        Flow::Stay
+                    }
+                    Some(Command::Act(
+                        action @ (Action::Admit(_) | Action::Decline(_) | Action::Remove(_)),
+                    )) => {
+                        session.request(&action).await;
+                        Flow::Stay
+                    }
+                    // Only the host decides the rest.
                     Some(Command::Act(_)) => Flow::Stay,
                 },
                 event = member.events.recv() => {

@@ -1,18 +1,10 @@
 //! One responsive, identity-keyed call canvas for desktop and Android.
 use super::{
     call::{CallView, View},
-    cover,
-    share,
+    cover, share,
     share_sound::{self, Owner},
 };
-use crate::{
-    app::VeilApp,
-    engine::screen_key,
-    layout,
-    model::Participant,
-    theme,
-    widgets,
-};
+use crate::{app::VeilApp, engine::screen_key, layout, model::Participant, theme, widgets};
 use eframe::egui::{self, Rect, TextureId, UiBuilder};
 
 const WAITING: u64 = u64::MAX;
@@ -156,6 +148,8 @@ pub(crate) fn show(
         ui.ctx().request_repaint();
     }
     let mut waiting_area = None;
+    let mut pick = None;
+    let playback = app.media.playback();
     for placement in frame.cells {
         let Some(cell) = cells.iter().find(|cell| cell.key == placement.key) else {
             continue;
@@ -182,9 +176,30 @@ pub(crate) fn show(
                 // Every tile fills its cell, cropped around the face where the cell's shape
                 // differs from the picture. Group's cells already match their pictures.
                 let small = strip.is_some_and(|key| key != cell.key);
-                cover::tile(&child, child.painter(), app, placement.rect, person, small, true);
+                cover::tile(
+                    &child,
+                    child.painter(),
+                    app,
+                    placement.rect,
+                    person,
+                    small,
+                    true,
+                );
+                let tile = child.interact(
+                    placement.rect,
+                    egui::Id::unique(("person-menu", placement.key)),
+                    egui::Sense::click(),
+                );
+                if let Some(chosen) =
+                    super::person_menu::attach(&tile, &view.call, &playback, person)
+                {
+                    pick = Some(chosen);
+                }
             }
         }
+    }
+    if let Some(chosen) = pick {
+        super::person_menu::apply(view, chosen);
     }
     waiting_area
 }
