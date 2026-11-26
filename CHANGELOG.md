@@ -4,6 +4,27 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Added
+
+- **Lobby alerts** switch in People, on by default and remembered. Once someone has waited 30
+  seconds, the host gets a reminder with Decline and Admit. Alerts also work while Veil is
+  minimised, and play a sound on macOS, Linux and Android.
+- The host can **turn the lobby off during a call**, after a warning, on the desktop and the
+  phone. The host's engine enforces it; invites, identity checks and removal still apply.
+- **Face framing** switch in Effects (and the phone's More menu), on by default. Off keeps
+  every crop centred and stops looking for faces.
+- The call stats overlay shows **screen shares**: each one received, and yours as sent with its
+  bit rate. A sound level at the meter's floor now reads "quiet".
+
+### Changed
+
+- **People panel** in three parts: Invite, Admission and People, with switches in lists.
+- **Data use** has its own button in the call bar and the pre-join dock, out of the Video menu.
+- Pre-join: the settings sit in a dock under the preview, with Back beside the title.
+- Effects: LUTs and filters share one grid of round swatches, with favourites.
+- Share picker and sharing bar: one centred row each, with a volume slider for shared sound.
+- Connection report, nearby search and the invite QR use one centred house dialog.
+
 ## 0.1.14, 25/11/2026
 
 ### Added
