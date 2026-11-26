@@ -8,7 +8,9 @@
 //! - A receiver gets every layer of a sender until it subscribes otherwise.
 //! - Lowering takes effect at once. Raising waits for the sender's next keyframe, because a
 //!   higher layer cannot decode from the middle of a group of pictures. Until then the
-//!   receiver keeps the layers it had.
+//!   receiver keeps the layers it had. The first keyframe request can be lost (it goes on a
+//!   bounded control queue), so while a raise waits the forwarder asks the sender again every
+//!   [`ASK_AGAIN`]; the sender's periodic keyframe is 30 s away.
 //! - Audio is never filtered: it is sealed as the base layer.
 //!
 //! shortcut: every spatial layer up to the wanted one is forwarded. That suits SVC, where each
@@ -16,12 +18,15 @@
 //! ones waste its download. Add a simulcast flag when a platform encoder sends simulcast.
 
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 pub use veil_security::layer::Wanted;
 use veil_security::{Layer, PublicId};
 
 /// Most senders one subscription message may name. Larger than any room.
 pub const MAX_SUBSCRIPTIONS: usize = 256;
+/// How long a raise waits for its keyframe before the forwarder asks the sender again.
+pub const ASK_AGAIN: Duration = Duration::from_millis(1_500);
 
 /// One receiver's filter for one sender.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,29 +34,47 @@ struct Gate {
     current: Wanted,
     /// A raise waiting for a keyframe.
     pending: Option<Wanted>,
+    /// When a keyframe was last asked for this raise, once a frame has shown it still waits.
+    asked: Option<Instant>,
 }
 
 impl Gate {
     const OPEN: Self = Self {
         current: Wanted::ALL,
         pending: None,
+        asked: None,
     };
 
     fn set(&mut self, wanted: Wanted) {
         let lowered = self.current.min(wanted);
         self.pending = (lowered != wanted).then_some(wanted);
         self.current = lowered;
+        self.asked = None;
     }
 
-    fn pass(&mut self, layer: Layer) -> bool {
+    /// Whether to forward `layer`, and whether to ask the sender for a keyframe again.
+    fn pass(&mut self, layer: Layer, now: Instant) -> (bool, bool) {
         if let Some(pending) = self.pending
             && layer.keyframe
             && pending.admits(layer)
         {
             self.current = pending;
             self.pending = None;
+            self.asked = None;
         }
-        self.current.admits(layer)
+        let mut ask = false;
+        if self.pending.is_some() {
+            // The first request went when the raise arrived; time from the first frame after.
+            match self.asked {
+                None => self.asked = Some(now),
+                Some(at) if now.saturating_duration_since(at) >= ASK_AGAIN => {
+                    self.asked = Some(now);
+                    ask = true;
+                }
+                Some(_) => {}
+            }
+        }
+        (self.current.admits(layer), ask)
     }
 }
 
@@ -83,9 +106,17 @@ impl Subscriptions {
         raised
     }
 
-    /// Whether this receiver gets `sender`'s frame in `layer`.
-    pub(crate) fn pass(&mut self, sender: &PublicId, layer: Layer) -> bool {
-        self.gates.get_mut(sender).is_none_or(|gate| gate.pass(layer))
+    /// Whether this receiver gets `sender`'s frame in `layer`, and whether `sender` should be
+    /// asked again for the keyframe a raise still waits for.
+    pub(crate) fn pass_at(&mut self, sender: &PublicId, layer: Layer, now: Instant) -> (bool, bool) {
+        self.gates
+            .get_mut(sender)
+            .map_or((true, false), |gate| gate.pass(layer, now))
+    }
+
+    #[cfg(test)]
+    fn pass(&mut self, sender: &PublicId, layer: Layer) -> bool {
+        self.pass_at(sender, layer, Instant::now()).0
     }
 }
 
@@ -127,6 +158,23 @@ mod tests {
         assert!(subs.pass(&ALICE, layer(0, 0, true)), "key picture, base layer");
         assert!(subs.pass(&ALICE, layer(2, 0, true)));
         assert!(subs.pass(&ALICE, layer(2, 3, false)));
+    }
+
+    #[test]
+    fn a_raise_that_waits_asks_again() {
+        let mut subs = Subscriptions::default();
+        subs.update(&[(ALICE, Wanted::THUMB)]);
+        assert_eq!(subs.update(&[(ALICE, Wanted::ALL)]), [ALICE], "first ask");
+        let t0 = Instant::now();
+        assert_eq!(subs.pass_at(&ALICE, Layer::BASE, t0), (true, false), "the clock starts");
+        let soon = t0 + ASK_AGAIN - Duration::from_millis(1);
+        assert_eq!(subs.pass_at(&ALICE, Layer::BASE, soon), (true, false));
+        let later = t0 + ASK_AGAIN;
+        assert_eq!(subs.pass_at(&ALICE, Layer::BASE, later), (true, true), "first ask lost");
+        assert_eq!(subs.pass_at(&ALICE, Layer::BASE, later), (true, false), "once per interval");
+        assert_eq!(subs.pass_at(&ALICE, layer(2, 0, true), later), (true, false), "raised");
+        let much_later = later + ASK_AGAIN * 4;
+        assert_eq!(subs.pass_at(&ALICE, layer(2, 3, false), much_later), (true, false));
     }
 
     #[test]

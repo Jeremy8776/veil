@@ -130,14 +130,17 @@ A relay-only member never agrees to an introduction. A member dials back only fo
 introduction it has just agreed to, at most once every 10 seconds for each peer and 16 times
 every 10 seconds in all. An honest rendezvous introduces only the endpoint it observes on
 the peer's authenticated connection. Extra interface hints are ignored until independently
-verified. In the private local TRUST-02 candidate, automatic punching accepts only an exact
-endpoint that THIS node authenticated as the named peer within the last 60 seconds. The
-evidence is capped at 256 peers and is not shared with other nodes or virtual relay sockets.
-Unverified invitation fetches do not add it. A helper supplies timing, not permission to dial
-a new address. Unknown reflected endpoints fall back to the chosen relay; fresh NAT punching
-based only on a helper's observation is therefore unavailable in this candidate. Explicit
-invitation/host-signed route targets remain separate authority for ordinary direct dials.
-Recent evidence does not guarantee current reachability or prevent address reassignment.
+verified. A punch uses the address the helper reflects for the peer, because that is the only
+way two people behind routers can reach each other the first time. A dishonest helper can
+misreport that address and so choose where a few handshake packets go. A member punches only
+to peers in the call, but a host dials back to any knocker the helper introduces, since it
+cannot know joiners in advance. This is bounded: at most nine addresses per punch, none
+unspecified, multicast or broadcast (IPv4-mapped forms included), none nearer this device than
+the helper itself (a helper on the internet cannot name loopback or local-network addresses),
+and within the dial-back limits above. Key pinning refuses anyone at that address who is not
+the named peer. From 24/11 to 26/11/2026
+(0.1.14 and 0.1.15) punching required an endpoint already authenticated on this device; that
+made a first punch impossible and was reversed.
 The asker gets the same silence whether the member declines or is not there, so the
 rendezvous never says who is online.
 

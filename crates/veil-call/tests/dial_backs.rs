@@ -128,14 +128,16 @@ async fn a_punch_nobody_agreed_to_sends_nothing() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn even_consented_helper_reflection_cannot_target_an_unknown_endpoint() {
+async fn an_agreed_introduction_dials_back_once() {
+    // The host agrees to a knocker's introduction and dials back to open its router. A second
+    // notice for the same peer, to another address, is not obeyed.
     let rendezvous_id = Identity::generate();
     let rendezvous = Node::bind(&rendezvous_id, localhost()).unwrap();
     let address = NodeAddr { key: rendezvous_id.public(), addr: rendezvous.local_addr().unwrap() };
-    let sink = UdpSocket::bind(localhost()).await.unwrap();
-    let target = sink.local_addr().unwrap();
-    let stranger = Identity::generate().public();
-    let (sent, observed) = tokio::sync::oneshot::channel();
+    let first = UdpSocket::bind(localhost()).await.unwrap();
+    let second = UdpSocket::bind(localhost()).await.unwrap();
+    let targets = [first.local_addr().unwrap(), second.local_addr().unwrap()];
+    let knocker = Identity::generate().public();
     let hostile = tokio::spawn(async move {
         let link = rendezvous.accept().await.unwrap().unwrap();
         let (mut out, mut input) = link.accept_control().await.unwrap().split();
@@ -143,37 +145,40 @@ async fn even_consented_helper_reflection_cannot_target_an_unknown_endpoint() {
         out.send(&ServerMsg::Registered { observed: link.remote_addr() }).await.unwrap();
         assert!(matches!(input.recv::<ClientMsg>().await.unwrap(), ClientMsg::Allow { .. }));
         out.send(&ServerMsg::Allowed).await.unwrap();
-        out.send(&ServerMsg::Request { from: stranger, kind: veil_rendezvous::Ask::Introduce }).await.unwrap();
+        out.send(&ServerMsg::Request { from: knocker, kind: veil_rendezvous::Ask::Introduce }).await.unwrap();
         loop {
             match input.recv::<ClientMsg>().await.unwrap() {
-                ClientMsg::Accept { from, kind: veil_rendezvous::Ask::Introduce } if from == stranger => break,
+                ClientMsg::Accept { from, kind: veil_rendezvous::Ask::Introduce } if from == knocker => break,
                 ClientMsg::Allow { .. } => out.send(&ServerMsg::Allowed).await.unwrap(),
-                _ => {},
+                _ => {}
             }
         }
-        out.send(&ServerMsg::Punch { peer: stranger, addrs: vec![target], delay_ms: 0 }).await.unwrap();
-        sent.send(()).unwrap();
+        for target in targets {
+            out.send(&ServerMsg::Punch { peer: knocker, addrs: vec![target], delay_ms: 0 }).await.unwrap();
+        }
         std::future::pending::<()>().await;
         drop((link, rendezvous));
     });
     let identity = Identity::generate();
     let (host, _events) = HostHandle::start(&identity, ROOM).unwrap();
     let _call = CallNode::start(&identity, Node::bind(&identity, localhost()).unwrap(), ROOM, Some(address), host).await;
-    tokio::time::timeout(Duration::from_secs(2), observed).await.unwrap().unwrap();
-    assert_eq!(datagrams_at(&sink).await, 0, "consent to the identity does not prove the helper's address");
+    let (once, again) = tokio::join!(datagrams_at(&first), datagrams_at(&second));
+    assert!(once > 0, "an agreed introduction opens this side's router");
+    assert_eq!(again, 0, "one dial-back per agreement");
     hostile.abort();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_requested_introduction_cannot_send_to_an_unknown_reflected_endpoint() {
+async fn a_joiner_punches_to_a_host_it_has_never_met() {
+    // Regression (v0.1.14): a joiner refused to punch to any endpoint it had not already
+    // reached, so a host behind a router could only be reached through the relay.
     let rendezvous_id = Identity::generate();
     let rendezvous = Node::bind(&rendezvous_id, localhost()).unwrap();
     let address = NodeAddr { key: rendezvous_id.public(), addr: rendezvous.local_addr().unwrap() };
     let sink = UdpSocket::bind(localhost()).await.unwrap();
     let target = sink.local_addr().unwrap();
-    let host_identity = Identity::generate();
-    let host_key = host_identity.public();
-    let hostile = tokio::spawn(async move {
+    let host_key = Identity::generate().public();
+    let helper = tokio::spawn(async move {
         let link = rendezvous.accept().await.unwrap().unwrap();
         let (mut out, mut input) = link.accept_control().await.unwrap().split();
         assert!(matches!(input.recv::<ClientMsg>().await.unwrap(), ClientMsg::Register { .. }));
@@ -185,7 +190,7 @@ async fn a_requested_introduction_cannot_send_to_an_unknown_reflected_endpoint()
                     out.send(&ServerMsg::Punch { peer, addrs: vec![target], delay_ms: 0 }).await.unwrap();
                 }
                 ClientMsg::OpenRelay { .. } => out.send(&ServerMsg::Refused(veil_rendezvous::Refusal::RelayDisabled)).await.unwrap(),
-                _ => {},
+                _ => {}
             }
         }
     });
@@ -196,9 +201,10 @@ async fn a_requested_introduction_cannot_send_to_an_unknown_reflected_endpoint()
     let call = CallNode::for_invite(&identity, node, &invite).await;
     let mut bytes = [0u8; 2048];
     tokio::select! {
-        result = tokio::time::timeout(Duration::from_secs(3), veil_call::join(&call, &invite)) => assert!(result.unwrap().is_err()),
-        _ = sink.recv_from(&mut bytes) => panic!("requested introduction sent to a helper-invented target"),
+        result = tokio::time::timeout(Duration::from_secs(5), veil_call::join(&call, &invite)) => {
+            panic!("the join ended without punching: {:?}", result.map(|r| r.is_ok()));
+        }
+        received = sink.recv_from(&mut bytes) => { received.unwrap(); }
     }
-    assert_eq!(datagrams_at(&sink).await, 0);
-    hostile.abort();
+    helper.abort();
 }

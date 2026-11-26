@@ -377,9 +377,11 @@ pub fn meter(samples: &[f32]) -> f32 {
 fn camera_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Option<&str>) {
     use veil_media::CameraMode;
     use veil_media::platform::Camera;
+    // 1080p, the largest layer `video_out::ladder_for` sends. Asking for 720p capped every
+    // camera's top layer at 720p (about 1.3 Mbit/s), however good the camera.
     let want = CameraMode {
-        width: 1_280,
-        height: 720,
+        width: 1_920,
+        height: 1_080,
         fps: 30,
     };
     let mut camera = match Camera::open(id, want) {

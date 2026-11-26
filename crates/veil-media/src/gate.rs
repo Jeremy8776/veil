@@ -10,7 +10,9 @@
 //!   repeated picture is dropped.
 //! - A keyframe is requested only when a temporal layer 0 picture cannot decode. Loss in a
 //!   higher temporal layer heals at the next layer 0 picture, so it never asks.
-//! - One request per break: the gate asks again only after a keyframe has arrived.
+//! - One request per break, repeated only if no keyframe has come [`ASK_AGAIN_US`] of the
+//!   sender's capture time later (the request or its keyframe was lost). Without the repeat,
+//!   a lost request froze the picture until the sender's periodic keyframe.
 //!
 //! shortcut: a layer that arrives before its reference is dropped, not held back for
 //! reordering. Frames travel on separate QUIC streams, so this can drop a few pictures on a
@@ -26,6 +28,9 @@ use crate::payload::VideoHeader;
 /// Decoded pictures remembered per spatial layer. A reference is at most one temporal
 /// period (8 pictures) back, so this is enough.
 const REMEMBERED: usize = 16;
+/// Sender capture time after an unanswered keyframe request before asking again. Measured on
+/// the sender's own timestamps, so it holds at any frame rate and needs no clock here.
+pub const ASK_AGAIN_US: u64 = 1_500_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -40,7 +45,8 @@ pub enum Verdict {
 #[derive(Default)]
 struct Chain {
     decoded: VecDeque<u64>,
-    asked: bool,
+    /// Capture time of the picture that last asked for a keyframe, until one arrives.
+    asked: Option<u64>,
 }
 
 impl Chain {
@@ -88,13 +94,18 @@ impl Gate {
         if decodable {
             if layer.keyframe {
                 chain.decoded.clear();
-                chain.asked = false;
+                chain.asked = None;
             }
             chain.push(header.picture);
             return Verdict::Decode;
         }
-        if layer.temporal == 0 && !chain.asked {
-            chain.asked = true;
+        let now = header.timestamp_us;
+        // A clock that went back (another camera, a reopened capture) also asks again.
+        let may_ask = chain
+            .asked
+            .is_none_or(|at| now < at || now - at >= ASK_AGAIN_US);
+        if layer.temporal == 0 && may_ask {
+            chain.asked = Some(now);
             return Verdict::DropAndRequestKeyframe;
         }
         Verdict::Drop
@@ -168,6 +179,32 @@ mod tests {
         assert_eq!(
             admit(&mut gate, frame(0, 0, 21, Some(17))),
             Verdict::DropAndRequestKeyframe
+        );
+    }
+
+    #[test]
+    fn an_unanswered_request_is_repeated_after_a_while() {
+        let mut gate = Gate::default();
+        admit(&mut gate, frame(0, 0, 0, None));
+        let at = |mut f: (Layer, VideoHeader), us: u64| {
+            f.1.timestamp_us = us;
+            f
+        };
+        assert_eq!(
+            admit(&mut gate, at(frame(0, 0, 8, Some(4)), 1_000)),
+            Verdict::DropAndRequestKeyframe
+        );
+        let soon = 1_000 + ASK_AGAIN_US - 1;
+        assert_eq!(admit(&mut gate, at(frame(0, 0, 12, Some(8)), soon)), Verdict::Drop);
+        let later = 1_000 + ASK_AGAIN_US;
+        assert_eq!(
+            admit(&mut gate, at(frame(0, 0, 16, Some(12)), later)),
+            Verdict::DropAndRequestKeyframe,
+            "the first request or its keyframe was lost"
+        );
+        assert_eq!(
+            admit(&mut gate, at(frame(0, 0, 20, Some(16)), later + 1)),
+            Verdict::Drop
         );
     }
 

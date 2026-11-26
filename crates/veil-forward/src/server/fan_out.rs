@@ -58,18 +58,26 @@ pub(super) fn fan_out_video(
     let Ok(layer) = frame_layer(&sealed) else {
         return;
     };
+    let now = Instant::now();
     let receivers: Vec<_> = lock(state)
         .and_then(|mut s| {
             s.rooms.get_mut(key).map(|room| {
-                room.members
+                let mut ask_again = false;
+                let receivers = room
+                    .members
                     .iter_mut()
                     .filter(|(device, _)| **device != me)
                     .filter_map(|(_, m)| {
-                        m.subs
-                            .pass(&me, layer)
-                            .then(|| (m.video.clone(), m.queued.clone(), m.source))
+                        let (pass, ask) = m.subs.pass_at(&me, layer, now);
+                        ask_again |= ask;
+                        pass.then(|| (m.video.clone(), m.queued.clone(), m.source))
                     })
-                    .collect()
+                    .collect();
+                // A raise still waits: the first request or its keyframe was lost.
+                if ask_again && let Some(sender) = room.members.get(&me) {
+                    let _ = sender.control.try_send(ServerMsg::KeyframeRequest);
+                }
+                receivers
             })
         })
         .unwrap_or_default();

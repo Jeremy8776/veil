@@ -28,6 +28,7 @@
 
 pub mod app_msg;
 pub mod call_plan;
+mod consent;
 mod dial;
 mod dial_back;
 mod events;

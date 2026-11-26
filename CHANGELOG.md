@@ -4,6 +4,24 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Changed
+
+- Camera video is sent at up to 1080p (was 720p), so an HD tile uses about 3 Mbit/s instead
+  of 1.3. A shared screen no longer pulses in and out of focus every 4 s: the periodic
+  keyframe is now every 30 s, and receivers and the forwarder repeat a keyframe request that
+  went unanswered. Update self-run forwarders (`veil-node`) with the app: an older one does
+  not repeat the request, so a tile switched to HD can wait up to 30 s.
+
+### Fixed
+
+- Two people behind home routers can reach each other again. Since 0.1.14 a punch went only
+  to an address this device had already connected to, so a first punch never happened: guests
+  could not reach a host without a relay, and two guests could both reach the host but not
+  each other. A punch now uses the helper's addresses for the peer, within the existing
+  consent and dial-back limits. Addresses that name no single host are dropped (IPv4-mapped
+  ones too), and a helper on the internet cannot aim a punch at this device's loopback or
+  local network.
+
 ## 0.1.15, 26/11/2026
 
 ### Added
