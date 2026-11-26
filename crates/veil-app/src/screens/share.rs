@@ -6,7 +6,7 @@
 //! the source (Wayland), the picker waits for it and then goes straight to "Select area", and
 //! "Choose again" opens the chooser again. A shared picture is drawn whole
 //! ([`stage`]), never cropped to fit, because its text has to stay readable. The floating bar
-//! is `share_bar.rs`.
+//! is `share_bar.rs`; the buttons under the grid are `share/dock.rs`.
 //!
 //! Invariants:
 //! - Nothing goes to the call until a source is chosen and Share is pressed.
@@ -19,7 +19,7 @@
 use std::collections::HashMap;
 
 use eframe::egui::{
-    self, Align, Align2, Color32, CornerRadius, FontId, Layout, Modal, Pos2, Rect, RichText,
+    self, Align2, Color32, CornerRadius, FontId, Modal, Pos2, Rect, RichText,
     ScrollArea, Sense, Stroke, TextureFilter, TextureHandle, TextureId, TextureOptions, Ui, pos2,
     text::LayoutJob, text::TextWrapping, vec2,
 };
@@ -28,9 +28,10 @@ use veil_media::screen::{self, Crop, ScreenChoice, ScreenSource};
 use crate::app::VeilApp;
 use crate::convert::Rgba;
 use crate::icons::Icon;
-use crate::share::SoundSupport;
 use crate::theme::{self, MUTED, TEXT};
-use crate::widgets::{Tone, card, device_error, pill};
+use crate::widgets::{card, device_error};
+
+mod dock;
 
 /// A drag smaller than this fraction of the picture counts as a click.
 const MIN_CROP: f32 = 0.03;
@@ -190,10 +191,8 @@ impl SharePicker {
                     Step::SelectArea => self.picture(ui, vec2(width, height)),
                 }
                 device_error(ui, error.clone());
-                ui.add_space(12.0);
-                self.sound_choice(ui, sound.as_ref());
-                ui.add_space(8.0);
-                self.footer(ui, sharing, &mut clicked);
+                ui.add_space(16.0);
+                self.dock(ui, sharing, sound.as_ref(), &mut clicked);
             });
         self.apply(app, clicked, modal.should_close())
     }
@@ -353,69 +352,7 @@ impl SharePicker {
         }
     }
 
-    /// The "Include computer sound" choice, greyed out with the reason where it cannot work.
-    fn sound_choice(&mut self, ui: &mut Ui, support: Option<&SoundSupport>) {
-        let why = match support {
-            Some(SoundSupport::Ready) => None,
-            Some(SoundSupport::Unavailable(why)) => Some(*why),
-            None => Some("Checking…"),
-        };
-        if why.is_some() {
-            self.with_sound = false;
-        }
-        ui.horizontal(|ui| {
-            ui.add_enabled_ui(why.is_none(), |ui| {
-                ui.checkbox(&mut self.with_sound, "Include computer sound")
-                    .on_hover_text(
-                        "Send what your computer plays, such as a video. Call sound is left                          out, so nobody hears an echo.",
-                    )
-                    .on_disabled_hover_text("Sharing sound is not available on this computer");
-            });
-            if let Some(why) = why {
-                ui.label(RichText::new(why).small().color(MUTED));
-            }
-        });
-    }
-
-    fn footer(&self, ui: &mut Ui, sharing: bool, clicked: &mut Clicked) {
-        ui.horizontal(|ui| {
-            match self.step {
-                Step::Choose => {
-                    let label = if self.crop.is_some() { "Change area" } else { "Select area" };
-                    ui.add_enabled_ui(self.selected.is_some(), |ui| {
-                        let hint = "Share only part of this. It stays the same when you switch \
-                                    to another app.";
-                        if pill(ui, None, label, Tone::Quiet, 120.0).on_hover_text(hint).clicked() {
-                            clicked.step = Some(Step::SelectArea);
-                        }
-                    });
-                }
-                Step::Desktop => {}
-                Step::SelectArea if screen::uses_system_chooser() => {
-                    if pill(ui, None, "Choose again", Tone::Quiet, 120.0).clicked() {
-                        clicked.step = Some(Step::Desktop);
-                    }
-                    ui.label(RichText::new(self.area_hint()).small().color(MUTED));
-                }
-                Step::SelectArea => {
-                    if pill(ui, None, "Back", Tone::Quiet, 90.0).clicked() {
-                        clicked.step = Some(Step::Choose);
-                    }
-                    ui.label(RichText::new(self.area_hint()).small().color(MUTED));
-                }
-            }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.add_enabled_ui(self.selected.is_some(), |ui| {
-                    let label = if sharing { "Switch" } else { "Share" };
-                    clicked.share |=
-                        pill(ui, Some(Icon::Share), label, Tone::Primary, 120.0).clicked();
-                });
-                clicked.close = pill(ui, None, "Cancel", Tone::Quiet, 100.0).clicked();
-            });
-        });
-    }
-
-    fn area_hint(&self) -> &'static str {
+    pub(super) fn area_hint(&self) -> &'static str {
         if self.crop.is_some() {
             "Click the picture to use all of it"
         } else {
