@@ -268,7 +268,7 @@ have a two-second grace period on ordinary rekeys, with no grace when a member i
 | `veil-rendezvous` | Address reflection, consented introductions, relay sessions, short invites and reachability checks |
 | `veil-forward` | Host-signed roster tickets, encrypted forwarding, layer subscriptions and bounded queues |
 | `veil-topology` | Pure layout planning from supplied nodes, policy and capacities, including future cascade layouts |
-| `veil-media` | OS capture/playback, H.264 and Opus, jitter/decode scheduling, blur, filters and noise suppression |
+| `veil-media` | OS capture/playback, H.264 and Opus, jitter/decode scheduling, blur, filters, echo cancellation (`echo.rs`) and noise suppression (`denoise.rs`). The microphone chain is Cancel echo, noise removal, auto volume, then volume; playback hands its final mix to the microphone thread through a small bounded queue |
 | `veil-portmap` | Opt-in PCP, NAT-PMP and UPnP router mappings, plus PCP IPv6 pinholes |
 | `veil-node` | Configured rendezvous/relay and forwarder roles, with optional host device-key allow-lists |
 | `veil-probe` | Camera-free real-network calls, paths and round-trip/reply statistics |
