@@ -7,16 +7,21 @@
 //! Invariants:
 //! - Built from `call_menus` pieces, so it looks like the bar's menus. It opens no pop-up of
 //!   its own inside.
+//! - Every row shares one icon column and one text edge (`call_menus::ROW_ICON_X`,
+//!   `ROW_TEXT_X`): what is for you first, then moderation, and Remove last, in red.
 //! - Your own tile and row have no menu. Nobody gets moderation controls on the host.
 //! - The menu only returns a [`Pick`]; the caller applies it to the call after drawing, so a
 //!   person list being drawn is never changed under it.
 
-use eframe::egui::{self, PopupCloseBehavior};
+use eframe::egui::{
+    self, Align2, CornerRadius, FontId, PopupCloseBehavior, Rect, Sense, pos2, vec2,
+};
 
 use crate::icons::Icon;
 use crate::model::{Call, Participant};
 use crate::screens::call_menus;
 use crate::screens::stats::short_name;
+use crate::theme;
 use crate::volume::{Playback, VOICE_MAX};
 
 const WIDTH: f32 = 240.0;
@@ -64,12 +69,19 @@ fn content(
     playback: &Playback,
     person: &Participant,
 ) -> Option<Pick> {
-    call_menus::section(ui, Icon::People, &short_name(&person.name));
+    let role = if call.is_moderator(person.id) {
+        Some("Moderator")
+    } else if person.is_host {
+        Some("Host")
+    } else {
+        None
+    };
+    header(ui, &short_name(&person.name), role);
     let mut level = playback.voice_level(person.id);
-    if call_menus::volume(ui, "Volume", &mut level.volume, VOICE_MAX, VOLUME_HINT) {
+    if volume(ui, &mut level.volume) {
         playback.set_voice_level(person.id, level);
     }
-    if call_menus::switch_row(ui, &mut level.muted, "Mute for me")
+    if call_menus::icon_switch_row(ui, Icon::MicOff, &mut level.muted, "Mute for me")
         .on_hover_text(MUTE_ME_HINT)
         .changed()
     {
@@ -81,7 +93,7 @@ fn content(
     call_menus::divider(ui);
     let mut pick = None;
     if !person.muted
-        && call_menus::choice(ui, "Mute for everyone", false)
+        && action(ui, Icon::MicOff, "Mute for everyone", false)
             .on_hover_text(MUTE_ALL_HINT)
             .clicked()
     {
@@ -90,14 +102,15 @@ fn content(
     }
     if call.is_host {
         let mut moderator = call.is_moderator(person.id);
-        if call_menus::switch_row(ui, &mut moderator, "Moderator")
+        if call_menus::icon_switch_row(ui, Icon::Shield, &mut moderator, "Moderator")
             .on_hover_text(MODERATOR_HINT)
             .changed()
         {
             pick = Some(Pick::Moderator(person.id, moderator));
         }
     }
-    if call_menus::choice(ui, "Remove from call", false)
+    call_menus::divider(ui);
+    if action(ui, Icon::Leave, "Remove from call", true)
         .on_hover_text(REMOVE_HINT)
         .clicked()
     {
@@ -105,6 +118,92 @@ fn content(
         ui.close();
     }
     pick
+}
+
+/// The person's name in bold, and their role under it when they have one.
+fn header(ui: &mut egui::Ui, name: &str, role: Option<&str>) {
+    let height = if role.is_some() { 44.0 } else { 32.0 };
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
+    let painter = ui.painter();
+    let left = rect.left() + 8.0;
+    let name_y = if role.is_some() {
+        rect.top() + 14.0
+    } else {
+        rect.center().y
+    };
+    painter.text(
+        pos2(left, name_y),
+        Align2::LEFT_CENTER,
+        name,
+        theme::bold(14.0),
+        theme::TEXT,
+    );
+    if let Some(role) = role {
+        painter.text(
+            pos2(left, rect.top() + 32.0),
+            Align2::LEFT_CENTER,
+            role,
+            FontId::proportional(12.0),
+            theme::MUTED,
+        );
+    }
+}
+
+/// The volume row on the menu's icon column: icon, slider, then the percentage.
+fn volume(ui: &mut egui::Ui, gain: &mut f32) -> bool {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+    let at = pos2(rect.left() + call_menus::ROW_ICON_X, rect.center().y);
+    Icon::Volume.paint(ui.painter(), at, 15.0, theme::MUTED);
+    let percent = Rect::from_min_max(pos2(rect.right() - 44.0, rect.top()), rect.max);
+    let track = Rect::from_min_max(
+        pos2(rect.left() + call_menus::ROW_TEXT_X - 7.0, rect.top()),
+        pos2(percent.left() - 4.0, rect.bottom()),
+    );
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(track)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    let changed = call_menus::slider(&mut child, gain, VOICE_MAX, track.width(), "Volume")
+        .on_hover_text(VOLUME_HINT)
+        .changed();
+    ui.painter().text(
+        pos2(percent.right() - 8.0, percent.center().y),
+        Align2::RIGHT_CENTER,
+        format!("{}%", call_menus::percent(*gain)),
+        FontId::proportional(12.5),
+        theme::MUTED,
+    );
+    changed
+}
+
+/// A menu action on the icon column. A `danger` action (Remove) is drawn in red.
+fn action(ui: &mut egui::Ui, icon: Icon, label: &str, danger: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+    let painter = ui.painter();
+    let hot = response.hovered() || response.has_focus();
+    if hot {
+        painter.rect_filled(rect, CornerRadius::same(6), theme::RAISED_HOVER);
+    }
+    let (icon_colour, text_colour) = match (danger, hot) {
+        (true, true) => (theme::DANGER_HOVER, theme::DANGER_HOVER),
+        (true, false) => (theme::DANGER, theme::DANGER),
+        (false, _) => (theme::MUTED, theme::TEXT),
+    };
+    let at = pos2(rect.left() + call_menus::ROW_ICON_X, rect.center().y);
+    icon.paint(painter, at, 15.0, icon_colour);
+    painter.text(
+        pos2(rect.left() + call_menus::ROW_TEXT_X, rect.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(13.5),
+        text_colour,
+    );
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// Applies `pick` to the call, with the notice the People panel's Remove shows.

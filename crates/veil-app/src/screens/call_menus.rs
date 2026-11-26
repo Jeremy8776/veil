@@ -66,6 +66,20 @@ pub fn section(ui: &mut Ui, icon: Icon, title: &str) {
 ///
 /// [`toggle_row`]: crate::widgets::toggle_row
 pub fn switch_row(ui: &mut Ui, value: &mut bool, label: &str) -> Response {
+    switch_row_with(ui, None, value, label)
+}
+
+/// A [`switch_row`] for a menu of icon rows (`person_menu.rs`): an icon in the left column,
+/// the label after it, and a hover fill like the menu's other rows.
+pub fn icon_switch_row(ui: &mut Ui, icon: Icon, value: &mut bool, label: &str) -> Response {
+    switch_row_with(ui, Some(icon), value, label)
+}
+
+/// Where a menu row's icon is centred and its label starts, from the row's left edge.
+pub const ROW_ICON_X: f32 = 14.0;
+pub const ROW_TEXT_X: f32 = 34.0;
+
+fn switch_row_with(ui: &mut Ui, icon: Option<Icon>, value: &mut bool, label: &str) -> Response {
     let (rect, mut response) =
         ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
     if response.clicked() {
@@ -81,8 +95,23 @@ pub fn switch_row(ui: &mut Ui, value: &mut bool, label: &str) -> Response {
     let painter = ui.painter();
     let hovered = response.hovered() && enabled;
     let colour = if enabled { TEXT } else { MUTED };
+    let mut text_x = rect.left();
+    if let Some(icon) = icon {
+        if hovered {
+            painter.rect_filled(rect, CornerRadius::same(6), RAISED_HOVER);
+        }
+        let at = pos2(rect.left() + ROW_ICON_X, rect.center().y);
+        icon.paint(painter, at, 15.0, MUTED);
+        text_x += ROW_TEXT_X;
+    }
+    // In a row of icons the switch keeps clear of the hover fill's rounded edge.
+    let rect = if icon.is_some() {
+        rect.shrink2(vec2(8.0, 0.0))
+    } else {
+        rect
+    };
     painter.text(
-        pos2(rect.left(), rect.center().y),
+        pos2(text_x, rect.center().y),
         Align2::LEFT_CENTER,
         label,
         FontId::proportional(13.5),
