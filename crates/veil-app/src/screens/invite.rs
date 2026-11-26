@@ -83,8 +83,13 @@ pub fn lifetime(
         }
         let mut until_end = view.call.invite_until_end;
         let keep = switch(ui, &mut until_end, "Keep until the call ends").on_hover_text(
-            "Links work until the call ends instead of expiring. Each link still lets one \
-             person in, and you still admit them. Changing this makes a new link.",
+            if view.call.lobby_on {
+                "Links work until the call ends instead of expiring. Each link still lets one \
+                 person in, and you still admit them. Changing this makes a new link."
+            } else {
+                "Links work until the call ends instead of expiring. Each link still lets one \
+                 person in. Changing this makes a new link."
+            },
         );
         if keep.changed() {
             view.call.invite_until_end = until_end;

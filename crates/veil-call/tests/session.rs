@@ -5,14 +5,18 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use tokio::sync::mpsc::Receiver;
-use veil_call::{CallError, CallNode, EpochKeys, HostEvent, HostHandle, MemberEvent, MemberHandle, join};
+use veil_call::{
+    CallError, CallNode, EpochKeys, HostEvent, HostHandle, MemberEvent, MemberHandle, join,
+};
 use veil_net::Node;
 use veil_net::control::RefuseReason;
 use veil_security::invite::Invite;
 use veil_security::{Identity, PublicId, SecurityError};
 
 async fn within<T>(f: impl std::future::Future<Output = T>) -> T {
-    tokio::time::timeout(Duration::from_secs(15), f).await.expect("timed out")
+    tokio::time::timeout(Duration::from_secs(15), f)
+        .await
+        .expect("timed out")
 }
 
 fn localhost() -> SocketAddr {
@@ -49,7 +53,13 @@ async fn start_call() -> Call {
     let node = CallNode::start(&identity, node, [4; 16], None, host.clone()).await;
     let keys = next_keys(&mut events).await;
     assert_eq!(keys.epoch, 0);
-    Call { _node: node, host, events, addr, keys }
+    Call {
+        _node: node,
+        host,
+        events,
+        addr,
+        keys,
+    }
 }
 
 async fn next_keys(events: &mut Receiver<HostEvent>) -> EpochKeys {
@@ -110,7 +120,10 @@ impl Call {
     }
 
     /// Starts a joiner with the gate off. The host must let it in without a knock.
-    async fn walk_in(&mut self, invite: Invite) -> (CallNode, PublicId, Result<MemberHandle, CallError>) {
+    async fn walk_in(
+        &mut self,
+        invite: Invite,
+    ) -> (CallNode, PublicId, Result<MemberHandle, CallError>) {
         let identity = Identity::generate();
         let device = identity.public();
         let joining = tokio::spawn(async move {
@@ -141,7 +154,12 @@ impl Call {
         let keys = member_keys(&mut handle).await;
         self.keys = next_keys(&mut self.events).await;
         assert_eq!(keys.epoch, self.keys.epoch);
-        Member { _node: node, device, handle, keys }
+        Member {
+            _node: node,
+            device,
+            handle,
+            keys,
+        }
     }
 }
 
@@ -161,9 +179,15 @@ async fn admitted_members_share_each_epoch_with_the_host() {
     let packet = alice_keys.sender.encrypt(b"hello bob").unwrap();
     let (sender, plain) = bob.keys.receiver.decrypt(&packet).unwrap();
     assert_eq!(plain, b"hello bob");
-    assert!(call.keys.roster.contains(&(sender, alice.device)), "sender index is Alice's leaf");
+    assert!(
+        call.keys.roster.contains(&(sender, alice.device)),
+        "sender index is Alice's leaf"
+    );
     let packet = call.keys.sender.encrypt(b"from host").unwrap();
-    assert_eq!(alice_keys.receiver.decrypt(&packet).unwrap().1, b"from host");
+    assert_eq!(
+        alice_keys.receiver.decrypt(&packet).unwrap().1,
+        b"from host"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -171,7 +195,10 @@ async fn declined_joiner_is_told_so() {
     let mut call = start_call().await;
     let invite = call.invite().await;
     let (_node, _, result) = call.knock(invite, false).await;
-    assert!(matches!(result, Err(CallError::Refused(RefuseReason::DeclinedByHost))));
+    assert!(matches!(
+        result,
+        Err(CallError::Refused(RefuseReason::DeclinedByHost))
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -184,14 +211,21 @@ async fn an_invite_admits_one_device_only() {
     let node = Node::bind(&identity, localhost()).unwrap();
     let node = CallNode::for_invite(&identity, node, &invite).await;
     let second = within(join(&node, &invite)).await;
-    assert!(matches!(second, Err(CallError::Refused(RefuseReason::TokenUsed))));
+    assert!(matches!(
+        second,
+        Err(CallError::Refused(RefuseReason::TokenUsed))
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_dropped_link_is_a_leave_and_locks_the_leaver_out() {
     let mut call = start_call().await;
-    let Member { device: alice, handle: alice_handle, keys: mut alice_keys, _node: alice_node } =
-        call.admit().await;
+    let Member {
+        device: alice,
+        handle: alice_handle,
+        keys: mut alice_keys,
+        _node: alice_node,
+    } = call.admit().await;
     let mut bob = call.admit().await;
     drop(alice_handle);
     drop(alice_node);
@@ -212,10 +246,16 @@ async fn a_dropped_link_is_a_leave_and_locks_the_leaver_out() {
     assert_eq!(bob_keys.epoch, 3);
 
     let packet = host_keys.sender.encrypt(b"after alice").unwrap();
-    assert_eq!(bob_keys.receiver.decrypt(&packet).unwrap().1, b"after alice");
+    assert_eq!(
+        bob_keys.receiver.decrypt(&packet).unwrap().1,
+        b"after alice"
+    );
     assert!(!host_keys.roster.iter().any(|(_, d)| *d == alice));
     // Alice's last keys were for epoch 1; she holds nothing for epoch 3.
-    assert_eq!(alice_keys.receiver.decrypt(&packet), Err(SecurityError::UnknownKey));
+    assert_eq!(
+        alice_keys.receiver.decrypt(&packet),
+        Err(SecurityError::UnknownKey)
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -234,7 +274,11 @@ async fn removed_member_is_told_and_gets_no_more_keys() {
 async fn members_learn_at_once_that_the_host_ended_the_call() {
     let mut call = start_call().await;
     let mut alice = call.admit().await;
-    let Call { _node: host_node, host, .. } = call;
+    let Call {
+        _node: host_node,
+        host,
+        ..
+    } = call;
     let ended = std::time::Instant::now();
     drop(host);
     drop(host_node);
@@ -245,7 +289,10 @@ async fn members_learn_at_once_that_the_host_ended_the_call() {
     // The app stops its runtime about 0.1 s after leaving, so the goodbye must go before then,
     // or members only notice at the 20 s idle timeout.
     let waited = ended.elapsed();
-    assert!(waited < Duration::from_millis(500), "members heard after {waited:?}");
+    assert!(
+        waited < Duration::from_millis(500),
+        "members heard after {waited:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -256,13 +303,19 @@ async fn rejected_remote_knocks_cannot_grow_a_slow_hosts_event_queue() {
     let attacker = Node::bind(&Identity::generate(), localhost()).unwrap();
     // Invalid tokens still produce application refusal events. Do not consume any.
     for _ in 0..=veil_call::EVENT_BACKLOG {
-        let link = within(attacker.connect(&[call.addr], call._node.id())).await.unwrap();
+        let link = within(attacker.connect(&[call.addr], call._node.id()))
+            .await
+            .unwrap();
         let mut control = within(link.open_control()).await.unwrap();
-        control.send(&veil_net::control::Control::Hello {
-            room_id: [4; 16], join_token: [0; 16],
-        }).await.unwrap();
+        control
+            .send(&veil_net::control::Control::Hello {
+                room_id: [4; 16],
+                join_token: [0; 16],
+            })
+            .await
+            .unwrap();
         match within(control.recv()).await {
-            Ok(veil_net::control::Control::Refused(_)) => {},
+            Ok(veil_net::control::Control::Refused(_)) => {}
             // Overflow can close the actor while the final refusal is being flushed.
             Err(_) => break,
             other => panic!("unexpected reply: {other:?}"),
@@ -270,21 +323,30 @@ async fn rejected_remote_knocks_cannot_grow_a_slow_hosts_event_queue() {
         link.close("left");
     }
     // A healthy existing participant hears the call end without the app draining events.
-    assert!(matches!(within(alice.handle.events.recv()).await, Some(MemberEvent::Closed)));
+    assert!(matches!(
+        within(alice.handle.events.recv()).await,
+        Some(MemberEvent::Closed)
+    ));
     assert_eq!(call.events.len(), veil_call::EVENT_BACKLOG + 1);
     let mut refused = 0;
     for _ in 0..veil_call::EVENT_BACKLOG {
         match call.events.recv().await {
             Some(HostEvent::Refused(..)) => refused += 1,
             // The admitted member may report its authenticated address after its keys.
-            Some(HostEvent::Addresses { .. }) => {},
+            Some(HostEvent::Addresses { .. }) => {}
             other => panic!("unexpected queued event: {other:?}"),
         }
     }
     assert!(refused >= veil_call::EVENT_BACKLOG - 1);
-    assert!(matches!(call.events.recv().await, Some(HostEvent::Overloaded)));
+    assert!(matches!(
+        call.events.recv().await,
+        Some(HostEvent::Overloaded)
+    ));
     assert!(call.events.recv().await.is_none());
-    assert!(matches!(call.host.invite(vec![], None, now() + 60).await, Err(CallError::Closed)));
+    assert!(matches!(
+        call.host.invite(vec![], None, now() + 60).await,
+        Err(CallError::Closed)
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -292,8 +354,14 @@ async fn dropping_the_hosts_event_consumer_stops_the_call_even_with_live_handles
     let mut call = start_call().await;
     let mut alice = call.admit().await;
     drop(call.events);
-    assert!(matches!(within(alice.handle.events.recv()).await, Some(MemberEvent::Closed)));
-    assert!(matches!(call.host.invite(vec![], None, now() + 60).await, Err(CallError::Closed)));
+    assert!(matches!(
+        within(alice.handle.events.recv()).await,
+        Some(MemberEvent::Closed)
+    ));
+    assert!(matches!(
+        call.host.invite(vec![], None, now() + 60).await,
+        Err(CallError::Closed)
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -315,7 +383,10 @@ async fn with_the_gate_off_guests_join_without_waiting_and_can_still_be_removed(
     }
     let after = next_keys(&mut call.events).await;
     assert_eq!(after.epoch, 2);
-    assert!(!after.roster.iter().any(|(_, d)| *d == device), "removal still works");
+    assert!(
+        !after.roster.iter().any(|(_, d)| *d == device),
+        "removal still works"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -329,7 +400,10 @@ async fn with_the_gate_off_an_invite_still_admits_one_device_only() {
     let node = Node::bind(&identity, localhost()).unwrap();
     let node = CallNode::for_invite(&identity, node, &invite).await;
     let second = within(join(&node, &invite)).await;
-    assert!(matches!(second, Err(CallError::Refused(RefuseReason::TokenUsed))));
+    assert!(matches!(
+        second,
+        Err(CallError::Refused(RefuseReason::TokenUsed))
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -339,5 +413,8 @@ async fn turning_the_gate_back_on_makes_guests_wait_again() {
     call.host.set_gate(true).await.unwrap();
     let invite = call.invite().await;
     let (_node, _, result) = call.knock(invite, false).await;
-    assert!(matches!(result, Err(CallError::Refused(RefuseReason::DeclinedByHost))));
+    assert!(matches!(
+        result,
+        Err(CallError::Refused(RefuseReason::DeclinedByHost))
+    ));
 }

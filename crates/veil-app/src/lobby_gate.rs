@@ -1,4 +1,5 @@
-//! The host's Lobby switch, and the warning before it goes off.
+//! The host's Lobby switch, and the warning before it goes off. The phone draws the same
+//! switch and warning as a sheet (`mobile/people.rs`) and acts through [`moved`] and [`answer`].
 //!
 //! Purpose: with the lobby on (the default) the host admits each guest. Turning it off lets
 //! anyone with a valid invite link come straight in, so the host confirms first in a dialog
@@ -49,6 +50,11 @@ pub fn row(view: &mut CallView, ui: &mut egui::Ui) {
         "On: guests wait until you admit them. Off: anyone with a valid invite link joins \
          straight away. Each link still works once, and you can still remove people.",
     );
+    moved(view, wanted);
+}
+
+/// Acts on the host moving the Lobby switch to `wanted`, on desktop or phone.
+pub fn moved(view: &mut CallView, wanted: bool) {
     match flip(view.call.lobby_on, wanted) {
         Flip::Apply(on) => {
             view.call.set_lobby(on);
@@ -59,25 +65,39 @@ pub fn row(view: &mut CallView, ui: &mut egui::Ui) {
     }
 }
 
+/// Whether the warning should be drawn this frame. Closes it once it no longer applies.
+pub fn warning_open(view: &mut CallView) -> bool {
+    if view.lobby_warning && (!view.call.is_host || !view.call.lobby_on) {
+        view.lobby_warning = false;
+    }
+    view.lobby_warning
+}
+
+/// The host's answer in the warning: Turn off (`true`), or Cancel or closing it (`false`).
+pub fn answer(view: &mut CallView, turn_off: bool) {
+    if turn_off {
+        view.call.set_lobby(false);
+        view.notify("Lobby off. Guests with an invite link join straight away.");
+    }
+    view.lobby_warning = false;
+}
+
+/// The warning's line and its detail, shared by the desktop dialog and the phone sheet.
+pub const WARNING: &str = "Guests with an invite link will join without waiting.";
+pub const WARNING_DETAIL: &str = "Anyone holding a valid link can join, so share links only \
+    with people you trust. Each link still works once, the call still has a size limit, and \
+    you can still remove people. Anyone already waiting still needs you to admit them.";
+
 /// The warning before the lobby goes off, while the host has it open.
 pub fn show(view: &mut CallView, ctx: &egui::Context) {
-    if !view.lobby_warning {
-        return;
-    }
-    if !view.call.is_host || !view.call.lobby_on {
-        view.lobby_warning = false;
+    if !warning_open(view) {
         return;
     }
     let width = dialog::width(ctx.content_rect().width(), 360.0);
     let mut confirmed = false;
     let mut cancelled = false;
     let open = dialog::show(ctx, "lobby-off", "Turn off the lobby?", width, |ui| {
-        ui.label("Guests with an invite link will join without waiting.")
-            .on_hover_text(
-                "Anyone holding a valid link can join, so share links only with people you \
-                 trust. Each link still works once, the call still has a size limit, and you \
-                 can still remove people. Anyone already waiting still needs you to admit them.",
-            );
+        ui.label(WARNING).on_hover_text(WARNING_DETAIL);
         let (cancel, off) = dialog::pair(
             ui,
             width,
@@ -88,12 +108,8 @@ pub fn show(view: &mut CallView, ctx: &egui::Context) {
         confirmed = off.clicked();
         cancelled = cancel.clicked();
     });
-    if confirmed {
-        view.call.set_lobby(false);
-        view.notify("Lobby off. Guests with an invite link join straight away.");
-    }
     if confirmed || cancelled || !open {
-        view.lobby_warning = false;
+        answer(view, confirmed);
     }
 }
 
