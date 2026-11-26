@@ -240,11 +240,10 @@ impl Shared {
         self.ctx.request_repaint();
     }
 
-    /// Each person's decoded video so far, for the stats.
+    /// Each picture key's decoded video so far, cameras and shared screens, for the stats.
     pub fn decoded(&self) -> HashMap<u32, Decoded> {
         lock(&self.pictures)
             .iter()
-            .filter(|(id, _)| !is_screen(**id))
             .map(|(id, p)| (*id, p.decoded))
             .collect()
     }

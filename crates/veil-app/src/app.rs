@@ -103,6 +103,8 @@ impl VeilApp {
         let data_use = Arc::new(crate::data_use::DataUseCell::new(connection.saved.data_use));
         let prefs = crate::preferences::Store::open(keystore::default_dir());
         let lobby_alerts = prefs.saved.lobby_alerts.unwrap_or(true);
+        let mut framing = crate::framing::Framing::new(ctx.clone());
+        framing.set_enabled(prefs.saved.face_framing.unwrap_or(true));
         let media = LocalMedia::new(ctx.clone());
         let luts = crate::luts::Library::open(keystore::default_dir());
         prefs.saved.apply(&media, &luts);
@@ -133,7 +135,7 @@ impl VeilApp {
             joining: None,
             demo: false,
             remote: HashMap::new(),
-            framing: crate::framing::Framing::new(ctx.clone()),
+            framing,
             firewall: crate::firewall::Firewall::new(),
             keys: Arc::new(Mutex::new(KeyStore::open(keystore::default_dir()))),
             confirm_new_key: false,
@@ -377,6 +379,7 @@ impl VeilApp {
     fn remember_prefs(&mut self, ctx: &egui::Context) {
         let now = crate::preferences::Prefs {
             lobby_alerts: Some(self.lobby_alerts),
+            face_framing: Some(self.framing.enabled()),
             ..crate::preferences::Prefs::current(&self.media, &self.prefs.saved, &self.devices)
         };
         #[cfg(target_os = "android")]

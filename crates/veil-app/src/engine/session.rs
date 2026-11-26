@@ -72,7 +72,14 @@ pub struct Pipes {
 pub(super) fn diagnose_member(shared: &Shared, event: &veil_call::MemberEvent) {
     use crate::diagnostics::{End, Problem, State, Step};
     use veil_call::MemberEvent;
-    if matches!(event, MemberEvent::Closed | MemberEvent::Removed | MemberEvent::ConnectionLost | MemberEvent::Overloaded | MemberEvent::Failed(_)) {
+    if matches!(
+        event,
+        MemberEvent::Closed
+            | MemberEvent::Removed
+            | MemberEvent::ConnectionLost
+            | MemberEvent::Overloaded
+            | MemberEvent::Failed(_)
+    ) {
         shared.diagnose(|d| d.reconnecting = false);
     }
     shared.diagnose(|d| match event {
@@ -397,10 +404,13 @@ impl Session {
     fn sample_stats(&mut self) {
         let links = self.media.link_stats();
         let decoded = self.shared.decoded();
+        let sent = *crate::media::lock(&self.pipes.screen_control.sent);
         let others = &self.others;
         let person =
             |device: &PublicId| others.iter().find(|(_, d)| d == device).map(|(id, _)| *id);
-        let stats = self.sampler.sample(links, &decoded, person, Instant::now());
+        let stats = self
+            .sampler
+            .sample(links, &decoded, sent, person, Instant::now());
         self.pipes
             .data
             .set_auto_saving(self.auto.update(&stats.links));
@@ -450,11 +460,14 @@ impl Session {
         let timestamp = micros_since(self.clock);
         let data = self.pipes.data.effective();
         let payload = if share {
-            let payload = self.share_sound.payload(pcm, Some(data.share_sound_bitrate()), timestamp);
+            let payload =
+                self.share_sound
+                    .payload(pcm, Some(data.share_sound_bitrate()), timestamp);
             let (binding, id) = (sender.binding(), sender.next_frame_id());
             payload.and_then(|p| sound_proof::sign(&self.identity, binding, &id, &p))
         } else {
-            self.voice.payload(pcm, Some(data.opus_bitrate()), timestamp)
+            self.voice
+                .payload(pcm, Some(data.opus_bitrate()), timestamp)
         };
         let Some(payload) = payload else { return };
         match sender.encrypt(&payload) {

@@ -1,10 +1,11 @@
-//! Live call stats for the debug overlay: per link round trip, loss and bit rates, and per
-//! person the received video size and frame rate.
+//! Live call stats for the debug overlay: per link round trip, loss and bit rates, per
+//! person the received video size and frame rate (camera and shared screen), and what your
+//! own shared screen goes out as.
 //!
 //! Purpose: the session task calls [`Sampler::sample`] once a second with each link's QUIC
-//! counters (`MediaSession::link_stats`) and each person's count of decoded pictures, and
-//! stores the result in `Shared` for the interface. Rates come from the change since the
-//! last sample.
+//! counters (`MediaSession::link_stats`), each picture key's count of decoded pictures and
+//! the screen encoder's totals ([`Sent`]), and stores the result in `Shared` for the
+//! interface. Rates come from the change since the last sample.
 //!
 //! Invariants:
 //! - Nothing here is sent anywhere: the numbers stay on this device.
@@ -47,7 +48,27 @@ pub struct VideoRow {
 #[derive(Clone, Debug, Default)]
 pub struct Stats {
     pub links: Vec<LinkRow>,
+    /// By picture key: a person's id for their camera, `view::screen_key` for their screen.
     pub video: HashMap<u32, VideoRow>,
+    /// Your shared screen as encoded, once the screen encoder has sent anything.
+    pub screen_out: Option<SentRow>,
+}
+
+/// Totals from your screen encoder since the call began: the size it encodes at, pictures
+/// encoded and bytes they came to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Sent {
+    pub width: u16,
+    pub height: u16,
+    pub pictures: u64,
+    pub bytes: u64,
+}
+
+/// Your shared screen as the overlay shows it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SentRow {
+    pub video: VideoRow,
+    pub kbps: Option<u32>,
 }
 
 /// Decoded video from one person since the call began: size of the newest picture and
@@ -85,18 +106,22 @@ pub fn fps(frames: u64, elapsed: Duration) -> Option<f32> {
 pub struct Sampler {
     links: HashMap<PublicId, (LinkStats, Instant)>,
     frames: HashMap<u32, (u64, Instant)>,
+    sent: Option<(Sent, Instant)>,
 }
 
 impl Sampler {
     /// Turns this second's counters into rows. `person` names the person a linked device is,
-    /// if it is one; links to anything else (the forwarder) get `id: None`.
+    /// if it is one; links to anything else (the forwarder) get `id: None`. `sent` is the
+    /// screen encoder's totals, `None` before it has encoded anything.
     pub fn sample(
         &mut self,
         links: Vec<(PublicId, LinkStats)>,
         decoded: &HashMap<u32, Decoded>,
+        sent: Option<Sent>,
         person: impl Fn(&PublicId) -> Option<u32>,
         now: Instant,
     ) -> Stats {
+        let screen_out = sent.map(|s| self.sent_row(s, now));
         let mut rows = Vec::with_capacity(links.len());
         let mut seen = HashMap::with_capacity(links.len());
         for (peer, link) in links {
@@ -149,7 +174,33 @@ impl Sampler {
         }
         self.frames = frames;
         rows.sort_by_key(|r| r.id.unwrap_or(u32::MAX));
-        Stats { links: rows, video }
+        Stats {
+            links: rows,
+            video,
+            screen_out,
+        }
+    }
+
+    /// Your screen's rate since the last sample; totals that went down start again.
+    fn sent_row(&mut self, sent: Sent, now: Instant) -> SentRow {
+        let mut row = SentRow {
+            video: VideoRow {
+                width: sent.width,
+                height: sent.height,
+                fps: None,
+            },
+            kbps: None,
+        };
+        if let Some((before, at)) = self.sent
+            && sent.pictures >= before.pictures
+            && sent.bytes >= before.bytes
+        {
+            let elapsed = now.saturating_duration_since(at);
+            row.video.fps = fps(sent.pictures - before.pictures, elapsed);
+            row.kbps = kbps(sent.bytes - before.bytes, elapsed);
+        }
+        self.sent = Some((sent, now));
+        row
     }
 }
 
@@ -164,6 +215,7 @@ pub(super) fn link_path(path: &Path) -> LinkPath {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use veil_call::Path;
 
@@ -220,6 +272,7 @@ mod tests {
                 (forwarder, link(0, 0, 0, 0)),
             ],
             &decoded,
+            None,
             who,
             t0,
         );
@@ -235,6 +288,7 @@ mod tests {
         let second = sampler.sample(
             vec![(peer, link(300, 2, 135_000, 270_000))],
             &decoded,
+            None,
             who,
             t1,
         );
@@ -245,6 +299,43 @@ mod tests {
         assert_eq!(row.rtt, Duration::from_millis(23));
         assert_eq!(second.video[&4].fps, Some(30.0));
         assert_eq!(second.video[&4].width, 1280);
+        assert!(second.screen_out.is_none(), "not sharing");
+    }
+
+    #[test]
+    fn your_screen_gets_a_rate_from_the_second_sample() {
+        let t0 = Instant::now();
+        let mut sampler = Sampler::default();
+        let mut sent = Sent {
+            width: 1920,
+            height: 1080,
+            pictures: 30,
+            bytes: 50_000,
+        };
+        let none = HashMap::new();
+        let first = sampler.sample(Vec::new(), &none, Some(sent), |_| None, t0);
+        let row = first.screen_out.unwrap();
+        assert_eq!((row.video.width, row.video.height), (1920, 1080));
+        assert_eq!(
+            (row.video.fps, row.kbps),
+            (None, None),
+            "no rate from one sample"
+        );
+        sent.pictures = 45;
+        sent.bytes = 300_000;
+        let t1 = t0 + Duration::from_secs(1);
+        let row = sampler.sample(Vec::new(), &none, Some(sent), |_| None, t1);
+        let row = row.screen_out.unwrap();
+        assert_eq!(row.video.fps, Some(15.0));
+        assert_eq!(row.kbps, Some(2_000));
+        sent.pictures = 1;
+        let t2 = t1 + Duration::from_secs(1);
+        let row = sampler.sample(Vec::new(), &none, Some(sent), |_| None, t2);
+        assert_eq!(
+            row.screen_out.unwrap().kbps,
+            None,
+            "a total that went down starts again"
+        );
     }
 
     #[test]
@@ -256,12 +347,14 @@ mod tests {
         sampler.sample(
             vec![(peer, link(500, 5, 500_000, 500_000))],
             &none,
+            None,
             |_| None,
             t0,
         );
         let after = sampler.sample(
             vec![(peer, link(10, 0, 1_000, 1_000))],
             &none,
+            None,
             |_| None,
             t0 + Duration::from_secs(1),
         );

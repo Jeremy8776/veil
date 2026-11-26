@@ -1,5 +1,5 @@
 //! The call bar's own controls: microphone and camera (each with a device menu), Effects,
-//! Share (`share.rs`) and Raise. The panel buttons and Leave stay in `call.rs`.
+//! Data use, Share (`share.rs`) and Raise. The panel buttons and Leave stay in `call.rs`.
 //!
 //! Purpose: during a call you can pick another microphone, speaker or camera and set the
 //! microphone and speaker volume without leaving, from the small arrow beside Mute and beside
@@ -28,11 +28,11 @@ use crate::widgets::{ControlState, chevron, control, device_error, level_meter};
 
 /// Width of the arrow beside Mute and Stop video. It joins its button with no gap.
 pub const MENU_W: f32 = 22.0;
-/// The width of [`media`] with 6 between buttons: three buttons and two arrows, the arrows
+/// The width of [`media`] with 6 between buttons: four buttons and two arrows, the arrows
 /// joined to their buttons with no gap.
-pub const MEDIA_W: f32 = 3.0 * 68.0 + 2.0 * MENU_W + 2.0 * 6.0;
-/// The bar's buttons drawn here: Mute, Stop video, Effects, Share, Raise.
-pub const CONTROLS: usize = 5;
+pub const MEDIA_W: f32 = 4.0 * 68.0 + 2.0 * MENU_W + 3.0 * 6.0;
+/// The bar's buttons drawn here: Mute, Stop video, Effects, Data use, Share, Raise.
+pub const CONTROLS: usize = 6;
 /// The arrows drawn here.
 pub const MENUS: usize = 2;
 const MENU_INNER: f32 = 280.0;
@@ -46,6 +46,8 @@ const CLEAN_OTHERS_HINT: &str = "Removes background sound from everyone else, on
 /// Shown wherever mirroring can be turned on or off.
 pub const MIRROR_HINT: &str =
     "Flips your camera left to right, for you and everyone in the call. Your choice is remembered.";
+/// Shown wherever face framing can be turned on or off.
+pub const FRAMING_HINT: &str = "Keeps faces in view when a tile crops a picture to fill it.      Faces are found on this device and nothing is sent. Off keeps every crop centred.";
 /// The Auto row while Auto is saving data because the connection is slow.
 const AUTO_SAVING: &str = "Auto: saving data";
 const AUTO_SAVING_HINT: &str = "Your connection is slow, so Veil sends and asks for a smaller \
@@ -82,7 +84,7 @@ pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
     }
 }
 
-/// Mute and Stop video, each with its device menu, then Effects. Shared by the call bar and
+/// Mute and Stop video, each with its device menu, then Effects and Data use. Shared by the call bar and
 /// the pre-join dock, so both look and work the same.
 pub fn media(app: &mut VeilApp, ui: &mut egui::Ui) {
     let mic_on = app.media.mic_on();
@@ -121,6 +123,15 @@ pub fn media(app: &mut VeilApp, ui: &mut egui::Ui) {
         ControlState::default(),
     );
     menu(&effects, |ui| effects_menu(app, ui));
+
+    let data = control(
+        ui,
+        Icon::Signal,
+        "Data use",
+        "How much picture and sound Veil sends and asks for",
+        ControlState::default(),
+    );
+    menu(&data, |ui| data_menu(app, ui));
 }
 
 /// A pop-up above the bar, opened and closed by `button`. Its contents must not open a
@@ -218,7 +229,9 @@ fn video_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
         app.media.choose_camera(id);
     }
     device_error(ui, app.media.camera_error());
-    call_menus::divider(ui);
+}
+
+fn data_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     call_menus::section(ui, Icon::Signal, "Data use");
     let current = app.data_use.get();
     let saving = app.data_use.auto_saving();
@@ -234,7 +247,7 @@ fn video_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     }
 }
 
-fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
+fn effects_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     call_menus::section(ui, Icon::Effects, "Background blur");
     crate::screens::effects::blur_menu(app, ui);
     call_menus::divider(ui);
@@ -245,6 +258,12 @@ fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
     let mirror = call_menus::toggle_button(ui, Icon::Mirror, "Mirror my camera", mirrored);
     if mirror.on_hover_text(MIRROR_HINT).clicked() {
         app.media.set_mirror(!mirrored);
+    }
+    ui.add_space(4.0);
+    let framing = app.framing.enabled();
+    let button = call_menus::toggle_button(ui, Icon::People, "Face framing", framing);
+    if button.on_hover_text(FRAMING_HINT).clicked() {
+        app.framing.set_enabled(!framing);
     }
 }
 

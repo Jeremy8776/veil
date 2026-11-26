@@ -324,6 +324,7 @@ impl CallView {
                 stats: &measured,
                 levels: &levels,
                 mic: app.media.mic_on().then_some(app.level),
+                sharing: app.share.is_sharing(),
             };
             stats::overlay(ui, area, &shown);
         }

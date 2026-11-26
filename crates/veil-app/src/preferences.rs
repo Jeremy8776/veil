@@ -61,6 +61,8 @@ pub struct Prefs {
     /// Notify the host when someone starts waiting (`lobby_alert.rs`); `None` until first
     /// changed (on).
     pub lobby_alerts: Option<bool>,
+    /// Keep faces in view in cropped tiles (`framing.rs`); `None` until first changed (on).
+    pub face_framing: Option<bool>,
 }
 
 impl Prefs {
@@ -126,6 +128,7 @@ impl Prefs {
             auto_gain: Some(media.auto_gain()),
             clean_others: Some(media.playback().clean_others.load(Ordering::Relaxed)),
             lobby_alerts: saved.lobby_alerts,
+            face_framing: saved.face_framing,
         }
     }
 }
@@ -303,6 +306,7 @@ mod tests {
             auto_gain: Some(true),
             clean_others: Some(true),
             lobby_alerts: Some(false),
+            face_framing: Some(false),
         }
     }
 

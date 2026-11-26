@@ -2,19 +2,23 @@
 //!
 //! Purpose: per person, how their link is doing (path, round trip, loss, bit rate down and
 //! up), what their video arrives as (size and frame rate) and how loud their sound arrives;
-//! for you, your microphone level after its volume. A forwarder link carries everyone, so it
-//! gets its own row. The engine measures once a second (`engine/stats.rs`).
+//! for you, your microphone level after its volume. A shared screen gets a row of its own
+//! under its sharer: what it arrives as, or for yours, what it goes out as and its bit rate.
+//! A forwarder link carries everyone, so it gets its own row. The engine measures once a
+//! second (`engine/stats.rs`).
 //!
 //! Invariants:
 //! - Off by default; the Stats button in the top bar or Ctrl+Shift+D turns it on and off.
 //! - It only reads. Nothing shown here is sent anywhere.
 //! - A number not measured yet shows as "-", never as zero.
+//! - A level at or below the meter's floor (-60 dBFS) shows as "quiet", not as a number.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use eframe::egui::{self, Color32, CornerRadius, Rect, RichText, vec2};
 
+use crate::engine::screen_key;
 use crate::engine::stats::{LinkRow, Stats, VideoRow};
 use crate::model::Call;
 use crate::theme::MUTED;
@@ -27,6 +31,8 @@ pub struct Shown<'a> {
     pub levels: &'a HashMap<u32, f32>,
     /// Your microphone level, 0 to 1, or `None` while muted.
     pub mic: Option<f32>,
+    /// You are sharing your screen now.
+    pub sharing: bool,
 }
 
 pub fn overlay(ui: &egui::Ui, area: Rect, shown: &Shown<'_>) {
@@ -82,6 +88,14 @@ fn table(ui: &mut egui::Ui, shown: &Shown<'_>) {
                 ui.label(text(cell));
             }
             ui.end_row();
+            if let Some(out) = shown.stats.screen_out.filter(|_| shown.sharing) {
+                let mut cells = screen_cells("Your screen", Some(&out.video));
+                cells[5] = rate(out.kbps);
+                for cell in cells {
+                    ui.label(text(cell));
+                }
+                ui.end_row();
+            }
             for person in shown.call.participants.iter().filter(|p| !p.is_you) {
                 let link = shown.stats.links.iter().find(|l| l.id == Some(person.id));
                 let mut cells = link_cells(&person.name, person.path.label(), link);
@@ -97,6 +111,13 @@ fn table(ui: &mut egui::Ui, shown: &Shown<'_>) {
                     ui.label(text(cell));
                 }
                 ui.end_row();
+                if let Some(screen) = shown.stats.video.get(&screen_key(person.id)) {
+                    let name = format!("{} screen", short_name(&person.name));
+                    for cell in screen_cells(&name, Some(screen)) {
+                        ui.label(text(cell));
+                    }
+                    ui.end_row();
+                }
             }
             for link in shown.stats.links.iter().filter(|l| l.id.is_none()) {
                 let mut cells = link_cells("Forwarder", link.path.label(), Some(link));
@@ -122,6 +143,15 @@ fn link_cells(name: &str, path: &str, link: Option<&LinkRow>) -> Vec<String> {
         // Through a forwarder the numbers are on its row.
         None => cells.extend([dash(), dash(), dash(), dash()]),
     }
+    cells
+}
+
+/// A shared screen's row: its name and video; its link is on its sharer's row.
+fn screen_cells(name: &str, video_row: Option<&VideoRow>) -> Vec<String> {
+    let mut cells = vec![name.to_string()];
+    cells.extend([dash(), dash(), dash(), dash(), dash()]);
+    cells.push(video(video_row));
+    cells.push(dash());
     cells
 }
 
@@ -166,11 +196,14 @@ pub fn video(row: Option<&VideoRow>) -> String {
 }
 
 /// A meter level (0 to 1 on a 60 dB scale, `media::meter`) as dB below full scale.
+/// The meter stops at -60 dBFS, so anything that would read -60 or lower is "quiet": a
+/// quiet room, a pause, or a smoothed level still falling towards silence.
 pub fn level(level: f32) -> String {
-    if level <= 0.0 {
-        return String::from("silent");
+    let db = (level.min(1.0) * 60.0 - 60.0).round();
+    if db <= -60.0 {
+        return String::from("quiet");
     }
-    format!("{:.0} dB", level.min(1.0) * 60.0 - 60.0)
+    format!("{db:.0} dB")
 }
 
 #[cfg(test)]
@@ -185,7 +218,9 @@ mod tests {
         assert_eq!(rate(None), "-");
         assert_eq!(rate(Some(820)), "820 kbit/s");
         assert_eq!(rate(Some(1_260)), "1.3 Mbit/s");
-        assert_eq!(level(0.0), "silent");
+        assert_eq!(level(0.0), "quiet");
+        assert_eq!(level(0.004), "quiet", "the meter's floor is not a reading");
+        assert_eq!(level(0.02), "-59 dB");
         assert_eq!(level(1.0), "0 dB");
         assert_eq!(level(0.5), "-30 dB");
     }
@@ -201,6 +236,18 @@ mod tests {
         assert_eq!(video(Some(&row)), "1280x720");
         row.fps = Some(29.7);
         assert_eq!(video(Some(&row)), "1280x720 30 fps");
+    }
+
+    #[test]
+    fn a_screen_row_lines_up_with_the_headings() {
+        let row = VideoRow {
+            width: 1920,
+            height: 1080,
+            fps: Some(15.0),
+        };
+        let cells = screen_cells("Your screen", Some(&row));
+        assert_eq!(cells.len(), 8, "one cell per heading");
+        assert_eq!(cells[6], "1920x1080 15 fps");
     }
 
     #[test]

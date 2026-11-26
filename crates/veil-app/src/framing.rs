@@ -11,6 +11,8 @@
 //! - Shared screens are never framed; only cameras ([`YOU`] or a participant id).
 //! - With no answer yet, or nobody found, the crop stays centred.
 //! - The worker never blocks the interface: a full queue drops the sample.
+//! - Face framing is opt out (Effects, saved in `preferences.rs`). While it is off nothing is
+//!   sampled, every answer is forgotten and every crop stays centred.
 use crate::engine::is_screen;
 use eframe::egui;
 use std::cell::Cell;
@@ -34,6 +36,7 @@ pub struct Framing {
     centres: Centres,
     last: HashMap<u32, Instant>,
     wanted: Cell<Option<Instant>>,
+    enabled: bool,
 }
 
 impl Framing {
@@ -63,6 +66,23 @@ impl Framing {
             centres,
             last: HashMap::new(),
             wanted: Cell::new(None),
+            enabled: true,
+        }
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Turns face framing on or off. Off forgets every head found so far.
+    pub fn set_enabled(&mut self, on: bool) {
+        self.enabled = on;
+        if !on {
+            self.last.clear();
+            self.centres
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
         }
     }
 
@@ -73,6 +93,10 @@ impl Framing {
 
     /// Where the head is in `key`'s picture, as fractions of its width and height.
     pub fn centre(&self, key: u32) -> Option<[f32; 2]> {
+        // A sample already queued when framing was turned off may still answer.
+        if !self.enabled {
+            return None;
+        }
         let centres = self.centres.lock().unwrap_or_else(|e| e.into_inner());
         centres.get(&key).copied()
     }
@@ -84,7 +108,7 @@ impl Framing {
             .wanted
             .get()
             .is_some_and(|at| now.saturating_duration_since(at) < WANTED_FOR);
-        if !wanted || (key != YOU && is_screen(key)) {
+        if !self.enabled || !wanted || (key != YOU && is_screen(key)) {
             return;
         }
         if self
