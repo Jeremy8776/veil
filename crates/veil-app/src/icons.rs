@@ -8,7 +8,8 @@
 //!
 //! Invariants:
 //! - Only Phosphor is bundled: it is MIT licensed, which is on the allow list. It holds only
-//!   the glyphs listed in [`Icon::phosphor`]; a test checks each is in the file.
+//!   the glyphs listed in [`Icon::phosphor`]; a test checks each is in the file. An icon the
+//!   subset lacks ([`Icon::Back`]) is drawn from shapes there instead.
 //! - [`Icon::SpeakerView`] is always drawn from shapes, because no icon font has a clear glyph
 //!   for it. [`Icon::Mirror`] is drawn on Windows, where Segoe has none.
 //! - An "off" state (camera off) is the "on" icon with a slash painted across, not a
@@ -70,6 +71,8 @@ pub enum Icon {
     Play,
     /// A circular arrow, for checking for updates.
     Refresh,
+    /// An arrow pointing left, for going back. Drawn where there is no Segoe font.
+    Back,
 }
 
 impl Icon {
@@ -100,6 +103,7 @@ impl Icon {
             Self::Folder => '\u{E8B7}',
             Self::Play => '\u{E768}',
             Self::Refresh => '\u{E72C}',
+            Self::Back => '\u{E72B}',
             Self::Mirror | Self::SpeakerView => return None,
         };
         Some(glyph)
@@ -134,7 +138,7 @@ impl Icon {
             Self::Play => '\u{E3D0}',    // play
             Self::Refresh => '\u{E036}', // arrow-clockwise
             Self::Mirror => '\u{ED6A}',  // flip-horizontal
-            Self::SpeakerView => return None,
+            Self::SpeakerView | Self::Back => return None,
         };
         Some(glyph)
     }
@@ -190,6 +194,10 @@ impl Icon {
                 ),
                 Shape::closed_line(vec![p(0.13, -0.3), p(0.13, 0.3), p(0.45, 0.3)], stroke),
             ],
+            Self::Back => vec![
+                poly(&[(-0.4, 0.0), (0.4, 0.0)]),
+                poly(&[(-0.08, -0.32), (-0.4, 0.0), (-0.08, 0.32)]),
+            ],
             _ => Vec::new(),
         }
     }
@@ -221,7 +229,7 @@ mod tests {
 
     use super::*;
 
-    const ALL: [Icon; 26] = [
+    const ALL: [Icon; 27] = [
         Icon::Mic,
         Icon::MicOff,
         Icon::Video,
@@ -248,6 +256,7 @@ mod tests {
         Icon::Folder,
         Icon::Play,
         Icon::Refresh,
+        Icon::Back,
     ];
 
     #[test]

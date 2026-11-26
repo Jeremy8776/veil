@@ -20,8 +20,9 @@ use crate::screens::controls;
 use crate::theme::{self, MUTED};
 use crate::widgets::{self, Tile, Tone, pill, pill_sized};
 
-/// The title and the space under it.
-const HEADER_H: f32 = 46.0;
+/// The title row (Back and the title) and the space under it.
+const HEADER_H: f32 = 48.0;
+const TITLE_ROW_H: f32 = 36.0;
 /// The space between the preview and the dock.
 const GAP: f32 = 12.0;
 /// The dock: one row of call bar buttons and its margins.
@@ -31,20 +32,17 @@ const DOCK_MARGIN_X: f32 = 12.0;
 const BELOW_H: f32 = 40.0;
 const MIN_PREVIEW_W: f32 = 320.0;
 const MAX_PREVIEW_W: f32 = 1200.0;
-/// Back and Start: the same size, so the dock is symmetric about the media buttons, and as
-/// tall as those buttons.
+/// Start, as tall as the media buttons beside it.
 const ACTION_W: f32 = 136.0;
 const ACTION_H: f32 = 58.0;
 /// Space between buttons in the dock.
 const DOCK_SPACING: f32 = 6.0;
-/// The space either side of each line between the actions and the media buttons.
+/// The space either side of the line between the media buttons and Start.
 const DIVIDER_PAD: f32 = 10.0;
 /// A line with its spacing.
 const DIVIDER_W: f32 = 2.0 * (DOCK_SPACING + DIVIDER_PAD) + 1.0;
-/// The actions side by side, for the second row of a narrow dock.
-const ACTIONS_W: f32 = 2.0 * ACTION_W + DOCK_SPACING;
-/// One row inside the dock: Back, a line, the media buttons, a line, Start.
-const ONE_ROW_W: f32 = 2.0 * ACTION_W + 2.0 * DIVIDER_W + controls::MEDIA_W;
+/// One row inside the dock: the media buttons, a line, Start.
+const ONE_ROW_W: f32 = controls::MEDIA_W + DIVIDER_W + ACTION_W;
 
 /// The preview's width: as large as the window allows with the title, dock and note still
 /// in view, kept 16:9. Never wider than the window.
@@ -88,8 +86,8 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
                             Layout::top_down(Align::Center),
                             |ui| {
                                 ui.set_width(width);
-                                ui.label(RichText::new(title).font(theme::bold(26.0)));
-                                ui.add_space(12.0);
+                                title_row(app, ui, title, width);
+                                ui.add_space(HEADER_H - TITLE_ROW_H);
                                 preview(app, ui, width);
                                 ui.add_space(GAP);
                                 dock(app, ui, host);
@@ -123,7 +121,7 @@ fn preview(app: &VeilApp, ui: &mut egui::Ui, width: f32) {
     } else if app.media.camera_error().is_some() {
         Some("Camera unavailable")
     } else if app.preview.is_none() {
-        Some("Starting camera…")
+        Some("Starting cameraâ€¦")
     } else {
         None
     };
@@ -138,16 +136,15 @@ fn preview(app: &VeilApp, ui: &mut egui::Ui, width: f32) {
     }
 }
 
-/// The dock under the preview, as wide as its contents and centred, and symmetric: Back, a
-/// thin line, the call bar's media buttons, a thin line, Start. Back and Start are the same
-/// size and as tall as the media buttons. When the window is too narrow for one row, Back
-/// and Start go on a second row, each row centred.
+/// The dock under the preview, as wide as its contents and centred: the call bar's media
+/// buttons, a thin line, then Start, as tall as they are. When the window is too narrow for
+/// one row, Start goes on a second row, each row centred.
 fn dock(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
     let one_row = ui.available_width() >= ONE_ROW_W + 2.0 * DOCK_MARGIN_X;
     let inner_w = if one_row {
         ONE_ROW_W
     } else {
-        controls::MEDIA_W.max(ACTIONS_W)
+        controls::MEDIA_W.max(ACTION_W)
     };
     // A box of the dock's exact width, so the centred column can centre it.
     ui.allocate_ui_with_layout(
@@ -162,8 +159,6 @@ fn dock(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
                     ui.set_width(inner_w);
                     if one_row {
                         row(ui, ONE_ROW_W, |ui| {
-                            back(app, ui);
-                            divider(ui);
                             controls::media(app, ui);
                             divider(ui);
                             start(app, ui, host);
@@ -171,10 +166,7 @@ fn dock(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
                     } else {
                         row(ui, controls::MEDIA_W, |ui| controls::media(app, ui));
                         ui.add_space(8.0);
-                        row(ui, ACTIONS_W, |ui| {
-                            back(app, ui);
-                            start(app, ui, host);
-                        });
+                        row(ui, ACTION_W, |ui| start(app, ui, host));
                     }
                 });
         },
@@ -193,7 +185,7 @@ fn row(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) {
     );
 }
 
-/// The thin upright line between the media buttons and the actions.
+/// The thin upright line between the media buttons and Start.
 fn divider(ui: &mut egui::Ui) {
     ui.add_space(DIVIDER_PAD);
     let (rect, _) = ui.allocate_exact_size(vec2(1.0, 36.0), Sense::hover());
@@ -201,13 +193,29 @@ fn divider(ui: &mut egui::Ui) {
     ui.add_space(DIVIDER_PAD);
 }
 
-fn back(app: &mut VeilApp, ui: &mut egui::Ui) {
-    if pill_sized(ui, None, "Back", Tone::Quiet, ACTION_W, ACTION_H).clicked() {
+/// A back arrow at the left and the title centred over the preview, as in a Mac window's
+/// toolbar. Escape goes back too.
+fn title_row(app: &mut VeilApp, ui: &mut egui::Ui, title: &str, width: f32) {
+    let (rect, _) = ui.allocate_exact_size(vec2(width, TITLE_ROW_H), Sense::hover());
+    let mut centre = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(Layout::centered_and_justified(egui::Direction::TopDown)),
+    );
+    centre.label(RichText::new(title).font(theme::bold(26.0)));
+    let left = egui::Rect::from_min_size(rect.left_top(), vec2(TITLE_ROW_H, TITLE_ROW_H));
+    let mut corner = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(left)
+            .layout(Layout::centered_and_justified(egui::Direction::TopDown)),
+    );
+    let back = widgets::icon_button(&mut corner, Icon::Back, "Back");
+    let escape = ui.input(|i| i.key_pressed(egui::Key::Escape)) && !ui.ctx().any_popup_open();
+    if back.clicked() || escape {
         app.go_home();
     }
 }
 
-/// The main action, last, as on a Mac.
 fn start(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
     let label = if host { "Start call" } else { "Join now" };
     if pill_sized(
@@ -245,7 +253,7 @@ fn firewall(app: &VeilApp, ui: &mut egui::Ui) {
     // Private rule clicked on a Public network would change nothing and keep failing.
     let (note, profile) = match &state {
         State::Unknown | State::Allowed => return,
-        State::Checking => ("Checking your firewall…", None),
+        State::Checking => ("Checking your firewallâ€¦", None),
         State::Asking => ("Confirm in the Windows prompt", None),
         State::Blocked(Profile::Public) => ("This network is set to Public", Some(Profile::Public)),
         State::Blocked(profile) => ("Your firewall may block guests", Some(*profile)),
@@ -271,7 +279,7 @@ fn firewall(app: &VeilApp, ui: &mut egui::Ui) {
         let (text, tip) = if profile == Profile::Public {
             (
                 "Allow on Public networks",
-                "Windows treats this network as Public, like a café or hotel. If it is your \
+                "Windows treats this network as Public, like a cafÃ© or hotel. If it is your \
                  home or office, set it to Private in Windows Settings > Network instead. \
                  Allowing Public lets anyone on any Public network try to reach Veil while \
                  you host. Windows asks you to confirm.",
