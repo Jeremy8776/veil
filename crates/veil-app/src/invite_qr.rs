@@ -4,6 +4,9 @@
 use eframe::egui::{self, Color32, RichText, pos2, vec2};
 use qrcodegen::{QrCode, QrCodeEcc};
 
+use crate::icons::Icon;
+use crate::widgets::{Tone, pill};
+
 #[derive(Clone)]
 struct Code {
     text: String,
@@ -55,12 +58,11 @@ pub fn open(ctx: &egui::Context) {
     ctx.data_mut(|data| data.insert_temp(open_id(), true));
 }
 
-pub fn button(ui: &mut egui::Ui) {
-    if ui.small_button("Show full invite QR").on_hover_text(
-        "Contains the whole invitation. No server is needed to read it. Share only with people you want to invite.").clicked() {
-        open(ui.ctx());
-    }
-}
+/// The QR's side on the desktop, as wide as the dialog's column.
+const DESKTOP_SIDE: f32 = 320.0;
+const SCAN_HINT: &str = "Holds the whole invitation, so no server is needed to read it. \
+                         Scan it with a phone, then paste the text into Veil.";
+const COPY_HINT: &str = "Anyone who sees this code can ask to join. You still decide who gets in.";
 
 pub fn show(ctx: &egui::Context, text: &str) {
     let mut open = ctx
@@ -97,9 +99,15 @@ pub fn show(ctx: &egui::Context, text: &str) {
                     .max_rect(slot)
                     .layout(egui::Layout::top_down(egui::Align::Center)),
             );
-            if crate::mobile::widgets::call_control(&mut slot, crate::icons::Icon::Copy, "Copy invite", false, false)
-                .on_hover_text("Anyone who sees this code can ask to join. You still decide who gets in.")
-                .clicked()
+            if crate::mobile::widgets::call_control(
+                &mut slot,
+                crate::icons::Icon::Copy,
+                "Copy invite",
+                false,
+                false,
+            )
+            .on_hover_text(COPY_HINT)
+            .clicked()
             {
                 ctx.copy_text(text.to_string());
             }
@@ -112,25 +120,32 @@ pub fn show(ctx: &egui::Context, text: &str) {
         });
         return;
     }
-    egui::Window::new("Full invitation QR")
-        .open(&mut open).collapsible(false).resizable(false)
-        .default_width(420.0).show(ctx, |ui| {
-            ui.label("Scan or share this full invitation with one guest.");
-            ui.label(RichText::new("The host still decides who joins. Anyone who sees this code can request admission.")
-                .small().color(crate::theme::MUTED));
-            ui.add_space(8.0);
-            match &code {
-                Ok(code) => {
-                    let side = ui.available_width().min(420.0);
-                    let (rect, _) = ui.allocate_exact_size(vec2(side, side), egui::Sense::hover());
-                    ui.painter().rect_filled(rect, 0.0, Color32::WHITE);
-                    paint(ui, code, rect, true);
-                }
-                Err(problem) => { ui.label(problem); }
+    // The same card as the phone's: the code on white, then one Copy button of its width.
+    let width = crate::screens::dialog::width(ctx.content_rect().width(), DESKTOP_SIDE);
+    open = crate::screens::dialog::show(ctx, "invite-qr", "Invite", width, |ui| {
+        match &code {
+            Ok(code) => {
+                let (card, _) = ui.allocate_exact_size(vec2(width, width), egui::Sense::hover());
+                ui.painter().rect_filled(card, 16.0, Color32::WHITE);
+                paint(ui, code, card, true);
+                ui.interact(
+                    card,
+                    ui.scope_id().with("invite-qr-code"),
+                    egui::Sense::hover(),
+                )
+                .on_hover_text(SCAN_HINT);
             }
-            if ui.button("Copy full invitation").clicked() { ctx.copy_text(text.to_string()); }
-            ui.label(RichText::new("Veil currently accepts the decoded invitation as pasted text.").small().color(crate::theme::MUTED));
-        });
+            Err(problem) => {
+                ui.label(RichText::new(problem.as_str()).color(crate::theme::MUTED));
+            }
+        }
+        ui.add_space(4.0);
+        let copy = pill(ui, Some(Icon::Copy), "Copy invite", Tone::Primary, width)
+            .on_hover_text(COPY_HINT);
+        if copy.clicked() {
+            ctx.copy_text(text.to_string());
+        }
+    });
     ctx.data_mut(|data| {
         data.insert_temp(open_id(), open);
         if !open {
@@ -145,16 +160,31 @@ pub fn show(ctx: &egui::Context, text: &str) {
 fn paint(ui: &egui::Ui, code: &Code, area: egui::Rect, quiet: bool) {
     let scale = ui.ctx().pixels_per_point();
     let cells = code.size + if quiet { 8 } else { 0 };
-    let unit = ((area.width().min(area.height()) * scale) / cells as f32).floor().max(1.0) / scale;
+    let unit = ((area.width().min(area.height()) * scale) / cells as f32)
+        .floor()
+        .max(1.0)
+        / scale;
     let side = code.size as f32 * unit;
     let origin = area.center() - vec2(side, side) * 0.5;
-    let origin = pos2((origin.x * scale).round() / scale, (origin.y * scale).round() / scale);
+    let origin = pos2(
+        (origin.x * scale).round() / scale,
+        (origin.y * scale).round() / scale,
+    );
     let painter = ui.painter();
     for y in 0..code.size {
         for x in 0..code.size {
-            if code.modules.get((y * code.size + x) as usize).copied().unwrap_or(false) {
+            if code
+                .modules
+                .get((y * code.size + x) as usize)
+                .copied()
+                .unwrap_or(false)
+            {
                 let at = origin + vec2(x as f32 * unit, y as f32 * unit);
-                painter.rect_filled(egui::Rect::from_min_size(at, vec2(unit, unit)), 0.0, Color32::BLACK);
+                painter.rect_filled(
+                    egui::Rect::from_min_size(at, vec2(unit, unit)),
+                    0.0,
+                    Color32::BLACK,
+                );
             }
         }
     }

@@ -210,7 +210,10 @@ fn title_row(app: &mut VeilApp, ui: &mut egui::Ui, title: &str, width: f32) {
             .layout(Layout::centered_and_justified(egui::Direction::TopDown)),
     );
     let back = widgets::icon_button(&mut corner, Icon::Back, "Back");
-    let escape = ui.input(|i| i.key_pressed(egui::Key::Escape)) && !ui.ctx().any_popup_open();
+    // A dialog over the page (the connection report) takes Escape for itself.
+    let dialog = ui.ctx().memory(|m| m.top_modal_layer()).is_some();
+    let escape =
+        ui.input(|i| i.key_pressed(egui::Key::Escape)) && !ui.ctx().any_popup_open() && !dialog;
     if back.clicked() || escape {
         app.go_home();
     }

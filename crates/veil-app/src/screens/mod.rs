@@ -15,6 +15,7 @@ pub mod call_top;
 pub mod chat_panel;
 pub mod connection;
 pub mod controls;
+pub mod dialog;
 pub mod effects;
 pub mod group_check;
 pub mod home;

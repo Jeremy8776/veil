@@ -2,8 +2,11 @@
 //! reads local evidence only; it does not test connectivity, read logs or upload anything.
 
 use super::{Capture, Include, Snapshot, State, Step};
+use crate::icons::Icon;
+use crate::screens::dialog::{Choice, pair};
 use crate::theme;
-use eframe::egui::{self, RichText};
+use crate::widgets::{Tone, toggle_row};
+use eframe::egui::{self, Align, Layout, RichText};
 
 #[derive(Default)]
 pub struct Review {
@@ -55,140 +58,105 @@ impl Review {
         if !self.open {
             return;
         }
-        let mut open = self.open;
         let available = ctx.content_rect().size();
         if cfg!(target_os = "android") {
             // The phone's bottom sheet, tall and scrolling, instead of a desktop window.
-            self.open = crate::mobile::sheet::show(ctx, "diagnostic-review", "Connection report", |ui| {
-                egui::ScrollArea::vertical()
-                    .max_height(available.y * 0.75)
-                    .auto_shrink([false, true])
-                    .show(ui, |ui| {
-                        ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| self.content(ui));
-                    });
-            });
+            self.open =
+                crate::mobile::sheet::show(ctx, "diagnostic-review", "Connection report", |ui| {
+                    egui::ScrollArea::vertical()
+                        .max_height(available.y * 0.75)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                                self.content(ui)
+                            });
+                        });
+                });
             return;
         }
-        egui::Window::new("Connection report")
-            .id(egui::Id::unique("diagnostic-review"))
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .default_width((available.x - 36.0).clamp(200.0, 540.0))
-            .default_height((available.y - 110.0).max(200.0))
-            .max_height((available.y - 70.0).max(180.0))
-            .vscroll(true)
-            .show(ctx, |ui| self.content(ui));
-        self.open = open;
+        let width = crate::screens::dialog::width(available.x, WIDTH);
+        self.open = crate::screens::dialog::show(
+            ctx,
+            "diagnostic-review",
+            "Connection report",
+            width,
+            |ui| {
+                self.content(ui);
+            },
+        );
     }
+    /// One centred column: the source switch, the status, the steps, media, what to include,
+    /// the exact text and the actions. Detail lives in tooltips.
     pub(super) fn content(&mut self, ui: &mut egui::Ui) {
-        ui.spacing_mut().item_spacing.y = 10.0;
+        ui.with_layout(Layout::top_down(Align::Center), |ui| self.column(ui));
+    }
+    fn column(&mut self, ui: &mut egui::Ui) {
+        ui.spacing_mut().item_spacing.y = theme::GAP;
+        let width = ui.available_width();
         #[cfg(feature = "dev-ui")]
-        if self.previewing { ui.label(RichText::new("UI preview · synthetic evidence").color(theme::WARN)); }
-        ui.label("Recorded on this device. Opening this report sends nothing.");
+        if self.previewing {
+            ui.label(RichText::new("UI preview · synthetic evidence").color(theme::WARN));
+        }
         if self.call.is_some() && self.check.is_some() {
-            let before = self.selected_check;
-            ui.horizontal_wrapped(|ui| {
-                ui.selectable_value(&mut self.selected_check, false, "Last / current call");
-                ui.selectable_value(&mut self.selected_check, true, "Connection check");
-            });
-            if before != self.selected_check {
-                self.include = Include::default();
-                self.capture();
-            }
+            self.source(ui, width);
         }
         let Some(snapshot) = self.frozen.as_ref() else {
-            ui.label(RichText::new("No recorded evidence yet").font(theme::bold(17.0)));
-            ui.label("Start a call or run Test these settings in Connection. This report will then be available here, including after the call ends.");
+            ui.add_space(12.0);
+            ui.label(RichText::new("Nothing recorded yet").font(theme::bold(17.0)))
+                .on_hover_text(SENDS_NOTHING);
+            ui.label(RichText::new("Start a call or test your connection.").color(theme::MUTED));
             return;
         };
-        ui.label(
-            RichText::new(if snapshot.report.ended {
-                "Call ended"
-            } else if snapshot.report.reconnecting {
-                "Restoring the host connection"
-            } else if snapshot.report.started {
-                "Call evidence"
-            } else {
-                "Connection check evidence"
-            })
-            .font(theme::bold(20.0)),
-        );
-        let scope = snapshot.report.scope;
-        ui.label(
-            RichText::new(if scope.local_only {
-                "Local only"
-            } else if scope.relay_only {
-                "Hide my address · relay only"
-            } else {
-                "Internet and local calls"
-            })
-            .color(theme::MUTED),
-        );
+        ui.label(RichText::new(heading(snapshot)).font(theme::bold(20.0)))
+            .on_hover_text(SENDS_NOTHING);
+        ui.label(RichText::new(scope_label(snapshot)).color(theme::MUTED));
         if let Some(problem) = snapshot.problem() {
-            ui.label(RichText::new(problem.label()).color(theme::WARN));
-            ui.label(problem.action());
+            ui.label(RichText::new(problem.label()).color(theme::WARN))
+                .on_hover_text(problem.action());
         }
-        ui.add_space(4.0);
-        for step in Step::ALL {
-            let state = snapshot.report.steps[step as usize];
-            let colour = match state {
-                State::Passed => theme::SPEAKING,
-                State::Failed(_) => theme::WARN,
-                _ => theme::MUTED,
-            };
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(step.label()).strong());
-                ui.label(RichText::new(state.label()).color(colour));
-            });
-        }
-        ui.label(RichText::new("A helper answering does not prove hosting permission, admission or media delivery.").small().color(theme::MUTED));
-        ui.add_space(4.0);
-        ui.label(RichText::new(snapshot.media_label()).font(theme::bold(15.0)));
-        for peer in snapshot.peers.iter().take(super::MAX_PEERS) {
-            ui.label(format!(
-                "Participant {} · {} · audio {} · video {}",
-                peer.id,
-                peer.route.label(),
-                if peer.audio_recent {
-                    "received"
-                } else {
-                    "not observed"
-                },
-                if peer.video_recent {
-                    "received"
-                } else {
-                    "not observed"
-                }
-            ));
-        }
-        ui.label(
-            RichText::new(snapshot.media_action())
-                .small()
-                .color(theme::MUTED),
+        group(ui, width, |ui| {
+            for step in Step::ALL {
+                let state = snapshot.report.steps[step as usize];
+                ui.label(pair_text(step.label(), state.label(), state_colour(state)));
+            }
+        })
+        .on_hover_text(
+            "A helper answering does not prove hosting permission, admission or media delivery.",
         );
-        ui.label(format!(
-            "Camera: {} · Microphone: {}",
-            capture_label(snapshot.camera),
-            capture_label(snapshot.microphone)
-        ));
-        ui.add_space(8.0);
-        ui.separator();
-        ui.label(RichText::new("Choose what to include").font(theme::bold(16.0)));
-        ui.label("Addresses and device public keys start off. Raw logs, names, chat, invitations and private keys are never included.");
-        let mut changed = ui
-            .checkbox(
-                &mut self.include.addresses,
-                "Include candidate IP addresses and ports",
-            )
-            .changed();
-        changed |= ui
-            .checkbox(&mut self.include.device_keys, "Include device public keys")
+        group(ui, width, |ui| {
+            ui.label(RichText::new(snapshot.media_label()).font(theme::bold(15.0)));
+            for peer in snapshot.peers.iter().take(super::MAX_PEERS) {
+                let who = format!("Participant {} · {}", peer.id, peer.route.label());
+                let media = peer_media(peer.audio_recent, peer.video_recent);
+                ui.label(pair_text(&who, media, theme::MUTED));
+            }
+            ui.label(
+                RichText::new(format!(
+                    "Camera {} · Microphone {}",
+                    capture_label(snapshot.camera),
+                    capture_label(snapshot.microphone)
+                ))
+                .color(theme::MUTED),
+            );
+        })
+        .on_hover_text(snapshot.media_action());
+        ui.add_space(4.0);
+        ui.label(RichText::new("Include").font(theme::bold(14.0)))
+            .on_hover_text("Both start off. Raw logs, names, chat, invitations and private keys are never included.");
+        let mut changed = toggle_row(
+            ui,
+            &mut self.include.addresses,
+            "IP addresses and ports",
+            "",
+        )
+        .on_hover_text("The candidate addresses and ports this device tried.")
+        .changed();
+        changed |= toggle_row(ui, &mut self.include.device_keys, "Device public keys", "")
+            .on_hover_text("Public keys identify devices. They cannot be used to sign in.")
             .changed();
         if changed {
             self.rebuild();
         }
-        ui.label(RichText::new("The exact text copied is shown below. This is a snapshot; it does not retest the network.").small().color(theme::MUTED));
         egui::ScrollArea::vertical()
             .id_salt("report-preview")
             .max_height(180.0)
@@ -201,20 +169,130 @@ impl Review {
                         .desired_width(ui.available_width())
                         .desired_rows(8)
                         .layouter(&mut layouter),
-                );
+                )
+                .on_hover_text("Exactly what Copy puts on the clipboard. A snapshot: it does not retest the network.");
             });
-        ui.horizontal_wrapped(|ui| {
-            if ui.button("Copy previewed report").clicked() {
-                self.copy_preview(ui.ctx());
-            }
-            if ui.button("Capture latest snapshot").clicked() {
-                self.capture();
-            }
-            if self.copied {
-                ui.label(RichText::new("Report copied").color(theme::SPEAKING));
-            }
-        });
+        let copy_label = if self.copied { "Copied" } else { "Copy report" };
+        let (refresh, copy) = pair(
+            ui,
+            width,
+            Choice::new(Some(Icon::Refresh), "Refresh", Tone::Quiet)
+                .hint("Take a new snapshot of what this device recorded."),
+            Choice::new(Some(Icon::Copy), copy_label, Tone::Primary)
+                .hint("Copies the text above, nothing more."),
+        );
+        if refresh.clicked() {
+            self.capture();
+        }
+        if copy.clicked() {
+            self.copy_preview(ui.ctx());
+        }
     }
+    /// Two equal buttons to choose between the call's report and the connection check's.
+    fn source(&mut self, ui: &mut egui::Ui, width: f32) {
+        let tone = |on: bool| if on { Tone::Primary } else { Tone::Quiet };
+        let (call, check) = pair(
+            ui,
+            width,
+            Choice::new(None, "Call", tone(!self.selected_check)).hint("The last or current call."),
+            Choice::new(None, "Check", tone(self.selected_check))
+                .hint("The last Test these settings in Connection."),
+        );
+        let wanted = if call.clicked() {
+            Some(false)
+        } else if check.clicked() {
+            Some(true)
+        } else {
+            None
+        };
+        if let Some(wanted) = wanted
+            && wanted != self.selected_check
+        {
+            self.selected_check = wanted;
+            self.include = Include::default();
+            self.capture();
+        }
+    }
+}
+
+const WIDTH: f32 = 460.0;
+const SENDS_NOTHING: &str = "Recorded on this device. Opening this report sends nothing.";
+
+fn heading(snapshot: &Snapshot) -> &'static str {
+    let report = &snapshot.report;
+    if report.ended {
+        "Call ended"
+    } else if report.reconnecting {
+        "Reconnecting to the host"
+    } else if report.started {
+        "Call in progress"
+    } else {
+        "Connection check"
+    }
+}
+
+fn scope_label(snapshot: &Snapshot) -> &'static str {
+    let scope = snapshot.report.scope;
+    if scope.local_only {
+        "Local only"
+    } else if scope.relay_only {
+        "Hide my address · relay only"
+    } else {
+        "Internet and local calls"
+    }
+}
+
+fn state_colour(state: State) -> egui::Color32 {
+    match state {
+        State::Passed => theme::SPEAKING,
+        State::Failed(_) => theme::WARN,
+        _ => theme::MUTED,
+    }
+}
+
+/// What arrived recently from one participant, in three words or fewer.
+fn peer_media(audio: bool, video: bool) -> &'static str {
+    match (audio, video) {
+        (true, true) => "audio and video",
+        (true, false) => "audio only",
+        (false, true) => "video only",
+        (false, false) => "nothing yet",
+    }
+}
+
+/// `name · value` on one centred line, the value in `colour`.
+fn pair_text(name: &str, value: &str, colour: egui::Color32) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let font = egui::FontId::proportional(13.5);
+    job.append(
+        name,
+        0.0,
+        egui::TextFormat::simple(font.clone(), theme::TEXT),
+    );
+    job.append(
+        " · ",
+        0.0,
+        egui::TextFormat::simple(font.clone(), theme::MUTED),
+    );
+    job.append(value, 0.0, egui::TextFormat::simple(font, colour));
+    job.halign = Align::Center;
+    job
+}
+
+/// A quiet rounded panel `width` wide holding centred lines. Its response carries the tooltip.
+fn group(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) -> egui::Response {
+    egui::Frame::new()
+        .fill(theme::PAGE)
+        .corner_radius(egui::CornerRadius::same(theme::RADIUS))
+        .inner_margin(egui::Margin::same(12))
+        .show(ui, |ui| {
+            ui.set_width(width - 24.0);
+            ui.with_layout(Layout::top_down(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                add(ui);
+            });
+        })
+        .response
 }
 
 /// Lays out the read-only report preview. epaint 0.37 can leave a row up to one glyph past the

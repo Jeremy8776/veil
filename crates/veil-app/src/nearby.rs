@@ -10,6 +10,7 @@ use eframe::egui::{self, RichText};
 use veil_net::nearby::{self, Found};
 use veil_security::short_invite::InviteLink;
 
+use crate::screens::dialog::{Choice, pair};
 use crate::theme::{self, MUTED};
 use crate::widgets::{Tone, pill};
 
@@ -145,6 +146,18 @@ impl Nearby {
         ui: &mut egui::Ui,
         verified: impl Fn(&veil_security::PublicId) -> bool,
     ) -> Option<InviteLink> {
+        if cfg!(target_os = "android") {
+            return self.body(ui, verified);
+        }
+        // The desktop's controls share one centre line and one width.
+        ui.vertical_centered(|ui| self.body(ui, verified)).inner
+    }
+
+    fn body(
+        &mut self,
+        ui: &mut egui::Ui,
+        verified: impl Fn(&veil_security::PublicId) -> bool,
+    ) -> Option<InviteLink> {
         if let Some(invite) = self.confirm.clone() {
             let known = verified(&invite_host(&invite));
             return self.confirm_ui(ui, invite, known);
@@ -195,18 +208,18 @@ impl Nearby {
             if find.clicked() {
                 self.search(ui.ctx().clone());
             }
+        } else if self.fetching {
+            busy(ui, "Getting invite…", false)
+                .on_disabled_hover_text("Asking the host for the invitation.");
         } else {
-            let find = ui
-                .add_enabled_ui(!self.fetching, |ui| {
-                    pill(
-                        ui,
-                        Some(crate::icons::Icon::Signal),
-                        "Find nearby calls",
-                        Tone::Quiet,
-                        ui.available_width().min(theme::FORM_CONTROL_WIDTH),
-                    )
-                })
-                .inner;
+            let find = pill(
+                ui,
+                Some(crate::icons::Icon::Signal),
+                "Find nearby calls",
+                Tone::Quiet,
+                width(ui),
+            )
+            .on_hover_text(SEARCH_HINT);
             if find.clicked() {
                 self.search(ui.ctx().clone());
             }
@@ -224,39 +237,48 @@ impl Nearby {
         if let Some(found) = self.chosen.clone() {
             self.code_ui(ui, found);
         } else if !rows.is_empty() {
-            ui.label(
-                RichText::new("Nearby calls are unverified. The host still admits you.")
-                    .small()
-                    .color(MUTED),
-            );
+            if cfg!(target_os = "android") {
+                ui.label(
+                    RichText::new("Nearby calls are unverified. The host still admits you.")
+                        .small()
+                        .color(MUTED),
+                );
+            }
             for found in rows {
                 if cfg!(target_os = "android") {
-                    if ui.add_enabled_ui(!self.fetching, |ui| crate::mobile::action(ui, None, &format!("Request invite · {}", found.label()), Tone::Quiet)).inner {
+                    if ui
+                        .add_enabled_ui(!self.fetching, |ui| {
+                            crate::mobile::action(
+                                ui,
+                                None,
+                                &format!("Request invite · {}", found.label()),
+                                Tone::Quiet,
+                            )
+                        })
+                        .inner
+                    {
                         self.chosen = Some(found);
                         self.code.clear();
                     }
                     continue;
                 }
-                if ui
-                    .add_enabled(
-                        !self.fetching,
-                        egui::Button::new(format!("Request invite · {}", found.label())),
-                    )
-                    .clicked()
-                {
+                let pick = ui
+                    .add_enabled_ui(!self.fetching, |ui| {
+                        let icon = Some(crate::icons::Icon::People);
+                        pill(ui, icon, &found.label(), Tone::Quiet, width(ui))
+                    })
+                    .inner
+                    .on_hover_text(
+                        "Ask this host for an invite. Nearby calls are unverified, and the \
+                         host still admits you.",
+                    );
+                if pick.clicked() {
                     self.chosen = Some(found);
                     self.code.clear();
                 }
             }
-        } else if searching && !cfg!(target_os = "android") {
-            // The phone keeps this detail in the search row's tooltip.
-            ui.label(
-                RichText::new("Hosts must enable nearby discovery in Connection.")
-                    .small()
-                    .color(MUTED),
-            );
         }
-        if self.fetching {
+        if self.fetching && cfg!(target_os = "android") {
             ui.label("Requesting the invitation…");
         }
         if let Some(error) = self.error.lock().ok().and_then(|error| error.clone()) {
@@ -286,79 +308,97 @@ fn search_control(ui: &mut egui::Ui) -> egui::Response {
         // A full-height row so the 48-point Cancel link and the label share one centre line.
         let row = egui::vec2(ui.available_width(), 48.0);
         return ui
-            .allocate_ui_with_layout(row, egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                ui.add_space(((ui.available_width() - total) * 0.5).max(0.0));
-                ui.add(egui::Spinner::new().size(16.0).color(MUTED));
-                ui.label(label)
-                    .on_hover_text("Hosts must turn on nearby discovery in Connection.");
-                crate::mobile::widgets::link(ui, None, "Cancel")
-            })
-            .inner;
-    }
-    let width = ui.available_width().min(theme::FORM_CONTROL_WIDTH);
-    let stop_width = 88.0_f32.min(width * 0.4);
-    ui.allocate_ui_with_layout(
-        egui::vec2(width, 40.0),
-        egui::Layout::left_to_right(egui::Align::Center),
-        |ui| {
-            ui.spacing_mut().item_spacing.x = theme::GAP;
-            ui.allocate_ui_with_layout(
-                egui::vec2(width - stop_width - theme::GAP, 40.0),
+            .allocate_ui_with_layout(
+                row,
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    ui.add_space(((ui.available_width() - total) * 0.5).max(0.0));
                     ui.add(egui::Spinner::new().size(16.0).color(MUTED));
-                    ui.label(RichText::new("Searching nearby").small().color(MUTED));
+                    ui.label(label)
+                        .on_hover_text("Hosts must turn on nearby discovery in Connection.");
+                    crate::mobile::widgets::link(ui, None, "Cancel")
                 },
-            );
-            pill(ui, None, "Stop", Tone::Quiet, stop_width)
-                .on_hover_text("Stop looking for calls on this local network.")
-        },
+            )
+            .inner;
+    }
+    busy(ui, "Stop searching", true).on_hover_text(SEARCH_HINT)
+}
+
+const SEARCH_HINT: &str = "Looks for calls on the same Wi-Fi or hotspot for 20 seconds. \
+                           Hosts turn on nearby discovery in Connection.";
+
+/// The width of every desktop nearby control: the home form's control width.
+fn width(ui: &egui::Ui) -> f32 {
+    ui.available_width().min(theme::FORM_CONTROL_WIDTH)
+}
+
+/// A quiet pill with a spinner just before its centred label, for work in progress. Clickable
+/// only when `enabled`.
+fn busy(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Response {
+    let response = ui
+        .add_enabled_ui(enabled, |ui| pill(ui, None, label, Tone::Quiet, width(ui)))
+        .inner;
+    let text = ui
+        .painter()
+        .layout_no_wrap(label.to_owned(), theme::bold(14.0), theme::TEXT)
+        .size()
+        .x;
+    egui::Spinner::new()
+        .size(SPINNER)
+        .color(MUTED)
+        .paint_at(ui, spinner_rect(response.rect, text));
+    response
+}
+
+const SPINNER: f32 = 14.0;
+
+/// Where the spinner goes in a pill `rect` whose centred label is `text` wide: one gap to the
+/// label's left, on the pill's centre line.
+fn spinner_rect(rect: egui::Rect, text: f32) -> egui::Rect {
+    let right = rect.center().x - text / 2.0 - theme::GAP;
+    egui::Rect::from_center_size(
+        egui::pos2(right - SPINNER / 2.0, rect.center().y),
+        egui::vec2(SPINNER, SPINNER),
     )
-    .inner
 }
 
 impl Nearby {
     /// Asks for the code on the host's screen. Without it the host's service sends nothing.
     fn code_ui(&mut self, ui: &mut egui::Ui, found: Found) {
-        ui.label(
-            RichText::new(format!(
-                "Type the nearby code shown on the host's screen for call {}.",
-                found.label()
-            ))
-            .small()
-            .color(MUTED),
-        );
+        if cfg!(target_os = "android") {
+            ui.label(
+                RichText::new(format!(
+                    "Type the nearby code shown on the host's screen for call {}.",
+                    found.label()
+                ))
+                .small()
+                .color(MUTED),
+            );
+        } else {
+            ui.label(RichText::new(format!("Code for {}", found.label())).color(MUTED));
+        }
         let code = nearby::Code::parse(&self.code);
         if cfg!(target_os = "android") {
-            let field = ui.add_sized([ui.available_width(), 48.0], egui::TextEdit::singleline(&mut self.code).hint_text("123 456").char_limit(7));
-            let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            let mut get = false;
-            ui.columns(2, |columns| {
-                get = columns[0].add_enabled_ui(code.is_some() && !self.fetching, |ui| crate::mobile::action(ui, None, "Get invite", Tone::Primary)).inner;
-                if crate::mobile::action(&mut columns[1], None, "Cancel", Tone::Quiet) { self.chosen = None; self.code.clear(); }
-            });
-            if (get || enter) && !self.fetching && let Some(code) = code {
-                self.chosen = None;
-                self.code.clear();
-                self.fetch(found, code, ui.ctx().clone());
-            }
-            return;
-        }
-        ui.horizontal(|ui| {
-            let field = ui.add(
+            let field = ui.add_sized(
+                [ui.available_width(), 48.0],
                 egui::TextEdit::singleline(&mut self.code)
                     .hint_text("123 456")
-                    .desired_width(90.0)
                     .char_limit(7),
             );
             let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            let get = ui
-                .add_enabled(
-                    code.is_some() && !self.fetching,
-                    egui::Button::new("Get invite"),
-                )
-                .clicked();
+            let mut get = false;
+            ui.columns(2, |columns| {
+                get = columns[0]
+                    .add_enabled_ui(code.is_some() && !self.fetching, |ui| {
+                        crate::mobile::action(ui, None, "Get invite", Tone::Primary)
+                    })
+                    .inner;
+                if crate::mobile::action(&mut columns[1], None, "Cancel", Tone::Quiet) {
+                    self.chosen = None;
+                    self.code.clear();
+                }
+            });
             if (get || enter)
                 && !self.fetching
                 && let Some(code) = code
@@ -367,11 +407,41 @@ impl Nearby {
                 self.code.clear();
                 self.fetch(found, code, ui.ctx().clone());
             }
-            if ui.button("Cancel").clicked() {
-                self.chosen = None;
-                self.code.clear();
-            }
-        });
+            return;
+        }
+        let width = width(ui);
+        let field = ui
+            .add_sized(
+                [width, 40.0],
+                egui::TextEdit::singleline(&mut self.code)
+                    .align(egui::Align2::CENTER_CENTER)
+                    .font(theme::bold(16.0))
+                    .hint_text("123 456")
+                    .char_limit(7),
+            )
+            .on_hover_text(
+                "The nearby code on the host's screen. Without it the host sends nothing.",
+            );
+        let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let ready = code.is_some() && !self.fetching;
+        let (cancel, get) = pair(
+            ui,
+            width,
+            Choice::new(None, "Cancel", Tone::Quiet),
+            Choice::new(None, "Get invite", Tone::Primary).enabled(ready),
+        );
+        if (get.clicked() || enter)
+            && !self.fetching
+            && let Some(code) = code
+        {
+            self.chosen = None;
+            self.code.clear();
+            self.fetch(found, code, ui.ctx().clone());
+        }
+        if cancel.clicked() {
+            self.chosen = None;
+            self.code.clear();
+        }
     }
 }
 
@@ -387,38 +457,59 @@ impl Nearby {
         verified: bool,
     ) -> Option<InviteLink> {
         ui.add_space(8.0);
-        let (text, colour) = if verified {
-            ("This host is a device you verified.", MUTED)
-        } else {
-            (
-                "You have not verified this host. Anyone on this network can announce a call.",
-                theme::DANGER_HOVER,
-            )
-        };
-        ui.label(RichText::new(text).small().color(colour));
         let mut chosen = None;
         if cfg!(target_os = "android") {
-            ui.columns(2, |columns| {
-                if crate::mobile::action(&mut columns[0], None, "Continue", Tone::Primary) { chosen = Some(InviteLink::Full(invite.clone())); }
-                if crate::mobile::action(&mut columns[1], None, "Cancel", Tone::Quiet) { self.confirm = None; }
-            });
-            if chosen.is_some() { self.confirm = None; }
-            return chosen;
-        }
-        ui.horizontal(|ui| {
-            if ui
-                .button("Continue")
-                .on_hover_text(
-                    "Go to the pre-join screen for this call. The host still admits you.",
+            let (text, colour) = if verified {
+                ("This host is a device you verified.", MUTED)
+            } else {
+                (
+                    "You have not verified this host. Anyone on this network can announce a call.",
+                    theme::DANGER_HOVER,
                 )
-                .clicked()
-            {
-                chosen = Some(InviteLink::Full(invite.clone()));
-            }
-            if ui.button("Cancel").clicked() {
+            };
+            ui.label(RichText::new(text).small().color(colour));
+            ui.columns(2, |columns| {
+                if crate::mobile::action(&mut columns[0], None, "Continue", Tone::Primary) {
+                    chosen = Some(InviteLink::Full(invite.clone()));
+                }
+                if crate::mobile::action(&mut columns[1], None, "Cancel", Tone::Quiet) {
+                    self.confirm = None;
+                }
+            });
+            if chosen.is_some() {
                 self.confirm = None;
             }
-        });
+            return chosen;
+        }
+        let (label, colour, hint) = if verified {
+            (
+                "Verified host",
+                theme::SPEAKING,
+                "This host is a device you verified.",
+            )
+        } else {
+            (
+                "Unverified host",
+                theme::WARN,
+                "You have not verified this host. Anyone on this network can announce a call, \
+                 so continue only if you expect it.",
+            )
+        };
+        ui.label(RichText::new(label).font(theme::bold(14.0)).color(colour))
+            .on_hover_text(hint);
+        let (cancel, go) = pair(
+            ui,
+            width(ui),
+            Choice::new(None, "Cancel", Tone::Quiet),
+            Choice::new(None, "Continue", Tone::Primary)
+                .hint("Go to the pre-join screen for this call. The host still admits you."),
+        );
+        if go.clicked() {
+            chosen = Some(InviteLink::Full(invite.clone()));
+        }
+        if cancel.clicked() {
+            self.confirm = None;
+        }
         if chosen.is_some() {
             self.confirm = None;
         }
@@ -434,4 +525,19 @@ pub fn advertise(shared: Arc<crate::engine::Shared>) -> Result<nearby::Advertise
         (!view.invite_full.is_empty()).then(|| view.invite_full.clone())
     }))
     .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_spinner_sits_one_gap_left_of_the_label_on_the_centre_line() {
+        let pill = egui::Rect::from_min_size(egui::pos2(100.0, 20.0), egui::vec2(240.0, 40.0));
+        let spinner = spinner_rect(pill, 100.0);
+        assert_eq!(spinner.center().y, pill.center().y);
+        assert_eq!(spinner.right(), pill.center().x - 50.0 - theme::GAP);
+        assert_eq!(spinner.width(), SPINNER);
+        assert!(spinner.left() > pill.left());
+    }
 }

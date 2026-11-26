@@ -361,33 +361,34 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, form: &mut Form) -> bool {
                 }
             });
         });
-    if form.results_open {
-        egui::Window::new("Connection check results")
-            .open(&mut form.results_open)
-            .default_width(460.0)
-            .max_height(360.0)
-            .vscroll(true)
-            .show(ui.ctx(), |ui| {
-                ui.with_layout(Layout::top_down(Align::Center), |ui| {
-                    if let Some(rows) = &form.check.result {
-                        for row in rows {
-                            let colour = match row.outcome {
-                                check::Outcome::Passed => theme::SPEAKING,
-                                check::Outcome::Failed => theme::DANGER_HOVER,
-                                check::Outcome::Note => MUTED,
-                            };
-                            ui.label(RichText::new(row.label).font(theme::bold(14.0)));
-                            ui.label(RichText::new(&row.detail).color(colour));
-                            ui.add_space(12.0);
-                        }
-                    } else {
-                        ui.label("Run a check to see its results.");
-                    }
-                    if ui.button("Preview connection report").clicked() {
-                        app.diagnostics.open_check();
-                    }
-                });
-            });
+    if form.results_open && !app.diagnostics.open {
+        let ctx = ui.ctx().clone();
+        let width = super::dialog::width(ctx.content_rect().width(), 420.0);
+        let mut report = false;
+        let rows = &form.check.result;
+        form.results_open = super::dialog::show(&ctx, "check-results", "Check results", width, |ui| {
+            if let Some(rows) = rows {
+                for row in rows {
+                    let colour = match row.outcome {
+                        check::Outcome::Passed => theme::SPEAKING,
+                        check::Outcome::Failed => theme::DANGER_HOVER,
+                        check::Outcome::Note => MUTED,
+                    };
+                    ui.label(RichText::new(row.label).font(theme::bold(14.0)));
+                    ui.label(RichText::new(&row.detail).color(colour));
+                    ui.add_space(4.0);
+                }
+            } else {
+                ui.label(RichText::new("No results yet").color(MUTED));
+            }
+            let icon = Some(crate::icons::Icon::Info);
+            report = pill(ui, icon, "Connection report", Tone::Quiet, width)
+                .on_hover_text("Review this check's evidence before copying a redacted report.")
+                .clicked();
+        });
+        if report {
+            app.diagnostics.open_check();
+        }
     }
     stay
 }
