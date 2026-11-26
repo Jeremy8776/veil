@@ -153,7 +153,9 @@ pub fn strength(ui: &mut Ui, id: &str, percent: u8, hint: &str) -> Option<u8> {
 /// imported LUTs (`swatches.rs`), Import, and the look's strength.
 pub fn look_menu(app: &VeilApp, ui: &mut Ui) {
     let chosen = app.media.lut().map(|look| look.name);
-    let names = app.luts.names();
+    // Favourites first, then the rest, each in name order.
+    let mut names = app.luts.names();
+    names.sort_by_key(|name| !app.luts.is_favourite(name));
     let mut cells = swatches::filters(&app.media);
     let first_lut = cells.len();
     cells.extend(names.iter().map(|name| Swatch {
@@ -161,7 +163,8 @@ pub fn look_menu(app: &VeilApp, ui: &mut Ui) {
         full: name.clone(),
         chosen: chosen.as_deref() == Some(name.as_str()),
         paint: app.luts.ramp(name).map_or(Paint::Unreadable, Paint::Ramp),
-        removable: true,
+        lut: true,
+        favourite: app.luts.is_favourite(name),
     }));
     match swatches::grid(ui, &cells) {
         Some(Action::Choose(i)) if i < first_lut => app.media.set_filter(Filter::ALL[i]),
@@ -173,7 +176,10 @@ pub fn look_menu(app: &VeilApp, ui: &mut Ui) {
             }
             app.luts.remove(name);
         }
-        Some(Action::Remove(_)) | None => {}
+        Some(Action::Favourite(i)) if i >= first_lut => {
+            app.luts.toggle_favourite(&names[i - first_lut]);
+        }
+        Some(Action::Remove(_) | Action::Favourite(_)) | None => {}
     }
     ui.add_space(4.0);
     let import = call_menus::toggle_button(ui, Icon::Folder, "Import LUT…", false);

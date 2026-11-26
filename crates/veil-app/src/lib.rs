@@ -46,6 +46,7 @@ mod theme;
 mod update;
 mod volume;
 mod widgets;
+mod window_size;
 
 /// The main window's title. Screen sharing also finds the window by it.
 const WINDOW_TITLE: &str = "Veil";
@@ -71,8 +72,9 @@ pub fn run() -> eframe::Result {
         viewport: viewport
             // Matches the Linux .desktop file (packaging/linux), so docks show Veil's icon.
             .with_app_id("io.github.jeremy8776.veil")
-            .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([880.0, 600.0]),
+            // Resized to the same share of any monitor on the first frames (`window_size`).
+            .with_inner_size(window_size::FALLBACK)
+            .with_min_inner_size(window_size::MIN),
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };

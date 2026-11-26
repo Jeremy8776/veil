@@ -8,25 +8,30 @@
 //! Invariants:
 //! - Nothing here opens a pop-up (see `call_menus.rs`).
 //! - Each swatch reports its full name and whether it is chosen to screen readers. A LUT's
-//!   remove button appears while the pointer is over its cell, and is a labelled button too.
+//!   favourite star (top left) and remove button (top right) are labelled buttons, reachable
+//!   by keyboard; they show while the pointer is over the cell or one of them has focus, and a
+//!   favourite's star always shows.
 //! - Long names are cut to one line with an ellipsis; the full name is in the tooltip.
+//! - [`ROWS`] rows show; more scroll inside the menu.
 
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Mesh, Pos2, Rect, Role, Sense, Shape, Stroke, Ui,
-    WidgetInfo, epaint::Vertex, pos2, text::LayoutJob, vec2,
+    self, Align2, Color32, CornerRadius, FontId, Mesh, Pos2, Rect, Response, Role, Sense, Shape,
+    Stroke, Ui, WidgetInfo, epaint::Vertex, pos2, text::LayoutJob, vec2,
 };
 use veil_media::Filter;
 
 use crate::icons::Icon;
 use crate::luts::Ramp;
 use crate::media::LocalMedia;
-use crate::theme::{ACCENT, LINE, MUTED, RAISED, RAISED_HOVER, TEXT};
+use crate::theme::{self, ACCENT, LINE, MUTED, RAISED, RAISED_HOVER, TEXT};
 
 const COLUMNS: usize = 5;
+/// Rows shown before the grid scrolls.
+pub const ROWS: usize = 5;
 const CELL_H: f32 = 62.0;
 const RADIUS: f32 = 14.0;
-/// The remove button in a LUT cell's top right corner.
-const REMOVE: f32 = 16.0;
+/// The star and remove buttons in a LUT cell's top corners.
+const CORNER: f32 = 16.0;
 
 /// What a swatch shows.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -43,14 +48,17 @@ pub struct Swatch {
     pub full: String,
     pub chosen: bool,
     pub paint: Paint,
-    /// An imported LUT, which can be removed here.
-    pub removable: bool,
+    /// An imported LUT, which can be starred and removed here.
+    pub lut: bool,
+    pub favourite: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Choose(usize),
     Remove(usize),
+    /// Star or unstar.
+    Favourite(usize),
 }
 
 /// The built-in Filters as swatches. None is chosen while a LUT is in use.
@@ -66,14 +74,24 @@ pub fn filters(media: &LocalMedia) -> Vec<Swatch> {
                 full: full.into(),
                 chosen: !lut_on && filter == current,
                 paint: Paint::Filter(filter),
-                removable: false,
+                lut: false,
+                favourite: false,
             }
         })
         .collect()
 }
 
-/// The grid. Returns what was clicked, by index into `cells`.
+/// The grid, scrolling past [`ROWS`] rows. Returns what was clicked, by index into `cells`.
 pub fn grid(ui: &mut Ui, cells: &[Swatch]) -> Option<Action> {
+    egui::ScrollArea::vertical()
+        .id_salt("look-swatches")
+        .max_height(ROWS as f32 * CELL_H)
+        .auto_shrink([false, true])
+        .show(ui, |ui| cells_grid(ui, cells))
+        .inner
+}
+
+fn cells_grid(ui: &mut Ui, cells: &[Swatch]) -> Option<Action> {
     let rows = cells.len().div_ceil(COLUMNS);
     let size = vec2(ui.available_width(), rows as f32 * CELL_H);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
@@ -126,23 +144,101 @@ fn one(ui: &mut Ui, area: Rect, i: usize, cell: &Swatch) -> Option<Action> {
     let label_at = pos2(area.center().x, area.bottom() - 11.0) - label.size() / 2.0;
     painter.galley(label_at, label, colour);
     let mut action = (response.clicked() && !cell.chosen).then_some(Action::Choose(i));
-    if cell.removable && over {
-        let x = Rect::from_min_size(
-            pos2(area.right() - REMOVE - 2.0, area.top() + 2.0),
-            vec2(REMOVE, REMOVE),
+    if !cell.lut {
+        return action;
+    }
+    let shown = over || response.has_focus();
+    let star_rect = Rect::from_min_size(area.left_top() + vec2(2.0, 2.0), vec2(CORNER, CORNER));
+    let label = if cell.favourite {
+        format!("Unstar {}", cell.full)
+    } else {
+        format!("Star {}", cell.full)
+    };
+    let star_hint = if cell.favourite {
+        "Remove from favourites"
+    } else {
+        "Add to favourites: favourites come first"
+    };
+    let star_button = corner_button(ui, star_rect, id.with("star"), &label, star_hint);
+    if cell.favourite || shown || star_button.has_focus() {
+        let colour = if cell.favourite {
+            theme::WARN
+        } else if star_button.hovered() {
+            TEXT
+        } else {
+            MUTED
+        };
+        star(
+            ui.painter(),
+            star_rect.center(),
+            6.0,
+            colour,
+            cell.favourite,
         );
-        let remove = ui
-            .interact(x, id.with("remove"), Sense::click())
-            .on_hover_text(format!("Remove {}", cell.full));
-        let name = format!("Remove {}", cell.full);
-        remove.widget_info(|| WidgetInfo::labeled(Role::Button, true, &name));
-        let colour = if remove.hovered() { TEXT } else { MUTED };
+    }
+    if star_button.clicked() {
+        action = Some(Action::Favourite(i));
+    }
+    let x = Rect::from_min_size(
+        pos2(area.right() - CORNER - 2.0, area.top() + 2.0),
+        vec2(CORNER, CORNER),
+    );
+    let name = format!("Remove {}", cell.full);
+    let remove = corner_button(ui, x, id.with("remove"), &name, &name);
+    if shown || remove.has_focus() {
+        let colour = if remove.hovered() || remove.has_focus() {
+            TEXT
+        } else {
+            MUTED
+        };
         Icon::Close.paint(ui.painter(), x.center(), 10.0, colour);
-        if remove.clicked() {
-            action = Some(Action::Remove(i));
-        }
+    }
+    if remove.clicked() {
+        action = Some(Action::Remove(i));
     }
     action
+}
+
+/// A small labelled button over a cell's corner; the caller paints it.
+fn corner_button(ui: &mut Ui, rect: Rect, id: egui::Id, label: &str, hint: &str) -> Response {
+    let response = ui.interact(rect, id, Sense::click()).on_hover_text(hint);
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, label));
+    if response.has_focus() {
+        ui.painter()
+            .rect_stroke(rect, 4, Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+    }
+    response
+}
+
+/// A five-pointed star of outer radius `r`, filled or outlined.
+fn star(painter: &egui::Painter, c: Pos2, r: f32, colour: Color32, filled: bool) {
+    let points = star_points(c, r);
+    if filled {
+        // Star-shaped about its centre, so a fan from the centre fills it.
+        let mut mesh = Mesh::default();
+        mesh.colored_vertex(c, colour);
+        for p in &points {
+            mesh.colored_vertex(*p, colour);
+        }
+        let n = points.len() as u32;
+        for i in 0..n {
+            mesh.add_triangle(0, 1 + i, 1 + (i + 1) % n);
+        }
+        painter.add(Shape::mesh(mesh));
+    } else {
+        painter.add(Shape::closed_line(points, Stroke::new(1.2, colour)));
+    }
+}
+
+/// Ten points round a star, outer and inner in turn, the first at the top.
+fn star_points(c: Pos2, r: f32) -> Vec<Pos2> {
+    (0..10)
+        .map(|k| {
+            let radius = if k % 2 == 0 { r } else { r * 0.45 };
+            let a = -std::f32::consts::FRAC_PI_2 + k as f32 * std::f32::consts::PI / 5.0;
+            c + vec2(a.cos(), a.sin()) * radius
+        })
+        .collect()
 }
 
 /// `text` on one line at most `width` wide, cut with an ellipsis.
@@ -284,5 +380,14 @@ mod tests {
                 .iter()
                 .all(|v| (v.pos - c).length() <= 10.0 + 1e-3)
         );
+    }
+
+    #[test]
+    fn a_star_has_five_points_with_the_first_at_the_top() {
+        let c = pos2(0.0, 0.0);
+        let points = star_points(c, 6.0);
+        assert_eq!(points.len(), 10);
+        assert!((points[0] - pos2(0.0, -6.0)).length() < 1e-4);
+        assert!(points.iter().all(|p| (*p - c).length() <= 6.0 + 1e-4));
     }
 }

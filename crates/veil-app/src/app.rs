@@ -413,6 +413,8 @@ impl VeilApp {
 impl eframe::App for VeilApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        #[cfg(not(target_os = "android"))]
+        crate::window_size::apply_once(&ctx);
         #[cfg(target_os = "android")]
         {
             let (top, bottom) = veil_media::ffi::android::insets();
