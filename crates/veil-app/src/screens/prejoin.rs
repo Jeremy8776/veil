@@ -25,10 +25,13 @@ const CONTROLS_H: f32 = 66.0;
 const MIN_PREVIEW_W: f32 = 320.0;
 const MAX_PREVIEW_W: f32 = 1200.0;
 /// The card's size until it has been measured, on the first frame.
-const CARD_GUESS: Vec2 = vec2(362.0, 730.0);
-/// The width inside the card, and of each picker in it.
-const CARD_W: f32 = 320.0;
-const PICKER_W: f32 = 280.0;
+const CARD_GUESS: Vec2 = vec2(322.0, 730.0);
+/// The width inside the card. Every picker, slider, line and button in it is this wide, so
+/// they share one right edge (the shared pickers are 280 wide).
+const CARD_W: f32 = 280.0;
+const PICKER_W: f32 = CARD_W;
+/// The card's margins and border, top and bottom together (`widgets::card`).
+const CARD_FRAME_H: f32 = 42.0;
 /// The card's parts that never scroll: its margins, your name, Start, Back and the note.
 const FIXED_H: f32 = 200.0;
 /// The settings stay at least this tall, however short the window; the page scrolls then.
@@ -82,7 +85,7 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
                         ui.with_layout(Layout::top_down(Align::Min), |ui| {
                             preview_column(app, ui, preview_w);
                             ui.add_space(GAP);
-                            ui.vertical(|ui| details(app, ui, host, f32::INFINITY));
+                            ui.vertical(|ui| details(app, ui, host, None));
                         });
                     });
             }
@@ -108,13 +111,13 @@ fn wide(app: &mut VeilApp, ui: &mut egui::Ui, host: bool, title: &str, space: Ve
         heading(ui, title);
         let measured = ui
             .with_layout(Layout::left_to_right(Align::Min), |ui| {
-                preview_column(app, ui, plan.preview_w);
+                let column_h = preview_column(app, ui, plan.preview_w);
                 ui.add_space(GAP);
                 // Its own column: inside the row, a card would lay its contents out sideways.
-                // Capped at the window's height under the title, so the block always fits
-                // and the card's settings scroll instead.
-                let max_h = space.y - HEADER_H;
-                ui.vertical(|ui| details(app, ui, host, max_h))
+                // As tall as the preview and its buttons, so both columns share a top and a
+                // bottom edge; the settings scroll inside it instead.
+                let outer_h = column_h.max(FIXED_H + MIN_SCROLL_H);
+                ui.vertical(|ui| details(app, ui, host, Some(outer_h - CARD_FRAME_H)))
                     .response
                     .rect
                     .size()
@@ -127,13 +130,17 @@ fn wide(app: &mut VeilApp, ui: &mut egui::Ui, host: bool, title: &str, space: Ve
     });
 }
 
-fn preview_column(app: &mut VeilApp, ui: &mut egui::Ui, width: f32) {
+/// The preview and its buttons. Returns the column's height.
+fn preview_column(app: &mut VeilApp, ui: &mut egui::Ui, width: f32) -> f32 {
     ui.vertical(|ui| {
         ui.set_width(width);
         preview(app, ui, width);
         ui.add_space(8.0);
         ui.horizontal(|ui| toggles(app, ui));
-    });
+    })
+    .response
+    .rect
+    .height()
 }
 
 fn preview(app: &VeilApp, ui: &mut egui::Ui, width: f32) {
@@ -200,38 +207,86 @@ fn toggles(app: &mut VeilApp, ui: &mut egui::Ui) {
     }
 }
 
-/// The card: your name, the settings in sections (scrolling when taller than `max_h`
-/// allows), then Start and Back, which never scroll away.
-fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool, max_h: f32) {
+/// The card: your name, the settings in sections, then Start and Back. Given an inner
+/// `height` (side by side), the card is exactly that tall: Start and Back sit on its bottom
+/// edge and the settings scroll in the space between. Without one (stacked), it is as tall as
+/// its contents and the page scrolls.
+fn details(app: &mut VeilApp, ui: &mut egui::Ui, host: bool, height: Option<f32>) {
     card().show(ui, |ui| {
         ui.set_width(CARD_W);
         ui.label(RichText::new(app.name.trim()).font(theme::bold(18.0)));
         ui.add_space(4.0);
-        egui::ScrollArea::vertical()
-            .id_salt("prejoin-settings")
-            .max_height((max_h - FIXED_H).max(MIN_SCROLL_H))
-            .auto_shrink([false, true])
-            .show(ui, |ui| {
-                video_section(app, ui);
-                audio_section(app, ui);
-                connection_section(app, ui, host);
-            });
-        ui.add_space(12.0);
-        let action = if host { "Start call" } else { "Join now" };
-        if pill(ui, Some(Icon::Video), action, Tone::Primary, 280.0).clicked() {
-            app.go_call(host);
-        }
-        if pill(ui, None, "Back", Tone::Quiet, 280.0).clicked() {
-            app.go_home();
-        }
-        ui.add_space(6.0);
-        let note = match (app.demo, host) {
-            (true, _) => "Other people are simulated.",
-            (false, true) => "You let people in from the lobby.",
-            (false, false) => "The host lets you in.",
+        let Some(height) = height else {
+            settings(app, ui, host);
+            ui.add_space(12.0);
+            actions(app, ui, host);
+            return;
         };
-        ui.label(RichText::new(note).small().color(MUTED));
+        ui.set_height(height);
+        // Bottom up: the actions claim the bottom edge first, the settings fill what is left.
+        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+            ui.label(RichText::new(lobby_note(app, host)).small().color(MUTED));
+            ui.add_space(6.0);
+            if pill(ui, None, "Back", Tone::Quiet, CARD_W).clicked() {
+                app.go_home();
+            }
+            if pill(
+                ui,
+                Some(Icon::Video),
+                start_label(host),
+                Tone::Primary,
+                CARD_W,
+            )
+            .clicked()
+            {
+                app.go_call(host);
+            }
+            ui.add_space(12.0);
+            ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("prejoin-settings")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| settings(app, ui, host));
+            });
+        });
     });
+}
+
+fn settings(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
+    video_section(app, ui);
+    audio_section(app, ui);
+    connection_section(app, ui, host);
+}
+
+fn actions(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
+    if pill(
+        ui,
+        Some(Icon::Video),
+        start_label(host),
+        Tone::Primary,
+        CARD_W,
+    )
+    .clicked()
+    {
+        app.go_call(host);
+    }
+    if pill(ui, None, "Back", Tone::Quiet, CARD_W).clicked() {
+        app.go_home();
+    }
+    ui.add_space(6.0);
+    ui.label(RichText::new(lobby_note(app, host)).small().color(MUTED));
+}
+
+fn start_label(host: bool) -> &'static str {
+    if host { "Start call" } else { "Join now" }
+}
+
+fn lobby_note(app: &VeilApp, host: bool) -> &'static str {
+    match (app.demo, host) {
+        (true, _) => "Other people are simulated.",
+        (false, true) => "You let people in from the lobby.",
+        (false, false) => "The host lets you in.",
+    }
 }
 
 /// A section title, with a thin line above every section but the first.
