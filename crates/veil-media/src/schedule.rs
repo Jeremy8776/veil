@@ -18,8 +18,10 @@
 //!   after a pause, waits for a keyframe, because a layer that was not encoded has nothing to
 //!   predict from. Until then the old layers are encoded.
 //!
-//! shortcut: the periodic keyframe ([`KEYFRAME_EVERY`]) is the fallback for lost requests.
-//! Lengthen it once keyframe requests travel end to end (see `veil-forward` `subscribe.rs`).
+//! The periodic keyframe ([`KEYFRAME_EVERY`]) is only a last fallback: receivers repeat a
+//! lost request themselves (`gate.rs`). It is kept long because each keyframe under the
+//! encoders' low-delay constant bit rate comes out soft and sharpens over the next pictures,
+//! which showed as a shared screen pulsing in and out of focus every 4 s.
 
 use std::time::{Duration, Instant};
 
@@ -31,7 +33,7 @@ use crate::temporal::{MAX_LEVELS, period, temporal_id};
 /// Shortest time between two keyframes.
 pub const MIN_KEY_GAP: Duration = Duration::from_millis(500);
 /// Longest time between two keyframes.
-pub const KEYFRAME_EVERY: Duration = Duration::from_secs(4);
+pub const KEYFRAME_EVERY: Duration = Duration::from_secs(30);
 
 /// What to do with one captured picture.
 #[derive(Clone, Debug, PartialEq, Eq)]

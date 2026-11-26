@@ -300,7 +300,7 @@ the PR state before acting on an older next-step list.
   - `schedule.rs`: `Schedule::next(now)` plans each captured picture: number, temporal layer,
     keyframe, reference picture, and the `Layer` markers to encode. Layers nobody wants are not
     encoded (`set_wanted`, `wanted_by`). Lowering is immediate; a raise or resume waits for a
-    keyframe. Keyframes at most every 500 ms, at least every 4 s, and on `request_keyframe`.
+    keyframe. Keyframes at most every 500 ms, at least every 30 s, and on `request_keyframe` (receivers repeat an unanswered request after 1.5 s).
   - `payload.rs`: `VideoHeader`, 27 bytes inside the sealed frame (codec, picture, reference
     distance, `needs_lower` for SVC, capture time, size), then the bitstream.
   - `gate.rs`: `Gate::admit(layer, header)` per sender. Passes a layer only if its reference
@@ -634,7 +634,7 @@ private keys never leave the device. OS randomness is `getrandom::SysRng`.
 - The forwarder sends every spatial layer up to the wanted one, which wastes download for
   simulcast (`subscribe.rs`).
 - A layer that arrives before its reference is dropped, not reordered (`veil-media/src/gate.rs`).
-- The 4 s periodic keyframe is the fallback for lost requests (`veil-media/src/schedule.rs`).
+- The 30 s periodic keyframe is a last fallback; receivers repeat lost requests (`veil-media/src/schedule.rs`).
 - Scaling to each rung is a CPU box filter; move it to the GPU when capture gives textures
   (`veil-media/src/scale.rs`).
 - A paused rung's encoder is reopened on resume, a stall of tens of milliseconds
