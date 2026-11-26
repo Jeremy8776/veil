@@ -93,6 +93,32 @@ impl CallView {
         }
     }
 
+    /// Work that runs every pass, also while the window is minimised (`App::logic`): the
+    /// demo's timeline, which asks for its own next pass since the interface's does not run.
+    pub(crate) fn logic(&mut self, ctx: &egui::Context, now: Instant) {
+        if self.call.demo {
+            crate::demo::tick(&mut self.call, now);
+            ctx.request_repaint_after(Duration::from_millis(500));
+        }
+    }
+
+    /// Who is waiting in your lobby, by id and name, straight from the engine, so it is
+    /// current even while the interface is not drawn. Empty unless you host.
+    pub(crate) fn waiting(&self) -> Vec<(u32, String)> {
+        if !self.call.is_host {
+            return Vec::new();
+        }
+        match &self.engine {
+            Some(engine) => engine.lobby(),
+            None => self
+                .call
+                .lobby
+                .iter()
+                .map(|w| (w.id, w.name.clone()))
+                .collect(),
+        }
+    }
+
     /// Lets someone in from the lobby.
     pub(crate) fn admit(&mut self, id: u32) {
         self.call.admit(id);
@@ -148,9 +174,6 @@ impl CallView {
     /// Draws the call. Returns false when you leave.
     pub fn show(&mut self, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
         let now = Instant::now();
-        if self.call.demo {
-            crate::demo::tick(&mut self.call, now);
-        }
         if let Some(engine) = &self.engine {
             let was_live = matches!(
                 self.call.status,

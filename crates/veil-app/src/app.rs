@@ -389,22 +389,18 @@ impl VeilApp {
         }
     }
 
-    /// Tells you when someone starts waiting in your lobby while Veil is not focused, and
-    /// clears that once you look or the lobby empties (`lobby_alert.rs`). With Lobby alerts
-    /// off, everyone waiting counts as seen, so turning it back on does not announce them.
+    /// Tells you when someone starts waiting in your lobby, and clears that once the lobby
+    /// empties (`lobby_alert.rs`). Runs from [`eframe::App::logic`], so it works while the
+    /// window is minimised or hidden, when eframe skips the interface.
     fn alert_lobby(&mut self, ctx: &egui::Context) {
-        let lobby: Vec<(u32, &str)> = match &self.screen {
-            Screen::Call(view) if view.call.is_host => view
-                .call
-                .lobby
-                .iter()
-                .map(|w| (w.id, w.name.as_str()))
-                .collect(),
+        let lobby = match &self.screen {
+            Screen::Call(view) => view.waiting(),
             _ => Vec::new(),
         };
-        let focused = ctx.input(|i| i.viewport().focused).unwrap_or(false) || !self.lobby_alerts;
+        let lobby: Vec<(u32, &str)> = lobby.iter().map(|(id, n)| (*id, n.as_str())).collect();
+        let focused = ctx.input(|i| i.viewport().focused).unwrap_or(false);
         self.lobby_alert
-            .apply(ctx, &lobby, focused, crate::WINDOW_TITLE);
+            .apply(ctx, &lobby, focused, self.lobby_alerts, crate::WINDOW_TITLE);
     }
 
     /// What you are sending while you share.
@@ -419,6 +415,16 @@ impl VeilApp {
 }
 
 impl eframe::App for VeilApp {
+    /// Runs every pass, and also while the window is minimised or hidden, when eframe skips
+    /// [`Self::ui`]: the demo's timeline and the lobby alert must not wait for the host to
+    /// look.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Screen::Call(view) = &mut self.screen {
+            view.logic(ctx, Instant::now());
+        }
+        self.alert_lobby(ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         #[cfg(not(target_os = "android"))]
@@ -540,7 +546,6 @@ impl eframe::App for VeilApp {
                 }
             }
         }
-        self.alert_lobby(&ctx);
         if ctx.input_mut(|i| {
             i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::E)
         }) {

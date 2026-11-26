@@ -14,7 +14,9 @@
 //!   with its display name, and nothing else.
 
 use windows::Foundation::TypedEventHandler;
-use windows::UI::Notifications::{ToastNotification, ToastNotificationManager, ToastTemplateType};
+use windows::UI::Notifications::{
+    NotificationSetting, ToastNotification, ToastNotificationManager, ToastTemplateType,
+};
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RegSetKeyValueW};
 use windows::Win32::UI::WindowsAndMessaging::{
     IsIconic, SW_RESTORE, SetForegroundWindow, ShowWindow,
@@ -29,11 +31,36 @@ const APP_ID: &str = "Veil.VideoCalls";
 /// Shows a notification with a bold `heading` and a `body` line. Clicking it brings this
 /// process's window called `window` to the front.
 pub fn show_notification(window: &str, heading: &str, body: &str) -> Result<(), String> {
-    show(window, heading, body).map_err(|e| e.to_string())
+    match show(window, heading, body) {
+        Ok(NotificationSetting::Enabled) => Ok(()),
+        Ok(setting) => Err(blocked_reason(setting).into()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
-fn show(window: &str, heading: &str, body: &str) -> windows::core::Result<()> {
+/// Why Windows will not show Veil's notifications, for the log.
+fn blocked_reason(setting: NotificationSetting) -> &'static str {
+    match setting {
+        NotificationSetting::DisabledForApplication => {
+            "turned off for Veil in Settings > System > Notifications"
+        }
+        NotificationSetting::DisabledForUser => {
+            "notifications are turned off in Settings > System > Notifications"
+        }
+        NotificationSetting::DisabledByGroupPolicy => "turned off by group policy",
+        _ => "Windows does not allow them for Veil",
+    }
+}
+
+/// Hands the notification to Windows unless Windows says it will not show it, and returns
+/// that setting.
+fn show(window: &str, heading: &str, body: &str) -> windows::core::Result<NotificationSetting> {
     register_app_id()?;
+    let notifier = ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(APP_ID))?;
+    let setting = notifier.Setting()?;
+    if setting != NotificationSetting::Enabled {
+        return Ok(setting);
+    }
     let content = ToastNotificationManager::GetTemplateContent(ToastTemplateType::ToastText02)?;
     let lines = content.GetElementsByTagName(&HSTRING::from("text"))?;
     for (index, text) in [heading, body].into_iter().enumerate() {
@@ -46,7 +73,8 @@ fn show(window: &str, heading: &str, body: &str) -> windows::core::Result<()> {
         bring_forward(&window);
         Ok(())
     }))?;
-    ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(APP_ID))?.Show(&toast)
+    notifier.Show(&toast)?;
+    Ok(setting)
 }
 
 /// Takes Veil's notifications out of the notification centre. Failure is harmless: they

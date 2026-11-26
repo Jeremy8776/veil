@@ -8,6 +8,7 @@
 //! - macOS asks the person once whether Veil may show notifications and remembers the
 //!   answer. A notification is added only once permission is given.
 //! - Each new notification replaces the last one ([`ID`]), so at most one is listed.
+//! - It plays the system's notification sound: content without a sound arrives silently.
 //! - Clicking a notification opens Veil, which macOS does for the bundle by itself.
 //! - These framework calls are safe Rust in `objc2`, so this module needs no `unsafe`.
 
@@ -16,7 +17,7 @@ use objc2::runtime::Bool;
 use objc2_foundation::{NSBundle, NSError, NSString};
 use objc2_user_notifications::{
     UNAuthorizationOptions, UNMutableNotificationContent, UNNotificationRequest,
-    UNUserNotificationCenter,
+    UNNotificationSound, UNUserNotificationCenter,
 };
 
 /// The identifier every lobby notification is shown under.
@@ -34,6 +35,7 @@ pub fn show_notification(_window: &str, heading: &str, body: &str) -> Result<(),
     let content = UNMutableNotificationContent::new();
     content.setTitle(&NSString::from_str(heading));
     content.setBody(&NSString::from_str(body));
+    content.setSound(Some(&UNNotificationSound::defaultSound()));
     let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
         &NSString::from_str(ID),
         &content,

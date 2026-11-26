@@ -290,6 +290,12 @@ impl Engine {
         self.shared.set_tiles(tiles);
     }
 
+    /// Who is waiting in the lobby now, by id and name.
+    pub fn lobby(&self) -> Vec<(u32, String)> {
+        let view = lock(&self.shared.view);
+        view.lobby.iter().map(|k| (k.id, k.name.clone())).collect()
+    }
+
     /// Copies the engine's view of the call into `call`.
     pub fn sync(&self, call: &mut Call, now: Instant) {
         let view: View = lock(&self.shared.view).clone();

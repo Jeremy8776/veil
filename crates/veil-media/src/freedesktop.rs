@@ -28,7 +28,10 @@ static SHOWN: Mutex<Vec<u32>> = Mutex::new(Vec::new());
 /// Shows a notification. `_window` is unused: the desktop raises Veil from the urgency hint.
 pub fn show_notification(_window: &str, heading: &str, body: &str) -> Result<(), String> {
     let id = notify(heading, &escape_markup(body)).map_err(|e| e.to_string())?;
-    SHOWN.lock().unwrap_or_else(PoisonError::into_inner).push(id);
+    SHOWN
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(id);
     Ok(())
 }
 
@@ -53,6 +56,9 @@ fn notify(summary: &str, body: &str) -> zbus::Result<u32> {
     hints.insert("desktop-entry", Value::from(DESKTOP_ENTRY));
     // Normal urgency: shown like a chat message, not held on screen like an alarm.
     hints.insert("urgency", Value::U8(1));
+    // Many daemons play a sound only when asked; this is the theme's chat message sound.
+    hints.insert("sound-name", Value::from("message-new-instant"));
+    hints.insert("category", Value::from("im.received"));
     let actions: Vec<&str> = Vec::new();
     // Notify(app_name, replaces_id, app_icon, summary, body, actions, hints, expire_timeout),
     // with -1 leaving the timeout to the desktop.
@@ -61,7 +67,16 @@ fn notify(summary: &str, body: &str) -> zbus::Result<u32> {
         PATH,
         Some(SERVICE),
         "Notify",
-        &("Veil", 0u32, DESKTOP_ENTRY, summary, body, actions, hints, -1i32),
+        &(
+            "Veil",
+            0u32,
+            DESKTOP_ENTRY,
+            summary,
+            body,
+            actions,
+            hints,
+            -1i32,
+        ),
     )?;
     reply.body().deserialize::<u32>()
 }
@@ -86,7 +101,13 @@ mod tests {
 
     #[test]
     fn markup_is_shown_as_text() {
-        assert_eq!(escape_markup("<a href=\"x\">A & B</a>"), "&lt;a href=\"x\"&gt;A &amp; B&lt;/a&gt;");
-        assert_eq!(escape_markup("Open Veil to let them in."), "Open Veil to let them in.");
+        assert_eq!(
+            escape_markup("<a href=\"x\">A & B</a>"),
+            "&lt;a href=\"x\"&gt;A &amp; B&lt;/a&gt;"
+        );
+        assert_eq!(
+            escape_markup("Open Veil to let them in."),
+            "Open Veil to let them in."
+        );
     }
 }
