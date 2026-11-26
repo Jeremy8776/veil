@@ -41,3 +41,13 @@ _Avoid_: Portal, permission prompt
 **Computer sound** (planned, SHARE-01):
 The sound a device is playing, which the person can choose to send with a screen share. It never includes Veil's own call audio.
 _Avoid_: System audio, desktop audio, loopback
+
+## Sound
+
+**Echo**:
+Other people's voices coming back to them because this device's microphone picked up what Veil played through its speakers or headset. Sound from other apps is not Echo.
+_Avoid_: Feedback, loopback, bleed
+
+**Cancel echo**:
+Veil removing Echo from this device's microphone sound during a call, before anyone hears it.
+_Avoid_: AEC, echo suppression, echo removal

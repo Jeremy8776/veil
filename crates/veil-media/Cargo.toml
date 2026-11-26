@@ -12,6 +12,9 @@ veil-security = { path = "../veil-security" }
 # Noise suppression (src/denoise.rs): RNNoise ported to Rust, its model built in. The default
 # features only add a command-line tool.
 nnnoiseless = { version = "0.5.2", default-features = false }
+# Echo cancellation (src/echo.rs): WebRTC's AEC3 ported to Rust. Its noise suppression and
+# gain control compile in but stay off. ADR 0009.
+sonora = "0.3.0"
 zeroize = "1.8.1"
 
 [build-dependencies]
