@@ -15,8 +15,9 @@
 use eframe::egui;
 
 use crate::screens::call::CallView;
+use crate::screens::call_menus::switch_row;
 use crate::screens::dialog::{self, Choice};
-use crate::widgets::{Tone, toggle_row};
+use crate::widgets::Tone;
 
 /// What a click on the Lobby switch does.
 #[derive(Debug, PartialEq, Eq)]
@@ -44,7 +45,7 @@ pub fn row(view: &mut CallView, ui: &mut egui::Ui) {
         return;
     }
     let mut wanted = view.call.lobby_on;
-    toggle_row(ui, &mut wanted, "Lobby", "").on_hover_text(
+    switch_row(ui, &mut wanted, "Lobby").on_hover_text(
         "On: guests wait until you admit them. Off: anyone with a valid invite link joins \
          straight away. Each link still works once, and you can still remove people.",
     );

@@ -60,6 +60,72 @@ pub fn section(ui: &mut Ui, icon: Icon, title: &str) {
     );
 }
 
+/// A setting in a list: the label at the left, a small switch at the right, the whole row
+/// clickable and focusable. For side panels and menus, where a centred [`toggle_row`] would
+/// float away from its switch. Flips `value` on click; the response is `changed()` then.
+///
+/// [`toggle_row`]: crate::widgets::toggle_row
+pub fn switch_row(ui: &mut Ui, value: &mut bool, label: &str) -> Response {
+    let (rect, mut response) =
+        ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
+    if response.clicked() {
+        *value = !*value;
+        response.mark_changed();
+    }
+    let on = *value;
+    let enabled = ui.is_enabled();
+    response.widget_info(|| WidgetInfo::selected(Role::Switch, enabled, on, label));
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+    let painter = ui.painter();
+    let hovered = response.hovered() && enabled;
+    let colour = if enabled { TEXT } else { MUTED };
+    painter.text(
+        pos2(rect.left(), rect.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(13.5),
+        colour,
+    );
+    let track = switch_track(rect);
+    let fill = match (on && enabled, hovered) {
+        (true, true) => theme::ACCENT_HOVER,
+        (true, false) => ACCENT,
+        (false, true) => RAISED_HOVER,
+        (false, false) => RAISED,
+    };
+    let round = (SWITCH.y / 2.0) as u8;
+    painter.rect_filled(track, round, fill);
+    if !on {
+        painter.rect_stroke(track, round, Stroke::new(1.0, LINE), StrokeKind::Inside);
+    }
+    let knob_x = if on {
+        track.right() - SWITCH.y / 2.0
+    } else {
+        track.left() + SWITCH.y / 2.0
+    };
+    let knob = if on { Color32::WHITE } else { colour };
+    painter.circle_filled(pos2(knob_x, track.center().y), SWITCH.y / 2.0 - 3.0, knob);
+    if response.has_focus() {
+        painter.rect_stroke(
+            track.expand(3.0),
+            round + 3,
+            Stroke::new(2.0, TEXT),
+            StrokeKind::Outside,
+        );
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// The switch in a [`switch_row`].
+const SWITCH: egui::Vec2 = vec2(34.0, 20.0);
+
+/// Where a row's switch goes: flush with its right edge, on its centre line.
+fn switch_track(row: Rect) -> Rect {
+    Rect::from_center_size(pos2(row.right() - SWITCH.x / 2.0, row.center().y), SWITCH)
+}
+
 /// A thin line between menu sections.
 pub fn divider(ui: &mut Ui) {
     ui.add_space(4.0);
@@ -357,6 +423,15 @@ mod tests {
         assert_eq!(gain_at(1.0, 2.0), 2.0);
         assert_eq!(gain_at(-0.5, 2.0), 0.0);
         assert_eq!(gain_at(0.256, 2.0), 0.51);
+    }
+
+    #[test]
+    fn a_switch_sits_flush_right_on_the_rows_centre_line() {
+        let row = Rect::from_min_size(pos2(10.0, 20.0), vec2(300.0, ROW_H));
+        let track = switch_track(row);
+        assert_eq!(track.right(), row.right());
+        assert_eq!(track.center().y, row.center().y);
+        assert_eq!(track.size(), SWITCH);
     }
 
     #[test]

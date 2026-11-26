@@ -41,8 +41,13 @@ pub fn now_unix() -> u64 {
 }
 
 /// Under a copy button, one centred column: how long the link works, the nearby code, the QR
-/// and full link as a pair of equal buttons, and the "until the call ends" switch.
-pub fn lifetime(view: &mut CallView, ui: &mut egui::Ui) {
+/// and full link as a pair of equal buttons, and the "until the call ends" switch drawn by
+/// `switch` (centred on the stage card, a list row in the People panel).
+pub fn lifetime(
+    view: &mut CallView,
+    ui: &mut egui::Ui,
+    switch: impl FnOnce(&mut egui::Ui, &mut bool, &str) -> egui::Response,
+) {
     ui.vertical_centered(|ui| {
         ui.spacing_mut().item_spacing.y = theme::GAP;
         let width = ui.available_width();
@@ -77,7 +82,7 @@ pub fn lifetime(view: &mut CallView, ui: &mut egui::Ui) {
             view.copy_full_invite(ui.ctx());
         }
         let mut until_end = view.call.invite_until_end;
-        let keep = toggle_row(ui, &mut until_end, "Keep until the call ends", "").on_hover_text(
+        let keep = switch(ui, &mut until_end, "Keep until the call ends").on_hover_text(
             "Links work until the call ends instead of expiring. Each link still lets one \
              person in, and you still admit them. Changing this makes a new link.",
         );
@@ -149,7 +154,7 @@ pub fn card(view: &mut CallView, ui: &mut egui::Ui, area: Rect) {
                 );
                 let label = "Copy invite link";
                 copy = pill(ui, Some(Icon::Copy), label, Tone::Primary, width - 40.0).clicked();
-                lifetime(view, ui);
+                lifetime(view, ui, |ui, on, label| toggle_row(ui, on, label, ""));
             });
         })
     });
