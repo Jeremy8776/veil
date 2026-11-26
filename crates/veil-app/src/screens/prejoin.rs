@@ -31,10 +31,16 @@ const DOCK_MARGIN_X: f32 = 12.0;
 const BELOW_H: f32 = 40.0;
 const MIN_PREVIEW_W: f32 = 320.0;
 const MAX_PREVIEW_W: f32 = 1200.0;
-/// Below this width, Start and Back move to a second row in the dock.
-const ONE_ROW_FROM: f32 = 560.0;
 const START_W: f32 = 140.0;
 const BACK_W: f32 = 96.0;
+/// Space between buttons in the dock.
+const DOCK_SPACING: f32 = 6.0;
+/// The space either side of the line between the media buttons and the actions.
+const DIVIDER_PAD: f32 = 10.0;
+/// The actions: Back, then Start.
+const ACTIONS_W: f32 = BACK_W + DOCK_SPACING + START_W;
+/// One row inside the dock: media buttons, the line with its spacing, then the actions.
+const ONE_ROW_W: f32 = controls::MEDIA_W + 2.0 * (DOCK_SPACING + DIVIDER_PAD) + 1.0 + ACTIONS_W;
 
 /// The preview's width: as large as the window allows with the title, dock and note still
 /// in view, kept 16:9. Never wider than the window.
@@ -74,14 +80,15 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
                     let column = ui.with_layout(Layout::top_down(Align::Center), |ui| {
                         ui.allocate_ui_with_layout(
                             vec2(width, 0.0),
-                            Layout::top_down(Align::Min),
+                            // One centre line for the title, preview, dock and notes.
+                            Layout::top_down(Align::Center),
                             |ui| {
                                 ui.set_width(width);
                                 ui.label(RichText::new(title).font(theme::bold(26.0)));
                                 ui.add_space(12.0);
                                 preview(app, ui, width);
                                 ui.add_space(GAP);
-                                dock(app, ui, host, width);
+                                dock(app, ui, host);
                                 ui.add_space(10.0);
                                 below(app, ui, host);
                             },
@@ -127,42 +134,71 @@ fn preview(app: &VeilApp, ui: &mut egui::Ui, width: f32) {
     }
 }
 
-/// The bar under the preview: the call bar's media buttons on the left, Back and Start on
-/// the right (or on a second row when narrow).
-fn dock(app: &mut VeilApp, ui: &mut egui::Ui, host: bool, width: f32) {
-    egui::Frame::new()
-        .fill(theme::SURFACE)
-        .corner_radius(CornerRadius::same(12))
-        .inner_margin(egui::Margin::symmetric(DOCK_MARGIN_X as i8, 10))
-        .show(ui, |ui| {
-            ui.set_width(width - 2.0 * DOCK_MARGIN_X);
-            let one_row = width >= ONE_ROW_FROM;
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                controls::media(app, ui);
-                if one_row {
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        actions(app, ui, host);
-                    });
-                }
-            });
-            if !one_row {
-                ui.add_space(8.0);
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    actions(app, ui, host);
+/// The dock under the preview, as wide as its contents and centred: the call bar's media
+/// buttons, a thin line, then Back and Start. When the window is too narrow for one row, the
+/// actions go on a second row, each row centred.
+fn dock(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
+    let one_row = ui.available_width() >= ONE_ROW_W + 2.0 * DOCK_MARGIN_X;
+    let inner_w = if one_row {
+        ONE_ROW_W
+    } else {
+        controls::MEDIA_W.max(ACTIONS_W)
+    };
+    // A box of the dock's exact width, so the centred column can centre it.
+    ui.allocate_ui_with_layout(
+        vec2(inner_w + 2.0 * DOCK_MARGIN_X, 0.0),
+        Layout::top_down(Align::Center),
+        |ui| {
+            egui::Frame::new()
+                .fill(theme::SURFACE)
+                .corner_radius(CornerRadius::same(12))
+                .inner_margin(egui::Margin::symmetric(DOCK_MARGIN_X as i8, 10))
+                .show(ui, |ui| {
+                    ui.set_width(inner_w);
+                    if one_row {
+                        row(ui, ONE_ROW_W, |ui| {
+                            controls::media(app, ui);
+                            divider(ui);
+                            actions(app, ui, host);
+                        });
+                    } else {
+                        row(ui, controls::MEDIA_W, |ui| controls::media(app, ui));
+                        ui.add_space(8.0);
+                        row(ui, ACTIONS_W, |ui| actions(app, ui, host));
+                    }
                 });
-            }
-        });
+        },
+    );
 }
 
-/// Start, then Back to its left. Drawn right to left.
+/// A row `width` wide, centred in the dock.
+fn row(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) {
+    ui.allocate_ui_with_layout(
+        vec2(width, 0.0),
+        Layout::left_to_right(Align::Center),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = DOCK_SPACING;
+            add(ui);
+        },
+    );
+}
+
+/// The thin upright line between the media buttons and the actions.
+fn divider(ui: &mut egui::Ui) {
+    ui.add_space(DIVIDER_PAD);
+    let (rect, _) = ui.allocate_exact_size(vec2(1.0, 36.0), Sense::hover());
+    ui.painter().rect_filled(rect, 0.0, theme::LINE);
+    ui.add_space(DIVIDER_PAD);
+}
+
+/// Back, then Start: the main action last, as on a Mac.
 fn actions(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
+    if pill(ui, None, "Back", Tone::Quiet, BACK_W).clicked() {
+        app.go_home();
+    }
     let start = if host { "Start call" } else { "Join now" };
     if pill(ui, Some(Icon::Video), start, Tone::Primary, START_W).clicked() {
         app.go_call(host);
-    }
-    if pill(ui, None, "Back", Tone::Quiet, BACK_W).clicked() {
-        app.go_home();
     }
 }
 

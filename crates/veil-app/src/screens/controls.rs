@@ -28,6 +28,9 @@ use crate::widgets::{ControlState, chevron, control, device_error, level_meter};
 
 /// Width of the arrow beside Mute and Stop video. It joins its button with no gap.
 pub const MENU_W: f32 = 22.0;
+/// The width of [`media`] with 6 between buttons: three buttons and two arrows, the arrows
+/// joined to their buttons with no gap.
+pub const MEDIA_W: f32 = 3.0 * 68.0 + 2.0 * MENU_W + 2.0 * 6.0;
 /// The bar's buttons drawn here: Mute, Stop video, Effects, Share, Raise.
 pub const CONTROLS: usize = 5;
 /// The arrows drawn here.
