@@ -10,23 +10,31 @@
 //!   builder's fallback size and is resized and centred on its first frames. It is done once
 //!   per run; the person's own resizing is never undone.
 //! - Never smaller than the window's minimum, never larger than the monitor.
+//! - Desktop only: Android fills the screen, so it uses only `MIN` and `FALLBACK` (via
+//!   `lib.rs`) and the sizing code is compiled out there.
 
-use eframe::egui::{self, Vec2, vec2};
+#[cfg(not(target_os = "android"))]
+use eframe::egui;
+use eframe::egui::{Vec2, vec2};
 
+#[cfg(not(target_os = "android"))]
 /// The fraction of the monitor's width and height, from 1613 x 1045 on 2560 x 1440.
 const SHARE: Vec2 = vec2(1613.0 / 2560.0, 1045.0 / 1440.0);
 /// The smallest the window may be (`lib.rs` sets the same on the builder).
 pub const MIN: Vec2 = vec2(880.0, 600.0);
 /// The size until the monitor is known.
 pub const FALLBACK: Vec2 = vec2(1280.0, 800.0);
+#[cfg(not(target_os = "android"))]
 /// Frames to wait for the monitor size before giving up and keeping the fallback.
 const PATIENCE: u32 = 10;
 
+#[cfg(not(target_os = "android"))]
 /// The opening size for a monitor `monitor` points across.
 pub fn opening(monitor: Vec2) -> Vec2 {
     (monitor * SHARE).round().max(MIN).min(monitor)
 }
 
+#[cfg(not(target_os = "android"))]
 #[derive(Clone, Copy, Default)]
 enum Step {
     #[default]
@@ -35,6 +43,7 @@ enum Step {
     Done,
 }
 
+#[cfg(not(target_os = "android"))]
 /// Called each frame on desktop: sizes the window on its first frame with a monitor size,
 /// then centres it on the next (centring uses the size it has).
 pub fn apply_once(ctx: &egui::Context) {
