@@ -281,6 +281,11 @@ impl Engine {
         if let Action::InviteUntilEnd(until_end) = action {
             self.shared.update(|view| view.invite_until_end = until_end);
         }
+        // Shown at once too. The host session applies it before the next knock it reads; if
+        // the call has ended, the switch no longer matters.
+        if let Action::Lobby(on) = action {
+            self.shared.update(|view| view.lobby_on = on);
+        }
         let _ = self.commands.send(Command::Act(action));
     }
 
@@ -288,6 +293,12 @@ impl Engine {
     /// forwarder asks only for the layers those tiles need (`wanted.rs`).
     pub fn watch(&self, tiles: Vec<(u32, f32)>) {
         self.shared.set_tiles(tiles);
+    }
+
+    /// Who is waiting in the lobby now, by id and name.
+    pub fn lobby(&self) -> Vec<(u32, String)> {
+        let view = lock(&self.shared.view);
+        view.lobby.iter().map(|k| (k.id, k.name.clone())).collect()
     }
 
     /// Copies the engine's view of the call into `call`.

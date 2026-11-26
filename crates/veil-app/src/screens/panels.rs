@@ -2,7 +2,7 @@
 //! Security (drawn by `security_panel.rs`). One is open at a time, on the right.
 //!
 //! Invariants:
-//! - Only the host sees Admit, Decline and Remove.
+//! - Only the host sees Admit, Decline, Remove and the Lobby switch (`lobby_gate.rs`).
 //! - A person in the lobby shows their safety number on hover, so the host can compare it
 //!   before letting them in.
 //! - "Verified" is only a label for a device you compared before. The host still admits.
@@ -14,7 +14,7 @@ use eframe::egui::{self, Align, Layout, RichText, ScrollArea, Sense, vec2};
 use crate::icons::Icon;
 use crate::model::{Participant, Reachable, RouterPort, clock};
 use crate::screens::call::CallView;
-use crate::screens::{chat_panel, security_panel};
+use crate::screens::{call_menus, chat_panel, security_panel};
 use crate::theme::{self, MUTED, SURFACE};
 use crate::widgets::{self, Tone, pill};
 
@@ -103,11 +103,15 @@ fn server(ui: &mut egui::Ui, down: bool) {
         return;
     }
     ui.add_space(4.0);
-    ui.label(RichText::new("Server not answering").small().color(theme::WARN))
-        .on_hover_text(
-            "The rendezvous server is not answering. Guests on your network can still join, \
+    ui.label(
+        RichText::new("Server not answering")
+            .small()
+            .color(theme::WARN),
+    )
+    .on_hover_text(
+        "The rendezvous server is not answering. Guests on your network can still join, \
              but guests on the internet may not reach you. Veil keeps trying.",
-        );
+    );
 }
 
 /// For a host with a public node: whether it could dial the call's public address, with the
@@ -133,6 +137,7 @@ pub(crate) fn host_status(view: &CallView, ui: &mut egui::Ui) {
 }
 
 fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
+    section(ui, Icon::Link, "Invite");
     let copy = pill(
         ui,
         Some(Icon::Copy),
@@ -145,18 +150,32 @@ fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
         view.copy_invite(ui.ctx());
     }
     if view.call.is_host && !view.call.demo {
-        crate::screens::invite::lifetime(view, ui);
+        crate::screens::invite::lifetime(view, ui, call_menus::switch_row);
     }
     if view.call.is_host {
         host_status(view, ui);
     }
-    ui.add_space(8.0);
+    if view.call.is_host && !view.call.demo {
+        call_menus::divider(ui);
+        section(ui, Icon::Lock, "Admission");
+        crate::lobby_gate::row(view, ui);
+        ui.add_enabled_ui(view.call.lobby_on, |ui| {
+            call_menus::switch_row(ui, &mut view.lobby_alerts, "Alerts")
+                .on_hover_text(
+                    "When someone starts waiting, your system shows a notification with their \
+                     name and plays its sound, and Veil's taskbar button flashes.",
+                )
+                .on_disabled_hover_text("Alerts are for the lobby, which is off.");
+        });
+    }
+    call_menus::divider(ui);
     let mut admit = None;
     let mut decline = None;
     let mut remove = None;
     if view.call.is_host && !view.call.lobby.is_empty() {
         section(
             ui,
+            Icon::Hand,
             &format!("Waiting in the lobby ({})", view.call.lobby.len()),
         );
         for waiting in &view.call.lobby {
@@ -206,6 +225,7 @@ Compare it with them before letting them in.",
     }
     section(
         ui,
+        Icon::People,
         &format!("In this call ({})", view.call.participants.len()),
     );
     ScrollArea::vertical()
@@ -245,8 +265,7 @@ Compare it with them before letting them in.",
             }
         });
     if let Some(id) = admit {
-        view.call.admit(id);
-        view.notify("Admitted. A new key epoch started.");
+        view.admit(id);
     }
     if let Some(id) = decline {
         view.call.decline(id);
@@ -286,8 +305,24 @@ fn verified_tag(ui: &mut egui::Ui) -> egui::Response {
     .response
 }
 
-fn section(ui: &mut egui::Ui, text: &str) {
-    ui.label(RichText::new(text).small().color(MUTED));
+/// A small muted heading with an icon, flush with the panel's left edge like everything
+/// under it.
+fn section(ui: &mut egui::Ui, icon: Icon, text: &str) {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
+    let painter = ui.painter();
+    icon.paint(
+        painter,
+        egui::pos2(rect.left() + 7.0, rect.center().y),
+        14.0,
+        MUTED,
+    );
+    painter.text(
+        egui::pos2(rect.left() + 21.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        text,
+        theme::bold(12.0),
+        MUTED,
+    );
 }
 
 fn person_avatar(ui: &mut egui::Ui, name: &str) {

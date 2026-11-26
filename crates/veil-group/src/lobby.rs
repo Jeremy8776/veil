@@ -15,6 +15,11 @@
 //! - An unknown token and a burnt one get the same answer (`TokenUsed`), so a guesser learns
 //!   nothing about which tokens exist.
 //! - The device that knocked is the device that must sign the key package.
+//! - The host's gate is on by default: every knock waits for the host. With it off
+//!   ([`Lobby::set_gate`]), a knock that passes every check is approved at once. The checks
+//!   stay the same either way: the room, a single-use unexpired token, the seat limit, no
+//!   duplicate device, and the key package signed by the device that knocked. Joiners already
+//!   waiting when the gate goes off keep waiting for the host.
 //! - Each unused, unexpired token has a lobby pass ([`Lobby::passes`]) the host gives the
 //!   rendezvous node, so joiners can register there before they knock. Burning the token
 //!   closes its pass.
@@ -26,8 +31,8 @@ use veil_net::control::{Control, RefuseReason};
 use veil_security::PublicId;
 use veil_security::invite::{Invite, lobby_pass};
 
-use crate::group::{Admission, Group, MAX_MEMBERS};
 use crate::GroupError;
+use crate::group::{Admission, Group, MAX_MEMBERS};
 
 /// A joiner whose token checked out, waiting for the host's decision.
 #[derive(Debug, PartialEq, Eq)]
@@ -42,6 +47,18 @@ pub struct Lobby {
     tokens: BTreeMap<[u8; 32], (u64, [u8; 32])>,
     waiting: BTreeSet<PublicId>,
     approved: BTreeSet<PublicId>,
+    /// Whether each knock waits for the host's decision. On unless the host turned it off.
+    gate: bool,
+}
+
+/// What became of a knock that passed every check.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Knocked {
+    /// The joiner waits. Answer with [`Lobby::approve`] or [`Lobby::decline`].
+    Waiting(Knock),
+    /// The gate is off: the joiner is approved. Reply with the returned `Control::Admitted`.
+    /// The join token is burnt all the same, so the host should give out a fresh invite.
+    Approved(PublicId, Control),
 }
 
 fn token_hash(token: &[u8; 16]) -> [u8; 32] {
@@ -55,7 +72,18 @@ impl Lobby {
             tokens: BTreeMap::new(),
             waiting: BTreeSet::new(),
             approved: BTreeSet::new(),
+            gate: true,
         }
+    }
+
+    /// Whether each knock waits for the host's decision.
+    pub fn gate(&self) -> bool {
+        self.gate
+    }
+
+    /// Turns the host's gate on or off. Only who decides changes; no check is skipped.
+    pub fn set_gate(&mut self, on: bool) {
+        self.gate = on;
     }
 
     pub fn room_id(&self) -> [u8; 16] {
@@ -88,7 +116,8 @@ impl Lobby {
         self.waiting.iter().chain(&self.approved).copied().collect()
     }
 
-    /// Checks a joiner's `Hello`. `device` is the key the QUIC link was pinned to.
+    /// Checks a joiner's `Hello`. `device` is the key the QUIC link was pinned to. Pass the
+    /// knock to [`Lobby::at_gate`] next.
     pub fn knock(
         &mut self,
         hello: &Control,
@@ -96,7 +125,11 @@ impl Lobby {
         group: &Group,
         now_unix: u64,
     ) -> Result<Knock, GroupError> {
-        let Control::Hello { room_id, join_token } = hello else {
+        let Control::Hello {
+            room_id,
+            join_token,
+        } = hello
+        else {
             return Err(GroupError::Unexpected("hello"));
         };
         if *room_id != self.room_id {
@@ -121,6 +154,20 @@ impl Lobby {
         }
         self.waiting.insert(device);
         Ok(Knock { device })
+    }
+
+    /// Decides who answers a checked knock. With the gate on it waits for the host; with it
+    /// off it is approved now. Either way it already passed every check in [`Lobby::knock`].
+    pub fn at_gate(&mut self, knock: Knock) -> Knocked {
+        if self.gate {
+            return Knocked::Waiting(knock);
+        }
+        let device = knock.device;
+        match self.approve(knock) {
+            Ok(reply) => Knocked::Approved(device, reply),
+            // Not waiting (already forgotten): leave it to the host, who will find nothing.
+            Err(_) => Knocked::Waiting(Knock { device }),
+        }
     }
 
     /// The host lets the joiner in. Reply with the returned `Control::Admitted`.

@@ -1,10 +1,11 @@
 //! The call bar's own controls: microphone and camera (each with a device menu), Effects,
-//! Share (`share.rs`) and Raise. The panel buttons and Leave stay in `call.rs`.
+//! Data use, Share (`share.rs`) and Raise. The panel buttons and Leave stay in `call.rs`.
 //!
 //! Purpose: during a call you can pick another microphone, speaker or camera and set the
 //! microphone and speaker volume without leaving, from the small arrow beside Mute and beside
 //! Stop video, as in Zoom or Teams. The menus are tick lists built from
-//! `call_menus` (not the pre-join drop-downs, which cannot open inside a pop-up), and the choice goes through `LocalMedia`, so the call follows:
+//! `call_menus` (drop-downs cannot open inside a pop-up), and the choice goes through
+//! `LocalMedia`, so the call follows. The pre-join dock uses the same buttons (`media`):
 //! a new microphone or camera reopens its capture thread (the engine's taps stay), and a new
 //! speaker or speaker volume reaches the playback thread through `volume::Playback`.
 //!
@@ -27,8 +28,11 @@ use crate::widgets::{ControlState, chevron, control, device_error, level_meter};
 
 /// Width of the arrow beside Mute and Stop video. It joins its button with no gap.
 pub const MENU_W: f32 = 22.0;
-/// The bar's buttons drawn here: Mute, Stop video, Effects, Share, Raise.
-pub const CONTROLS: usize = 5;
+/// The width of [`media`] with 6 between buttons: four buttons and two arrows, the arrows
+/// joined to their buttons with no gap.
+pub const MEDIA_W: f32 = 4.0 * 68.0 + 2.0 * MENU_W + 3.0 * 6.0;
+/// The bar's buttons drawn here: Mute, Stop video, Effects, Data use, Share, Raise.
+pub const CONTROLS: usize = 6;
 /// The arrows drawn here.
 pub const MENUS: usize = 2;
 const MENU_INNER: f32 = 280.0;
@@ -40,7 +44,10 @@ const AUTO_GAIN_HINT: &str = "Turns your voice up or down to a steady level, so 
 const CLEAN_OTHERS_HINT: &str = "Removes background sound from everyone else, on this computer. \
      Uses a little more processor for each person in the call.";
 /// Shown wherever mirroring can be turned on or off.
-pub const MIRROR_HINT: &str = "Flips your camera left to right, for you and everyone in the call. Your choice is remembered.";
+pub const MIRROR_HINT: &str =
+    "Flips your camera left to right, for you and everyone in the call. Your choice is remembered.";
+/// Shown wherever face framing can be turned on or off.
+pub const FRAMING_HINT: &str = "Keeps faces in view when a tile crops a picture to fill it.      Faces are found on this device and nothing is sent. Off keeps every crop centred.";
 /// The Auto row while Auto is saving data because the connection is slow.
 const AUTO_SAVING: &str = "Auto: saving data";
 const AUTO_SAVING_HINT: &str = "Your connection is slow, so Veil sends and asks for a smaller \
@@ -48,6 +55,38 @@ const AUTO_SAVING_HINT: &str = "Your connection is slow, so Veil sends and asks 
      connection has been steady for a while.";
 
 pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
+    media(app, ui);
+    let sharing = app.share.is_sharing();
+    let state = ControlState {
+        selected: sharing,
+        ..Default::default()
+    };
+    let (label, hint) = if sharing {
+        ("Stop share", "Stop sharing your screen")
+    } else {
+        ("Share", "Share a screen, a window or part of one")
+    };
+    if control(ui, Icon::Share, label, hint, state).clicked() {
+        if sharing {
+            app.share.stop();
+        } else {
+            view.picker = Some(SharePicker::open(app));
+        }
+    }
+    let raised = view.call.you().is_some_and(|p| p.hand_raised);
+    let state = ControlState {
+        selected: raised,
+        ..Default::default()
+    };
+    let label = if raised { "Lower" } else { "Raise" };
+    if control(ui, Icon::Hand, label, "Raise or lower your hand", state).clicked() {
+        view.call.raise_hand(!raised);
+    }
+}
+
+/// Mute and Stop video, each with its device menu, then Effects and Data use. Shared by the call bar and
+/// the pre-join dock, so both look and work the same.
+pub fn media(app: &mut VeilApp, ui: &mut egui::Ui) {
     let mic_on = app.media.mic_on();
     let state = ControlState {
         off: !mic_on,
@@ -84,32 +123,15 @@ pub fn show(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) {
         ControlState::default(),
     );
     menu(&effects, |ui| effects_menu(app, ui));
-    let sharing = app.share.is_sharing();
-    let state = ControlState {
-        selected: sharing,
-        ..Default::default()
-    };
-    let (label, hint) = if sharing {
-        ("Stop share", "Stop sharing your screen")
-    } else {
-        ("Share", "Share a screen, a window or part of one")
-    };
-    if control(ui, Icon::Share, label, hint, state).clicked() {
-        if sharing {
-            app.share.stop();
-        } else {
-            view.picker = Some(SharePicker::open(app));
-        }
-    }
-    let raised = view.call.you().is_some_and(|p| p.hand_raised);
-    let state = ControlState {
-        selected: raised,
-        ..Default::default()
-    };
-    let label = if raised { "Lower" } else { "Raise" };
-    if control(ui, Icon::Hand, label, "Raise or lower your hand", state).clicked() {
-        view.call.raise_hand(!raised);
-    }
+
+    let data = control(
+        ui,
+        Icon::Signal,
+        "Data use",
+        "How much picture and sound Veil sends and asks for",
+        ControlState::default(),
+    );
+    menu(&data, |ui| data_menu(app, ui));
 }
 
 /// A pop-up above the bar, opened and closed by `button`. Its contents must not open a
@@ -186,7 +208,9 @@ fn audio_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     }
     ui.add_space(4.0);
     let playback = app.media.playback();
-    let clean = playback.clean_others.load(std::sync::atomic::Ordering::Relaxed);
+    let clean = playback
+        .clean_others
+        .load(std::sync::atomic::Ordering::Relaxed);
     let button = call_menus::toggle_button(ui, Icon::Volume, "Remove noise from others", clean);
     if button.on_hover_text(CLEAN_OTHERS_HINT).clicked() {
         playback
@@ -205,7 +229,9 @@ fn video_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
         app.media.choose_camera(id);
     }
     device_error(ui, app.media.camera_error());
-    call_menus::divider(ui);
+}
+
+fn data_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     call_menus::section(ui, Icon::Signal, "Data use");
     let current = app.data_use.get();
     let saving = app.data_use.auto_saving();
@@ -221,7 +247,7 @@ fn video_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     }
 }
 
-fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
+fn effects_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     call_menus::section(ui, Icon::Effects, "Background blur");
     crate::screens::effects::blur_menu(app, ui);
     call_menus::divider(ui);
@@ -232,6 +258,12 @@ fn effects_menu(app: &VeilApp, ui: &mut egui::Ui) {
     let mirror = call_menus::toggle_button(ui, Icon::Mirror, "Mirror my camera", mirrored);
     if mirror.on_hover_text(MIRROR_HINT).clicked() {
         app.media.set_mirror(!mirrored);
+    }
+    ui.add_space(4.0);
+    let framing = app.framing.enabled();
+    let button = call_menus::toggle_button(ui, Icon::People, "Face framing", framing);
+    if button.on_hover_text(FRAMING_HINT).clicked() {
+        app.framing.set_enabled(!framing);
     }
 }
 

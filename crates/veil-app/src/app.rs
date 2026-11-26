@@ -87,6 +87,8 @@ pub struct VeilApp {
     prefs: crate::preferences::Store,
     /// Notifies and flashes the taskbar when someone knocks while you look elsewhere.
     lobby_alert: crate::lobby_alert::LobbyAlert,
+    /// The host's Lobby alerts switch, saved in `preferences.rs`. On by default.
+    pub lobby_alerts: bool,
     ctx: egui::Context,
 }
 
@@ -100,6 +102,9 @@ impl VeilApp {
         );
         let data_use = Arc::new(crate::data_use::DataUseCell::new(connection.saved.data_use));
         let prefs = crate::preferences::Store::open(keystore::default_dir());
+        let lobby_alerts = prefs.saved.lobby_alerts.unwrap_or(true);
+        let mut framing = crate::framing::Framing::new(ctx.clone());
+        framing.set_enabled(prefs.saved.face_framing.unwrap_or(true));
         let media = LocalMedia::new(ctx.clone());
         let luts = crate::luts::Library::open(keystore::default_dir());
         prefs.saved.apply(&media, &luts);
@@ -130,7 +135,7 @@ impl VeilApp {
             joining: None,
             demo: false,
             remote: HashMap::new(),
-            framing: crate::framing::Framing::new(ctx.clone()),
+            framing,
             firewall: crate::firewall::Firewall::new(),
             keys: Arc::new(Mutex::new(KeyStore::open(keystore::default_dir()))),
             confirm_new_key: false,
@@ -140,6 +145,7 @@ impl VeilApp {
             data_use,
             prefs,
             lobby_alert: crate::lobby_alert::LobbyAlert::default(),
+            lobby_alerts,
             ctx: ctx.clone(),
         }
     }
@@ -371,7 +377,11 @@ impl VeilApp {
 
     /// Saves device, filter, blur, mirror and volume changes from any screen, once settled.
     fn remember_prefs(&mut self, ctx: &egui::Context) {
-        let now = crate::preferences::Prefs::current(&self.media, &self.prefs.saved, &self.devices);
+        let now = crate::preferences::Prefs {
+            lobby_alerts: Some(self.lobby_alerts),
+            face_framing: Some(self.framing.enabled()),
+            ..crate::preferences::Prefs::current(&self.media, &self.prefs.saved, &self.devices)
+        };
         #[cfg(target_os = "android")]
         let now = crate::preferences::Prefs {
             display_name: self.name.clone(),
@@ -382,21 +392,18 @@ impl VeilApp {
         }
     }
 
-    /// Tells you when someone starts waiting in your lobby while Veil is not focused, and
-    /// clears that once you look or the lobby empties (`lobby_alert.rs`).
+    /// Tells you when someone starts waiting in your lobby, and clears that once the lobby
+    /// empties (`lobby_alert.rs`). Runs from [`eframe::App::logic`], so it works while the
+    /// window is minimised or hidden, when eframe skips the interface.
     fn alert_lobby(&mut self, ctx: &egui::Context) {
-        let lobby: Vec<(u32, &str)> = match &self.screen {
-            Screen::Call(view) if view.call.is_host => view
-                .call
-                .lobby
-                .iter()
-                .map(|w| (w.id, w.name.as_str()))
-                .collect(),
+        let lobby = match &self.screen {
+            Screen::Call(view) => view.waiting(),
             _ => Vec::new(),
         };
+        let lobby: Vec<(u32, &str)> = lobby.iter().map(|(id, n)| (*id, n.as_str())).collect();
         let focused = ctx.input(|i| i.viewport().focused).unwrap_or(false);
         self.lobby_alert
-            .apply(ctx, &lobby, focused, crate::WINDOW_TITLE);
+            .apply(ctx, &lobby, focused, self.lobby_alerts, crate::WINDOW_TITLE);
     }
 
     /// What you are sending while you share.
@@ -411,8 +418,20 @@ impl VeilApp {
 }
 
 impl eframe::App for VeilApp {
+    /// Runs every pass, and also while the window is minimised or hidden, when eframe skips
+    /// [`Self::ui`]: the demo's timeline and the lobby alert must not wait for the host to
+    /// look.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Screen::Call(view) = &mut self.screen {
+            view.logic(ctx, Instant::now());
+        }
+        self.alert_lobby(ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        #[cfg(not(target_os = "android"))]
+        crate::window_size::apply_once(&ctx);
         #[cfg(target_os = "android")]
         {
             let (top, bottom) = veil_media::ffi::android::insets();
@@ -426,7 +445,11 @@ impl eframe::App for VeilApp {
             // Open the keyboard when a text field takes focus, close it when none has it.
             let typing = ctx.text_edit_focused();
             let keyboard_id = egui::Id::unique("android-keyboard");
-            if ctx.data(|data| data.get_temp::<bool>(keyboard_id)).unwrap_or(false) != typing {
+            if ctx
+                .data(|data| data.get_temp::<bool>(keyboard_id))
+                .unwrap_or(false)
+                != typing
+            {
                 veil_media::ffi::android::keyboard(typing);
                 ctx.data_mut(|data| data.insert_temp(keyboard_id, typing));
             }
@@ -526,7 +549,6 @@ impl eframe::App for VeilApp {
                 }
             }
         }
-        self.alert_lobby(&ctx);
         if ctx.input_mut(|i| {
             i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::E)
         }) {

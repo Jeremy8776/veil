@@ -57,29 +57,4 @@ impl DeviceLists {
             speakers: audio(veil_media::platform::speakers()),
         }
     }
-
-}
-
-/// The name to show for `chosen` in `list`, with `default` for `None` or a device that has
-/// gone (unplugged since it was chosen).
-pub fn label<'a>(list: &'a [Device], chosen: Option<&str>, default: &'a str) -> &'a str {
-    chosen
-        .and_then(|id| list.iter().find(|d| d.id == id))
-        .map_or(default, |d| d.name.as_str())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn labels_fall_back_to_the_default() {
-        let list = vec![Device {
-            name: "Headset".into(),
-            id: "a".into(),
-        }];
-        assert_eq!(label(&list, Some("a"), "Default"), "Headset");
-        assert_eq!(label(&list, None, "Default"), "Default");
-        assert_eq!(label(&list, Some("gone"), "Default"), "Default");
-    }
 }

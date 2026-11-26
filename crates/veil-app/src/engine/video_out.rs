@@ -34,6 +34,7 @@ use veil_media::{Ladder, MediaError, RawPicture, Schedule, VideoEncoder, VideoHe
 use veil_security::layer::Layer;
 
 use super::Captured;
+use super::stats::Sent;
 use crate::data_use::{DataUse, DataUseCell};
 use crate::media::{Worker, lock};
 
@@ -71,6 +72,8 @@ pub struct VideoControl {
     pub watching: AtomicBool,
     /// Why there is no encoder, for the log.
     pub error: Mutex<Option<String>>,
+    /// What this thread has encoded, for the stats overlay. `None` until the first picture.
+    pub sent: Mutex<Option<Sent>>,
 }
 
 /// One encoded layer, its video header in front, ready to seal with `layer`.
@@ -145,9 +148,13 @@ pub fn screen_ladder(
     );
     let area = u64::from(size.0) * u64::from(size.1);
     let bps = u64::from(SCREEN_BITRATE) * area / (1_920 * 1_080);
-    let bitrate = u32::try_from(bps.clamp(1_000_000, u64::from(SCREEN_BITRATE)))
-        .unwrap_or(SCREEN_BITRATE);
-    Ladder::new(fps.clamp(1, 60), 1, vec![rung(Tier::Thumb, size, 0, bitrate)])
+    let bitrate =
+        u32::try_from(bps.clamp(1_000_000, u64::from(SCREEN_BITRATE))).unwrap_or(SCREEN_BITRATE);
+    Ladder::new(
+        fps.clamp(1, 60),
+        1,
+        vec![rung(Tier::Thumb, size, 0, bitrate)],
+    )
 }
 
 /// The architecture's 3 Mbit/s for 1080p, scaled by picture area, at least 0.5 Mbit/s.
@@ -179,6 +186,8 @@ pub fn spawn(
 
 struct Active {
     size: (u16, u16, u32),
+    /// The size pictures go out at, after the ladder fits them.
+    sent_size: (u16, u16),
     data_use: DataUse,
     schedule: Schedule,
     encoder: Box<dyn VideoEncoder>,
@@ -244,6 +253,7 @@ fn run(
         next_picture = current.schedule.next_picture();
         match encoded {
             Ok(layers) => {
+                count_sent(control, current.sent_size, &layers);
                 for layer in layers {
                     // A full queue means the network is behind: drop, the gate recovers.
                     let _ = out.try_send(layer);
@@ -270,12 +280,30 @@ fn open(
         Stream::Screen => screen_ladder(size.0, size.1, size.2, data_use)?,
     };
     let encoder = platform_encoder(&ladder)?;
+    let sent_size = ladder
+        .rungs()
+        .last()
+        .map_or((size.0, size.1), |r| (r.width, r.height));
     Ok(Active {
         size,
+        sent_size,
         data_use,
         schedule: Schedule::continuing(ladder, first_picture),
         encoder,
     })
+}
+
+/// Adds one encoded picture's layers to the totals the stats overlay reads.
+fn count_sent(control: &VideoControl, size: (u16, u16), layers: &[Encoded]) {
+    if layers.is_empty() {
+        return;
+    }
+    let bytes: usize = layers.iter().map(|l| l.payload.len()).sum();
+    let mut sent = lock(&control.sent);
+    let totals = sent.get_or_insert_with(Sent::default);
+    (totals.width, totals.height) = size;
+    totals.pictures += 1;
+    totals.bytes += bytes as u64;
 }
 
 fn platform_encoder(ladder: &Ladder) -> Result<Box<dyn VideoEncoder>, MediaError> {

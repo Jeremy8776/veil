@@ -283,3 +283,42 @@ fn cost_at_1080p() {
     );
     assert_eq!(mixed.mixed(FULL), mixed);
 }
+
+#[test]
+fn an_identity_ramp_is_the_greys_themselves() {
+    let ramp = load_ramp(identity_text(17).as_bytes()).unwrap();
+    for (out, grey) in ramp.iter().zip(RAMP) {
+        for c in out {
+            assert!((c - grey).abs() < 1e-4, "{out:?} for {grey}");
+        }
+    }
+}
+
+#[test]
+fn a_ramp_shows_split_toning() {
+    // Teal shadows, orange highlights: blue up below mid-grey, red up above it.
+    let text = cube_text(9, |r, g, b| {
+        let l = (r + g + b) / 3.0;
+        let t = (l - 0.5) * 0.4;
+        [r + t, g, b - t]
+    });
+    let ramp = load_ramp(text.as_bytes()).unwrap();
+    let (shadow, highlight) = (ramp[0], ramp[RAMP.len() - 1]);
+    assert!(shadow[2] > shadow[0], "shadows lean blue: {shadow:?}");
+    assert!(
+        highlight[0] > highlight[2],
+        "highlights lean red: {highlight:?}"
+    );
+    assert!(ramp.iter().flatten().all(|c| (0.0..=1.0).contains(c)));
+}
+
+#[test]
+fn a_ramp_reads_a_cube_with_its_own_domain() {
+    let mut text = String::from("DOMAIN_MIN 0 0 0\nDOMAIN_MAX 2 2 2\n");
+    text.push_str(
+        &cube_text(5, |r, g, b| [r * 0.5, g * 0.5, b * 0.5]).replace("TITLE \"test\"\n", ""),
+    );
+    let ramp = load_ramp(text.as_bytes()).unwrap();
+    // Half of each grey: the domain is mapped, so 0.5 reaches the cube's middle.
+    assert!((ramp[2][0] - 0.25).abs() < 1e-3, "{:?}", ramp[2]);
+}

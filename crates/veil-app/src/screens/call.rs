@@ -62,6 +62,12 @@ pub struct CallView {
     pub(crate) tile_motion: layout::Motion,
     /// Who holds the stage in Focus view, kept between frames for the speaker hold.
     pub(crate) focus: Option<speaker::Focus>,
+    /// The host's reminder about someone who has waited a while (`lobby_reminder.rs`).
+    pub(crate) reminder: crate::lobby_reminder::Reminder,
+    /// The host's Lobby alerts switch, copied to and from `VeilApp::lobby_alerts` each frame.
+    pub(crate) lobby_alerts: bool,
+    /// The warning before the host turns the lobby off is open (`lobby_gate.rs`).
+    pub(crate) lobby_warning: bool,
     /// The real call; `None` in a demo. Dropping it leaves the call.
     engine: Option<Engine>,
 }
@@ -84,7 +90,43 @@ impl CallView {
             sounding: Vec::new(),
             tile_motion: layout::Motion::default(),
             focus: None,
+            reminder: crate::lobby_reminder::Reminder::default(),
+            lobby_alerts: true,
+            lobby_warning: false,
         }
+    }
+
+    /// Work that runs every pass, also while the window is minimised (`App::logic`): the
+    /// demo's timeline, which asks for its own next pass since the interface's does not run.
+    pub(crate) fn logic(&mut self, ctx: &egui::Context, now: Instant) {
+        if self.call.demo {
+            crate::demo::tick(&mut self.call, now);
+            ctx.request_repaint_after(Duration::from_millis(500));
+        }
+    }
+
+    /// Who is waiting in your lobby, by id and name, straight from the engine, so it is
+    /// current even while the interface is not drawn. Empty unless you host.
+    pub(crate) fn waiting(&self) -> Vec<(u32, String)> {
+        // With the lobby off nobody new waits, so there is nothing to alert about.
+        if !self.call.is_host || !self.call.lobby_on {
+            return Vec::new();
+        }
+        match &self.engine {
+            Some(engine) => engine.lobby(),
+            None => self
+                .call
+                .lobby
+                .iter()
+                .map(|w| (w.id, w.name.clone()))
+                .collect(),
+        }
+    }
+
+    /// Lets someone in from the lobby.
+    pub(crate) fn admit(&mut self, id: u32) {
+        self.call.admit(id);
+        self.notify("Admitted. A new key epoch started.");
     }
 
     pub fn notify(&mut self, text: &str) {
@@ -136,9 +178,6 @@ impl CallView {
     /// Draws the call. Returns false when you leave.
     pub fn show(&mut self, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
         let now = Instant::now();
-        if self.call.demo {
-            crate::demo::tick(&mut self.call, now);
-        }
         if let Some(engine) = &self.engine {
             let was_live = matches!(
                 self.call.status,
@@ -200,9 +239,13 @@ impl CallView {
         self.shortcuts(app, ui);
         call_top::show(self, app, ui, now);
         let stay = control_bar(self, app, ui);
+        self.lobby_alerts = app.lobby_alerts;
         if let Some(panel) = self.panel {
             panels::show(self, ui, panel, now);
         }
+        app.lobby_alerts = self.lobby_alerts;
+        crate::lobby_reminder::show(self, ui.ctx(), now);
+        crate::lobby_gate::show(self, ui.ctx());
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -281,6 +324,7 @@ impl CallView {
                 stats: &measured,
                 levels: &levels,
                 mic: app.media.mic_on().then_some(app.level),
+                sharing: app.share.is_sharing(),
             };
             stats::overlay(ui, area, &shown);
         }

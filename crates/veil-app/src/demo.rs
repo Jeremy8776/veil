@@ -74,6 +74,7 @@ pub fn call(your_name: &str, is_host: bool, now: Instant) -> Call {
         nearby_code: String::new(),
         invite_expires: 0,
         invite_until_end: false,
+        lobby_on: true,
         epoch: 1,
         group: String::new(),
         demo: true,

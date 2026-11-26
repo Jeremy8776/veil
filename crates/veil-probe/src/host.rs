@@ -69,6 +69,9 @@ pub async fn run(mut args: HostArgs) -> Result<(), String> {
                     println!("knock from {}, safety number {}", short(&device), safety_number(&identity.public(), &device));
                     host.decide(device, true).await.map_err(|e| e.to_string())?;
                 }
+                Some(HostEvent::Entered(device)) => {
+                    println!("{} let in without waiting (gate off)", short(&device));
+                }
                 Some(HostEvent::Joined { device, leaf }) => {
                     println!("{} joined as member {leaf}", short(&device));
                     print_invite(&host, &args).await?;

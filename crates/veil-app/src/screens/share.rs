@@ -6,7 +6,7 @@
 //! the source (Wayland), the picker waits for it and then goes straight to "Select area", and
 //! "Choose again" opens the chooser again. A shared picture is drawn whole
 //! ([`stage`]), never cropped to fit, because its text has to stay readable. The floating bar
-//! is `share_bar.rs`.
+//! is `share_bar.rs`; the buttons under the grid are `share/dock.rs`.
 //!
 //! Invariants:
 //! - Nothing goes to the call until a source is chosen and Share is pressed.
@@ -19,7 +19,7 @@
 use std::collections::HashMap;
 
 use eframe::egui::{
-    self, Align, Align2, Color32, CornerRadius, FontId, Layout, Modal, Pos2, Rect, RichText,
+    self, Align2, Color32, CornerRadius, FontId, Modal, Pos2, Rect, RichText,
     ScrollArea, Sense, Stroke, TextureFilter, TextureHandle, TextureId, TextureOptions, Ui, pos2,
     text::LayoutJob, text::TextWrapping, vec2,
 };
@@ -28,9 +28,10 @@ use veil_media::screen::{self, Crop, ScreenChoice, ScreenSource};
 use crate::app::VeilApp;
 use crate::convert::Rgba;
 use crate::icons::Icon;
-use crate::share::SoundSupport;
 use crate::theme::{self, MUTED, TEXT};
-use crate::widgets::{Tone, card, device_error, pill};
+use crate::widgets::{card, device_error};
+
+pub(super) mod dock;
 
 /// A drag smaller than this fraction of the picture counts as a click.
 const MIN_CROP: f32 = 0.03;
@@ -190,10 +191,8 @@ impl SharePicker {
                     Step::SelectArea => self.picture(ui, vec2(width, height)),
                 }
                 device_error(ui, error.clone());
-                ui.add_space(12.0);
-                self.sound_choice(ui, sound.as_ref());
-                ui.add_space(8.0);
-                self.footer(ui, sharing, &mut clicked);
+                ui.add_space(16.0);
+                self.dock(ui, sharing, sound.as_ref(), &mut clicked);
             });
         self.apply(app, clicked, modal.should_close())
     }
@@ -307,9 +306,20 @@ impl SharePicker {
         let picture = Rect::from_min_size(rect.min, thumb);
         let painter = ui.painter();
         let radius = CornerRadius::same(8);
-        let fill = if lit { theme::RAISED_HOVER } else { theme::TILE };
-        painter.rect_filled(picture, radius, fill);
-        match self.thumbnails.get(&choice.source) {
+        let texture = self.thumbnails.get(&choice.source);
+        // A picture of the tile's own shape (16:9) is the tile: no card behind it, and the
+        // ring hugs the picture. Other shapes sit on a card so the columns stay even.
+        let bare = texture.is_some_and(|t| fills(t.size(), picture));
+        if !bare {
+            let fill = if lit { theme::RAISED_HOVER } else { theme::TILE };
+            painter.rect_filled(picture, radius, fill);
+        }
+        match texture {
+            Some(texture) if bare => {
+                egui::Image::new((texture.id(), picture.size()))
+                    .corner_radius(radius)
+                    .paint_at(ui, picture);
+            }
             Some(texture) => {
                 let image = contain(texture.size(), picture.shrink(THUMB_PAD));
                 egui::Image::new((texture.id(), image.size()))
@@ -326,8 +336,10 @@ impl SharePicker {
             (false, true) => Some(Stroke::new(1.0, theme::LINE)),
             (false, false) => None,
         };
+        // Inside the tile, in its THUMB_PAD margin: drawn outside, the scroll area clipped the
+        // top of the first row's ring.
         if let Some(ring) = ring {
-            painter.rect_stroke(picture, radius, ring, egui::StrokeKind::Outside);
+            painter.rect_stroke(picture, radius, ring, egui::StrokeKind::Inside);
         }
         let colour = if on || lit { TEXT } else { MUTED };
         let mut job =
@@ -351,69 +363,7 @@ impl SharePicker {
         }
     }
 
-    /// The "Include computer sound" choice, greyed out with the reason where it cannot work.
-    fn sound_choice(&mut self, ui: &mut Ui, support: Option<&SoundSupport>) {
-        let why = match support {
-            Some(SoundSupport::Ready) => None,
-            Some(SoundSupport::Unavailable(why)) => Some(*why),
-            None => Some("Checking…"),
-        };
-        if why.is_some() {
-            self.with_sound = false;
-        }
-        ui.horizontal(|ui| {
-            ui.add_enabled_ui(why.is_none(), |ui| {
-                ui.checkbox(&mut self.with_sound, "Include computer sound")
-                    .on_hover_text(
-                        "Send what your computer plays, such as a video. Call sound is left                          out, so nobody hears an echo.",
-                    )
-                    .on_disabled_hover_text("Sharing sound is not available on this computer");
-            });
-            if let Some(why) = why {
-                ui.label(RichText::new(why).small().color(MUTED));
-            }
-        });
-    }
-
-    fn footer(&self, ui: &mut Ui, sharing: bool, clicked: &mut Clicked) {
-        ui.horizontal(|ui| {
-            match self.step {
-                Step::Choose => {
-                    let label = if self.crop.is_some() { "Change area" } else { "Select area" };
-                    ui.add_enabled_ui(self.selected.is_some(), |ui| {
-                        let hint = "Share only part of this. It stays the same when you switch \
-                                    to another app.";
-                        if pill(ui, None, label, Tone::Quiet, 120.0).on_hover_text(hint).clicked() {
-                            clicked.step = Some(Step::SelectArea);
-                        }
-                    });
-                }
-                Step::Desktop => {}
-                Step::SelectArea if screen::uses_system_chooser() => {
-                    if pill(ui, None, "Choose again", Tone::Quiet, 120.0).clicked() {
-                        clicked.step = Some(Step::Desktop);
-                    }
-                    ui.label(RichText::new(self.area_hint()).small().color(MUTED));
-                }
-                Step::SelectArea => {
-                    if pill(ui, None, "Back", Tone::Quiet, 90.0).clicked() {
-                        clicked.step = Some(Step::Choose);
-                    }
-                    ui.label(RichText::new(self.area_hint()).small().color(MUTED));
-                }
-            }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.add_enabled_ui(self.selected.is_some(), |ui| {
-                    let label = if sharing { "Switch" } else { "Share" };
-                    clicked.share |=
-                        pill(ui, Some(Icon::Share), label, Tone::Primary, 120.0).clicked();
-                });
-                clicked.close = pill(ui, None, "Cancel", Tone::Quiet, 100.0).clicked();
-            });
-        });
-    }
-
-    fn area_hint(&self) -> &'static str {
+    pub(super) fn area_hint(&self) -> &'static str {
         if self.crop.is_some() {
             "Click the picture to use all of it"
         } else {
@@ -488,6 +438,13 @@ pub fn contain(size: [usize; 2], area: Rect) -> Rect {
     Rect::from_center_size(area.center(), vec2(w * scale, h * scale))
 }
 
+/// Whether a `size` picture fills the tile `area` whole, within a point each way, so it needs
+/// no card behind it.
+fn fills(size: [usize; 2], area: Rect) -> bool {
+    let image = contain(size, area);
+    image.width() >= area.width() - 1.0 && image.height() >= area.height() - 1.0
+}
+
 /// A shared screen, whole, with a line saying whose it is.
 pub fn stage(ui: &Ui, rect: Rect, (texture, size): (TextureId, [usize; 2]), label: &str) {
     let painter = ui.painter_at(rect);
@@ -517,6 +474,16 @@ mod tests {
         assert_eq!(wide.center(), area.center());
         let tall = contain([100, 400], area);
         assert_eq!((tall.width(), tall.height()), (50.0, 200.0));
+    }
+
+    #[test]
+    fn only_a_picture_of_the_tiles_shape_goes_without_a_card() {
+        let tile = Rect::from_min_size(pos2(0.0, 0.0), vec2(240.0, 135.0));
+        assert!(fills([1_920, 1_080], tile));
+        assert!(fills([2_560, 1_440], tile));
+        assert!(!fills([1_920, 1_200], tile), "16:10 leaves bars");
+        assert!(!fills([3_440, 1_440], tile), "ultrawide leaves bars");
+        assert!(!fills([800, 1_200], tile), "a tall window leaves bars");
     }
 
     #[test]

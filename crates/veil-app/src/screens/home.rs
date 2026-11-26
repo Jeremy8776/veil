@@ -138,7 +138,9 @@ pub fn show(app: &mut VeilApp, ui: &mut egui::Ui) {
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::PAGE).inner_margin(32))
         .show(ui, |ui| {
-            let compact_height = ui.available_height() < 800.0;
+            // The update banner takes room from the form, so the page goes compact with it.
+            let compact_height = ui.available_height() < 800.0
+                || matches!(app.updates.status(), crate::update::Status::Available(_));
             let height_key = ui.make_persistent_id("home-content-height");
             let last_height: f32 = ui.ctx().data(|d| d.get_temp(height_key)).unwrap_or(0.0);
             let top = ((ui.available_height() - last_height) * 0.5).max(0.0);
@@ -375,58 +377,66 @@ fn update_banner(app: &mut VeilApp, ui: &mut egui::Ui, width: f32) {
         return;
     };
     let install = app.updates.install_state();
+    // One row, so the form below stays in view without scrolling. Detail is in tooltips.
     card()
         .stroke(egui::Stroke::new(1.5, theme::ACCENT))
+        .inner_margin(egui::Margin::symmetric(16, 8))
         .show(ui, |ui| {
-            ui.set_width(width);
-            ui.label(RichText::new(format!("Veil {version} is out")).font(theme::bold(16.0)));
-            ui.label(
-                RichText::new(format!(
-                    "You have {}. Update so you can open the newest invite links.",
-                    update::VERSION
-                ))
-                .small()
-                .color(MUTED),
-            );
-            ui.add_space(8.0);
-            if !app.updates.can_install() {
-                let button = pill(ui, None, "Get the update", Tone::Primary, width)
-                    .on_hover_text("Opens the release page.");
-                if button.clicked() {
-                    update::open(version);
-                }
-                return;
-            }
-            match &install {
-                Install::Idle | Install::Failed(_) => {
-                    let button = pill(ui, None, "Install and restart", Tone::Primary, width)
-                        .on_hover_text(
-                            "Downloads it from GitHub, checks Veil's release signature, then \
-                             installs it. Veil restarts to finish.",
-                        );
-                    if button.clicked() {
-                        app.updates.install(version, ui.ctx());
+            // `width` assumes the card's usual 20 px side margin; this one uses 16.
+            ui.set_width(width + 8.0);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("Veil {version} is out")).strong())
+                    .on_hover_text(format!(
+                        "You have {}. Update so you can open the newest invite links.",
+                        update::VERSION
+                    ));
+                ui.label(
+                    RichText::new(format!("You have {}", update::VERSION))
+                        .small()
+                        .color(MUTED),
+                );
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if !app.updates.can_install() {
+                        let button = pill(ui, None, "Get the update", Tone::Primary, 150.0)
+                            .on_hover_text("Opens the release page.");
+                        if button.clicked() {
+                            update::open(version);
+                        }
+                        return;
                     }
-                }
-                Install::Working(step) => {
-                    ui.label(RichText::new(step.as_str()).color(MUTED));
-                }
-                Install::Started => {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-            }
+                    match &install {
+                        Install::Idle | Install::Failed(_) => {
+                            let button =
+                                pill(ui, None, "Install and restart", Tone::Primary, 170.0)
+                                    .on_hover_text(
+                                        "Downloads it from GitHub, checks Veil's release \
+                                         signature, then installs it. Veil restarts to finish.",
+                                    );
+                            if button.clicked() {
+                                app.updates.install(version, ui.ctx());
+                            }
+                        }
+                        Install::Working(step) => {
+                            ui.label(RichText::new(step.as_str()).color(MUTED));
+                        }
+                        Install::Started => {
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    }
+                    if link(ui, "What's new", MUTED)
+                        .on_hover_text("Opens the release page.")
+                        .clicked()
+                    {
+                        update::open(version);
+                    }
+                });
+            });
             if let Install::Failed(why) = &install {
                 ui.label(
                     RichText::new(format!("Update failed: {why}"))
                         .small()
                         .color(theme::WARN),
                 );
-            }
-            if link(ui, "What's new", MUTED)
-                .on_hover_text("Opens the release page.")
-                .clicked()
-            {
-                update::open(version);
             }
         });
     ui.add_space(12.0);

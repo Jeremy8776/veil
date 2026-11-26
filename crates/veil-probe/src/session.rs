@@ -196,6 +196,7 @@ mod tests {
             match within(events.recv()).await.unwrap() {
                 HostEvent::Keys(keys) => return keys,
                 HostEvent::Knock(_)
+                | HostEvent::Entered(_)
                 | HostEvent::Joined { .. }
                 | HostEvent::Left(_)
                 | HostEvent::Addresses { .. }

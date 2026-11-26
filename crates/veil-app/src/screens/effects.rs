@@ -22,6 +22,7 @@ use crate::icons::Icon;
 use crate::luts::Library;
 use crate::media::LocalMedia;
 use crate::screens::call_menus;
+use crate::screens::swatches::{self, Action, Paint, Swatch};
 use crate::theme::{self, MUTED};
 
 /// Tooltip for the look's strength.
@@ -148,35 +149,39 @@ pub fn strength(ui: &mut Ui, id: &str, percent: u8, hint: &str) -> Option<u8> {
     changed
 }
 
-/// The Effects menu's look section: Filter swatches, imported LUTs to tick or remove, Import
-/// and the look's strength.
+/// The Effects menu's look section: one grid of swatches for the built-in Filters and the
+/// imported LUTs (`swatches.rs`), Import, and the look's strength.
 pub fn look_menu(app: &VeilApp, ui: &mut Ui) {
-    call_menus::filter_swatches(ui, &app.media);
     let chosen = app.media.lut().map(|look| look.name);
-    let mut remove = None;
-    for name in app.luts.names() {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            let this = chosen.as_deref() == Some(name.as_str());
-            let width = ui.available_width() - 30.0;
-            let row = ui
-                .allocate_ui(vec2(width, 32.0), |ui| call_menus::choice(ui, &name, this))
-                .inner;
-            if row.on_hover_text("Imported LUT").clicked() && !this {
-                choose_lut(app, &name);
+    // Favourites first, then the rest, each in name order.
+    let mut names = app.luts.names();
+    names.sort_by_key(|name| !app.luts.is_favourite(name));
+    let mut cells = swatches::filters(&app.media);
+    let first_lut = cells.len();
+    cells.extend(names.iter().map(|name| Swatch {
+        short: name.clone(),
+        full: name.clone(),
+        chosen: chosen.as_deref() == Some(name.as_str()),
+        paint: app.luts.ramp(name).map_or(Paint::Unreadable, Paint::Ramp),
+        lut: true,
+        favourite: app.luts.is_favourite(name),
+    }));
+    match swatches::grid(ui, &cells) {
+        Some(Action::Choose(i)) if i < first_lut => app.media.set_filter(Filter::ALL[i]),
+        Some(Action::Choose(i)) => choose_lut(app, &names[i - first_lut]),
+        Some(Action::Remove(i)) if i >= first_lut => {
+            let name = &names[i - first_lut];
+            if chosen.as_deref() == Some(name.as_str()) {
+                app.media.set_lut(None);
             }
-            let close = icon_button(ui, Icon::Close, &format!("Remove {name}"));
-            if close.clicked() {
-                remove = Some(name.clone());
-            }
-        });
-    }
-    if let Some(name) = remove {
-        if chosen.as_deref() == Some(name.as_str()) {
-            app.media.set_lut(None);
+            app.luts.remove(name);
         }
-        app.luts.remove(&name);
+        Some(Action::Favourite(i)) if i >= first_lut => {
+            app.luts.toggle_favourite(&names[i - first_lut]);
+        }
+        Some(Action::Remove(_) | Action::Favourite(_)) | None => {}
     }
+    ui.add_space(4.0);
     let import = call_menus::toggle_button(ui, Icon::Folder, "Import LUT…", false);
     if import.on_hover_text(IMPORT_HINT).clicked() {
         start_import(&app.luts);
@@ -207,110 +212,9 @@ pub fn blur_menu(app: &VeilApp, ui: &mut Ui) {
     }
 }
 
-/// The pre-join look drop-down: Filters, imported LUTs and Import, then the strength.
-pub fn look_picker(app: &VeilApp, ui: &mut Ui) {
-    crate::widgets::picker_label(ui, Icon::Effects, "Filter");
-    let lut = app.media.lut().map(|look| look.name);
-    let filter = app.media.filter();
-    egui::ComboBox::from_id_salt("Filter")
-        .width(280.0)
-        .selected_text(look_label(&app.media))
-        .show_ui(ui, |ui| {
-            for f in Filter::ALL {
-                let on = lut.is_none() && f == filter;
-                if ui.selectable_label(on, filter_label(f)).clicked() && !on {
-                    app.media.set_filter(f);
-                }
-            }
-            let names = app.luts.names();
-            if !names.is_empty() {
-                ui.separator();
-            }
-            for name in names {
-                let on = lut.as_deref() == Some(name.as_str());
-                if ui.selectable_label(on, &name).clicked() && !on {
-                    choose_lut(app, &name);
-                }
-            }
-            ui.separator();
-            if ui
-                .selectable_label(false, "Import LUT…")
-                .on_hover_text(IMPORT_HINT)
-                .clicked()
-            {
-                start_import(&app.luts);
-            }
-        });
-    notice(ui, &app.luts);
-    if let Some(p) = strength(
-        ui,
-        "look strength",
-        app.media.look_strength(),
-        LOOK_STRENGTH_HINT,
-    ) {
-        app.media.set_look_strength(p);
-    }
-}
-
-/// The pre-join Background blur drop-down, with its strength and the notice if blur turned
-/// itself off.
-pub fn blur_picker(app: &VeilApp, ui: &mut Ui) {
-    let media = &app.media;
-    crate::widgets::picker_label(ui, Icon::Effects, "Background blur");
-    let current = media.blur();
-    let mut picked = current;
-    egui::ComboBox::from_id_salt("Background blur")
-        .width(280.0)
-        .selected_text(blur_label(current))
-        .show_ui(ui, |ui| {
-            for blur in Blur::ALL {
-                ui.selectable_value(&mut picked, blur, blur_label(blur));
-            }
-        })
-        .response
-        .on_hover_text(
-            "Blur is not a privacy guarantee: edges and hair can show what is behind you.",
-        );
-    if picked != current {
-        media.set_blur(picked);
-    }
-    if current != Blur::Off
-        && let Some(p) = strength(
-            ui,
-            "blur strength",
-            media.blur_strength(),
-            BLUR_STRENGTH_HINT,
-        )
-    {
-        media.set_blur_strength(p);
-    }
-    if let Some(notice) = media.blur_notice() {
-        ui.label(
-            egui::RichText::new(notice)
-                .small()
-                .color(theme::DANGER_HOVER),
-        )
-        .on_hover_text("Turn the camera on again when fewer apps are running, or turn blur off.");
-    }
-}
-
 /// Why the last import or removal failed, in small red text, until the next try.
 pub fn notice(ui: &mut Ui, luts: &Library) {
     if let Some(why) = luts.notice() {
         ui.label(egui::RichText::new(why).small().color(theme::DANGER_HOVER));
     }
-}
-
-/// A small square button with only an icon; its name is the tooltip and the screen-reader
-/// label.
-fn icon_button(ui: &mut Ui, icon: Icon, label: &str) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(28.0, 32.0), Sense::click());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
-    let colour = if response.hovered() || response.has_focus() {
-        theme::TEXT
-    } else {
-        MUTED
-    };
-    icon.paint(ui.painter(), rect.center(), 13.0, colour);
-    response.on_hover_text(label)
 }

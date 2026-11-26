@@ -19,9 +19,7 @@ use crate::screens::{
 };
 use crate::theme;
 use crate::widgets::Tone;
-use eframe::egui::{
-    self, Align, Align2, Layout, Margin, Rect, Sense, vec2,
-};
+use eframe::egui::{self, Align, Align2, Layout, Margin, Rect, Sense, vec2};
 use std::time::{Duration, Instant};
 use widgets as w;
 
@@ -240,7 +238,10 @@ pub fn call(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
                 }
                 let more = w::more(ui);
                 let page_id = more.id.with("data-page");
-                let mut page = ui.ctx().data(|d| d.get_temp::<bool>(page_id)).unwrap_or(false);
+                let mut page = ui
+                    .ctx()
+                    .data(|d| d.get_temp::<bool>(page_id))
+                    .unwrap_or(false);
                 let shown = w::menu(&more, |ui| {
                     if page {
                         if w::menu_back(ui, "Data use").clicked() {
@@ -275,6 +276,13 @@ pub fn call(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
                         .clicked()
                     {
                         app.media.set_mirror(!mirrored);
+                    }
+                    let framing = app.framing.enabled();
+                    if w::menu_item(ui, Some(Icon::People), "Face framing", framing)
+                        .on_hover_text(controls::FRAMING_HINT)
+                        .clicked()
+                    {
+                        app.framing.set_enabled(!framing);
                     }
                     if w::menu_item(ui, Some(Icon::Info), "Connection report", false).clicked() {
                         app.diagnostics.open();
@@ -408,7 +416,8 @@ pub fn ended(app: &mut VeilApp, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             let (rect, _) = ui.allocate_exact_size(vec2(72.0, 72.0), Sense::hover());
-            ui.painter().circle_filled(rect.center(), 36.0, theme::RAISED);
+            ui.painter()
+                .circle_filled(rect.center(), 36.0, theme::RAISED);
             Icon::Leave.paint(ui.painter(), rect.center(), 30.0, theme::MUTED);
             ui.add_space(24.0);
             w::label(ui, "Call ended", 28.0, true, theme::TEXT);

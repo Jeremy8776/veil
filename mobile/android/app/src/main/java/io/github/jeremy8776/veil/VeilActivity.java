@@ -130,9 +130,13 @@ public final class VeilActivity extends NativeActivity {
     public void veilNotify(String heading, String body) {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return;
         android.app.NotificationManager notices = getSystemService(android.app.NotificationManager.class);
-        notices.createNotificationChannel(new android.app.NotificationChannel("veil-lobby", "Call lobby", android.app.NotificationManager.IMPORTANCE_DEFAULT));
+        // High importance pops the notification up with sound; default importance only lists it.
+        // A channel's importance is fixed once made, so this replaces the old "veil-lobby" one.
+        notices.deleteNotificationChannel("veil-lobby");
+        notices.createNotificationChannel(new android.app.NotificationChannel("veil-lobby-alert", "Someone waiting to join", android.app.NotificationManager.IMPORTANCE_HIGH));
         android.app.PendingIntent open = android.app.PendingIntent.getActivity(this, 0, new Intent(this, VeilActivity.class), android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
-        notices.notify(2, new android.app.Notification.Builder(this, "veil-lobby").setSmallIcon(android.R.drawable.sym_call_incoming)
+        notices.notify(2, new android.app.Notification.Builder(this, "veil-lobby-alert").setSmallIcon(android.R.drawable.sym_call_incoming)
+            .setCategory(android.app.Notification.CATEGORY_MESSAGE)
             .setContentTitle(heading).setContentText(body).setContentIntent(open).setAutoCancel(true).build());
     }
     public void veilClearNotifications() { getSystemService(android.app.NotificationManager.class).cancel(2); }

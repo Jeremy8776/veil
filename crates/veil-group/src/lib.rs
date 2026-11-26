@@ -27,4 +27,4 @@ pub mod provider;
 
 pub use error::GroupError;
 pub use group::{Admission, Applied, Group, Joiner, MAX_MEMBERS};
-pub use lobby::{Knock, Lobby};
+pub use lobby::{Knock, Knocked, Lobby};

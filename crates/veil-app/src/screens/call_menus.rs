@@ -1,6 +1,6 @@
 //! The pieces the call bar's pop-up menus are built from: the menu frame, section headings,
-//! choice rows with a tick, the volume slider, the blur switch, the filter swatches and a
-//! full-width on/off button.
+//! choice rows with a tick, the volume slider, the blur switch and a full-width on/off
+//! button. The look grid is `swatches.rs`.
 //!
 //! Purpose: the Audio, Video and Effects menus look like Zoom's and Teams' (a list you tick,
 //! not a drop-down inside a pop-up).
@@ -12,10 +12,10 @@
 //! - Every control reports a label and its state to screen readers.
 
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Key, Rect, Response, Role, Sense, Shape, Stroke,
+    self, Align2, Color32, CornerRadius, FontId, Key, Rect, Response, Role, Sense, Stroke,
     StrokeKind, Ui, WidgetInfo, pos2, vec2,
 };
-use veil_media::{Blur, Filter};
+use veil_media::Blur;
 
 use crate::icons::Icon;
 use crate::media::LocalMedia;
@@ -58,6 +58,72 @@ pub fn section(ui: &mut Ui, icon: Icon, title: &str) {
         theme::bold(12.0),
         MUTED,
     );
+}
+
+/// A setting in a list: the label at the left, a small switch at the right, the whole row
+/// clickable and focusable. For side panels and menus, where a centred [`toggle_row`] would
+/// float away from its switch. Flips `value` on click; the response is `changed()` then.
+///
+/// [`toggle_row`]: crate::widgets::toggle_row
+pub fn switch_row(ui: &mut Ui, value: &mut bool, label: &str) -> Response {
+    let (rect, mut response) =
+        ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
+    if response.clicked() {
+        *value = !*value;
+        response.mark_changed();
+    }
+    let on = *value;
+    let enabled = ui.is_enabled();
+    response.widget_info(|| WidgetInfo::selected(Role::Switch, enabled, on, label));
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+    let painter = ui.painter();
+    let hovered = response.hovered() && enabled;
+    let colour = if enabled { TEXT } else { MUTED };
+    painter.text(
+        pos2(rect.left(), rect.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(13.5),
+        colour,
+    );
+    let track = switch_track(rect);
+    let fill = match (on && enabled, hovered) {
+        (true, true) => theme::ACCENT_HOVER,
+        (true, false) => ACCENT,
+        (false, true) => RAISED_HOVER,
+        (false, false) => RAISED,
+    };
+    let round = (SWITCH.y / 2.0) as u8;
+    painter.rect_filled(track, round, fill);
+    if !on {
+        painter.rect_stroke(track, round, Stroke::new(1.0, LINE), StrokeKind::Inside);
+    }
+    let knob_x = if on {
+        track.right() - SWITCH.y / 2.0
+    } else {
+        track.left() + SWITCH.y / 2.0
+    };
+    let knob = if on { Color32::WHITE } else { colour };
+    painter.circle_filled(pos2(knob_x, track.center().y), SWITCH.y / 2.0 - 3.0, knob);
+    if response.has_focus() {
+        painter.rect_stroke(
+            track.expand(3.0),
+            round + 3,
+            Stroke::new(2.0, TEXT),
+            StrokeKind::Outside,
+        );
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// The switch in a [`switch_row`].
+const SWITCH: egui::Vec2 = vec2(34.0, 20.0);
+
+/// Where a row's switch goes: flush with its right edge, on its centre line.
+fn switch_track(row: Rect) -> Rect {
+    Rect::from_center_size(pos2(row.right() - SWITCH.x / 2.0, row.center().y), SWITCH)
 }
 
 /// A thin line between menu sections.
@@ -294,8 +360,7 @@ pub fn blur_switch(ui: &mut Ui, media: &LocalMedia) {
 pub fn toggle_button(ui: &mut Ui, icon: Icon, label: &str, on: bool) -> Response {
     const ICON: f32 = 16.0;
     const GAP: f32 = 8.0;
-    let (rect, response) =
-        ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
     response.widget_info(|| WidgetInfo::selected(Role::Button, true, on, label));
     if !ui.is_rect_visible(rect) {
         return response;
@@ -330,94 +395,6 @@ fn blur_label(blur: Blur) -> &'static str {
     }
 }
 
-/// One round swatch per filter, its short name below; the chosen one ringed in the accent.
-pub fn filter_swatches(ui: &mut Ui, media: &LocalMedia) {
-    // A chosen LUT (`screens/effects.rs`) rings no swatch; choosing a swatch clears it.
-    let lut_on = media.lut().is_some();
-    let current = media.filter();
-    let count = Filter::ALL.len() as f32;
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::hover());
-    let w = rect.width() / count;
-    for (i, filter) in Filter::ALL.into_iter().enumerate() {
-        let cell = Rect::from_min_size(pos2(rect.left() + i as f32 * w, rect.top()), vec2(w, 62.0));
-        let (short, full) = filter_label(filter);
-        let chosen = !lut_on && filter == current;
-        let response = ui
-            .interact(cell, ui.scope_id().with(("filter", i)), Sense::click())
-            .on_hover_text(full);
-        response.widget_info(|| WidgetInfo::selected(Role::RadioButton, true, chosen, full));
-        let painter = ui.painter();
-        if response.hovered() || response.has_focus() {
-            painter.rect_filled(cell.shrink(2.0), CornerRadius::same(8), RAISED_HOVER);
-        }
-        let centre = pos2(cell.center().x, cell.top() + 22.0);
-        swatch(painter, centre, 14.0, filter);
-        if chosen {
-            painter.circle_stroke(centre, 17.5, Stroke::new(2.0, ACCENT));
-        }
-        painter.text(
-            pos2(cell.center().x, cell.bottom() - 11.0),
-            Align2::CENTER_CENTER,
-            short,
-            FontId::proportional(11.5),
-            if chosen { TEXT } else { MUTED },
-        );
-        if response.clicked() && !chosen {
-            media.set_filter(filter);
-        }
-    }
-}
-
-/// A short name for the swatch and the full one for tooltips and screen readers.
-fn filter_label(filter: Filter) -> (&'static str, &'static str) {
-    match filter {
-        Filter::None => ("None", "No filter"),
-        Filter::Warm => ("Warm", "Warm"),
-        Filter::Cool => ("Cool", "Cool"),
-        Filter::BlackWhite => ("B&W", "Black & white"),
-        Filter::Bright => ("Bright", "Bright"),
-    }
-}
-
-/// A small picture of what a filter does to colour.
-fn swatch(painter: &egui::Painter, c: egui::Pos2, r: f32, filter: Filter) {
-    match filter {
-        Filter::None => {
-            painter.circle_filled(c, r, RAISED);
-            painter.circle_stroke(c, r, Stroke::new(1.0, LINE));
-            let d = r * 0.6;
-            painter.line_segment(
-                [pos2(c.x - d, c.y + d), pos2(c.x + d, c.y - d)],
-                Stroke::new(1.5, MUTED),
-            );
-        }
-        Filter::BlackWhite => {
-            painter.circle_filled(c, r, Color32::from_gray(235));
-            // The left half dark: a half circle as a fan of points.
-            let half: Vec<_> = (0..=16)
-                .map(|i| {
-                    let a = std::f32::consts::FRAC_PI_2 + i as f32 / 16.0 * std::f32::consts::PI;
-                    pos2(c.x + r * a.cos(), c.y - r * a.sin())
-                })
-                .collect();
-            painter.add(Shape::convex_polygon(
-                half,
-                Color32::from_gray(40),
-                Stroke::NONE,
-            ));
-        }
-        Filter::Warm => {
-            painter.circle_filled(c, r, Color32::from_rgb(0xE8, 0x9A, 0x52));
-        }
-        Filter::Cool => {
-            painter.circle_filled(c, r, Color32::from_rgb(0x57, 0x9C, 0xE6));
-        }
-        Filter::Bright => {
-            painter.circle_filled(c, r, Color32::from_rgb(0xF5, 0xE6, 0xB4));
-        }
-    }
-}
-
 /// A tick mark, for the chosen row.
 fn tick(painter: &egui::Painter, c: egui::Pos2, colour: Color32) {
     let stroke = Stroke::new(2.0, colour);
@@ -446,6 +423,15 @@ mod tests {
         assert_eq!(gain_at(1.0, 2.0), 2.0);
         assert_eq!(gain_at(-0.5, 2.0), 0.0);
         assert_eq!(gain_at(0.256, 2.0), 0.51);
+    }
+
+    #[test]
+    fn a_switch_sits_flush_right_on_the_rows_centre_line() {
+        let row = Rect::from_min_size(pos2(10.0, 20.0), vec2(300.0, ROW_H));
+        let track = switch_track(row);
+        assert_eq!(track.right(), row.right());
+        assert_eq!(track.center().y, row.center().y);
+        assert_eq!(track.size(), SWITCH);
     }
 
     #[test]

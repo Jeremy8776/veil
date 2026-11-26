@@ -12,6 +12,10 @@
 //! - At most [`MAX_LUTS`] are kept, so the folder stays small.
 //! - Imported LUTs are local data: never sent, and not logged beyond a count.
 //! - Each look is built at most once per run and shared with the camera thread by `Arc`.
+//! - Favourites are names in `luts/favourites.json`, kept only while the LUT exists. A file
+//!   that does not load is logged and means no favourites.
+//! - A look's swatch ([`Library::ramp`]) is read at most once per run, without building its
+//!   table, so showing every swatch costs no table memory.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -27,6 +31,13 @@ pub const MAX_LUTS: usize = 100;
 pub const MAX_NAME: usize = 40;
 const FOLDER: &str = "luts";
 const EXTENSION: &str = "cube";
+const FAVOURITES: &str = "favourites.json";
+/// Far more than [`MAX_LUTS`] names need.
+const MAX_FAVOURITES_FILE: u64 = 16 * 1024;
+
+/// What a look does to greys from shadow to highlight (`veil_media::lut::tone_ramp`), as RGB
+/// in 0..1, darkest first: the colours of its swatch.
+pub type Ramp = [[f32; 3]; veil_media::lut::RAMP.len()];
 
 /// A chosen look: its name and its picture table.
 #[derive(Clone)]
@@ -51,6 +62,10 @@ impl std::fmt::Debug for ChosenLut {
 struct Inner {
     names: Vec<String>,
     built: HashMap<String, Arc<YuvLut>>,
+    /// Favourite names, in the order they were starred.
+    favourites: Vec<String>,
+    /// Each swatch read so far; `None` for a file that no longer loads.
+    ramps: HashMap<String, Option<Ramp>>,
     /// The last import or removal problem, for the effects menu.
     notice: Option<String>,
 }
@@ -83,10 +98,23 @@ impl Library {
         if !names.is_empty() {
             crate::note!("{} imported LUTs", names.len());
         }
+        let mut favourites: Vec<String> = match dir
+            .as_deref()
+            .map(|d| crate::json_file::load(d, FAVOURITES, MAX_FAVOURITES_FILE))
+        {
+            Some(Ok(Some(list))) => list,
+            Some(Err(why)) => {
+                crate::note!("LUT favourites not loaded: {why}");
+                Vec::new()
+            }
+            _ => Vec::new(),
+        };
+        favourites.retain(|f| names.contains(f));
         Self {
             dir,
             inner: Mutex::new(Inner {
                 names,
+                favourites,
                 ..Inner::default()
             }),
         }
@@ -98,6 +126,31 @@ impl Library {
 
     pub fn names(&self) -> Vec<String> {
         self.inner().names.clone()
+    }
+
+    pub fn is_favourite(&self, name: &str) -> bool {
+        self.inner().favourites.iter().any(|f| f == name)
+    }
+
+    /// Stars or unstars `name`, and saves the list.
+    pub fn toggle_favourite(&self, name: &str) {
+        let mut inner = self.inner();
+        if !inner.names.iter().any(|n| n == name) {
+            return;
+        }
+        if inner.favourites.iter().any(|f| f == name) {
+            inner.favourites.retain(|f| f != name);
+        } else {
+            inner.favourites.push(name.to_string());
+        }
+        self.save_favourites(&inner.favourites);
+    }
+
+    fn save_favourites(&self, list: &[String]) {
+        let Some(dir) = &self.dir else { return };
+        if let Err(why) = crate::json_file::write(dir, FAVOURITES, &list) {
+            crate::note!("LUT favourites not saved: {why}");
+        }
     }
 
     /// The last problem, until the next import or removal.
@@ -145,6 +198,26 @@ impl Library {
         })
     }
 
+    /// The swatch colours for `name`, read on first use. `None` if it is gone or does not
+    /// load.
+    /// shortcut: the first read parses the file on the interface thread (a few milliseconds
+    /// for a 33-point cube) when the menu first shows it; move it to a worker if 100 large
+    /// LUTs make that menu stutter.
+    pub fn ramp(&self, name: &str) -> Option<Ramp> {
+        if let Some(ramp) = self.inner().ramps.get(name) {
+            return *ramp;
+        }
+        if !self.inner().names.iter().any(|n| n == name) {
+            return None;
+        }
+        let ramp = self
+            .path(name)
+            .and_then(|path| veil_media::pick::read_capped(&path, MAX_FILE).ok())
+            .and_then(|picked| veil_media::lut::load_ramp(&picked.bytes).ok());
+        self.inner().ramps.insert(name.to_string(), ramp);
+        ramp
+    }
+
     /// Checks `picked` and stores a copy. Returns the new look, or a plain reason.
     pub fn import(&self, picked: &Picked) -> Result<ChosenLut, String> {
         let result = self.try_import(picked);
@@ -184,6 +257,11 @@ impl Library {
         if gone {
             inner.names.retain(|n| n != name);
             inner.built.remove(name);
+            inner.ramps.remove(name);
+            if inner.favourites.iter().any(|f| f == name) {
+                inner.favourites.retain(|f| f != name);
+                self.save_favourites(&inner.favourites);
+            }
         }
     }
 }
@@ -270,8 +348,28 @@ mod tests {
         assert_eq!(reopened.names(), ["Film Look", "film look 2"]);
         assert!(reopened.load("Film Look").is_some());
         assert!(reopened.load("Missing").is_none());
+        let ramp = reopened.ramp("Film Look").unwrap();
+        assert!(
+            (ramp[2][1] - veil_media::lut::RAMP[2]).abs() < 1e-4,
+            "identity: grey"
+        );
+        assert!(reopened.ramp("Missing").is_none());
+        reopened.toggle_favourite("film look 2");
+        reopened.toggle_favourite("Missing");
+        assert!(
+            Library::open(Some(base.clone())).is_favourite("film look 2"),
+            "saved"
+        );
+        assert!(!reopened.is_favourite("Missing"), "only existing LUTs");
+        reopened.toggle_favourite("film look 2");
+        assert!(!Library::open(Some(base.clone())).is_favourite("film look 2"));
+        reopened.toggle_favourite("Film Look");
         reopened.remove("Film Look");
         assert_eq!(reopened.names(), ["film look 2"]);
+        assert!(
+            !Library::open(Some(base.clone())).is_favourite("Film Look"),
+            "removed too"
+        );
         assert!(!base.join("luts/Film Look.cube").exists());
         let _ = std::fs::remove_dir_all(&base);
     }

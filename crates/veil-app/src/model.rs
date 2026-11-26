@@ -132,6 +132,9 @@ pub enum Action {
     Verify(u32, bool),
     /// Keep invite links working until the call ends (`true`), or for an hour (`false`).
     InviteUntilEnd(bool),
+    /// Turn the host's lobby on (`true`), so the host admits each guest, or off, so guests
+    /// with a valid invite come straight in. Identity, invites and removal apply either way.
+    Lobby(bool),
 }
 
 pub struct Call {
@@ -153,6 +156,8 @@ pub struct Call {
     pub invite_expires: u64,
     /// The host chose to keep each invite link working until the call ends.
     pub invite_until_end: bool,
+    /// For a host: guests wait in the lobby to be admitted. On unless the host turned it off.
+    pub lobby_on: bool,
     pub epoch: u64,
     /// Everyone's group number, yours included (`veil_security::group_code`). Empty until
     /// the first epoch, and in a demo, which makes one up from the epoch.
@@ -199,6 +204,7 @@ impl Call {
             nearby_code: String::new(),
             invite_expires: 0,
             invite_until_end: false,
+            lobby_on: true,
             epoch: 0,
             group: String::new(),
             demo: false,
@@ -227,6 +233,16 @@ impl Call {
         if !self.demo {
             self.outbox.push(Action::Hand(raised));
         }
+    }
+
+    /// Turns the host's lobby on or off, and queues it for the engine. A demo has no lobby
+    /// switch, and a guest cannot change it.
+    pub fn set_lobby(&mut self, on: bool) {
+        if !self.is_host || self.demo {
+            return;
+        }
+        self.lobby_on = on;
+        self.outbox.push(Action::Lobby(on));
     }
 
     pub fn elapsed(&self, now: Instant) -> Duration {
@@ -456,5 +472,29 @@ mod verify_tests {
         assert!(call.lobby[0].verified);
         call.set_verified(0, true);
         assert_eq!(call.outbox, [Action::Verify(4, true)], "not yourself");
+    }
+
+    #[test]
+    fn the_lobby_starts_on_and_only_a_real_host_can_switch_it() {
+        let now = Instant::now();
+        let mut host = Call::live("Call".into(), "Jo", true, now);
+        assert!(host.lobby_on);
+        host.set_lobby(false);
+        assert!(!host.lobby_on);
+        assert_eq!(host.outbox, [Action::Lobby(false)]);
+
+        let mut guest = Call::live("Call".into(), "Jo", false, now);
+        guest.set_lobby(false);
+        assert!(
+            guest.lobby_on && guest.outbox.is_empty(),
+            "a guest cannot open the lobby"
+        );
+
+        let mut demo = crate::demo::call("Jo", true, now);
+        demo.set_lobby(false);
+        assert!(
+            demo.lobby_on && demo.outbox.is_empty(),
+            "a demo has no lobby switch"
+        );
     }
 }

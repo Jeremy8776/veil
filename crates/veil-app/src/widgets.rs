@@ -147,9 +147,32 @@ pub enum Tone {
 
 /// A rounded button with an optional icon, `width` wide (or fitted to its text for 0).
 pub fn pill(ui: &mut Ui, icon: Option<Icon>, label: &str, tone: Tone, width: f32) -> Response {
+    pill_sized(ui, icon, label, tone, width, 40.0)
+}
+
+/// A [`pill`] `height` tall, to sit level with taller buttons such as the call bar's. On
+/// Android the phone's own action button is drawn at its usual height instead.
+pub fn pill_sized(
+    ui: &mut Ui,
+    icon: Option<Icon>,
+    label: &str,
+    tone: Tone,
+    width: f32,
+    height: f32,
+) -> Response {
     if cfg!(target_os = "android") {
-        let width = if width > 0.0 { width } else {
-            ui.painter().layout_no_wrap(label.to_owned(), crate::mobile::widgets::font(ui, 14.0, true), TEXT).size().x + if icon.is_some() { 60.0 } else { 32.0 }
+        let width = if width > 0.0 {
+            width
+        } else {
+            ui.painter()
+                .layout_no_wrap(
+                    label.to_owned(),
+                    crate::mobile::widgets::font(ui, 14.0, true),
+                    TEXT,
+                )
+                .size()
+                .x
+                + if icon.is_some() { 60.0 } else { 32.0 }
         };
         return crate::mobile::widgets::action(ui, icon, label, tone, width);
     }
@@ -161,7 +184,7 @@ pub fn pill(ui: &mut Ui, icon: Option<Icon>, label: &str, tone: Tone, width: f32
         .x;
     let icon_w = if icon.is_some() { 26.0 } else { 0.0 };
     let w = width.max(text_w + icon_w + 32.0);
-    let (rect, response) = ui.allocate_exact_size(vec2(w, 40.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(w, height), Sense::click());
     response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), label));
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered();
@@ -283,7 +306,9 @@ pub fn toggle_row(ui: &mut Ui, value: &mut bool, label: &str, detail: &str) -> R
 
 /// A small icon-only button with a tooltip and an accessible label.
 pub fn icon_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
-    if cfg!(target_os = "android") { return crate::mobile::widgets::icon(ui, icon, label, false); }
+    if cfg!(target_os = "android") {
+        return crate::mobile::widgets::icon(ui, icon, label, false);
+    }
     let (rect, response) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
     let response = response.on_hover_text(label);
     response.widget_info(|| WidgetInfo::labeled(Role::Button, true, label));
@@ -455,62 +480,6 @@ pub fn card() -> egui::Frame {
         .corner_radius(CornerRadius::same(12))
         .stroke(Stroke::new(1.0, theme::LINE))
         .inner_margin(egui::Margin::same(20))
-}
-
-/// The small muted icon and name above a drop-down.
-pub fn picker_label(ui: &mut Ui, icon: Icon, kind: &str) {
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-        icon.paint(ui.painter(), rect.center(), 15.0, MUTED);
-        ui.label(egui::RichText::new(kind).small().color(MUTED));
-    });
-}
-
-/// A labelled drop-down of devices, shared by the pre-join screen and the in-call menus. Returns the new choice when it changed (`Some(None)` for
-/// the default).
-pub fn device_picker(
-    ui: &mut Ui,
-    icon: Icon,
-    kind: &str,
-    list: &[crate::devices::Device],
-    chosen: Option<&str>,
-    default: &str,
-) -> Option<Option<String>> {
-    let mut picked = chosen.map(str::to_string);
-    picker_label(ui, icon, kind);
-    egui::ComboBox::from_id_salt(kind)
-        .width(280.0)
-        .selected_text(crate::devices::label(list, chosen, default))
-        .show_ui(ui, |ui| {
-            ui.selectable_value(&mut picked, None, default);
-            for device in list {
-                ui.selectable_value(&mut picked, Some(device.id.clone()), &device.name);
-            }
-        });
-    (picked.as_deref() != chosen).then_some(picked)
-}
-
-/// The data use drop-down for the pre-join screen: Auto (recommended) first, each choice
-/// explained in its tooltip. Returns the new choice when it changed.
-pub fn data_use_picker(
-    ui: &mut Ui,
-    chosen: crate::data_use::DataUse,
-) -> Option<crate::data_use::DataUse> {
-    use crate::data_use::DataUse;
-    let mut picked = chosen;
-    picker_label(ui, Icon::Signal, "Data use");
-    egui::ComboBox::from_id_salt("data use")
-        .width(280.0)
-        .selected_text(chosen.label())
-        .show_ui(ui, |ui| {
-            for choice in DataUse::ALL {
-                ui.selectable_value(&mut picked, choice, choice.label())
-                    .on_hover_text(choice.help());
-            }
-        })
-        .response
-        .on_hover_text(chosen.help());
-    (picked != chosen).then_some(picked)
 }
 
 /// A device error, in short, under its picker.
