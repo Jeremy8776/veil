@@ -12,6 +12,8 @@
 //! - At most [`MAX_LUTS`] are kept, so the folder stays small.
 //! - Imported LUTs are local data: never sent, and not logged beyond a count.
 //! - Each look is built at most once per run and shared with the camera thread by `Arc`.
+//! - A look's swatch ([`Library::ramp`]) is read at most once per run, without building its
+//!   table, so showing every swatch costs no table memory.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -27,6 +29,10 @@ pub const MAX_LUTS: usize = 100;
 pub const MAX_NAME: usize = 40;
 const FOLDER: &str = "luts";
 const EXTENSION: &str = "cube";
+
+/// What a look does to greys from shadow to highlight (`veil_media::lut::tone_ramp`), as RGB
+/// in 0..1, darkest first: the colours of its swatch.
+pub type Ramp = [[f32; 3]; veil_media::lut::RAMP.len()];
 
 /// A chosen look: its name and its picture table.
 #[derive(Clone)]
@@ -51,6 +57,8 @@ impl std::fmt::Debug for ChosenLut {
 struct Inner {
     names: Vec<String>,
     built: HashMap<String, Arc<YuvLut>>,
+    /// Each swatch read so far; `None` for a file that no longer loads.
+    ramps: HashMap<String, Option<Ramp>>,
     /// The last import or removal problem, for the effects menu.
     notice: Option<String>,
 }
@@ -145,6 +153,26 @@ impl Library {
         })
     }
 
+    /// The swatch colours for `name`, read on first use. `None` if it is gone or does not
+    /// load.
+    /// shortcut: the first read parses the file on the interface thread (a few milliseconds
+    /// for a 33-point cube) when the menu first shows it; move it to a worker if 100 large
+    /// LUTs make that menu stutter.
+    pub fn ramp(&self, name: &str) -> Option<Ramp> {
+        if let Some(ramp) = self.inner().ramps.get(name) {
+            return *ramp;
+        }
+        if !self.inner().names.iter().any(|n| n == name) {
+            return None;
+        }
+        let ramp = self
+            .path(name)
+            .and_then(|path| veil_media::pick::read_capped(&path, MAX_FILE).ok())
+            .and_then(|picked| veil_media::lut::load_ramp(&picked.bytes).ok());
+        self.inner().ramps.insert(name.to_string(), ramp);
+        ramp
+    }
+
     /// Checks `picked` and stores a copy. Returns the new look, or a plain reason.
     pub fn import(&self, picked: &Picked) -> Result<ChosenLut, String> {
         let result = self.try_import(picked);
@@ -184,6 +212,7 @@ impl Library {
         if gone {
             inner.names.retain(|n| n != name);
             inner.built.remove(name);
+            inner.ramps.remove(name);
         }
     }
 }
@@ -270,6 +299,12 @@ mod tests {
         assert_eq!(reopened.names(), ["Film Look", "film look 2"]);
         assert!(reopened.load("Film Look").is_some());
         assert!(reopened.load("Missing").is_none());
+        let ramp = reopened.ramp("Film Look").unwrap();
+        assert!(
+            (ramp[2][1] - veil_media::lut::RAMP[2]).abs() < 1e-4,
+            "identity: grey"
+        );
+        assert!(reopened.ramp("Missing").is_none());
         reopened.remove("Film Look");
         assert_eq!(reopened.names(), ["film look 2"]);
         assert!(!base.join("luts/Film Look.cube").exists());

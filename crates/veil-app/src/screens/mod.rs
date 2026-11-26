@@ -29,3 +29,4 @@ pub mod share_bar;
 pub mod share_sound;
 pub(crate) mod speaker;
 pub mod stats;
+pub mod swatches;

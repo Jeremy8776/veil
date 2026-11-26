@@ -1,6 +1,6 @@
 //! The pieces the call bar's pop-up menus are built from: the menu frame, section headings,
-//! choice rows with a tick, the volume slider, the blur switch, the filter swatches and a
-//! full-width on/off button.
+//! choice rows with a tick, the volume slider, the blur switch and a full-width on/off
+//! button. The look grid is `swatches.rs`.
 //!
 //! Purpose: the Audio, Video and Effects menus look like Zoom's and Teams' (a list you tick,
 //! not a drop-down inside a pop-up).
@@ -12,10 +12,10 @@
 //! - Every control reports a label and its state to screen readers.
 
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Key, Rect, Response, Role, Sense, Shape, Stroke,
+    self, Align2, Color32, CornerRadius, FontId, Key, Rect, Response, Role, Sense, Stroke,
     StrokeKind, Ui, WidgetInfo, pos2, vec2,
 };
-use veil_media::{Blur, Filter};
+use veil_media::Blur;
 
 use crate::icons::Icon;
 use crate::media::LocalMedia;
@@ -294,8 +294,7 @@ pub fn blur_switch(ui: &mut Ui, media: &LocalMedia) {
 pub fn toggle_button(ui: &mut Ui, icon: Icon, label: &str, on: bool) -> Response {
     const ICON: f32 = 16.0;
     const GAP: f32 = 8.0;
-    let (rect, response) =
-        ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
     response.widget_info(|| WidgetInfo::selected(Role::Button, true, on, label));
     if !ui.is_rect_visible(rect) {
         return response;
@@ -327,94 +326,6 @@ fn blur_label(blur: Blur) -> &'static str {
         Blur::Off => "Off",
         Blur::Light => "Light",
         Blur::Strong => "Strong",
-    }
-}
-
-/// One round swatch per filter, its short name below; the chosen one ringed in the accent.
-pub fn filter_swatches(ui: &mut Ui, media: &LocalMedia) {
-    // A chosen LUT (`screens/effects.rs`) rings no swatch; choosing a swatch clears it.
-    let lut_on = media.lut().is_some();
-    let current = media.filter();
-    let count = Filter::ALL.len() as f32;
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::hover());
-    let w = rect.width() / count;
-    for (i, filter) in Filter::ALL.into_iter().enumerate() {
-        let cell = Rect::from_min_size(pos2(rect.left() + i as f32 * w, rect.top()), vec2(w, 62.0));
-        let (short, full) = filter_label(filter);
-        let chosen = !lut_on && filter == current;
-        let response = ui
-            .interact(cell, ui.scope_id().with(("filter", i)), Sense::click())
-            .on_hover_text(full);
-        response.widget_info(|| WidgetInfo::selected(Role::RadioButton, true, chosen, full));
-        let painter = ui.painter();
-        if response.hovered() || response.has_focus() {
-            painter.rect_filled(cell.shrink(2.0), CornerRadius::same(8), RAISED_HOVER);
-        }
-        let centre = pos2(cell.center().x, cell.top() + 22.0);
-        swatch(painter, centre, 14.0, filter);
-        if chosen {
-            painter.circle_stroke(centre, 17.5, Stroke::new(2.0, ACCENT));
-        }
-        painter.text(
-            pos2(cell.center().x, cell.bottom() - 11.0),
-            Align2::CENTER_CENTER,
-            short,
-            FontId::proportional(11.5),
-            if chosen { TEXT } else { MUTED },
-        );
-        if response.clicked() && !chosen {
-            media.set_filter(filter);
-        }
-    }
-}
-
-/// A short name for the swatch and the full one for tooltips and screen readers.
-fn filter_label(filter: Filter) -> (&'static str, &'static str) {
-    match filter {
-        Filter::None => ("None", "No filter"),
-        Filter::Warm => ("Warm", "Warm"),
-        Filter::Cool => ("Cool", "Cool"),
-        Filter::BlackWhite => ("B&W", "Black & white"),
-        Filter::Bright => ("Bright", "Bright"),
-    }
-}
-
-/// A small picture of what a filter does to colour.
-fn swatch(painter: &egui::Painter, c: egui::Pos2, r: f32, filter: Filter) {
-    match filter {
-        Filter::None => {
-            painter.circle_filled(c, r, RAISED);
-            painter.circle_stroke(c, r, Stroke::new(1.0, LINE));
-            let d = r * 0.6;
-            painter.line_segment(
-                [pos2(c.x - d, c.y + d), pos2(c.x + d, c.y - d)],
-                Stroke::new(1.5, MUTED),
-            );
-        }
-        Filter::BlackWhite => {
-            painter.circle_filled(c, r, Color32::from_gray(235));
-            // The left half dark: a half circle as a fan of points.
-            let half: Vec<_> = (0..=16)
-                .map(|i| {
-                    let a = std::f32::consts::FRAC_PI_2 + i as f32 / 16.0 * std::f32::consts::PI;
-                    pos2(c.x + r * a.cos(), c.y - r * a.sin())
-                })
-                .collect();
-            painter.add(Shape::convex_polygon(
-                half,
-                Color32::from_gray(40),
-                Stroke::NONE,
-            ));
-        }
-        Filter::Warm => {
-            painter.circle_filled(c, r, Color32::from_rgb(0xE8, 0x9A, 0x52));
-        }
-        Filter::Cool => {
-            painter.circle_filled(c, r, Color32::from_rgb(0x57, 0x9C, 0xE6));
-        }
-        Filter::Bright => {
-            painter.circle_filled(c, r, Color32::from_rgb(0xF5, 0xE6, 0xB4));
-        }
     }
 }
 

@@ -21,3 +21,22 @@ pub use table::YuvLut;
 pub fn load(bytes: &[u8]) -> Result<YuvLut, LutError> {
     Ok(YuvLut::from_cube(&cube::parse(bytes)?))
 }
+
+/// The greys a look's swatch shows, from shadow to highlight.
+pub const RAMP: [f32; 5] = [0.1, 0.3, 0.5, 0.7, 0.9];
+
+/// What a look does to each grey of [`RAMP`], as RGB in 0..1, darkest first. Shows its
+/// shadow and highlight tints, and lifted or crushed blacks, without building a table.
+pub fn tone_ramp(cube: &Cube) -> [[f32; 3]; RAMP.len()] {
+    RAMP.map(|grey| {
+        let input: [f32; 3] = std::array::from_fn(|c| {
+            cube.domain_min[c] + grey * (cube.domain_max[c] - cube.domain_min[c])
+        });
+        cube.sample(input).map(|c| c.clamp(0.0, 1.0))
+    })
+}
+
+/// Parses a `.cube` file and returns only its [`tone_ramp`].
+pub fn load_ramp(bytes: &[u8]) -> Result<[[f32; 3]; RAMP.len()], LutError> {
+    Ok(tone_ramp(&cube::parse(bytes)?))
+}
