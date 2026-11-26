@@ -385,9 +385,13 @@ impl Node {
     }
 
     /// Whether this exact endpoint authenticated as `peer` on THIS node in the last 60s.
-    /// Used to constrain automatic helper notices before any dial sends a packet. It is
-    /// bounded historical evidence, not membership, current reachability or device trust.
-    /// Unverified outgoing connections never populate it; relayed virtual nodes are separate.
+    /// It is bounded historical evidence, not membership, current reachability or device
+    /// trust. Unverified outgoing connections never populate it; relayed virtual nodes are
+    /// separate.
+    ///
+    /// shortcut: no production caller since 26/11/2026, when punching stopped requiring it
+    /// (it made a first punch impossible). Kept for a signed-reflection design that may use
+    /// it; remove `known_paths.rs` if that design does not.
     pub fn authenticated_at(&self, peer: PublicId, addr: SocketAddr) -> bool {
         self.known_paths
             .lock()

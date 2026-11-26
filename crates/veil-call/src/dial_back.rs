@@ -78,7 +78,9 @@ impl DialBacks {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Reach {
     Internet,
-    /// Private and link-local IPv4, unique local and link-local IPv6.
+    /// Private, link-local and shared (100.64.0.0/10) IPv4, unique local and link-local IPv6.
+    /// Shared space holds carrier NAT and overlay VPNs such as Tailscale: not the internet,
+    /// though `veil_net::local::is_local_scope` rightly does not count it as shareable.
     LocalNetwork,
     Loopback,
 }
@@ -88,7 +90,7 @@ impl Reach {
         let ip = ip.to_canonical();
         if ip.is_loopback() {
             Self::Loopback
-        } else if veil_net::local::is_local_scope(ip) {
+        } else if veil_net::local::is_local_scope(ip) || is_shared(ip) {
             Self::LocalNetwork
         } else {
             Self::Internet
@@ -103,6 +105,11 @@ impl Reach {
             .max()
             .unwrap_or(Self::Internet)
     }
+}
+
+/// 100.64.0.0/10 (RFC 6598). `Ipv4Addr::is_shared` is not stable yet.
+fn is_shared(ip: IpAddr) -> bool {
+    matches!(ip, IpAddr::V4(v4) if v4.octets()[0] == 100 && v4.octets()[1] & 0xc0 == 64)
 }
 
 /// Keeps the addresses in a punch plan worth one handshake: a single host and a real port, no
@@ -221,6 +228,7 @@ mod tests {
             "192.168.1.1:80",
             "[fe80::1]:4433",
             "[::ffff:10.0.0.1]:4433",
+            "100.101.102.103:4433",
             "127.0.0.1:4433",
             "[::1]:4433",
             "[::ffff:127.0.0.1]:4433",
@@ -232,8 +240,10 @@ mod tests {
             addrs.len()
         };
         assert_eq!(kept(Reach::Internet), 1, "a public helper names public addresses only");
-        assert_eq!(kept(Reach::LocalNetwork), 4, "a LAN helper may name LAN addresses");
-        assert_eq!(kept(Reach::Loopback), 7);
+        assert_eq!(kept(Reach::LocalNetwork), 5, "a LAN helper may name LAN addresses");
+        assert_eq!(kept(Reach::Loopback), 8);
+        assert!(!is_shared("100.63.255.255".parse().unwrap_or(IpAddr::from([0, 0, 0, 0]))));
+        assert!(!is_shared("100.128.0.0".parse().unwrap_or(IpAddr::from([100, 64, 0, 0]))));
 
         let helper = |a: &[&str]| Reach::of_helper(&a.iter().map(|a| parse(a)).collect::<Vec<_>>());
         assert_eq!(helper(&["203.0.113.9:443"]), Reach::Internet);

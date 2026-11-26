@@ -4,6 +4,13 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Changed
+
+- Camera video is sent at up to 1080p (was 720p), so an HD tile uses about 3 Mbit/s instead
+  of 1.3. A shared screen no longer pulses in and out of focus every 4 s: the periodic
+  keyframe is now every 30 s, and receivers and the forwarder repeat a keyframe request that
+  went unanswered.
+
 ### Fixed
 
 - Two people behind home routers can reach each other again. Since 0.1.14 a punch went only
