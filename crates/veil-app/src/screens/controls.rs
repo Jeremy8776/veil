@@ -39,6 +39,7 @@ const MENU_INNER: f32 = 280.0;
 /// Tooltips for the switches in the audio menu.
 const NOISE_HINT: &str = "Removes fans, typing, traffic and other background sound from your \
      microphone. It runs on this computer, so your sound goes nowhere else.";
+const ECHO_HINT: &str = "Stops others hearing themselves through your speakers.";
 const AUTO_GAIN_HINT: &str = "Turns your voice up or down to a steady level, so a quiet \
      microphone is easy to hear. Learns only from speech.";
 const CLEAN_OTHERS_HINT: &str = "Removes background sound from everyone else, on this computer. \
@@ -188,6 +189,12 @@ fn audio_menu(app: &mut VeilApp, ui: &mut egui::Ui) {
     let button = call_menus::toggle_button(ui, Icon::Mic, "Noise suppression", suppress);
     if button.on_hover_text(NOISE_HINT).clicked() {
         app.media.set_noise_suppression(!suppress);
+    }
+    ui.add_space(4.0);
+    let echo = app.media.cancel_echo();
+    let button = call_menus::toggle_button(ui, Icon::Mic, "Cancel echo", echo);
+    if button.on_hover_text(ECHO_HINT).clicked() {
+        app.media.set_cancel_echo(!echo);
     }
     call_menus::divider(ui);
     call_menus::section(ui, Icon::Volume, "Speaker");

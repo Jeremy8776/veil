@@ -1,12 +1,18 @@
 //! The microphone thread: reads 20 ms of sound at a time and hands it on.
 //!
-//! Purpose: each frame goes through noise suppression ([`Denoiser`], while
+//! Purpose: each frame goes through echo cancelling ([`EchoCanceller`], in a call while
+//! `Shared::cancel_echo` is on), then noise suppression ([`Denoiser`], while
 //! `Shared::suppress_noise` is on), then automatic volume ([`AutoGain`], while
 //! `Shared::auto_gain` is on), then the microphone volume, in that order, so the model hears
 //! the microphone as it is. The result feeds the level meter and, during a call, the engine's
 //! audio tap.
 //!
 //! Invariants:
+//! - Echo cancelling is first, so the noise model hears the microphone with the speakers
+//!   already taken out. It is fed what the speaker played ([`Playback::take_reference`]). Out
+//!   of a call, or with the switch off, the queue is emptied and the frame left alone.
+//! - It starts again (forgets the echo path) when the microphone is reopened, when a speaker
+//!   is opened, and when it goes from off to on.
 //! - The noise model runs while either is on: automatic volume learns only from frames it
 //!   scores as speech. With suppression off it scores a copy, and the frame is not changed.
 //! - Starting the model again after both were off resets it, so it starts from current sound.
@@ -17,12 +23,20 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use eframe::egui;
-use veil_media::{AutoGain, Denoiser};
+use std::collections::VecDeque;
+
+use veil_media::{AutoGain, Denoiser, EchoCanceller};
 
 use super::{Shared, lock, meter, which};
+use crate::volume::Playback;
 
 /// Noise suppression and automatic volume for one microphone.
 struct Chain {
+    echo: EchoCanceller,
+    /// Whether the canceller ran on the last frame.
+    cancelling: bool,
+    /// `Playback::opens` when the canceller last ran.
+    opens: u64,
     denoiser: Denoiser,
     agc: AutoGain,
     /// Whether the noise model ran on the last frame.
@@ -34,11 +48,34 @@ struct Chain {
 impl Chain {
     fn new() -> Self {
         Self {
+            echo: EchoCanceller::new(),
+            cancelling: false,
+            opens: 0,
             denoiser: Denoiser::new(),
             agc: AutoGain::new(),
             running: false,
             probe: Vec::new(),
         }
+    }
+
+    /// Removes echo from `frame`. `played` is what the speaker took since the last frame;
+    /// `opens` is `Playback::opens`.
+    fn cancel_echo(&mut self, frame: &mut [f32], on: bool, opens: u64, played: VecDeque<Vec<f32>>) {
+        if !on {
+            self.cancelling = false;
+            return;
+        }
+        if !self.cancelling || opens != self.opens {
+            self.echo.reset();
+            self.cancelling = true;
+            self.opens = opens;
+            // What was queued belongs to the old state.
+            return;
+        }
+        for chunk in &played {
+            self.echo.played(chunk);
+        }
+        self.echo.clean(frame);
     }
 
     /// `after` is the mic volume applied next, so Auto volume leaves it room.
@@ -66,7 +103,13 @@ impl Chain {
     }
 }
 
-pub(super) fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, id: Option<&str>) {
+pub(super) fn mic_loop(
+    shared: &Shared,
+    playback: &Playback,
+    ctx: &egui::Context,
+    stop: &AtomicBool,
+    id: Option<&str>,
+) {
     use veil_media::AudioSettings;
     use veil_media::platform::Microphone;
     let mut mic = match Microphone::open(&AudioSettings::voice(), id) {
@@ -113,6 +156,15 @@ pub(super) fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, 
                 *lock(&shared.microphone_at) = Some(std::time::Instant::now());
                 scaled.clear();
                 scaled.extend_from_slice(frame);
+                let in_call = lock(&shared.taps).is_some();
+                // Always emptied, so it holds nothing stale when cancelling starts.
+                let played = playback.take_reference();
+                chain.cancel_echo(
+                    &mut scaled,
+                    in_call && shared.cancel_echo.load(Ordering::Relaxed),
+                    playback.opens(),
+                    played,
+                );
                 let mic_gain = shared.mic_gain.get();
                 chain.apply(
                     &mut scaled,
@@ -140,4 +192,31 @@ pub(super) fn mic_loop(shared: &Shared, ctx: &egui::Context, stop: &AtomicBool, 
         }
     }
     shared.level.store(0, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn echo_cancelling_off_leaves_the_frame() {
+        let mut chain = Chain::new();
+        let mut frame: Vec<f32> = (0..960).map(|i| (i as f32 * 0.05).sin() * 0.3).collect();
+        let before = frame.clone();
+        let played = VecDeque::from([frame.clone()]);
+        chain.cancel_echo(&mut frame, false, 0, played);
+        assert_eq!(frame, before);
+    }
+
+    #[test]
+    fn echo_cancelling_starts_again_when_switched_on_or_the_speaker_reopens() {
+        let mut chain = Chain::new();
+        let mut frame = vec![0.1f32; 960];
+        chain.cancel_echo(&mut frame, true, 0, VecDeque::new());
+        assert!(chain.cancelling);
+        chain.cancel_echo(&mut frame, false, 0, VecDeque::new());
+        assert!(!chain.cancelling);
+        chain.cancel_echo(&mut frame, true, 3, VecDeque::new());
+        assert_eq!(chain.opens, 3);
+    }
 }
