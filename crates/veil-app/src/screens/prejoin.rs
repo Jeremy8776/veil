@@ -18,7 +18,7 @@ use crate::firewall::{Profile, State};
 use crate::icons::Icon;
 use crate::screens::controls;
 use crate::theme::{self, MUTED};
-use crate::widgets::{self, Tile, Tone, pill};
+use crate::widgets::{self, Tile, Tone, pill, pill_sized};
 
 /// The title and the space under it.
 const HEADER_H: f32 = 46.0;
@@ -31,16 +31,20 @@ const DOCK_MARGIN_X: f32 = 12.0;
 const BELOW_H: f32 = 40.0;
 const MIN_PREVIEW_W: f32 = 320.0;
 const MAX_PREVIEW_W: f32 = 1200.0;
-const START_W: f32 = 140.0;
-const BACK_W: f32 = 96.0;
+/// Back and Start: the same size, so the dock is symmetric about the media buttons, and as
+/// tall as those buttons.
+const ACTION_W: f32 = 136.0;
+const ACTION_H: f32 = 58.0;
 /// Space between buttons in the dock.
 const DOCK_SPACING: f32 = 6.0;
-/// The space either side of the line between the media buttons and the actions.
+/// The space either side of each line between the actions and the media buttons.
 const DIVIDER_PAD: f32 = 10.0;
-/// The actions: Back, then Start.
-const ACTIONS_W: f32 = BACK_W + DOCK_SPACING + START_W;
-/// One row inside the dock: media buttons, the line with its spacing, then the actions.
-const ONE_ROW_W: f32 = controls::MEDIA_W + 2.0 * (DOCK_SPACING + DIVIDER_PAD) + 1.0 + ACTIONS_W;
+/// A line with its spacing.
+const DIVIDER_W: f32 = 2.0 * (DOCK_SPACING + DIVIDER_PAD) + 1.0;
+/// The actions side by side, for the second row of a narrow dock.
+const ACTIONS_W: f32 = 2.0 * ACTION_W + DOCK_SPACING;
+/// One row inside the dock: Back, a line, the media buttons, a line, Start.
+const ONE_ROW_W: f32 = 2.0 * ACTION_W + 2.0 * DIVIDER_W + controls::MEDIA_W;
 
 /// The preview's width: as large as the window allows with the title, dock and note still
 /// in view, kept 16:9. Never wider than the window.
@@ -134,9 +138,10 @@ fn preview(app: &VeilApp, ui: &mut egui::Ui, width: f32) {
     }
 }
 
-/// The dock under the preview, as wide as its contents and centred: the call bar's media
-/// buttons, a thin line, then Back and Start. When the window is too narrow for one row, the
-/// actions go on a second row, each row centred.
+/// The dock under the preview, as wide as its contents and centred, and symmetric: Back, a
+/// thin line, the call bar's media buttons, a thin line, Start. Back and Start are the same
+/// size and as tall as the media buttons. When the window is too narrow for one row, Back
+/// and Start go on a second row, each row centred.
 fn dock(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
     let one_row = ui.available_width() >= ONE_ROW_W + 2.0 * DOCK_MARGIN_X;
     let inner_w = if one_row {
@@ -157,14 +162,19 @@ fn dock(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
                     ui.set_width(inner_w);
                     if one_row {
                         row(ui, ONE_ROW_W, |ui| {
+                            back(app, ui);
+                            divider(ui);
                             controls::media(app, ui);
                             divider(ui);
-                            actions(app, ui, host);
+                            start(app, ui, host);
                         });
                     } else {
                         row(ui, controls::MEDIA_W, |ui| controls::media(app, ui));
                         ui.add_space(8.0);
-                        row(ui, ACTIONS_W, |ui| actions(app, ui, host));
+                        row(ui, ACTIONS_W, |ui| {
+                            back(app, ui);
+                            start(app, ui, host);
+                        });
                     }
                 });
         },
@@ -191,13 +201,25 @@ fn divider(ui: &mut egui::Ui) {
     ui.add_space(DIVIDER_PAD);
 }
 
-/// Back, then Start: the main action last, as on a Mac.
-fn actions(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
-    if pill(ui, None, "Back", Tone::Quiet, BACK_W).clicked() {
+fn back(app: &mut VeilApp, ui: &mut egui::Ui) {
+    if pill_sized(ui, None, "Back", Tone::Quiet, ACTION_W, ACTION_H).clicked() {
         app.go_home();
     }
-    let start = if host { "Start call" } else { "Join now" };
-    if pill(ui, Some(Icon::Video), start, Tone::Primary, START_W).clicked() {
+}
+
+/// The main action, last, as on a Mac.
+fn start(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
+    let label = if host { "Start call" } else { "Join now" };
+    if pill_sized(
+        ui,
+        Some(Icon::Video),
+        label,
+        Tone::Primary,
+        ACTION_W,
+        ACTION_H,
+    )
+    .clicked()
+    {
         app.go_call(host);
     }
 }

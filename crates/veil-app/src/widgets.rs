@@ -147,6 +147,19 @@ pub enum Tone {
 
 /// A rounded button with an optional icon, `width` wide (or fitted to its text for 0).
 pub fn pill(ui: &mut Ui, icon: Option<Icon>, label: &str, tone: Tone, width: f32) -> Response {
+    pill_sized(ui, icon, label, tone, width, 40.0)
+}
+
+/// A [`pill`] `height` tall, to sit level with taller buttons such as the call bar's. On
+/// Android the phone's own action button is drawn at its usual height instead.
+pub fn pill_sized(
+    ui: &mut Ui,
+    icon: Option<Icon>,
+    label: &str,
+    tone: Tone,
+    width: f32,
+    height: f32,
+) -> Response {
     if cfg!(target_os = "android") {
         let width = if width > 0.0 {
             width
@@ -171,7 +184,7 @@ pub fn pill(ui: &mut Ui, icon: Option<Icon>, label: &str, tone: Tone, width: f32
         .x;
     let icon_w = if icon.is_some() { 26.0 } else { 0.0 };
     let w = width.max(text_w + icon_w + 32.0);
-    let (rect, response) = ui.allocate_exact_size(vec2(w, 40.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(w, height), Sense::click());
     response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), label));
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered();
