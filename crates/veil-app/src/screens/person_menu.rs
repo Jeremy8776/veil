@@ -9,7 +9,7 @@
 //!   its own inside.
 //! - Every row shares one icon column and one text edge (`call_menus::ROW_ICON_X`,
 //!   `ROW_TEXT_X`): what is for you first, then the host's Moderator switch, then
-//!   "Moderator actions" (Mute for everyone, and Remove last, in red).
+//!   "Moderator actions" (Mute for everyone and Remove from call), both in red.
 //! - Your own tile and row have no menu. Nobody gets moderation controls on the host.
 //! - The menu only returns a [`Pick`]; the caller applies it to the call after drawing, so a
 //!   person list being drawn is never changed under it.
@@ -105,7 +105,7 @@ fn content(
     call_menus::divider(ui);
     heading(ui, "Moderator actions");
     if !person.muted
-        && action(ui, Icon::MicOff, "Mute for everyone", false)
+        && action(ui, Icon::MicOff, "Mute for everyone", true)
             .on_hover_text(MUTE_ALL_HINT)
             .clicked()
     {
@@ -191,7 +191,7 @@ fn volume(ui: &mut egui::Ui, gain: &mut f32) -> bool {
     changed
 }
 
-/// A menu action on the icon column. A `danger` action (Remove) is drawn in red.
+/// A menu action on the icon column. A `danger` action (every moderator action) is red.
 fn action(ui: &mut egui::Ui, icon: Icon, label: &str, danger: bool) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
