@@ -8,7 +8,8 @@
 //! - Built from `call_menus` pieces, so it looks like the bar's menus. It opens no pop-up of
 //!   its own inside.
 //! - Every row shares one icon column and one text edge (`call_menus::ROW_ICON_X`,
-//!   `ROW_TEXT_X`): what is for you first, then moderation, and Remove last, in red.
+//!   `ROW_TEXT_X`): what is for you first, then the host's Moderator switch, then
+//!   "Moderator actions" (Mute for everyone, and Remove last, in red).
 //! - Your own tile and row have no menu. Nobody gets moderation controls on the host.
 //! - The menu only returns a [`Pick`]; the caller applies it to the call after drawing, so a
 //!   person list being drawn is never changed under it.
@@ -90,17 +91,9 @@ fn content(
     if !call.can_moderate() || person.is_host {
         return None;
     }
-    call_menus::divider(ui);
     let mut pick = None;
-    if !person.muted
-        && action(ui, Icon::MicOff, "Mute for everyone", false)
-            .on_hover_text(MUTE_ALL_HINT)
-            .clicked()
-    {
-        pick = Some(Pick::MuteForEveryone(person.id));
-        ui.close();
-    }
     if call.is_host {
+        call_menus::divider(ui);
         let mut moderator = call.is_moderator(person.id);
         if call_menus::icon_switch_row(ui, Icon::Shield, &mut moderator, "Moderator")
             .on_hover_text(MODERATOR_HINT)
@@ -110,6 +103,15 @@ fn content(
         }
     }
     call_menus::divider(ui);
+    heading(ui, "Moderator actions");
+    if !person.muted
+        && action(ui, Icon::MicOff, "Mute for everyone", false)
+            .on_hover_text(MUTE_ALL_HINT)
+            .clicked()
+    {
+        pick = Some(Pick::MuteForEveryone(person.id));
+        ui.close();
+    }
     if action(ui, Icon::Leave, "Remove from call", true)
         .on_hover_text(REMOVE_HINT)
         .clicked()
@@ -147,6 +149,18 @@ fn header(ui: &mut egui::Ui, name: &str, role: Option<&str>) {
             theme::MUTED,
         );
     }
+}
+
+/// A small muted heading over a group of rows, on the icon column's left edge.
+fn heading(ui: &mut egui::Ui, text: &str) {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
+    ui.painter().text(
+        pos2(rect.left() + 6.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        text,
+        theme::bold(11.5),
+        theme::MUTED,
+    );
 }
 
 /// The volume row on the menu's icon column: icon, slider, then the percentage.
