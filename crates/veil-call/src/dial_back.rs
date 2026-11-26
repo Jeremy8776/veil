@@ -10,8 +10,13 @@
 //!   `MAX_PUNCH_DELAY` plus the connect timeout, which is [`WINDOW`], so the same limits also
 //!   bound how many run at once. A joiner that loses out still has the relay.
 //! - A notice naming more addresses than the rendezvous may store for a member is refused.
+//! - Only [`punch_targets`] are dialled: addresses that name one host and a port. The helper's
+//!   reflection is not proof that the peer owns an address, but a punch is how two people
+//!   behind routers reach each other the first time, so it is trusted for that one bounded
+//!   dial. Key pinning refuses anyone but the named peer at the address.
 
 use std::collections::{HashMap, VecDeque};
+use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use veil_rendezvous::protocol::MAX_ADDRS;
@@ -63,6 +68,20 @@ impl DialBacks {
         self.recent.push_back((peer, now));
         true
     }
+}
+
+/// Keeps the addresses in a punch plan worth one handshake: a single host and a real port,
+/// at most [`MAX_NOTICE_ADDRS`]. Unspecified, multicast and broadcast addresses are dropped.
+pub(crate) fn punch_targets(addrs: &mut Vec<SocketAddr>) {
+    addrs.retain(|addr| {
+        let ip = addr.ip();
+        let one_host = match ip {
+            IpAddr::V4(v4) => !v4.is_broadcast(),
+            IpAddr::V6(_) => true,
+        };
+        addr.port() != 0 && one_host && !ip.is_unspecified() && !ip.is_multicast()
+    });
+    addrs.truncate(MAX_NOTICE_ADDRS);
 }
 
 #[cfg(test)]
@@ -124,6 +143,31 @@ mod tests {
         assert!(!backs.allow(key(1), MAX_NOTICE_ADDRS + 1, now));
         backs.agree(key(1), now);
         assert!(backs.allow(key(1), MAX_NOTICE_ADDRS, now));
+    }
+
+    #[test]
+    fn punch_targets_keep_single_hosts_and_stay_bounded() {
+        // A typo here parses to port 0, is dropped, and fails the comparison below.
+        let parse = |a: &str| a.parse().unwrap_or(SocketAddr::from(([0, 0, 0, 0], 0)));
+        let mut addrs: Vec<SocketAddr> = [
+            "203.0.113.7:4433",
+            "0.0.0.0:4433",
+            "255.255.255.255:4433",
+            "224.0.0.1:4433",
+            "[ff02::1]:4433",
+            "[::]:4433",
+            "198.51.100.2:0",
+            "[2001:db8::1]:4433",
+        ]
+        .into_iter()
+        .map(parse)
+        .collect();
+        punch_targets(&mut addrs);
+        assert_eq!(addrs, vec![parse("203.0.113.7:4433"), parse("[2001:db8::1]:4433")]);
+
+        let mut many = vec![parse("203.0.113.7:4433"); MAX_NOTICE_ADDRS + 3];
+        punch_targets(&mut many);
+        assert_eq!(many.len(), MAX_NOTICE_ADDRS);
     }
 
     #[test]

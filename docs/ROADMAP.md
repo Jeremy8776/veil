@@ -47,8 +47,10 @@ separate adapter feasibility question, not something the existence of a Rust lib
 | Other apps can use Veil as their call provider | Offer a documented engine/SDK and provider contract; the standalone app exercises the same path | Every integration copies the app's private engine or creates a new call protocol |
 
 On 24 November, Jeremy selected strict helper targeting: use independently known peer
-endpoints, otherwise the chosen relay. The private TRUST-02 candidate applies this before
-automatic punch packets, rather than relying on a later key check to justify the first dial.
+endpoints, otherwise the chosen relay. On 26 November he reversed it after real calls failed:
+a first punch could never happen, so guests behind routers could not reach the host or each
+other without a relay. Punching now trusts the helper's reflection for one bounded dial to a
+peer in the call, within consent and dial-back limits (see TRANSPARENCY.md).
 
 ### The everyday experience we are building toward
 
@@ -770,10 +772,11 @@ working media until a replacement is validated; discard stale migration results 
 member or policy changes. Re-evaluate after interface changes with backoff rather than an
 unbounded background scan.
 
-The private TRUST-02 candidate restricts automatic punching to endpoints independently
-authenticated recently by this node, using the chosen relay for unknown reflected addresses.
-Restoring fresh NAT traversal needs an ownership/consent design that does not let a dishonest
-helper select arbitrary probe targets. Do not silently remove this guard to improve success.
+Automatic punching trusts the helper's reflected address for one dial to a peer in the call
+(26/11/2026, reversing the 24/11 endpoint-evidence rule, which made a first punch impossible).
+A dishonest helper can still choose where those few handshake packets go, bounded by consent
+and the dial-back limits. A stronger design would have each peer sign its own reflected
+address so the helper cannot substitute one.
 
 **Complete when:** Direct-to-relay and relay-to-direct transitions are tested under loss and
 membership changes without attribution/replay errors. Hide my address never attempts an

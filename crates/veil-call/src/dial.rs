@@ -13,8 +13,10 @@
 //! - Links from losing paths never open a control stream, and dropping them closes them, so
 //!   the peer routes only the winner.
 //! - A relay-only node uses only the relay, so the peer never learns its address.
-//! - Automatic punch targets must have authenticated on this node in the last 60 seconds.
-//!   Unknown helper-reflected endpoints fall back to relay, without a first probe packet.
+//! - A punched dial goes only to a peer this node chose (the invite's host, or a member the
+//!   host's signed plan names), at the helper's [`punch_targets`](crate::dial_back) for it.
+//!   Requiring an endpoint already seen on this node made a first punch impossible, so two
+//!   people behind routers could not reach each other without the relay.
 //!
 //! shortcut: a link stays on the path it started on, so a slow direct path that would have
 //! worked after [`RELAY_AFTER`] loses to the relay for that link. Move media to a better path
@@ -76,7 +78,7 @@ pub(crate) async fn dial(
     }
     let punched = async {
         let mut plan = presence.introduce(peer).await?;
-        plan.addrs.retain(|addr| node.authenticated_at(peer, *addr));
+        crate::dial_back::punch_targets(&mut plan.addrs);
         if plan.addrs.is_empty() { return Err(NetError::NoAddresses.into()); }
         let link = punch(node, &plan).await?;
         Ok(Dialled { link, via: None, path: Path::Punched })

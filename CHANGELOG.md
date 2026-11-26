@@ -4,6 +4,15 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Fixed
+
+- Two people behind home routers can reach each other again. Since 0.1.14 a punch went only
+  to an address this device had already connected to, so a first punch never happened: guests
+  could not reach a host without a relay, and two guests could both reach the host but not
+  each other. A punch now goes to a peer in the call (or a knocker the host agreed to), at
+  the helper's addresses for it, within the existing consent and dial-back limits. Addresses
+  that name no single host are dropped.
+
 ## 0.1.15, 26/11/2026
 
 ### Added
