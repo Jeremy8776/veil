@@ -16,9 +16,8 @@ proximity. No internet service is required for admission or media in this mode.
 
 
 Veil makes private desktop calls without accounts. Get the same version on every device
-from [Releases](https://github.com/Jeremy8776/veil/releases/latest). For 0.1.13, update every
-participant and `veil-node` together: older releases cannot use the new call-port handshake
-and control/forwarder messages. Copy fresh invitations after updating.
+from [Releases](https://github.com/Jeremy8776/veil/releases/latest), `veil-node` included.
+Android phones install `veil-<version>-android-arm64.apk` from the same page.
 
 ## Make your first call
 

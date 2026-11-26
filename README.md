@@ -81,8 +81,7 @@ Screenshots are from the demo call. The people in them are simulated.
 ## Download
 
 Builds are on the [latest release](https://github.com/Jeremy8776/veil/releases/latest).
-For 0.1.13, update every participant and `veil-node` together: older releases cannot use
-the new call-port handshake and control/forwarder messages. Copy fresh invitations afterwards.
+Use the same version on every device in a call, `veil-node` included.
 
 | System | File | Notes |
 |---|---|---|
@@ -90,6 +89,7 @@ the new call-port handshake and control/forwarder messages. Copy fresh invitatio
 | | `veil-<version>-windows-x64-portable.zip` | Unzip anywhere, no admin rights. The host's "Allow guests" button adds the firewall rule |
 | macOS 11 and later | `veil-<version>-macos-universal.dmg` | Drag Veil to Applications. Apple Silicon and Intel |
 | Linux x64 | `.AppImage`, `.deb`, `.rpm` or `.tar.gz` | glibc 2.39 or later (Ubuntu 24.04, Debian 13, Fedora 40) |
+| Android 10 and later | `veil-<version>-android-arm64.apk` | ARM64 phones. Android asks once to allow installs from where you open it |
 
 To check a download by hand: its SHA-256 (`Get-FileHash` on Windows, `shasum -a 256` on
 macOS, `sha256sum` on Linux) must match its line in `SHA256SUMS.txt`.
