@@ -109,6 +109,31 @@ impl Call {
         (node, device, result)
     }
 
+    /// Starts a joiner with the gate off. The host must let it in without a knock.
+    async fn walk_in(&mut self, invite: Invite) -> (CallNode, PublicId, Result<MemberHandle, CallError>) {
+        let identity = Identity::generate();
+        let device = identity.public();
+        let joining = tokio::spawn(async move {
+            let node = Node::bind(&identity, localhost()).unwrap();
+            let node = CallNode::for_invite(&identity, node, &invite).await;
+            let result = join(&node, &invite).await;
+            (node, result)
+        });
+        loop {
+            match within(self.events.recv()).await.unwrap() {
+                HostEvent::Entered(entered) => {
+                    assert_eq!(entered, device, "the entry names the pinned link key");
+                    break;
+                }
+                HostEvent::Knock(_) => panic!("the gate is off, so nobody should wait"),
+                HostEvent::Error(e) => panic!("host error: {e}"),
+                _ => {}
+            }
+        }
+        let (node, result) = within(joining).await.unwrap();
+        (node, device, result)
+    }
+
     async fn admit(&mut self) -> Member {
         let invite = self.invite().await;
         let (node, device, handle) = self.knock(invite, true).await;
@@ -269,4 +294,50 @@ async fn dropping_the_hosts_event_consumer_stops_the_call_even_with_live_handles
     drop(call.events);
     assert!(matches!(within(alice.handle.events.recv()).await, Some(MemberEvent::Closed)));
     assert!(matches!(call.host.invite(vec![], None, now() + 60).await, Err(CallError::Closed)));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn with_the_gate_off_guests_join_without_waiting_and_can_still_be_removed() {
+    let mut call = start_call().await;
+    call.host.set_gate(false).await.unwrap();
+    let invite = call.invite().await;
+    let (_node, device, handle) = call.walk_in(invite).await;
+    let mut alice = handle.unwrap();
+    let alice_keys = member_keys(&mut alice).await;
+    call.keys = next_keys(&mut call.events).await;
+    assert_eq!((alice_keys.epoch, call.keys.epoch), (1, 1));
+    assert!(call.keys.roster.iter().any(|(_, d)| *d == device));
+
+    call.host.remove(device).await.unwrap();
+    match within(alice.events.recv()).await.unwrap() {
+        MemberEvent::Removed => {}
+        other => panic!("expected removal, got {other:?}"),
+    }
+    let after = next_keys(&mut call.events).await;
+    assert_eq!(after.epoch, 2);
+    assert!(!after.roster.iter().any(|(_, d)| *d == device), "removal still works");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn with_the_gate_off_an_invite_still_admits_one_device_only() {
+    let mut call = start_call().await;
+    call.host.set_gate(false).await.unwrap();
+    let invite = call.invite().await;
+    let (_node, _, first) = call.walk_in(invite.clone()).await;
+    assert!(first.is_ok());
+    let identity = Identity::generate();
+    let node = Node::bind(&identity, localhost()).unwrap();
+    let node = CallNode::for_invite(&identity, node, &invite).await;
+    let second = within(join(&node, &invite)).await;
+    assert!(matches!(second, Err(CallError::Refused(RefuseReason::TokenUsed))));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn turning_the_gate_back_on_makes_guests_wait_again() {
+    let mut call = start_call().await;
+    call.host.set_gate(false).await.unwrap();
+    call.host.set_gate(true).await.unwrap();
+    let invite = call.invite().await;
+    let (_node, _, result) = call.knock(invite, false).await;
+    assert!(matches!(result, Err(CallError::Refused(RefuseReason::DeclinedByHost))));
 }

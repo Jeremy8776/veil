@@ -281,6 +281,11 @@ impl Engine {
         if let Action::InviteUntilEnd(until_end) = action {
             self.shared.update(|view| view.invite_until_end = until_end);
         }
+        // Shown at once too. The host session applies it before the next knock it reads; if
+        // the call has ended, the switch no longer matters.
+        if let Action::Lobby(on) = action {
+            self.shared.update(|view| view.lobby_on = on);
+        }
         let _ = self.commands.send(Command::Act(action));
     }
 

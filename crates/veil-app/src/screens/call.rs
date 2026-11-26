@@ -66,6 +66,8 @@ pub struct CallView {
     pub(crate) reminder: crate::lobby_reminder::Reminder,
     /// The host's Lobby alerts switch, copied to and from `VeilApp::lobby_alerts` each frame.
     pub(crate) lobby_alerts: bool,
+    /// The warning before the host turns the lobby off is open (`lobby_gate.rs`).
+    pub(crate) lobby_warning: bool,
     /// The real call; `None` in a demo. Dropping it leaves the call.
     engine: Option<Engine>,
 }
@@ -90,6 +92,7 @@ impl CallView {
             focus: None,
             reminder: crate::lobby_reminder::Reminder::default(),
             lobby_alerts: true,
+            lobby_warning: false,
         }
     }
 
@@ -105,7 +108,8 @@ impl CallView {
     /// Who is waiting in your lobby, by id and name, straight from the engine, so it is
     /// current even while the interface is not drawn. Empty unless you host.
     pub(crate) fn waiting(&self) -> Vec<(u32, String)> {
-        if !self.call.is_host {
+        // With the lobby off nobody new waits, so there is nothing to alert about.
+        if !self.call.is_host || !self.call.lobby_on {
             return Vec::new();
         }
         match &self.engine {
@@ -241,6 +245,7 @@ impl CallView {
         }
         app.lobby_alerts = self.lobby_alerts;
         crate::lobby_reminder::show(self, ui.ctx(), now);
+        crate::lobby_gate::show(self, ui.ctx());
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()

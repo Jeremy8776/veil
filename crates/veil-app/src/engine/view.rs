@@ -91,6 +91,8 @@ pub struct View {
     /// See `Call::invite_expires` and `Call::invite_until_end`.
     pub invite_expires: u64,
     pub invite_until_end: bool,
+    /// See `Call::lobby_on`. The host session enforces it (`HostHandle::set_gate`).
+    pub lobby_on: bool,
     pub epoch: u64,
     /// See `Call::group`.
     pub group: String,
@@ -169,6 +171,7 @@ impl Shared {
                 nearby_code: String::new(),
                 invite_expires: 0,
                 invite_until_end: false,
+                lobby_on: true,
                 epoch: 0,
                 group: String::new(),
                 people: Vec::new(),
@@ -361,6 +364,7 @@ pub fn apply(
     call.nearby_code.clone_from(&view.nearby_code);
     call.invite_expires = view.invite_expires;
     call.invite_until_end = view.invite_until_end;
+    call.lobby_on = view.lobby_on;
     call.router.clone_from(&view.router);
     call.reach.clone_from(&view.reach);
     call.server_down = view.server_down;
@@ -427,6 +431,7 @@ mod tests {
             nearby_code: String::new(),
             invite_expires: 0,
             invite_until_end: false,
+            lobby_on: true,
             epoch: 3,
             group: String::from("24680"),
             people: vec![

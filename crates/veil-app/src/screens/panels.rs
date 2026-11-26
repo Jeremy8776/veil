@@ -2,7 +2,7 @@
 //! Security (drawn by `security_panel.rs`). One is open at a time, on the right.
 //!
 //! Invariants:
-//! - Only the host sees Admit, Decline and Remove.
+//! - Only the host sees Admit, Decline, Remove and the Lobby switch (`lobby_gate.rs`).
 //! - A person in the lobby shows their safety number on hover, so the host can compare it
 //!   before letting them in.
 //! - "Verified" is only a label for a device you compared before. The host still admits.
@@ -153,9 +153,12 @@ fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     }
     if view.call.is_host {
         host_status(view, ui);
-        toggle_row(ui, &mut view.lobby_alerts, "Lobby alerts", "").on_hover_text(
-            "When someone starts waiting while Veil is minimised or behind other windows,              your system shows a notification with their name and Veil's taskbar button              flashes.",
-        );
+        crate::lobby_gate::row(view, ui);
+        if view.call.lobby_on {
+            toggle_row(ui, &mut view.lobby_alerts, "Lobby alerts", "").on_hover_text(
+                "When someone starts waiting while Veil is minimised or behind other windows,                  your system shows a notification with their name and Veil's taskbar button                  flashes.",
+            );
+        }
     }
     ui.add_space(8.0);
     let mut admit = None;

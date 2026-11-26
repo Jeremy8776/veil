@@ -1,9 +1,9 @@
 //! End-to-end group tests: lobby admission, epochs on join and leave, and media keys.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use getrandom::SysRng;
 use getrandom::rand_core::UnwrapErr;
-use veil_group::{Applied, Group, GroupError, Joiner, Lobby};
+use veil_group::{Applied, Group, GroupError, Joiner, Knocked, Lobby, MAX_MEMBERS};
 use veil_net::control::{Control, RefuseReason};
 use veil_security::SecurityError;
 use veil_security::invite::{Invite, lobby_pass};
@@ -310,4 +310,109 @@ fn forgotten_joiner_frees_its_seat_and_cannot_be_admitted() {
     // Knocking again with a fresh invite is not refused as a duplicate.
     let invite = host.invite();
     assert!(host.lobby.knock(&Host::hello(&invite), alice.public(), &host.group, NOW).is_ok());
+}
+
+#[test]
+fn the_gate_is_on_by_default_and_every_knock_waits() {
+    let mut host = Host::new();
+    assert!(host.lobby.gate());
+    let invite = host.invite();
+    let joiner = Identity::generate().public();
+    let knock = host.lobby.knock(&Host::hello(&invite), joiner, &host.group, NOW).unwrap();
+    assert!(matches!(host.lobby.at_gate(knock), Knocked::Waiting(k) if k.device == joiner));
+}
+
+#[test]
+fn with_the_gate_off_a_checked_knock_is_approved_and_can_join() {
+    let mut host = Host::new();
+    host.lobby.set_gate(false);
+    let alice = Identity::generate();
+    let invite = host.invite();
+    let knock = host.lobby.knock(&Host::hello(&invite), alice.public(), &host.group, NOW).unwrap();
+    assert_eq!(
+        host.lobby.at_gate(knock),
+        Knocked::Approved(alice.public(), Control::Admitted)
+    );
+    assert_eq!(host.lobby.seated(), vec![alice.public()], "approved joiners keep their seat");
+    let pending = Joiner::new(&alice).unwrap();
+    let package = Control::KeyPackage(pending.key_package().unwrap());
+    assert!(host.lobby.admit(&mut host.group, &alice.public(), &package).is_ok());
+    assert_eq!(host.group.epoch(), 1);
+}
+
+#[test]
+fn with_the_gate_off_every_check_still_applies() {
+    let mut host = Host::new();
+    host.lobby.set_gate(false);
+    let device = Identity::generate().public();
+    // Single use: the second knock on one token is refused.
+    let invite = host.invite();
+    let hello = Host::hello(&invite);
+    assert!(host.lobby.knock(&hello, device, &host.group, NOW).is_ok());
+    assert_eq!(
+        host.lobby.knock(&hello, Identity::generate().public(), &host.group, NOW),
+        Err(GroupError::Refused(RefuseReason::TokenUsed))
+    );
+    // Expired and guessed tokens and the wrong room are refused.
+    let late = host.invite();
+    assert_eq!(
+        host.lobby.knock(&Host::hello(&late), device, &host.group, NOW + 60),
+        Err(GroupError::Refused(RefuseReason::TokenUsed))
+    );
+    let wrong_room = Control::Hello { room_id: [1; 16], join_token: [2; 16] };
+    assert_eq!(
+        host.lobby.knock(&wrong_room, device, &host.group, NOW),
+        Err(GroupError::Refused(RefuseReason::UnknownRoom))
+    );
+    // The device that knocked must sign the key package.
+    let on_link = Identity::generate();
+    let invite = host.invite();
+    let knock = host.lobby.knock(&Host::hello(&invite), on_link.public(), &host.group, NOW).unwrap();
+    assert!(matches!(host.lobby.at_gate(knock), Knocked::Approved(..)));
+    let other = Control::KeyPackage(Joiner::new(&Identity::generate()).unwrap().key_package().unwrap());
+    assert!(matches!(
+        host.lobby.admit(&mut host.group, &on_link.public(), &other),
+        Err(GroupError::WrongDevice)
+    ));
+}
+
+#[test]
+fn with_the_gate_off_the_room_still_fills() {
+    let mut host = Host::new();
+    host.lobby.set_gate(false);
+    // The host holds one seat; approved joiners hold the rest.
+    for _ in 1..MAX_MEMBERS {
+        let invite = host.invite();
+        let knock = host
+            .lobby
+            .knock(&Host::hello(&invite), Identity::generate().public(), &host.group, NOW)
+            .unwrap();
+        assert!(matches!(host.lobby.at_gate(knock), Knocked::Approved(..)));
+    }
+    let invite = host.invite();
+    assert_eq!(
+        host.lobby.knock(&Host::hello(&invite), Identity::generate().public(), &host.group, NOW),
+        Err(GroupError::Refused(RefuseReason::RoomFull))
+    );
+}
+
+#[test]
+fn turning_the_gate_off_leaves_waiting_joiners_to_the_host() {
+    let mut host = Host::new();
+    let invite = host.invite();
+    let joiner = Identity::generate();
+    let knock = host.lobby.knock(&Host::hello(&invite), joiner.public(), &host.group, NOW).unwrap();
+    let Knocked::Waiting(knock) = host.lobby.at_gate(knock) else {
+        panic!("the gate was on");
+    };
+    host.lobby.set_gate(false);
+    let package = Control::KeyPackage(Joiner::new(&joiner).unwrap().key_package().unwrap());
+    assert!(
+        matches!(
+            host.lobby.admit(&mut host.group, &joiner.public(), &package),
+            Err(GroupError::NotMember)
+        ),
+        "still waiting, not approved"
+    );
+    assert_eq!(host.lobby.approve(knock).unwrap(), Control::Admitted);
 }

@@ -9,6 +9,7 @@
 //!   time now.
 //! - One dialog at a time, and at most one per waiting person. Closing it without a choice
 //!   does not bring it back for that person.
+//! - No reminder while the host has the lobby off (`lobby_gate.rs`).
 //! - The dialog closes by itself when its person is admitted, declined or leaves. Someone who
 //!   leaves and knocks again is new again.
 
@@ -63,7 +64,7 @@ impl Reminder {
 
 /// Shows the reminder for the host, and acts on Admit or Decline.
 pub fn show(view: &mut CallView, ctx: &egui::Context, now: Instant) {
-    let lobby: Vec<(u32, Instant)> = if view.call.is_host {
+    let lobby: Vec<(u32, Instant)> = if view.call.is_host && view.call.lobby_on {
         view.call.lobby.iter().map(|w| (w.id, w.since)).collect()
     } else {
         Vec::new()

@@ -23,7 +23,8 @@
 //! be anywhere, so the host offers no forwarder and the call stays a mesh.
 //!
 //! Invariants:
-//! - Each invite has a one-time token, so a fresh one is made after every knock.
+//! - Each invite has a one-time token, so a fresh one is made after every knock, and after
+//!   every entry while the host has the lobby off (`HostEvent::Entered`).
 //! - The link shown is short when the rendezvous can hold it and reaches as far as the call
 //!   (`invites::can_shorten`). The full link is always kept beside it.
 //! - The rendezvous sees addresses and a room hash only, never keys or media
@@ -284,6 +285,11 @@ pub async fn run(
                     // The knock used the invite's token: give out a fresh one.
                     expires = new_invite(&host, &call, &addrs, &relay, until_end, config.local_only, &shared).await;
                 }
+                // The lobby is off: the guest came straight in. Its token is burnt all the same.
+                Some(HostEvent::Entered(device)) => {
+                    crate::note!("call: {} came in with the lobby off", short(&device));
+                    expires = new_invite(&host, &call, &addrs, &relay, until_end, config.local_only, &shared).await;
+                }
                 // Joins and leaves go to the log, so a call across networks shows when the
                 // host heard of each.
                 Some(HostEvent::Joined { device, .. }) => {
@@ -517,6 +523,7 @@ async fn act(host: &HostHandle, ids: &Ids, knocks: &mut Vec<(u32, PublicId)>, ac
             host.decide(device, matches!(action, Action::Admit(_)))
                 .await
         }
+        Action::Lobby(on) => host.set_gate(on).await,
         Action::Remove(id) => match ids.device(id) {
             Some(device) => host.remove(device).await,
             None => return,
