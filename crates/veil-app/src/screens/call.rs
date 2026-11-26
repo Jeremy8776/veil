@@ -225,6 +225,13 @@ impl CallView {
         if let Some(why) = app.share.sound.take_error() {
             self.notify(&why);
         }
+        // The host or a moderator asked you to mute. You can unmute again.
+        if let Some(by) = self.call.mute_asked.take() {
+            if app.media.mic_on() {
+                super::controls::toggle_mic(app);
+            }
+            self.notify(&format!("{by} muted you. Unmute when you are ready."));
+        }
         self.sync_you(app);
         if cfg!(target_os = "android") {
             let stay = crate::mobile::call(self, app, ui);
@@ -241,7 +248,7 @@ impl CallView {
         let stay = control_bar(self, app, ui);
         self.lobby_alerts = app.lobby_alerts;
         if let Some(panel) = self.panel {
-            panels::show(self, ui, panel, now);
+            panels::show(self, &app.media.playback(), ui, panel, now);
         }
         app.lobby_alerts = self.lobby_alerts;
         crate::lobby_reminder::show(self, ui.ctx(), now);

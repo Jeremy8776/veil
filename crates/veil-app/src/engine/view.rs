@@ -56,6 +56,8 @@ pub enum Said {
         emoji: String,
         on: bool,
     },
+    /// The host or a moderator asked you to mute your microphone.
+    MuteYou,
 }
 
 #[derive(Clone, Debug)]
@@ -103,6 +105,10 @@ pub struct View {
     pub reach: Reachable,
     /// See `Call::server_down`.
     pub server_down: bool,
+    /// Who the host named moderators (`engine/moderation.rs`).
+    pub moderators: Vec<PublicId>,
+    /// The host named this device a moderator.
+    pub you_moderate: bool,
 }
 
 /// Marks a picture key as someone's shared screen rather than their camera.
@@ -179,6 +185,8 @@ impl Shared {
                 router: RouterPort::Off,
                 reach: Reachable::Unknown,
                 server_down: false,
+                moderators: Vec::new(),
+                you_moderate: false,
             }),
             pictures: Mutex::default(),
             heard: Mutex::default(),
@@ -369,6 +377,13 @@ pub fn apply(
     call.server_down = view.server_down;
     call.epoch = view.epoch;
     call.group.clone_from(&view.group);
+    call.moderators = view
+        .people
+        .iter()
+        .filter(|p| view.moderators.contains(&p.device))
+        .map(|p| p.id)
+        .collect();
+    call.you_moderate = view.you_moderate;
     call.participants.retain(|p| p.is_you);
     let yours = call.you().map(|p| p.name.clone());
     let shown = labels(
@@ -465,6 +480,8 @@ mod tests {
             router: RouterPort::Off,
             reach: Reachable::Unknown,
             server_down: false,
+            moderators: vec![PublicId([2; 32])],
+            you_moderate: false,
         }
     }
 

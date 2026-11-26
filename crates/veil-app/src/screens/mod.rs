@@ -23,6 +23,7 @@ mod home_setup;
 pub mod home_tools;
 pub mod invite;
 pub mod panels;
+pub mod person_menu;
 pub mod prejoin;
 pub mod security_panel;
 pub mod share;

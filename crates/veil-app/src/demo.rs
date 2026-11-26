@@ -84,6 +84,9 @@ pub fn call(your_name: &str, is_host: bool, now: Instant) -> Call {
         server_down: false,
         outbox: Vec::new(),
         unread: 0,
+        moderators: Vec::new(),
+        you_moderate: false,
+        mute_asked: None,
         next_id: 10,
     }
 }

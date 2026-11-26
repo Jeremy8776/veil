@@ -19,6 +19,8 @@ use std::time::{Duration, Instant};
 
 use veil_security::safety::Side;
 
+mod moderation;
+
 /// How a member's media reaches you, as `veil-probe` prints it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkPath {
@@ -135,6 +137,10 @@ pub enum Action {
     /// Turn the host's lobby on (`true`), so the host admits each guest, or off, so guests
     /// with a valid invite come straight in. Identity, invites and removal apply either way.
     Lobby(bool),
+    /// Ask this person to mute their microphone (`model/moderation.rs`).
+    Mute(u32),
+    /// Host only: name this person a moderator (`true`) or drop them.
+    Moderator(u32, bool),
 }
 
 pub struct Call {
@@ -173,6 +179,12 @@ pub struct Call {
     pub outbox: Vec<Action>,
     /// Chat messages not yet seen with the chat panel open.
     pub unread: usize,
+    /// The people the host named moderators, by id (`model/moderation.rs`).
+    pub moderators: Vec<u32>,
+    /// The host named you a moderator.
+    pub you_moderate: bool,
+    /// Who last asked you to mute, until the interface has muted you and said so.
+    pub mute_asked: Option<String>,
     pub(crate) next_id: u32,
 }
 
@@ -214,6 +226,9 @@ impl Call {
             server_down: false,
             outbox: Vec::new(),
             unread: 0,
+            moderators: Vec::new(),
+            you_moderate: false,
+            mute_asked: None,
             next_id: 1,
         }
     }
@@ -250,7 +265,7 @@ impl Call {
     }
 
     pub fn admit(&mut self, id: u32) {
-        if !self.is_host {
+        if !self.can_moderate() {
             return;
         }
         let Some(index) = self.lobby.iter().position(|w| w.id == id) else {
@@ -279,7 +294,7 @@ impl Call {
     }
 
     pub fn decline(&mut self, id: u32) {
-        if !self.is_host || !self.lobby.iter().any(|w| w.id == id) {
+        if !self.can_moderate() || !self.lobby.iter().any(|w| w.id == id) {
             return;
         }
         self.lobby.retain(|w| w.id != id);
@@ -288,16 +303,17 @@ impl Call {
         }
     }
 
+    /// Removes someone, as the host or a moderator. Nobody removes the host.
     pub fn remove(&mut self, id: u32) {
-        if !self.is_host {
+        if !self.can_moderate() || !self.others_not_host(id) {
             return;
         }
         if !self.demo {
-            if self.participants.iter().any(|p| !p.is_you && p.id == id) {
-                self.outbox.push(Action::Remove(id));
-            }
+            self.outbox.push(Action::Remove(id));
+            self.moderators.retain(|m| *m != id);
             return;
         }
+        self.moderators.retain(|m| *m != id);
         let before = self.participants.len();
         self.participants.retain(|p| p.is_you || p.id != id);
         if self.participants.len() != before {
@@ -424,6 +440,7 @@ mod tests {
         call.participants.push(Participant {
             id: 9,
             is_you: false,
+            is_host: false,
             ..call.participants[0].clone()
         });
         call.remove(9);

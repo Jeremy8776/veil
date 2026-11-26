@@ -329,15 +329,17 @@ pub fn call(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> bool {
                     egui::ScrollArea::vertical()
                         .id_salt(page_id)
                         .auto_shrink([false, false])
-                        .show(ui, |ui| people::show(view, ui, Instant::now()));
+                        .show(ui, |ui| {
+                            people::show(view, &app.media.playback(), ui, Instant::now());
+                        });
                 } else if panel == Panel::Chat {
-                    panels::mobile_content(view, ui, panel, Instant::now());
+                    panels::mobile_content(view, &app.media.playback(), ui, panel, Instant::now());
                 } else {
                     egui::ScrollArea::vertical()
                         .id_salt(page_id)
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            panels::mobile_content(view, ui, panel, Instant::now())
+                            panels::mobile_content(view, &app.media.playback(), ui, panel, Instant::now())
                         });
                 }
                 return;

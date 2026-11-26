@@ -13,6 +13,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   phone. The host's engine enforces it; invites, identity checks and removal still apply.
 - **Face framing** switch in Effects (and the phone's More menu), on by default. Off keeps
   every crop centred and stops looking for faces.
+- **Person menu:** right-click a tile or a row in People (long press on the phone). Everyone
+  gets that person's volume, up to 200%, and Mute for me, which change only what you hear. The
+  host and moderators also get Mute for everyone and Remove from call, in red.
+- **Moderators:** the host can make someone a moderator, who can then admit, decline, remove
+  and mute people. Their admit, decline and remove go to the host as requests, which the host
+  checks and carries out through its own lobby and removal steps. Nobody can remove the host.
 - The call stats overlay shows **screen shares**: each one received, and yours as sent with its
   bit rate. A sound level at the meter's floor now reads "quiet".
 

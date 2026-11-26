@@ -50,7 +50,7 @@ use veil_net::control::RefuseReason;
 use veil_security::PublicId;
 use veil_security::frame::{FrameReceiver, FrameSender};
 
-pub use app_msg::{AppError, AppMessage};
+pub use app_msg::{AppError, AppMessage, MAX_LISTED_WAITING, MAX_MODERATORS, Moderation};
 pub use call_plan::{CallPlan, Layout};
 pub use events::EVENT_BACKLOG;
 pub use host::{Allowed, HostEvent, HostHandle};

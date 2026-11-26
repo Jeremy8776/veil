@@ -13,6 +13,9 @@
 //!   the speaker volume applies to the mix each frame.
 //! - The mix is clamped to -1..1, so several loud people clip rather than wrap.
 //! - Someone silent for 10 s is forgotten, decoder and all.
+//! - Each person's voice plays at the volume and mute chosen for them here
+//!   (`Playback::voice_level`), after their level is measured, so a person muted here still
+//!   lights their speaking ring.
 //! - With "Remove noise from others" on ([`Playback::clean_others`]), each person's decoded
 //!   sound goes through their own [`Denoiser`] before the mix and their level. Turning it off
 //!   drops the denoisers, so turning it on again starts each one fresh.
@@ -87,6 +90,8 @@ fn run(packets: &Receiver<AudioIn>, shared: &Shared, playback: Arc<Playback>, st
     let mut speaker_out = Speaker::new(settings, playback);
     // One person's frame after noise removal; reused so it costs no allocation.
     let mut cleaned = Vec::with_capacity(mix.len());
+    // One person's frame at the volume chosen for them; reused.
+    let mut louder = Vec::with_capacity(mix.len());
     while !stop.load(Ordering::Relaxed) {
         loop {
             match packets.try_recv() {
@@ -130,7 +135,15 @@ fn run(packets: &Receiver<AudioIn>, shared: &Shared, playback: Arc<Playback>, st
                         source.denoiser = None;
                         frame
                     };
-                    mix_into(&mut mix, heard);
+                    let gain = speaker_out.playback.voice_level(id).gain();
+                    if (gain - 1.0).abs() < f32::EPSILON {
+                        mix_into(&mut mix, heard);
+                    } else if gain > 0.0 {
+                        louder.clear();
+                        louder.extend_from_slice(heard);
+                        scale(&mut louder, gain);
+                        mix_into(&mut mix, &louder);
+                    }
                     meter(heard)
                 }
                 _ => 0.0,

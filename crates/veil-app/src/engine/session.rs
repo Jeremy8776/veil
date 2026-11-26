@@ -53,6 +53,7 @@ use super::{Ids, micros_since, short};
 use crate::data_use::DataUseCell;
 use crate::model::{Action, LinkPath};
 
+mod moderate;
 /// The channels between the session task and the media threads.
 pub struct Pipes {
     pub encoded: mpsc::Receiver<Encoded>,
@@ -150,6 +151,10 @@ pub struct Session {
     tick: Interval,
     shared: Arc<Shared>,
     pipes: Pipes,
+    /// Who moderates, and the checks on moderation messages (`session/moderate.rs`).
+    roles: crate::engine::moderation::Roles,
+    /// Host: moderators' checked requests, until `host.rs` carries them out.
+    requests: Vec<veil_call::Moderation>,
 }
 
 impl Session {
@@ -191,6 +196,8 @@ impl Session {
             tick,
             shared,
             pipes,
+            roles: Self::roles(host, identity.public()),
+            requests: Vec::new(),
         }
     }
 
@@ -243,6 +250,7 @@ impl Session {
         let epoch = keys.epoch;
         let devices: Vec<PublicId> = keys.roster.iter().map(|(_, d)| *d).collect();
         let group = group_number(&devices);
+        self.roles_epoch(&devices);
         self.shared.update(|view| {
             // Links that already exist stay up across epochs; `refresh_paths` corrects the rest.
             for person in &mut people {
@@ -365,6 +373,7 @@ impl Session {
         for message in self.announcer.due(Instant::now()) {
             self.send_app(&message).await;
         }
+        self.send_moderation().await;
     }
 
     async fn send_app(&mut self, message: &AppMessage) {
@@ -589,6 +598,10 @@ impl Session {
             AppMessage::React { id, emoji, on } => {
                 self.shared.push_said(device, Said::React { id, emoji, on });
             }
+            AppMessage::Mute(_)
+            | AppMessage::Moderators(_)
+            | AppMessage::Waiting(_)
+            | AppMessage::Moderate(_) => self.on_moderation(device, &message),
         }
     }
 

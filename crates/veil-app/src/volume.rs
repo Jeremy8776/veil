@@ -10,6 +10,8 @@
 //! - Scaled samples are clamped to -1..1, so a boost clips rather than wraps.
 //! - Each share's computer sound has its own volume and mute ([`ShareLevel`]), on this device
 //!   only: the sharer's own level is theirs, and nobody else's changes. Read every 20 ms.
+//! - Each person's voice has its own volume (0 to [`VOICE_MAX`]) and mute the same way, on
+//!   this device only. It never mutes them for anyone else.
 //! - A speaker change bumps a counter; the playback thread compares it each 20 ms frame and
 //!   reopens the device when it moved. The lock is held only to copy the id.
 
@@ -23,6 +25,8 @@ use crate::media::lock;
 pub const MIC_MAX: f32 = 2.0;
 /// Highest speaker gain: 100%. Louder than the call's own mix only clips.
 pub const SPEAKER_MAX: f32 = 1.0;
+/// Highest gain for one person's voice: 200%, so a quiet person can be turned up.
+pub const VOICE_MAX: f32 = 2.0;
 
 /// Multiplies every sample by `gain` and clamps the result to -1..1.
 pub fn scale(samples: &mut [f32], gain: f32) {
@@ -59,7 +63,7 @@ impl Gain {
     }
 }
 
-/// How loud one share's computer sound plays here.
+/// How loud one share's computer sound, or one person's voice, plays here.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ShareLevel {
     /// 0 to [`SPEAKER_MAX`].
@@ -95,6 +99,18 @@ pub struct Playback {
     pub clean_others: AtomicBool,
     /// Each sharer's computer sound, by participant id; absent is [`ShareLevel::default`].
     shares: Mutex<HashMap<u32, ShareLevel>>,
+    /// Each person's voice, by participant id; absent is [`ShareLevel::default`].
+    voices: Mutex<HashMap<u32, ShareLevel>>,
+}
+
+/// `level` with its volume clamped to 0 to `max`; anything not a number counts as 100%.
+fn clamped(level: ShareLevel, max: f32) -> ShareLevel {
+    let volume = if level.volume.is_finite() {
+        level.volume.clamp(0.0, max)
+    } else {
+        1.0
+    };
+    ShareLevel { volume, ..level }
 }
 
 impl Playback {
@@ -118,12 +134,16 @@ impl Playback {
     /// Sets how loud `id`'s share sound plays here. The volume is clamped to 0 to
     /// [`SPEAKER_MAX`]; anything not a number counts as 100%.
     pub fn set_share_level(&self, id: u32, level: ShareLevel) {
-        let volume = if level.volume.is_finite() {
-            level.volume.clamp(0.0, SPEAKER_MAX)
-        } else {
-            1.0
-        };
-        lock(&self.shares).insert(id, ShareLevel { volume, ..level });
+        lock(&self.shares).insert(id, clamped(level, SPEAKER_MAX));
+    }
+
+    pub fn voice_level(&self, id: u32) -> ShareLevel {
+        lock(&self.voices).get(&id).copied().unwrap_or_default()
+    }
+
+    /// Sets how loud `id`'s voice plays here, 0 to [`VOICE_MAX`]. Nobody else hears a change.
+    pub fn set_voice_level(&self, id: u32, level: ShareLevel) {
+        lock(&self.voices).insert(id, clamped(level, VOICE_MAX));
     }
 
     /// Moves on every change of device.
@@ -159,6 +179,34 @@ mod tests {
         assert_eq!(gain.get(), 0.0);
         gain.set(f32::INFINITY, MIC_MAX);
         assert_eq!(gain.get(), 0.0, "ignored");
+    }
+
+    #[test]
+    fn each_voice_has_its_own_level_here() {
+        let playback = Playback::default();
+        assert_eq!(playback.voice_level(5), ShareLevel::default());
+        let loud = ShareLevel {
+            volume: 9.0,
+            muted: false,
+        };
+        playback.set_voice_level(5, loud);
+        assert_eq!(playback.voice_level(5).volume, VOICE_MAX, "clamped");
+        assert_eq!(
+            playback.voice_level(6),
+            ShareLevel::default(),
+            "others unchanged"
+        );
+        assert_eq!(
+            playback.share_level(5),
+            ShareLevel::default(),
+            "share sound apart"
+        );
+        let muted = ShareLevel {
+            volume: 1.0,
+            muted: true,
+        };
+        playback.set_voice_level(5, muted);
+        assert_eq!(playback.voice_level(5).gain(), 0.0);
     }
 
     #[test]

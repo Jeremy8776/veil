@@ -3,15 +3,17 @@
 //! as safety numbers and connection state lives in tooltips.
 //!
 //! Invariants (the same as the desktop panel in `screens/panels.rs`):
-//! - Only the host sees Admit, Decline, Remove and the Lobby switch. Turning the lobby off
+//! - Only the host sees the Lobby switch. The host and moderators see Admit, Decline and
+//!   Remove. A long press on a person opens their menu (`screens/person_menu.rs`). Turning the lobby off
 //!   asks first in a sheet (`lobby_gate.rs`); turning it on does not.
 //! - A person in the lobby shows their safety number on hover, so the host can compare it.
 //! - "Verified" is only a label for a device compared before. The host still admits.
 use super::widgets as w;
 use crate::icons::Icon;
 use crate::model::{Action, Participant, clock};
-use crate::screens::{call::CallView, invite, panels};
+use crate::screens::{call::CallView, invite, panels, person_menu};
 use crate::theme;
+use crate::volume::Playback;
 use crate::widgets::{Tone, avatar};
 use eframe::egui::{self, Align, Layout, Sense, vec2};
 use std::time::Instant;
@@ -20,7 +22,7 @@ use std::time::Instant;
 const AVATAR: f32 = 40.0;
 const ROW: f32 = 60.0;
 
-pub(super) fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
+pub(super) fn show(view: &mut CallView, playback: &Playback, ui: &mut egui::Ui, now: Instant) {
     if view.call.is_host && !view.call.demo {
         header(ui, "Invite");
         group(ui, |ui| {
@@ -68,7 +70,8 @@ pub(super) fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     let mut admit = None;
     let mut decline = None;
     let mut remove = None;
-    if view.call.is_host && !view.call.lobby.is_empty() {
+    let mut pick = None;
+    if view.call.can_moderate() && !view.call.lobby.is_empty() {
         header(ui, &format!("Waiting ({})", view.call.lobby.len()));
         group(ui, |ui| {
             for waiting in &view.call.lobby {
@@ -110,16 +113,21 @@ pub(super) fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     );
     group(ui, |ui| {
         for person in &view.call.participants {
-            let sub = subtitle(person.is_you, person.is_host, person.verified);
-            row(ui, &person.name, &sub, |ui| {
-                if view.call.is_host
+            let moderator = view.call.is_moderator(person.id);
+            let sub = subtitle(person.is_you, person.is_host, moderator, person.verified);
+            let shown = row(ui, &person.name, &sub, |ui| {
+                if view.call.can_moderate()
                     && !person.is_you
+                    && !person.is_host
                     && w::icon(ui, Icon::Close, &format!("Remove {}", person.name), false).clicked()
                 {
                     remove = Some(person.id);
                 }
                 mic(ui, person);
             });
+            if let Some(chosen) = person_menu::attach(&shown, &view.call, playback, person) {
+                pick = Some(chosen);
+            }
         }
     });
     if let Some(id) = admit {
@@ -132,6 +140,9 @@ pub(super) fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     if let Some(id) = remove {
         view.call.remove(id);
         view.notify("Removed");
+    }
+    if let Some(chosen) = pick {
+        person_menu::apply(view, chosen);
     }
 }
 
@@ -169,14 +180,16 @@ fn lobby_warning(view: &mut CallView, ctx: &egui::Context) {
     }
 }
 
-/// "You", "Host" and "Verified", joined by dots. Empty for a plain guest.
-fn subtitle(is_you: bool, is_host: bool, verified: bool) -> String {
+/// "You", "Host" or "Moderator", and "Verified", joined by dots. Empty for a plain guest.
+fn subtitle(is_you: bool, is_host: bool, moderator: bool, verified: bool) -> String {
     let mut parts = Vec::new();
     if is_you {
         parts.push("You");
     }
     if is_host {
         parts.push("Host");
+    } else if moderator {
+        parts.push("Moderator");
     }
     if verified {
         parts.push("Verified");
@@ -213,7 +226,8 @@ fn row(
     sub: &str,
     trailing: impl FnOnce(&mut egui::Ui),
 ) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::hover());
+    // Clickable so a long press (egui's secondary click on touch) opens the person menu.
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::click());
     avatar(
         ui.painter(),
         egui::pos2(rect.left() + AVATAR * 0.5, rect.center().y),
@@ -274,8 +288,9 @@ mod tests {
 
     #[test]
     fn subtitle_joins_roles() {
-        assert_eq!(subtitle(false, false, false), "");
-        assert_eq!(subtitle(true, true, false), "You · Host");
-        assert_eq!(subtitle(false, false, true), "Verified");
+        assert_eq!(subtitle(false, false, false, false), "");
+        assert_eq!(subtitle(true, true, false, false), "You · Host");
+        assert_eq!(subtitle(false, false, false, true), "Verified");
+        assert_eq!(subtitle(false, false, true, true), "Moderator · Verified");
     }
 }

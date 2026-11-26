@@ -30,6 +30,7 @@ mod helper_evidence;
 mod host;
 mod invites;
 mod loopback;
+mod moderation;
 mod names;
 mod pinhole;
 pub mod plan;
@@ -317,6 +318,7 @@ impl Engine {
             match said {
                 Said::Chat { id, text } => call.receive(name, id, text, now),
                 Said::React { id, emoji, on } => call.reacted(from, name, id, &emoji, on),
+                Said::MuteYou => call.mute_asked = Some(name),
             }
         }
     }

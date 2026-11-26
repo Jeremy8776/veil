@@ -2,7 +2,9 @@
 //! Security (drawn by `security_panel.rs`). One is open at a time, on the right.
 //!
 //! Invariants:
-//! - Only the host sees Admit, Decline, Remove and the Lobby switch (`lobby_gate.rs`).
+//! - Only the host sees the Lobby switch (`lobby_gate.rs`). The host and moderators see the
+//!   lobby with Admit and Decline, and Remove; a right-click on a person opens their menu
+//!   (`person_menu.rs`).
 //! - A person in the lobby shows their safety number on hover, so the host can compare it
 //!   before letting them in.
 //! - "Verified" is only a label for a device you compared before. The host still admits.
@@ -14,8 +16,9 @@ use eframe::egui::{self, Align, Layout, RichText, ScrollArea, Sense, vec2};
 use crate::icons::Icon;
 use crate::model::{Participant, Reachable, RouterPort, clock};
 use crate::screens::call::CallView;
-use crate::screens::{call_menus, chat_panel, security_panel};
+use crate::screens::{call_menus, chat_panel, person_menu, security_panel};
 use crate::theme::{self, MUTED, SURFACE};
+use crate::volume::Playback;
 use crate::widgets::{self, Tone, pill};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,7 +28,13 @@ pub enum Panel {
     Security,
 }
 
-pub fn show(view: &mut CallView, ui: &mut egui::Ui, panel: Panel, now: Instant) {
+pub fn show(
+    view: &mut CallView,
+    playback: &Playback,
+    ui: &mut egui::Ui,
+    panel: Panel,
+    now: Instant,
+) {
     egui::Panel::right("call_panel")
         .exact_size(340.0)
         .frame(
@@ -49,7 +58,7 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, panel: Panel, now: Instant) 
             });
             ui.add_space(4.0);
             match panel {
-                Panel::People => people(view, ui, now),
+                Panel::People => people(view, playback, ui, now),
                 Panel::Chat => chat_panel::show(view, ui, now),
                 Panel::Security => security_panel::show(view, ui),
             }
@@ -57,9 +66,15 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, panel: Panel, now: Instant) 
 }
 
 /// On phones the selected panel replaces the stage instead of squeezing it sideways.
-pub fn mobile_content(view: &mut CallView, ui: &mut egui::Ui, panel: Panel, now: Instant) {
+pub fn mobile_content(
+    view: &mut CallView,
+    playback: &Playback,
+    ui: &mut egui::Ui,
+    panel: Panel,
+    now: Instant,
+) {
     match panel {
-        Panel::People => people(view, ui, now),
+        Panel::People => people(view, playback, ui, now),
         Panel::Chat => chat_panel::show(view, ui, now),
         Panel::Security => security_panel::show(view, ui),
     }
@@ -136,7 +151,7 @@ pub(crate) fn host_status(view: &CallView, ui: &mut egui::Ui) {
     reach(ui, &view.call.reach);
 }
 
-fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
+fn people(view: &mut CallView, playback: &Playback, ui: &mut egui::Ui, now: Instant) {
     section(ui, Icon::Link, "Invite");
     let copy = pill(
         ui,
@@ -172,7 +187,8 @@ fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     let mut admit = None;
     let mut decline = None;
     let mut remove = None;
-    if view.call.is_host && !view.call.lobby.is_empty() {
+    let mut pick = None;
+    if view.call.can_moderate() && !view.call.lobby.is_empty() {
         section(
             ui,
             Icon::Hand,
@@ -232,7 +248,7 @@ Compare it with them before letting them in.",
         .auto_shrink([false, false])
         .show(ui, |ui| {
             for person in &view.call.participants {
-                ui.horizontal(|ui| {
+                let row = ui.horizontal(|ui| {
                     person_avatar(ui, &person.name);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
@@ -245,11 +261,14 @@ Compare it with them before letting them in.",
                         });
                         if person.is_host {
                             ui.label(RichText::new("Host").small().color(MUTED));
+                        } else if view.call.is_moderator(person.id) {
+                            ui.label(RichText::new("Moderator").small().color(MUTED));
                         }
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if view.call.is_host
+                        if view.call.can_moderate()
                             && !person.is_you
+                            && !person.is_host
                             && widgets::icon_button(
                                 ui,
                                 Icon::Close,
@@ -262,8 +281,15 @@ Compare it with them before letting them in.",
                         status_icons(ui, person);
                     });
                 });
+                let row = row.response.interact(Sense::click());
+                if let Some(chosen) = person_menu::attach(&row, &view.call, playback, person) {
+                    pick = Some(chosen);
+                }
             }
         });
+    if let Some(chosen) = pick {
+        person_menu::apply(view, chosen);
+    }
     if let Some(id) = admit {
         view.admit(id);
     }

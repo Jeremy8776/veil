@@ -1,4 +1,5 @@
-//! App messages between members: each member's display name, raised hand, and chat.
+//! App messages between members: each member's display name, raised hand, chat, and the
+//! host's moderation (mute requests, who moderates, who waits, and moderators' requests).
 //!
 //! Purpose: names, hands and chat ride the media links next to video and sound, sealed with the
 //! sender's frame key for the current epoch ([`AppMessage::seal`]), so relays and forwarders
@@ -40,6 +41,11 @@
 //!   refused before decoding.
 //! - Replays are refused by the frame key's signed-frame window, which moves only once the
 //!   signature checked out, so a forged frame cannot stop a member's names and chat.
+//! - Moderation messages carry authority only from their signed sender, which the receiver
+//!   checks: [`AppMessage::Moderators`] and [`AppMessage::Waiting`] count only from the
+//!   pinned host, [`AppMessage::Mute`] only from the host or a device the host lists as a
+//!   moderator, and [`AppMessage::Moderate`] is a request the host checks and carries out
+//!   through its own admission and removal path. Nothing here admits or removes by itself.
 
 use std::fmt;
 
@@ -54,6 +60,10 @@ pub const MAX_NAME_CHARS: usize = 64;
 pub const MAX_CHAT_CHARS: usize = 2_000;
 /// The longest reaction, in characters: room for one emoji with a skin tone or a joiner.
 pub const MAX_REACTION_CHARS: usize = 8;
+/// The most moderators a host names at once.
+pub const MAX_MODERATORS: usize = 16;
+/// The most waiting devices a host lists for its moderators at once.
+pub const MAX_LISTED_WAITING: usize = 32;
 
 const MAGIC: &[u8; 8] = b"veil-app";
 const VERSION: u8 = 3;
@@ -76,6 +86,26 @@ pub enum AppMessage {
     Post { id: u64, text: String },
     /// Adds (`on`) or takes back the sender's reaction to the message with `id`.
     React { id: u64, emoji: String, on: bool },
+    /// Asks the device with this key to mute its microphone. Its own Veil mutes it, and it can
+    /// unmute again. Counts only from the host or a moderator the host lists.
+    Mute([u8; 32]),
+    /// The devices the host lets moderate now; empty when nobody does. Counts only from the
+    /// host. Sent when it changes and after each epoch change.
+    Moderators(Vec<[u8; 32]>),
+    /// The devices waiting in the host's lobby, oldest first. Counts only from the host, which
+    /// sends it only while someone moderates, so they can admit or decline.
+    Waiting(Vec<[u8; 32]>),
+    /// A moderator asks the host to act. The host carries it out only if the signed sender is
+    /// one of its moderators now, through the same path as its own choice.
+    Moderate(Moderation),
+}
+
+/// What a moderator can ask the host to do, by device key.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Moderation {
+    Admit([u8; 32]),
+    Decline([u8; 32]),
+    Remove([u8; 32]),
 }
 
 /// A random id for a new chat message.
@@ -155,7 +185,9 @@ impl AppMessage {
     pub fn check(&self) -> Result<(), AppError> {
         let (text, max, allow_breaks) = match self {
             Self::Name(text) => (text, MAX_NAME_CHARS, false),
-            Self::Hand(_) => return Ok(()),
+            Self::Hand(_) | Self::Mute(_) | Self::Moderate(_) => return Ok(()),
+            Self::Moderators(devices) => return within(devices, MAX_MODERATORS),
+            Self::Waiting(devices) => return within(devices, MAX_LISTED_WAITING),
             Self::Chat(text) | Self::Post { text, .. } => (text, MAX_CHAT_CHARS, true),
             Self::React { emoji, .. } => (emoji, MAX_REACTION_CHARS, false),
         };
@@ -255,6 +287,19 @@ fn is_bidi_control(c: char) -> bool {
     matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{200E}' | '\u{200F}' | '\u{061C}')
 }
 
+/// A device list no longer than `max`, with no device twice.
+fn within(devices: &[[u8; 32]], max: usize) -> Result<(), AppError> {
+    if devices.len() > max {
+        return Err(AppError::TooLong);
+    }
+    let mut seen = std::collections::HashSet::with_capacity(devices.len());
+    if devices.iter().all(|d| seen.insert(d)) {
+        Ok(())
+    } else {
+        Err(AppError::Malformed)
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -294,17 +339,32 @@ mod tests {
             let (leaf, plain) = receiver.decrypt(&sealed).unwrap();
             assert_eq!(leaf, 1);
             assert!(plain.starts_with(b"veil-app\x03"));
-            assert_eq!(AppMessage::open(&sealed, &plain, &jo.public(), receiver.binding()).unwrap(), message);
+            assert_eq!(
+                AppMessage::open(&sealed, &plain, &jo.public(), receiver.binding()).unwrap(),
+                message
+            );
         }
-        assert_eq!(AppMessage::name(" Jo ").unwrap(), AppMessage::Name("Jo".into()));
+        assert_eq!(
+            AppMessage::name(" Jo ").unwrap(),
+            AppMessage::Name("Jo".into())
+        );
     }
 
     /// Names and chat keep the encoding older versions read: the hand only adds a kind.
     #[test]
     fn older_kinds_keep_their_encoding() {
-        assert_eq!(postcard::to_allocvec(&AppMessage::Name("Jo".into())).unwrap(), [0, 2, b'J', b'o']);
-        assert_eq!(postcard::to_allocvec(&AppMessage::Chat("hi".into())).unwrap(), [1, 2, b'h', b'i']);
-        assert_eq!(postcard::to_allocvec(&AppMessage::Hand(true)).unwrap(), [2, 1]);
+        assert_eq!(
+            postcard::to_allocvec(&AppMessage::Name("Jo".into())).unwrap(),
+            [0, 2, b'J', b'o']
+        );
+        assert_eq!(
+            postcard::to_allocvec(&AppMessage::Chat("hi".into())).unwrap(),
+            [1, 2, b'h', b'i']
+        );
+        assert_eq!(
+            postcard::to_allocvec(&AppMessage::Hand(true)).unwrap(),
+            [2, 1]
+        );
     }
 
     #[test]
@@ -323,7 +383,10 @@ mod tests {
     fn a_signed_message_cannot_move_to_another_frame() {
         let (alice, bob) = (Identity::generate(), Identity::generate());
         let mut bob_sender = FrameSender::new(&SECRET, EPOCH, 2).unwrap();
-        let original = AppMessage::chat(1, "yes").unwrap().seal(&mut bob_sender, &bob).unwrap();
+        let original = AppMessage::chat(1, "yes")
+            .unwrap()
+            .seal(&mut bob_sender, &bob)
+            .unwrap();
         let mut receiver = FrameReceiver::new(&SECRET, EPOCH).unwrap();
         let (_, plain) = receiver.decrypt(&original).unwrap();
 
@@ -336,7 +399,10 @@ mod tests {
         // Or under her own leaf, claiming the words as hers.
         let mut hers = FrameSender::new(&SECRET, EPOCH, 1).unwrap();
         let moved = hers.encrypt(&plain).unwrap();
-        assert_eq!(receive(&moved, &alice.public()), Err(AppError::BadSignature));
+        assert_eq!(
+            receive(&moved, &alice.public()),
+            Err(AppError::BadSignature)
+        );
     }
 
     /// GHSA-qqx7-3x2m-v277: a line the victim signed in one call does not open in another
@@ -395,16 +461,28 @@ mod tests {
         ] {
             let sealed = message.seal(&mut sender, &jo).unwrap();
             let (_, plain) = receiver.decrypt(&sealed).unwrap();
-            assert_eq!(AppMessage::open(&sealed, &plain, &jo.public(), receiver.binding()).unwrap(), message);
+            assert_eq!(
+                AppMessage::open(&sealed, &plain, &jo.public(), receiver.binding()).unwrap(),
+                message
+            );
         }
     }
 
     #[test]
     fn bad_reactions_are_refused() {
         assert_eq!(AppMessage::react(1, "", true), Err(AppError::Empty));
-        assert_eq!(AppMessage::react(1, "👍 👍", true), Err(AppError::BadCharacter));
-        assert_eq!(AppMessage::react(1, "\u{202E}x", true), Err(AppError::BadCharacter));
-        assert_eq!(AppMessage::react(1, &"x".repeat(9), true), Err(AppError::TooLong));
+        assert_eq!(
+            AppMessage::react(1, "👍 👍", true),
+            Err(AppError::BadCharacter)
+        );
+        assert_eq!(
+            AppMessage::react(1, "\u{202E}x", true),
+            Err(AppError::BadCharacter)
+        );
+        assert_eq!(
+            AppMessage::react(1, &"x".repeat(9), true),
+            Err(AppError::TooLong)
+        );
         let jo = Identity::generate();
         let forged = AppMessage::React {
             id: 1,
@@ -412,7 +490,10 @@ mod tests {
             on: true,
         };
         let body = postcard::to_allocvec(&forged).unwrap();
-        assert_eq!(receive(&forge(&jo, 1, &body), &jo.public()), Err(AppError::BadCharacter));
+        assert_eq!(
+            receive(&forge(&jo, 1, &body), &jo.public()),
+            Err(AppError::BadCharacter)
+        );
     }
 
     #[test]
@@ -429,20 +510,32 @@ mod tests {
             AppMessage::name(&"é".repeat(64)).is_ok(),
             "counts characters, not bytes"
         );
-        assert_eq!(AppMessage::chat(1, &"a".repeat(2_001)), Err(AppError::TooLong));
+        assert_eq!(
+            AppMessage::chat(1, &"a".repeat(2_001)),
+            Err(AppError::TooLong)
+        );
         assert_eq!(AppMessage::name("Jo\nBloggs"), Err(AppError::BadCharacter));
         assert_eq!(
             AppMessage::name("Jo\u{202E}sggolB"),
             Err(AppError::BadCharacter)
         );
-        assert_eq!(AppMessage::chat(1, "bell\u{7}"), Err(AppError::BadCharacter));
+        assert_eq!(
+            AppMessage::chat(1, "bell\u{7}"),
+            Err(AppError::BadCharacter)
+        );
 
         // A sender that skips the checks is still refused on the way in.
         let jo = Identity::generate();
         let body = postcard::to_allocvec(&AppMessage::Name("a\u{0}b".into())).unwrap();
-        assert_eq!(receive(&forge(&jo, 1, &body), &jo.public()), Err(AppError::BadCharacter));
+        assert_eq!(
+            receive(&forge(&jo, 1, &body), &jo.public()),
+            Err(AppError::BadCharacter)
+        );
         let body = postcard::to_allocvec(&AppMessage::Chat("a".repeat(3_000))).unwrap();
-        assert_eq!(receive(&forge(&jo, 1, &body), &jo.public()), Err(AppError::TooLong));
+        assert_eq!(
+            receive(&forge(&jo, 1, &body), &jo.public()),
+            Err(AppError::TooLong)
+        );
     }
 
     #[test]
@@ -450,21 +543,33 @@ mod tests {
         let jo = Identity::generate();
         let mut body = postcard::to_allocvec(&AppMessage::Chat("hi".into())).unwrap();
         body.push(0);
-        assert_eq!(receive(&forge(&jo, 1, &body), &jo.public()), Err(AppError::Malformed));
+        assert_eq!(
+            receive(&forge(&jo, 1, &body), &jo.public()),
+            Err(AppError::Malformed)
+        );
 
         let mut sender = FrameSender::new(&SECRET, EPOCH, 1).unwrap();
-        let sealed = AppMessage::chat(1, "hi").unwrap().seal(&mut sender, &jo).unwrap();
+        let sealed = AppMessage::chat(1, "hi")
+            .unwrap()
+            .seal(&mut sender, &jo)
+            .unwrap();
         let mut receiver = FrameReceiver::new(&SECRET, EPOCH).unwrap();
         let (_, plain) = receiver.decrypt(&sealed).unwrap();
         let mut version = plain.clone();
         version[8] = 1;
         let binding = receiver.binding();
-        assert_eq!(AppMessage::open(&sealed, &version, &jo.public(), binding), Err(AppError::Malformed));
+        assert_eq!(
+            AppMessage::open(&sealed, &version, &jo.public(), binding),
+            Err(AppError::Malformed)
+        );
         assert_eq!(
             AppMessage::open(&sealed, &plain[..PREFIX_LEN - 1], &jo.public(), binding),
             Err(AppError::Malformed)
         );
-        assert_eq!(AppMessage::open(&sealed[..4], &plain, &jo.public(), binding), Err(AppError::Malformed));
+        assert_eq!(
+            AppMessage::open(&sealed[..4], &plain, &jo.public(), binding),
+            Err(AppError::Malformed)
+        );
         assert_eq!(
             AppMessage::open(&sealed, &vec![0; MAX_PLAIN_LEN + 1], &jo.public(), binding),
             Err(AppError::TooLong)
@@ -485,7 +590,10 @@ mod tests {
         );
         let (leaf, plain) = receiver.decrypt(&sealed).unwrap();
         assert_eq!(leaf, 1);
-        assert_eq!(AppMessage::open(&sealed, &plain, &jo.public(), receiver.binding()).unwrap(), message);
+        assert_eq!(
+            AppMessage::open(&sealed, &plain, &jo.public(), receiver.binding()).unwrap(),
+            message
+        );
         assert!(receiver.decrypt(&sealed).is_err(), "a replay is refused");
         let mut stranger = FrameReceiver::new(&[8u8; 32], EPOCH).unwrap();
         assert!(stranger.decrypt(&sealed).is_err());
@@ -502,5 +610,37 @@ mod tests {
         let mut sender = FrameSender::new(&SECRET, EPOCH, 1).unwrap();
         let sealed = message.seal(&mut sender, &Identity::generate()).unwrap();
         assert!(sealed.len() <= MAX_APP_LEN);
+    }
+
+    #[test]
+    fn moderation_round_trips_and_lists_are_bounded() {
+        let host = Identity::generate();
+        let mut sender = FrameSender::new(&SECRET, EPOCH, 1).unwrap();
+        let mut receiver = FrameReceiver::new(&SECRET, EPOCH).unwrap();
+        for message in [
+            AppMessage::Mute([3; 32]),
+            AppMessage::Moderators(vec![[4; 32], [5; 32]]),
+            AppMessage::Moderators(Vec::new()),
+            AppMessage::Waiting(vec![[6; 32]]),
+            AppMessage::Moderate(Moderation::Admit([6; 32])),
+            AppMessage::Moderate(Moderation::Decline([6; 32])),
+            AppMessage::Moderate(Moderation::Remove([7; 32])),
+        ] {
+            let sealed = message.seal(&mut sender, &host).unwrap();
+            let (_, plain) = receiver.decrypt(&sealed).unwrap();
+            let opened =
+                AppMessage::open(&sealed, &plain, &host.public(), receiver.binding()).unwrap();
+            assert_eq!(opened, message);
+        }
+        let too_many =
+            AppMessage::Moderators((0..=MAX_MODERATORS).map(|i| [i as u8; 32]).collect());
+        assert_eq!(too_many.check(), Err(AppError::TooLong));
+        let twice = AppMessage::Waiting(vec![[1; 32], [1; 32]]);
+        assert_eq!(twice.check(), Err(AppError::Malformed));
+        let full = AppMessage::Waiting((0..MAX_LISTED_WAITING).map(|i| [i as u8; 32]).collect());
+        assert!(
+            full.seal(&mut sender, &host).is_ok(),
+            "a full list fits one message"
+        );
     }
 }
