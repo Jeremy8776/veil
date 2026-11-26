@@ -87,6 +87,8 @@ pub struct VeilApp {
     prefs: crate::preferences::Store,
     /// Notifies and flashes the taskbar when someone knocks while you look elsewhere.
     lobby_alert: crate::lobby_alert::LobbyAlert,
+    /// The host's Lobby alerts switch, saved in `preferences.rs`. On by default.
+    pub lobby_alerts: bool,
     ctx: egui::Context,
 }
 
@@ -100,6 +102,7 @@ impl VeilApp {
         );
         let data_use = Arc::new(crate::data_use::DataUseCell::new(connection.saved.data_use));
         let prefs = crate::preferences::Store::open(keystore::default_dir());
+        let lobby_alerts = prefs.saved.lobby_alerts.unwrap_or(true);
         let media = LocalMedia::new(ctx.clone());
         let luts = crate::luts::Library::open(keystore::default_dir());
         prefs.saved.apply(&media, &luts);
@@ -140,6 +143,7 @@ impl VeilApp {
             data_use,
             prefs,
             lobby_alert: crate::lobby_alert::LobbyAlert::default(),
+            lobby_alerts,
             ctx: ctx.clone(),
         }
     }
@@ -371,7 +375,10 @@ impl VeilApp {
 
     /// Saves device, filter, blur, mirror and volume changes from any screen, once settled.
     fn remember_prefs(&mut self, ctx: &egui::Context) {
-        let now = crate::preferences::Prefs::current(&self.media, &self.prefs.saved, &self.devices);
+        let now = crate::preferences::Prefs {
+            lobby_alerts: Some(self.lobby_alerts),
+            ..crate::preferences::Prefs::current(&self.media, &self.prefs.saved, &self.devices)
+        };
         #[cfg(target_os = "android")]
         let now = crate::preferences::Prefs {
             display_name: self.name.clone(),
@@ -383,7 +390,8 @@ impl VeilApp {
     }
 
     /// Tells you when someone starts waiting in your lobby while Veil is not focused, and
-    /// clears that once you look or the lobby empties (`lobby_alert.rs`).
+    /// clears that once you look or the lobby empties (`lobby_alert.rs`). With Lobby alerts
+    /// off, everyone waiting counts as seen, so turning it back on does not announce them.
     fn alert_lobby(&mut self, ctx: &egui::Context) {
         let lobby: Vec<(u32, &str)> = match &self.screen {
             Screen::Call(view) if view.call.is_host => view
@@ -394,7 +402,7 @@ impl VeilApp {
                 .collect(),
             _ => Vec::new(),
         };
-        let focused = ctx.input(|i| i.viewport().focused).unwrap_or(false);
+        let focused = ctx.input(|i| i.viewport().focused).unwrap_or(false) || !self.lobby_alerts;
         self.lobby_alert
             .apply(ctx, &lobby, focused, crate::WINDOW_TITLE);
     }
@@ -428,7 +436,11 @@ impl eframe::App for VeilApp {
             // Open the keyboard when a text field takes focus, close it when none has it.
             let typing = ctx.text_edit_focused();
             let keyboard_id = egui::Id::unique("android-keyboard");
-            if ctx.data(|data| data.get_temp::<bool>(keyboard_id)).unwrap_or(false) != typing {
+            if ctx
+                .data(|data| data.get_temp::<bool>(keyboard_id))
+                .unwrap_or(false)
+                != typing
+            {
                 veil_media::ffi::android::keyboard(typing);
                 ctx.data_mut(|data| data.insert_temp(keyboard_id, typing));
             }

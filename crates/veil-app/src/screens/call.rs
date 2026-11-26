@@ -62,6 +62,10 @@ pub struct CallView {
     pub(crate) tile_motion: layout::Motion,
     /// Who holds the stage in Focus view, kept between frames for the speaker hold.
     pub(crate) focus: Option<speaker::Focus>,
+    /// The host's reminder about someone who has waited a while (`lobby_reminder.rs`).
+    pub(crate) reminder: crate::lobby_reminder::Reminder,
+    /// The host's Lobby alerts switch, copied to and from `VeilApp::lobby_alerts` each frame.
+    pub(crate) lobby_alerts: bool,
     /// The real call; `None` in a demo. Dropping it leaves the call.
     engine: Option<Engine>,
 }
@@ -84,7 +88,15 @@ impl CallView {
             sounding: Vec::new(),
             tile_motion: layout::Motion::default(),
             focus: None,
+            reminder: crate::lobby_reminder::Reminder::default(),
+            lobby_alerts: true,
         }
+    }
+
+    /// Lets someone in from the lobby.
+    pub(crate) fn admit(&mut self, id: u32) {
+        self.call.admit(id);
+        self.notify("Admitted. A new key epoch started.");
     }
 
     pub fn notify(&mut self, text: &str) {
@@ -200,9 +212,12 @@ impl CallView {
         self.shortcuts(app, ui);
         call_top::show(self, app, ui, now);
         let stay = control_bar(self, app, ui);
+        self.lobby_alerts = app.lobby_alerts;
         if let Some(panel) = self.panel {
             panels::show(self, ui, panel, now);
         }
+        app.lobby_alerts = self.lobby_alerts;
+        crate::lobby_reminder::show(self, ui.ctx(), now);
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()

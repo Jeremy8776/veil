@@ -16,7 +16,7 @@ use crate::model::{Participant, Reachable, RouterPort, clock};
 use crate::screens::call::CallView;
 use crate::screens::{chat_panel, security_panel};
 use crate::theme::{self, MUTED, SURFACE};
-use crate::widgets::{self, Tone, pill};
+use crate::widgets::{self, Tone, pill, toggle_row};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Panel {
@@ -103,11 +103,15 @@ fn server(ui: &mut egui::Ui, down: bool) {
         return;
     }
     ui.add_space(4.0);
-    ui.label(RichText::new("Server not answering").small().color(theme::WARN))
-        .on_hover_text(
-            "The rendezvous server is not answering. Guests on your network can still join, \
+    ui.label(
+        RichText::new("Server not answering")
+            .small()
+            .color(theme::WARN),
+    )
+    .on_hover_text(
+        "The rendezvous server is not answering. Guests on your network can still join, \
              but guests on the internet may not reach you. Veil keeps trying.",
-        );
+    );
 }
 
 /// For a host with a public node: whether it could dial the call's public address, with the
@@ -149,6 +153,9 @@ fn people(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
     }
     if view.call.is_host {
         host_status(view, ui);
+        toggle_row(ui, &mut view.lobby_alerts, "Lobby alerts", "").on_hover_text(
+            "When someone starts waiting while Veil is minimised or behind other windows,              your system shows a notification with their name and Veil's taskbar button              flashes.",
+        );
     }
     ui.add_space(8.0);
     let mut admit = None;
@@ -245,8 +252,7 @@ Compare it with them before letting them in.",
             }
         });
     if let Some(id) = admit {
-        view.call.admit(id);
-        view.notify("Admitted. A new key epoch started.");
+        view.admit(id);
     }
     if let Some(id) = decline {
         view.call.decline(id);

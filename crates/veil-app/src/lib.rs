@@ -31,6 +31,7 @@ mod json_file;
 mod keystore;
 mod layout;
 mod lobby_alert;
+mod lobby_reminder;
 mod log;
 mod logo;
 mod luts;

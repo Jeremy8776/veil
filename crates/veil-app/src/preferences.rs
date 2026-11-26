@@ -1,6 +1,7 @@
 //! Your device and video choices, kept between runs: camera, microphone, speaker, filter or
 //! imported LUT (by name), background blur, both effect strengths, mirror, both volumes and
-//! the sound switches (Noise suppression, Auto volume, Remove noise from others).
+//! the sound switches (Noise suppression, Auto volume, Remove noise from others), and the
+//! host's Lobby alerts switch.
 //!
 //! Purpose: [`Store::observe`] is fed what [`LocalMedia`] holds once a frame, so a choice
 //! made anywhere (the pre-join card or a call menu) is saved without each control having to
@@ -57,6 +58,9 @@ pub struct Prefs {
     pub noise_suppression: Option<bool>,
     pub auto_gain: Option<bool>,
     pub clean_others: Option<bool>,
+    /// Notify the host when someone starts waiting (`lobby_alert.rs`); `None` until first
+    /// changed (on).
+    pub lobby_alerts: Option<bool>,
 }
 
 impl Prefs {
@@ -121,6 +125,7 @@ impl Prefs {
             noise_suppression: Some(media.noise_suppression()),
             auto_gain: Some(media.auto_gain()),
             clean_others: Some(media.playback().clean_others.load(Ordering::Relaxed)),
+            lobby_alerts: saved.lobby_alerts,
         }
     }
 }
@@ -297,6 +302,7 @@ mod tests {
             noise_suppression: Some(false),
             auto_gain: Some(true),
             clean_others: Some(true),
+            lobby_alerts: Some(false),
         }
     }
 
