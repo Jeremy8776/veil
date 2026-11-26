@@ -31,7 +31,7 @@ use crate::icons::Icon;
 use crate::theme::{self, MUTED, TEXT};
 use crate::widgets::{card, device_error};
 
-mod dock;
+pub(super) mod dock;
 
 /// A drag smaller than this fraction of the picture counts as a click.
 const MIN_CROP: f32 = 0.03;

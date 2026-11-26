@@ -120,7 +120,9 @@ impl SharePicker {
             self.with_sound = false;
         }
         let response = ui
-            .add_enabled_ui(why.is_none(), |ui| sound_switch(ui, self.with_sound))
+            .add_enabled_ui(why.is_none(), |ui| {
+                sound_switch(ui, self.with_sound, vec2(BUTTON_W, BUTTON_H))
+            })
             .inner
             .on_hover_text(
                 "Include what your computer plays, such as a video. Call sound is left out, so \
@@ -139,10 +141,10 @@ fn button(ui: &mut Ui, label: &str, tone: Tone) -> Response {
 
 /// A dock button with the sound icon, filled in the accent colour while on. The caller flips
 /// the choice on click.
-fn sound_switch(ui: &mut Ui, on: bool) -> Response {
+pub(in crate::screens) fn sound_switch(ui: &mut Ui, on: bool, size: egui::Vec2) -> Response {
     const ICON: f32 = 16.0;
     let label = "Sound";
-    let (rect, response) = ui.allocate_exact_size(vec2(BUTTON_W, BUTTON_H), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
     response.widget_info(|| WidgetInfo::selected(Role::Switch, enabled, on, "Computer sound"));
     if !ui.is_rect_visible(rect) {
