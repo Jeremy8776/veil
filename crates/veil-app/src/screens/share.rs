@@ -326,8 +326,10 @@ impl SharePicker {
             (false, true) => Some(Stroke::new(1.0, theme::LINE)),
             (false, false) => None,
         };
+        // Inside the tile, in its THUMB_PAD margin: drawn outside, the scroll area clipped the
+        // top of the first row's ring.
         if let Some(ring) = ring {
-            painter.rect_stroke(picture, radius, ring, egui::StrokeKind::Outside);
+            painter.rect_stroke(picture, radius, ring, egui::StrokeKind::Inside);
         }
         let colour = if on || lit { TEXT } else { MUTED };
         let mut job =
