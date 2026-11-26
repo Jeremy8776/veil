@@ -132,10 +132,13 @@ every 10 seconds in all. An honest rendezvous introduces only the endpoint it ob
 the peer's authenticated connection. Extra interface hints are ignored until independently
 verified. A punch uses the address the helper reflects for the peer, because that is the only
 way two people behind routers can reach each other the first time. A dishonest helper can
-misreport that address and so choose where a few handshake packets go. This is bounded: only
-peers in the call (or a knocker the host agreed to) are dialled, at most nine addresses per
-punch, none unspecified, multicast or broadcast, within the dial-back limits above. Key
-pinning refuses anyone at that address who is not the named peer. From 24/11 to 26/11/2026
+misreport that address and so choose where a few handshake packets go. A member punches only
+to peers in the call, but a host dials back to any knocker the helper introduces, since it
+cannot know joiners in advance. This is bounded: at most nine addresses per punch, none
+unspecified, multicast or broadcast (IPv4-mapped forms included), none nearer this device than
+the helper itself (a helper on the internet cannot name loopback or local-network addresses),
+and within the dial-back limits above. Key pinning refuses anyone at that address who is not
+the named peer. From 24/11 to 26/11/2026
 (0.1.14 and 0.1.15) punching required an endpoint already authenticated on this device; that
 made a first punch impossible and was reversed.
 The asker gets the same silence whether the member declines or is not there, so the

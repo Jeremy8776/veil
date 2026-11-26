@@ -286,7 +286,8 @@ paths fail. A relay-only joiner uses only the relay. IPv6 candidates begin first
 IPv4 following after 250 ms. Forwarder connections currently have no relay fallback.
 A punched dial goes only to a peer this node chose (the invite's host, or a member the host's
 signed plan names), and a dial-back only answers an introduction this node just agreed to. Both
-use the helper's reflected addresses, at most nine, dropping any that name no single host.
+use the helper's reflected addresses, at most nine, dropping any that name no single host or
+that are nearer this device than the helper (loopback, or the local network for a public helper).
 
 A missing media link is redialled on the session tick by the designated side, with waits
 of 1, 2, 4, 8 and then 16 seconds after failures. A result is adopted only while its target

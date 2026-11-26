@@ -10,10 +10,13 @@
 //!   `MAX_PUNCH_DELAY` plus the connect timeout, which is [`WINDOW`], so the same limits also
 //!   bound how many run at once. A joiner that loses out still has the relay.
 //! - A notice naming more addresses than the rendezvous may store for a member is refused.
-//! - Only [`punch_targets`] are dialled: addresses that name one host and a port. The helper's
-//!   reflection is not proof that the peer owns an address, but a punch is how two people
-//!   behind routers reach each other the first time, so it is trusted for that one bounded
-//!   dial. Key pinning refuses anyone but the named peer at the address.
+//! - Only [`punch_targets`] are dialled: addresses that name one host and a port, judged in
+//!   their IPv4 form when IPv4-mapped. The helper's reflection is not proof that the peer owns
+//!   an address, but a punch is how two people behind routers reach each other the first time,
+//!   so it is trusted for that one bounded dial. Key pinning refuses anyone but the named peer.
+//! - A punch never aims nearer this device than the helper is ([`Reach`]): a helper on the
+//!   internet cannot point it at this device's loopback or its local network, where a helper
+//!   on the local network would genuinely see local addresses.
 
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
@@ -70,16 +73,53 @@ impl DialBacks {
     }
 }
 
-/// Keeps the addresses in a punch plan worth one handshake: a single host and a real port,
-/// at most [`MAX_NOTICE_ADDRS`]. Unspecified, multicast and broadcast addresses are dropped.
-pub(crate) fn punch_targets(addrs: &mut Vec<SocketAddr>) {
+/// How near this device an address is. Ordered: a helper at one reach may name addresses at
+/// that reach or further out, never nearer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Reach {
+    Internet,
+    /// Private and link-local IPv4, unique local and link-local IPv6.
+    LocalNetwork,
+    Loopback,
+}
+
+impl Reach {
+    pub fn of(ip: IpAddr) -> Self {
+        let ip = ip.to_canonical();
+        if ip.is_loopback() {
+            Self::Loopback
+        } else if veil_net::local::is_local_scope(ip) {
+            Self::LocalNetwork
+        } else {
+            Self::Internet
+        }
+    }
+
+    /// The nearest reach among the helper's own addresses.
+    pub fn of_helper(addrs: &[SocketAddr]) -> Self {
+        addrs
+            .iter()
+            .map(|a| Self::of(a.ip()))
+            .max()
+            .unwrap_or(Self::Internet)
+    }
+}
+
+/// Keeps the addresses in a punch plan worth one handshake: a single host and a real port, no
+/// nearer than `helper`, at most [`MAX_NOTICE_ADDRS`]. Unspecified, multicast and broadcast
+/// addresses are dropped, including IPv4-mapped ones.
+pub(crate) fn punch_targets(addrs: &mut Vec<SocketAddr>, helper: Reach) {
     addrs.retain(|addr| {
-        let ip = addr.ip();
+        let ip = addr.ip().to_canonical();
         let one_host = match ip {
             IpAddr::V4(v4) => !v4.is_broadcast(),
             IpAddr::V6(_) => true,
         };
-        addr.port() != 0 && one_host && !ip.is_unspecified() && !ip.is_multicast()
+        addr.port() != 0
+            && one_host
+            && !ip.is_unspecified()
+            && !ip.is_multicast()
+            && Reach::of(ip) <= helper
     });
     addrs.truncate(MAX_NOTICE_ADDRS);
 }
@@ -157,17 +197,49 @@ mod tests {
             "[ff02::1]:4433",
             "[::]:4433",
             "198.51.100.2:0",
+            "[::ffff:224.0.0.251]:5353",
+            "[::ffff:255.255.255.255]:4433",
+            "[::ffff:0.0.0.0]:4433",
             "[2001:db8::1]:4433",
         ]
         .into_iter()
         .map(parse)
         .collect();
-        punch_targets(&mut addrs);
+        punch_targets(&mut addrs, Reach::Loopback);
         assert_eq!(addrs, vec![parse("203.0.113.7:4433"), parse("[2001:db8::1]:4433")]);
 
         let mut many = vec![parse("203.0.113.7:4433"); MAX_NOTICE_ADDRS + 3];
-        punch_targets(&mut many);
+        punch_targets(&mut many, Reach::Internet);
         assert_eq!(many.len(), MAX_NOTICE_ADDRS);
+    }
+
+    #[test]
+    fn a_punch_never_aims_nearer_than_the_helper() {
+        let parse = |a: &str| a.parse().unwrap_or(SocketAddr::from(([0, 0, 0, 0], 0)));
+        let all = [
+            "203.0.113.7:4433",
+            "192.168.1.1:80",
+            "[fe80::1]:4433",
+            "[::ffff:10.0.0.1]:4433",
+            "127.0.0.1:4433",
+            "[::1]:4433",
+            "[::ffff:127.0.0.1]:4433",
+        ]
+        .map(parse);
+        let kept = |helper| {
+            let mut addrs = all.to_vec();
+            punch_targets(&mut addrs, helper);
+            addrs.len()
+        };
+        assert_eq!(kept(Reach::Internet), 1, "a public helper names public addresses only");
+        assert_eq!(kept(Reach::LocalNetwork), 4, "a LAN helper may name LAN addresses");
+        assert_eq!(kept(Reach::Loopback), 7);
+
+        let helper = |a: &[&str]| Reach::of_helper(&a.iter().map(|a| parse(a)).collect::<Vec<_>>());
+        assert_eq!(helper(&["203.0.113.9:443"]), Reach::Internet);
+        assert_eq!(helper(&["203.0.113.9:443", "192.168.1.5:443"]), Reach::LocalNetwork);
+        assert_eq!(helper(&["127.0.0.1:443"]), Reach::Loopback);
+        assert_eq!(helper(&[]), Reach::Internet);
     }
 
     #[test]

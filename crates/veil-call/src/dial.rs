@@ -14,7 +14,8 @@
 //!   the peer routes only the winner.
 //! - A relay-only node uses only the relay, so the peer never learns its address.
 //! - A punched dial goes only to a peer this node chose (the invite's host, or a member the
-//!   host's signed plan names), at the helper's [`punch_targets`](crate::dial_back) for it.
+//!   host's signed plan names), at the helper's addresses for it, filtered by the presence
+//!   task (`dial_back::punch_targets`).
 //!   Requiring an endpoint already seen on this node made a first punch impossible, so two
 //!   people behind routers could not reach each other without the relay.
 //!
@@ -77,8 +78,7 @@ pub(crate) async fn dial(
         return relayed.await;
     }
     let punched = async {
-        let mut plan = presence.introduce(peer).await?;
-        crate::dial_back::punch_targets(&mut plan.addrs);
+        let plan = presence.introduce(peer).await?;
         if plan.addrs.is_empty() { return Err(NetError::NoAddresses.into()); }
         let link = punch(node, &plan).await?;
         Ok(Dialled { link, via: None, path: Path::Punched })
