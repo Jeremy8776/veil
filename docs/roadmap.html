@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Veil’s Modular, Agnostic, Shared calling platform: local-first private calls, an embeddable engine/SDK, chosen infrastructure, version milestones and evidence gates.">
-<meta name="theme-color" content="#17161c"><meta name="roadmap-document-revision" content="190ae608689ab964e94fcdcf88cfe57306f074ed9788ea13d5634ffb35f7c8b0"><title>Veil — Shared calling platform roadmap</title><style>
+<meta name="theme-color" content="#17161c"><meta name="roadmap-document-revision" content="90ed6ae4a6739d528e2b0e956ad39eca24ff6b09acdfd7e87dbb53df25747c68"><title>Veil — Shared calling platform roadmap</title><style>
 :root{color-scheme:dark;--page:#17161c;--surface:#222129;--raised:#2e2d37;--line:#3d3b47;--text:#f3f2f7;--muted:#b6b3c5;--accent:#a6a2ff;--purple:#6e6af0;--green:#70d5a4;--gold:#e8c47b;--sans:"Segoe UI Variable Text","Segoe UI",Arial,sans-serif;--display:"Segoe UI Variable Display","Segoe UI",Arial,sans-serif;--mono:Consolas,"Liberation Mono",monospace}
 *{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:28px}body{margin:0;background:var(--page);color:var(--text);font:16px/1.65 var(--sans)}a{color:var(--accent);text-underline-offset:4px}a:hover{color:#d1cfff}button,input,select{font:inherit}button,select{cursor:pointer}button{background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:9px 15px}button:hover{background:#3a3945}button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:4px}h1,h2,h3,p{margin-top:0}h1,h2,h3{font-family:var(--display);font-weight:600;line-height:1.15}h1{font-size:clamp(46px,6vw,78px);letter-spacing:-.055em;margin-bottom:24px;max-width:800px}h2{font-size:32px;letter-spacing:-.025em;margin-bottom:24px}h3{font-size:23px;letter-spacing:-.02em}p{margin-bottom:18px}strong{font-weight:600}code{font-family:var(--mono);font-size:.88em;background:var(--raised);padding:2px 5px;border-radius:4px}li{margin-bottom:10px}ul{padding-left:23px}section{scroll-margin-top:28px}svg{display:block}button[hidden],[hidden]{display:none!important}
 .skip{position:fixed;left:20px;top:-90px;z-index:10;padding:12px;background:var(--surface)}.skip:focus{top:10px}.layout{display:grid;grid-template-columns:228px minmax(0,1fr);max-width:1600px;margin:auto}.sidebar{position:sticky;top:0;height:100vh;padding:36px 25px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:38px}.brand{display:flex;gap:12px;align-items:center;color:var(--text);text-decoration:none;font-size:25px;font-weight:600;letter-spacing:-1px}.brand svg{width:42px;height:42px}.sidebar nav{display:flex;flex-direction:column;gap:3px}.sidebar nav a{color:var(--muted);text-decoration:none;font-size:14px;padding:10px 12px;border-left:2px solid transparent}.sidebar nav a:hover,.sidebar nav a[aria-current]{color:var(--text);background:var(--surface);border-left-color:var(--accent)}.sidebar-note{margin-top:auto;font-size:12px;color:var(--muted)}.sidebar-note b{display:block;color:var(--text);font-weight:500;font-size:13px;margin-bottom:8px}.sidebar-note p{margin-bottom:8px}.main{min-width:0;padding:0 6.5%}.topline{display:flex;justify-content:space-between;align-items:center;gap:20px;border-bottom:1px solid var(--line);padding:27px 0;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.topline a{text-transform:none;letter-spacing:0;font-size:14px}.hero{padding:62px 0 38px}.eyebrow{display:block;color:var(--accent);font:12px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin-bottom:22px}.hero-lead{font-size:20px;color:var(--muted);max-width:720px;line-height:1.6}.hero-lead strong{color:var(--text);font-weight:500}.hero-bottom{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-top:30px}.chip{border:1px solid var(--line);border-radius:30px;padding:5px 12px;font-size:12px;color:var(--muted)}.chip.live{color:var(--green)}.chip.live:before{content:"";display:inline-block;width:6px;height:6px;background:var(--green);border-radius:100%;margin-right:8px}.proof{display:grid;grid-template-columns:140px 1fr;background:#202b29;border:1px solid #3d6252;border-radius:10px;margin:6px 0 60px;overflow:hidden}.proof-label{padding:25px;color:var(--green);font:12px/1.6 var(--mono);border-right:1px solid #3d6252;display:flex;flex-direction:column;justify-content:center}.proof-main{padding:23px 28px}.proof-main h2{font-size:21px;letter-spacing:-.01em;margin-bottom:8px}.proof-main p{font-size:14px;color:#c1d0c9;margin:0}.proof-main a{color:#a2e7c2}.section-top{display:flex;justify-content:space-between;align-items:baseline;gap:16px}.section-top small{font:12px var(--mono);color:var(--muted)}.section-lead{color:var(--muted);max-width:760px}.milestones{margin:30px 0}.milestone{display:grid;grid-template-columns:140px minmax(0,1fr);border-top:1px solid var(--line);padding:29px 0;position:relative}.milestone:last-child{border-bottom:1px solid var(--line)}.version>span{font:26px/1.3 var(--mono);letter-spacing:-1px}.version small{display:block;color:var(--muted);font-size:11px;margin-top:7px}.milestone:first-child .version>span{color:var(--accent)}.milestone:first-child .version small{color:var(--accent)}.milestone-main h3{margin-bottom:10px}.outcome{color:var(--muted);margin-bottom:14px;font-size:15px}.exit{font-size:13px;color:var(--muted);margin:0 0 14px}.exit strong{color:var(--text);margin-right:6px}.id-links{display:flex;flex-wrap:wrap;gap:8px}.id-link{display:inline-flex;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font:11px/1.5 var(--mono);text-decoration:none}.id-link:hover{background:var(--raised)}.notes{font-size:14px;color:var(--muted)}.block{padding:34px 0 42px}.block+.block{border-top:1px solid var(--line)}.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:25px 0 12px}.field{display:flex;flex-direction:column;gap:6px;flex:1;min-width:180px}.field label{font-size:12px;color:var(--muted)}.field input,.field select{width:100%;padding:11px 12px;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:6px;min-height:46px}.field-select{flex:0 1 185px}.toolbar-actions{display:flex;align-items:flex-end;gap:8px}.toolbar-actions button{min-height:46px}.results{color:var(--muted);font-size:12px;display:flex;justify-content:space-between;align-items:center;margin:15px 0}.results button{border:0;background:transparent;font-size:12px;color:var(--accent);padding:4px}.capability{border:1px solid var(--line);border-radius:8px;margin-bottom:10px;background:var(--surface);overflow:hidden}.capability summary{list-style:none;display:grid;grid-template-columns:82px minmax(0,1fr) 58px 18px;align-items:center;gap:13px;padding:20px;cursor:pointer}.capability summary::-webkit-details-marker{display:none}.capability summary:hover{background:#292832}.cap-id{font:11px var(--mono);color:var(--accent)}.cap-name{font-size:15px;font-weight:500;line-height:1.45}.cap-version{font:11px var(--mono);color:var(--muted)}.disclosure{font-size:20px;line-height:1;text-align:center;color:var(--muted)}.capability[open] .disclosure{font-size:0}.capability[open] .disclosure:after{content:"−";font-size:20px}.cap-body{border-top:1px solid var(--line);padding:24px 28px;font-size:14px;color:var(--muted)}.cap-body strong{color:var(--text)}.cap-body>:last-child{margin-bottom:0}.capability:target{outline:2px solid var(--accent);outline-offset:3px}.empty{padding:30px;border:1px dashed var(--line);text-align:center;color:var(--muted)}.table-scroll{max-width:100%;overflow:auto;border:1px solid var(--line);border-radius:8px;margin:25px 0}table{width:100%;border-collapse:collapse;font-size:13px;min-width:660px}th{text-align:left;font-size:11px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.05em;background:var(--surface)}th,td{padding:16px;vertical-align:top;border-bottom:1px solid var(--line)}tr:last-child td{border-bottom:0}td:first-child{font:11px/1.7 var(--mono);color:var(--accent)}.evidence-copy,.prose{font-size:14px;color:var(--muted)}.prose strong{color:var(--text)}.prose h3{font-size:19px}.source-intro{border-bottom:1px solid var(--line);padding-bottom:15px;margin-bottom:25px}.source-intro p:first-child{color:var(--accent);font-size:12px}.footer{padding:30px 0 35px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:20px;font-size:12px;color:var(--muted)}.footer a{white-space:nowrap}.support-grid{display:grid;grid-template-columns:1fr 1fr;gap:36px}.support-grid h2{font-size:25px}.no-js{font-size:13px;color:var(--gold)}
@@ -23,10 +23,10 @@
 <nav aria-label="Roadmap sections"><a href="#live">Now and next</a><a href="#mission">Mission and decisions</a><a href="#platform">App integrations</a><a href="#priorities">Delivery sequence</a><a href="#milestones">Version milestones</a><a href="#capabilities">Capability explorer</a><a href="#ownership">Trust and data</a><a href="#validation">Evidence and testing</a><a href="#gates">Release gates</a><a href="#next">Next work slices</a></nav>
 <div class="sidebar-note"><b>Your app. Your devices.<br>Your infrastructure.</b><p>One shared call engine.<br>Local first. Peer to peer.<br>No company contact database.</p><a href="ROADMAP.md">Markdown source ↗</a></div></aside>
 <main id="main" class="main"><div class="topline"><span>Platform / Product roadmap</span><span>23 November 2026</span></div>
-<section id="live" class="live-panel" aria-labelledby="next-title"><div class="live-heading"><strong>Next step</strong><span id="live-connection">Saved snapshot · <a href="http://127.0.0.1:8767/#live">open live roadmap</a></span></div>
+<section id="live" class="live-panel" aria-labelledby="next-title"><div class="live-heading"><strong>Next step</strong><span id="live-connection">Saved snapshot · <a href="http://127.0.0.1:8768/#live">open live roadmap</a></span></div>
 <h2 id="next-title">Share computer sound with a screen</h2><a id="next-capability" class="next-link" href="#SHARE-01">SHARE-01</a>
 <p id="next-reason" class="live-reason">Jeremy prioritised screen-share sound, LUT effects and Android sharing ahead of LOCAL-01 on 25/11/2026</p><ol id="next-checks" class="next-checks"><li>Include computer sound choice, sender level and mute, receiver volume, on Windows, macOS and Linux</li><li>Call audio is not echoed back; hardware listening results recorded</li></ol>
-<div class="live-totals"><span><b data-total="in_progress">3</b> in progress</span><span><b data-total="blocked">0</b> blocked</span><span><b data-total="done">4</b> complete</span><span><b data-total="planned">27</b> planned gates</span></div>
+<div class="live-totals"><span><b data-total="in_progress">3</b> in progress</span><span><b data-total="blocked">0</b> blocked</span><span><b data-total="done">4</b> complete</span><span><b data-total="planned">34</b> planned gates</span></div>
 <p class="live-footnote"><span id="state-updated">2026-11-27T14:44:54+00:00</span>. Counts refer to full capability gates, not percentage of code implemented.</p>
 <details class="live-feed"><summary>Reported session activity and recent changes</summary><div class="live-sessions"><strong>Sessions</strong><ul id="session-list"></ul></div><ul id="activity-list"></ul></details></section>
 <header class="hero"><span class="eyebrow">Veil · Video and audio, under your control</span><h1>Modular.<br>Agnostic.<br>Shared.</h1>
@@ -322,13 +322,13 @@ capacity and continuity</strong>. Security review, test evidence and diagnostics
 </tr>
 <tr>
 <td>Next</td>
-<td><a href="#MOB-01">MOB-01</a>, <a href="#MOB-02">MOB-02</a>, <a href="#INVITE-01">INVITE-01</a>, <a href="#DIST-01">DIST-01</a></td>
-<td>Turn a successful connection into a usable repeatable phone/local experience</td>
+<td><a href="#MOB-01">MOB-01</a>, <a href="#MOB-02">MOB-02</a>, <a href="#INVITE-01">INVITE-01</a>, <a href="#DIST-01">DIST-01</a>, <a href="#HARD-01">HARD-01</a>, <a href="#SUPPLY-01">SUPPLY-01</a></td>
+<td>Turn a successful connection into a usable repeatable phone/local experience, and harden the inputs that experience exposes</td>
 </tr>
 <tr>
 <td>Then</td>
-<td><a href="#SDK-02">SDK-02</a>, <a href="#NET-01">NET-01</a>, <a href="#NET-02">NET-02</a>, <a href="#NET-03">NET-03</a>, <a href="#DATA-01">DATA-01</a>, <a href="#OPS-01">OPS-01</a></td>
-<td>Expose the shared engine and widen permitted reach while preserving privacy choices</td>
+<td><a href="#SDK-02">SDK-02</a>, <a href="#NET-01">NET-01</a>, <a href="#NET-02">NET-02</a>, <a href="#NET-03">NET-03</a>, <a href="#DATA-01">DATA-01</a>, <a href="#CC-01">CC-01</a>, <a href="#OPS-01">OPS-01</a></td>
+<td>Expose the shared engine, widen permitted reach and match WebRTC-class call quality on poor links</td>
 </tr>
 <tr>
 <td>Alongside platform work</td>
@@ -337,20 +337,93 @@ capacity and continuity</strong>. Security review, test evidence and diagnostics
 </tr>
 <tr>
 <td>Before broad group claims</td>
-<td><a href="#TRUST-01">TRUST-01</a>, <a href="#GROUP-01">GROUP-01</a>, <a href="#MEDIA-01">MEDIA-01</a></td>
-<td>Fix attribution and explicitly handle members a forwarder cannot serve</td>
+<td><a href="#TRUST-01">TRUST-01</a>, <a href="#PQ-01">PQ-01</a>, <a href="#GROUP-01">GROUP-01</a>, <a href="#MEDIA-01">MEDIA-01</a>, <a href="#SPEAK-01">SPEAK-01</a></td>
+<td>Fix attribution, protect recorded traffic and explicitly handle members a forwarder cannot serve</td>
+</tr>
+<tr>
+<td>Before 1.0</td>
+<td><a href="#REPRO-01">REPRO-01</a></td>
+<td>Let others check that signed releases match the source</td>
 </tr>
 <tr>
 <td>Conditional extensions</td>
-<td><a href="#IOS-01">IOS-01</a>, <a href="#HOST-01">HOST-01</a>, <a href="#NEAR-01">NEAR-01</a>, <a href="#MSG-01">MSG-01</a>, <a href="#SCALE-01">SCALE-01</a>, <a href="#PERF-01">PERF-01</a>, <a href="#ORG-01">ORG-01</a></td>
+<td><a href="#IOS-01">IOS-01</a>, <a href="#HOST-01">HOST-01</a>, <a href="#NEAR-01">NEAR-01</a>, <a href="#MSG-01">MSG-01</a>, <a href="#SCALE-01">SCALE-01</a>, <a href="#PERF-01">PERF-01</a>, <a href="#ORG-01">ORG-01</a>, <a href="#META-01">META-01</a></td>
 <td>Extend the same model after feasibility, trust and resource limits are established</td>
 </tr>
 </tbody>
 </table></div>
+<p><a href="#CC-01">CC-01</a>, <a href="#HARD-01">HARD-01</a>, <a href="#SUPPLY-01">SUPPLY-01</a>, <a href="#PQ-01">PQ-01</a>, <a href="#SPEAK-01">SPEAK-01</a>, <a href="#REPRO-01">REPRO-01</a> and <a href="#META-01">META-01</a> were added on 27/11/2026
+from a comparison with Signal's public calling and crypto code; see
+<a href="#benchmark-signal">Benchmark: Signal</a>.</p>
 <p>This is a dependency order, not a rule that all work must be serial. Native storage can
 advance while transport designs are reviewed. No prerequisite should falsely imply that
 desktop networking requires an Android package. A small design/validation change belongs in
 its own reviewable increment; no milestone requires a single enormous implementation PR.</p></div></section>
+<section id="benchmark-signal" class="block strategy-section"><h2>Benchmark: Signal</h2><div class="prose"><p>Signal is the reference point for private calling. On 27/11/2026 its public repositories
+(libsignal, RingRTC, Signal-Calling-Service) were compared with Veil. Some points come from
+Signal's published design rather than those pages.</p>
+<p><strong>Where Veil already leads:</strong> no central service or phone number; calls on a LAN with no
+internet; replaceable helpers anyone can run; a signed, expiring, single-use invite plus a
+lobby; device signatures on names, chat, hands, reactions and screen pictures; a forwarder
+that cannot see who is speaking; constant-bitrate audio; a native desktop app; and a
+permissive licence suited to embedding.</p>
+<p><strong>Where Signal leads, and the capability that closes the gap:</strong></p>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable reference table"><table>
+<thead>
+<tr>
+<th>Signal strength</th>
+<th>Veil capability</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Delay-based congestion control (WebRTC googcc)</td>
+<td><a href="#CC-01">CC-01</a></td>
+</tr>
+<tr>
+<td>TURN relays over TCP/TLS 443 when UDP is blocked</td>
+<td><a href="#NET-01">NET-01</a></td>
+</tr>
+<tr>
+<td>Group calls continue when anyone leaves</td>
+<td><a href="#HOST-01">HOST-01</a></td>
+</tr>
+<tr>
+<td>Large group calls with active-speaker selection</td>
+<td><a href="#GROUP-01">GROUP-01</a>, <a href="#SPEAK-01">SPEAK-01</a>, <a href="#SCALE-01">SCALE-01</a></td>
+</tr>
+<tr>
+<td>Post-quantum key agreement</td>
+<td><a href="#PQ-01">PQ-01</a></td>
+</tr>
+<tr>
+<td>Fuzzing and a "never panic on untrusted input" rule</td>
+<td><a href="#HARD-01">HARD-01</a></td>
+</tr>
+<tr>
+<td>Duplicate-crate and dependency checks in CI</td>
+<td><a href="#SUPPLY-01">SUPPLY-01</a></td>
+</tr>
+<tr>
+<td>Reproducible Android builds</td>
+<td><a href="#REPRO-01">REPRO-01</a></td>
+</tr>
+<tr>
+<td>Durable identity, linked devices, backups, key transparency</td>
+<td><a href="#DESK-01">DESK-01</a>, <a href="#ID-01">ID-01</a>, <a href="#ORG-01">ORG-01</a></td>
+</tr>
+<tr>
+<td>Generated bindings tested in every language</td>
+<td><a href="#BIND-01">BIND-01</a></td>
+</tr>
+<tr>
+<td>Forwarder load tests</td>
+<td><a href="#GROUP-01">GROUP-01</a>, <a href="#OPS-01">OPS-01</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>Two items would put Veil ahead of Signal rather than level with it: per-sender media
+authentication in group calls (<a href="#TRUST-01">TRUST-01</a>) and traffic padding (<a href="#META-01">META-01</a>).</p></div></section>
 <section id="milestones" class="block"><div class="section-top"><h2>Version milestones</h2><small>Proposed sequence · no fixed dates</small></div>
 <p class="section-lead">Each version earns a concrete user outcome. Capability IDs connect the release to the work and evidence needed to complete it.</p>
 <div class="milestones"><article class="milestone" id="v-0.1.14">
@@ -360,11 +433,11 @@ its own reviewable increment; no milestone requires a single enormous implementa
       </article><article class="milestone" id="v-0.2.0">
       <div class="version"><span>0.2.0</span><small>Proposed</small></div>
       <div class="milestone-main"><h3>Local first. Everyday usable.</h3><p class="outcome">I can make a safe everyday call, including without internet</p>
-      <p class="exit"><strong>Complete when</strong> WAN/DNS-off hardware call, admission/revocation checks, sustained mobile calls, usable audio, signed upgradeable preview, screen sharing with sound from desktop and Android, and LUT effects with strength</p><div class="id-links"><a class="id-link" href="#LOCAL-01">LOCAL-01</a> <a class="id-link" href="#TRUST-02">TRUST-02</a> <a class="id-link" href="#MOB-01">MOB-01</a> <a class="id-link" href="#MOB-02">MOB-02</a> <a class="id-link" href="#INVITE-01">INVITE-01</a> <a class="id-link" href="#DIAG-01">DIAG-01</a> <a class="id-link" href="#DIST-01">DIST-01</a> <a class="id-link" href="#TEST-01">TEST-01</a> <a class="id-link" href="#SHARE-01">SHARE-01</a> <a class="id-link" href="#SHARE-02">SHARE-02</a> <a class="id-link" href="#FX-01">FX-01</a></div></div>
+      <p class="exit"><strong>Complete when</strong> WAN/DNS-off hardware call, admission/revocation checks, sustained mobile calls, usable audio, signed upgradeable preview, screen sharing with sound from desktop and Android, LUT effects with strength, fuzzed parsers and dependency checks in CI</p><div class="id-links"><a class="id-link" href="#LOCAL-01">LOCAL-01</a> <a class="id-link" href="#TRUST-02">TRUST-02</a> <a class="id-link" href="#MOB-01">MOB-01</a> <a class="id-link" href="#MOB-02">MOB-02</a> <a class="id-link" href="#INVITE-01">INVITE-01</a> <a class="id-link" href="#DIAG-01">DIAG-01</a> <a class="id-link" href="#DIST-01">DIST-01</a> <a class="id-link" href="#TEST-01">TEST-01</a> <a class="id-link" href="#SHARE-01">SHARE-01</a> <a class="id-link" href="#SHARE-02">SHARE-02</a> <a class="id-link" href="#FX-01">FX-01</a> <a class="id-link" href="#HARD-01">HARD-01</a> <a class="id-link" href="#SUPPLY-01">SUPPLY-01</a></div></div>
       </article><article class="milestone" id="v-0.3.0">
       <div class="version"><span>0.3.0</span><small>Proposed</small></div>
       <div class="milestone-main"><h3>A shared engine. More reach.</h3><p class="outcome">Apps share a headless engine and calls find more permitted paths</p>
-      <p class="exit"><strong>Complete when</strong> Non-GUI SDK sample, full joining over TCP fallback, independent-helper failure tests and measured receive/data controls</p><div class="id-links"><a class="id-link" href="#SDK-02">SDK-02</a> <a class="id-link" href="#NET-01">NET-01</a> <a class="id-link" href="#NET-02">NET-02</a> <a class="id-link" href="#NET-03">NET-03</a> <a class="id-link" href="#DATA-01">DATA-01</a> <a class="id-link" href="#OPS-01">OPS-01</a></div></div>
+      <p class="exit"><strong>Complete when</strong> Non-GUI SDK sample, full joining over TCP fallback, independent-helper failure tests, measured receive/data controls and delay-based adaptation beating the current Auto</p><div class="id-links"><a class="id-link" href="#SDK-02">SDK-02</a> <a class="id-link" href="#NET-01">NET-01</a> <a class="id-link" href="#NET-02">NET-02</a> <a class="id-link" href="#NET-03">NET-03</a> <a class="id-link" href="#DATA-01">DATA-01</a> <a class="id-link" href="#CC-01">CC-01</a> <a class="id-link" href="#OPS-01">OPS-01</a></div></div>
       </article><article class="milestone" id="v-0.4.0">
       <div class="version"><span>0.4.0</span><small>Proposed</small></div>
       <div class="milestone-main"><h3>Veil inside other apps</h3><p class="outcome">Other apps can provide Veil calls while identity stays locally controlled</p>
@@ -372,7 +445,7 @@ its own reviewable increment; no milestone requires a single enormous implementa
       </article><article class="milestone" id="v-0.5.0">
       <div class="version"><span>0.5.0</span><small>Proposed</small></div>
       <div class="milestone-main"><h3>Trustworthy group calls</h3><p class="outcome">Group calls preserve attribution, reachability and usable media</p>
-      <p class="exit"><strong>Complete when</strong> Adversarial sender tests, measured five-person calls, visible partial failures and safe forwarding/recovery</p><div class="id-links"><a class="id-link" href="#GROUP-01">GROUP-01</a> <a class="id-link" href="#TRUST-01">TRUST-01</a> <a class="id-link" href="#MEDIA-01">MEDIA-01</a></div></div>
+      <p class="exit"><strong>Complete when</strong> Adversarial sender tests, measured five-person calls, visible partial failures, safe forwarding/recovery, hybrid post-quantum keys and private speaker promotion</p><div class="id-links"><a class="id-link" href="#GROUP-01">GROUP-01</a> <a class="id-link" href="#TRUST-01">TRUST-01</a> <a class="id-link" href="#MEDIA-01">MEDIA-01</a> <a class="id-link" href="#PQ-01">PQ-01</a> <a class="id-link" href="#SPEAK-01">SPEAK-01</a></div></div>
       </article><article class="milestone" id="v-0.6.0">
       <div class="version"><span>0.6.0</span><small>Conditional</small></div>
       <div class="milestone-main"><h3>Bring Veil to iPhone</h3><p class="outcome">I can join from an iPhone</p>
@@ -380,15 +453,15 @@ its own reviewable increment; no milestone requires a single enormous implementa
       </article><article class="milestone" id="v-1.0.0">
       <div class="version"><span>1.0.0</span><small>Proposed</small></div>
       <div class="milestone-main"><h3>A supported shared platform</h3><p class="outcome">People and integrators can rely on the supported shared platform</p>
-      <p class="exit"><strong>Complete when</strong> Independent security review, stable provider/API contracts, supported matrix, compatibility suite and verified distribution/update paths</p><div class="id-links"><a class="id-link" href="#READY-01">READY-01</a></div></div>
+      <p class="exit"><strong>Complete when</strong> Independent security review, stable provider/API contracts, supported matrix, compatibility suite, verified distribution/update paths and reproducible Android/Linux builds</p><div class="id-links"><a class="id-link" href="#REPRO-01">REPRO-01</a> <a class="id-link" href="#READY-01">READY-01</a></div></div>
       </article></div><div class="notes"><p>The patch immediately after 0.1.13 consolidates the existing preview. From 0.2 onward, each
 minor milestone represents a user outcome. These are proposed allocations and may be split
 or reordered when testing exposes a dependency.</p>
 <p>The proposed 1.0 baseline requires the capabilities allocated to 0.1.14 and 0.2 through 0.5,
-plus <a href="#READY-01">READY-01</a>. It does not require iOS, 4K or enterprise features. Any reduction of that baseline
+plus <a href="#REPRO-01">REPRO-01</a> and <a href="#READY-01">READY-01</a>. It does not require iOS, 4K or enterprise features. Any reduction of that baseline
 must be recorded here before a release candidate. The conditional iOS milestone can proceed after mobile
 lifecycle and call behaviour are understood, without waiting for every desktop/group feature.</p></div></section>
-<section id="capabilities" class="block"><div class="section-top"><h2>Capability explorer</h2><small>34 capabilities · stable IDs</small></div>
+<section id="capabilities" class="block"><div class="section-top"><h2>Capability explorer</h2><small>41 capabilities · stable IDs</small></div>
 <p class="section-lead">Outcomes, architecture boundaries, dependencies and completion criteria across the app, SDK and infrastructure. Open an item or follow a dependency. Future extensions have design gates rather than invented release dates.</p>
 <noscript><p class="no-js">All capability details are available below. Open each heading to read them.</p></noscript>
 <div class="toolbar" data-js hidden><div class="field"><label for="search">Search capabilities</label><input id="search" type="search" placeholder="Try recovery, audio or TRUST-01" autocomplete="off"></div>
@@ -396,7 +469,7 @@ lifecycle and call behaviour are understood, without waiting for every desktop/g
 <div class="field field-stream"><label for="stream">Workstream</label><select id="stream"><option value="">All workstreams</option><option>Engine and integrations</option><option>Evidence and release</option><option>Future messaging</option><option>Identity and security</option><option>Local and invitations</option><option>Media and groups</option><option>Networks and helpers</option><option>Platforms and experience</option></select></div>
 <div class="field field-state"><label for="work-state">Work state</label><select id="work-state"><option value="">All states</option><option value="planned">Planned gate</option><option value="in_progress">In progress</option><option value="blocked">Blocked</option><option value="done">Complete</option></select></div>
 <div class="toolbar-actions"><button id="expand" type="button" aria-expanded="false">Expand details</button></div></div>
-<div class="results" data-js hidden><span id="count" role="status" aria-live="polite">34 of 34 capabilities</span><button id="reset" type="button">Clear filters</button></div>
+<div class="results" data-js hidden><span id="count" role="status" aria-live="polite">41 of 41 capabilities</span><button id="reset" type="button">Clear filters</button></div>
 <div id="capability-list"><details class="capability" id="AND-02" data-version="0.1.14" data-stream="Platforms and experience" data-state="done">
       <summary><span class="cap-id">AND-02</span><span class="cap-name">Integrate the Android preview<small class="cap-work-status">Complete</small></span>
       <span class="cap-version">0.1.14</span><span class="disclosure" aria-hidden="true">+</span></summary>
@@ -508,7 +581,31 @@ claim TCP 443 is indistinguishable from permitted web traffic or guarantees an a
 disable the camera automatically. Any extension toward audio/text-only operation needs clear
 consent and a visible state. Test adaptation hysteresis and measured step-up probes so a
 brief improvement cannot repeatedly overload the link. Report measured wire bytes rather
-than estimating usage from codec bitrate alone.</p></div></details><details class="capability" id="DESK-01" data-version="0.4.0" data-stream="Platforms and experience" data-state="planned">
+than estimating usage from codec bitrate alone.</p></div></details><details class="capability" id="CC-01" data-version="0.3.0" data-stream="Media and groups" data-state="planned">
+      <summary><span class="cap-id">CC-01</span><span class="cap-name">React to congestion before packets are lost<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.3.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Added 27/11/2026 from the Signal comparison; full acceptance gate open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Media and groups</span><p><strong>Outcome:</strong> On busy Wi-Fi or a shared uplink, video steps down smoothly and speech stays
+clear, instead of freezing after loss has already begun.
+<strong>Status:</strong> Planned; added 27/11/2026. QUIC uses quinn's loss-based default and Auto has two
+steps. Signal's calls use WebRTC's delay-based estimator (googcc), which is the largest call
+quality gap found in the comparison. <strong>Target:</strong> 0.3.0. <strong>Depends on:</strong> <a href="#DIAG-01">DIAG-01</a>, <a href="#DATA-01">DATA-01</a>.</p>
+<ul>
+<li>Measure one-way delay trend per link from send and receive timestamps already carried in
+  media headers, or add a small authenticated feedback message if they are not enough.</li>
+<li>Estimate available send rate from delay growth plus loss, and probe upward with padding or
+  redundant layers before stepping up a rung. Cap probes so they never starve audio.</li>
+<li>Drive the camera and share encoders from that estimate: bitrate first, then resolution,
+  then frame rate, then the next simulcast rung. Keep the Data saver and Audio only choices
+  as hard ceilings the estimate cannot exceed.</li>
+<li>Through a forwarder, the forwarder runs its own estimate per receiver and chooses layers
+  from it, without reading content. Senders get aggregated feedback, not per-receiver detail.</li>
+<li>Compare quinn's BBR option against a custom media controller in a small prototype before
+  choosing; record the choice in an ADR.</li>
+</ul>
+<p><strong>Complete when:</strong> Under scripted bandwidth drops (for example 4 to 1 to 0.5 Mbit/s) and
+added delay, measured runs show speech staying intelligible, median video recovery after a
+drop within a stated time, no oscillation over a 10-minute run, and less freezing than the
+current Auto on the same script. Record wire rate, delay and freeze time for both.</p></div></details><details class="capability" id="DESK-01" data-version="0.4.0" data-stream="Platforms and experience" data-state="planned">
       <summary><span class="cap-id">DESK-01</span><span class="cap-name">Persist identity and validate native desktop behaviour<small class="cap-work-status">Planned gate</small></span>
       <span class="cap-version">0.4.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
       <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Platforms and experience</span><p><strong>Outcome:</strong> Restarting Veil keeps a user's verified identity and setup on every desktop OS.
@@ -537,7 +634,33 @@ advance that person's replay state with forged media.
 <p><strong>Review questions:</strong> Which data is signed/authenticated, what binds sender/room/epoch/frame,
 and can an invalid frame change replay state before verification? Test forged counters,
 reordered legitimate frames, cross-room/epoch reuse and intentionally malicious participants.
-Do not treat a safety-code comparison as a substitute for media attribution.</p></div></details><details class="capability" id="GROUP-01" data-version="0.5.0" data-stream="Media and groups" data-state="planned">
+Do not treat a safety-code comparison as a substitute for media attribution.</p>
+<p><strong>Beyond Signal:</strong> Signal's group calls also use symmetric per-sender frame keys, so any
+member could forge another's frames in principle. Closing this gap (for example a device
+signature per keyframe plus a signed hash chain over the frames between keyframes) would
+give Veil a stronger guarantee than Signal. Measure CPU and byte cost on a phone.</p></div></details><details class="capability" id="PQ-01" data-version="0.5.0" data-stream="Identity and security" data-state="planned">
+      <summary><span class="cap-id">PQ-01</span><span class="cap-name">Protect calls against future quantum decryption<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.5.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Added 27/11/2026 from the Signal comparison; full acceptance gate open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Identity and security</span><p><strong>Outcome:</strong> Recorded call traffic cannot be decrypted later by an attacker with a quantum
+computer.
+<strong>Status:</strong> Planned; added 27/11/2026. MLS and QUIC key exchange use classical curves today.
+Signal added post-quantum key agreement (PQXDH) and a post-quantum ratchet to its messaging.
+<strong>Target:</strong> 0.5.0. <strong>Depends on:</strong> BASE-01.</p>
+<ul>
+<li>Group keys: adopt a hybrid MLS ciphersuite that combines X25519 with ML-KEM (for example
+  X-Wing) once <code>openmls</code> and its crypto provider support it, keeping Ed25519 signatures for
+  now. Check the provider stays on permissively licensed primitives.</li>
+<li>Transport: enable hybrid TLS 1.3 key exchange (X25519MLKEM768) in rustls for every QUIC
+  hop, so control traffic and invite fetches gain the same protection.</li>
+<li>Negotiate the suite by protocol version. An older client fails clearly, never falls back
+  silently to a classical-only call when both ends support the hybrid.</li>
+<li>Record post-quantum signatures as a later step; harvest-now-decrypt-later affects key
+  exchange first, and signature keys can be replaced before such an attacker exists.</li>
+</ul>
+<p><strong>Complete when:</strong> A call between current clients uses the hybrid suite for MLS and every
+QUIC hop, a packet capture confirms the hybrid TLS group, a downgrade attempt is refused in
+tests, and the extra join time and bytes are measured on a phone. TRANSPARENCY.md states
+exactly which layers are post-quantum.</p></div></details><details class="capability" id="GROUP-01" data-version="0.5.0" data-stream="Media and groups" data-state="planned">
       <summary><span class="cap-id">GROUP-01</span><span class="cap-name">Sustain calls beyond a small mesh<small class="cap-work-status">Planned gate</small></span>
       <span class="cap-version">0.5.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
       <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Media and groups</span><p><strong>Outcome:</strong> Adding people or losing a forwarder does not silently strand the call.
@@ -554,7 +677,28 @@ Do not treat a safety-code comparison as a substitute for media attribution.</p>
 <p><strong>Local policy hardening:</strong> The private <a href="#TRUST-02">TRUST-02</a> candidate requires a timely successful check
 from every current member, including newcomers to an already forwarded call. Each replan
 publishes mesh first; any refusal or timeout keeps it. This bounds the transition decision,
-but does not prove mesh capacity, sustained media or active-forwarder outage recovery.</p></div></details><details class="capability" id="IOS-01" data-version="0.6.0" data-stream="Platforms and experience" data-state="planned">
+but does not prove mesh capacity, sustained media or active-forwarder outage recovery.</p>
+<p><strong>Load evidence:</strong> Extend <code>veil-probe</code> into a forwarder load test (synthetic senders and
+receivers, no cameras) that records CPU, memory, queue age and loss per receiver as call size
+grows. Signal's calling service keeps a load test beside its forwarder for the same reason.</p></div></details><details class="capability" id="SPEAK-01" data-version="0.5.0" data-stream="Media and groups" data-state="planned">
+      <summary><span class="cap-id">SPEAK-01</span><span class="cap-name">Show who is speaking without telling the forwarder<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.5.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Added 27/11/2026 from the Signal comparison; full acceptance gate open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Media and groups</span><p><strong>Outcome:</strong> In a larger call the speaker's tile is promoted and gets the larger video layer,
+and the forwarder never learns who is talking.
+<strong>Status:</strong> Planned; added 27/11/2026. Signal's forwarder reads audio levels to pick the
+active speaker. Veil's forwarder sees only the layer header, so detection must stay on
+devices. <strong>Target:</strong> 0.5.0. <strong>Depends on:</strong> <a href="#DATA-01">DATA-01</a>, <a href="#TRUST-01">TRUST-01</a>.</p>
+<ul>
+<li>Each receiver measures speech activity from the audio it already decrypts, with a
+  dominant-speaker rule that ignores short noises and back-channel ("mm", laughter).</li>
+<li>Promotion changes that receiver's own subscriptions only: the speaker's larger layer, the
+  rest as thumbnails. No speaking signal is sent to the forwarder or other members.</li>
+<li>Keep constant-bitrate audio, so packet sizes still do not reveal who is talking.</li>
+<li>A pinned person always overrides automatic promotion.</li>
+</ul>
+<p><strong>Complete when:</strong> In a measured five-person call, promotion follows the speaker within a
+stated delay, does not flicker during cross-talk, and a forwarder packet capture shows no
+field that changes with speech. Phone CPU cost is recorded.</p></div></details><details class="capability" id="IOS-01" data-version="0.6.0" data-stream="Platforms and experience" data-state="planned">
       <summary><span class="cap-id">IOS-01</span><span class="cap-name">Bring the shared experience to iPhone<small class="cap-work-status">Planned gate</small></span>
       <span class="cap-version">0.6.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
       <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Platforms and experience</span><p><strong>Outcome:</strong> An iPhone can join the same calls with native permissions and lifecycle behaviour.
@@ -562,7 +706,26 @@ but does not prove mesh capacity, sustained media or active-forwarder outage rec
 access to a Mac with Xcode and an iPhone.</p>
 <p>Implement the launcher, AVFoundation camera/audio, Keychain storage, invitation handling,
 permissions and signed distribution. Repeat the mobile call, audio and interruption checks
-on hardware. Reuse the call/security engine; do not create a separate protocol.</p></div></details><details class="capability" id="READY-01" data-version="1.0.0" data-stream="Evidence and release" data-state="planned">
+on hardware. Reuse the call/security engine; do not create a separate protocol.</p></div></details><details class="capability" id="REPRO-01" data-version="1.0.0" data-stream="Evidence and release" data-state="planned">
+      <summary><span class="cap-id">REPRO-01</span><span class="cap-name">Let anyone check that a release matches its source<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">1.0.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Added 27/11/2026 from the Signal comparison; full acceptance gate open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Evidence and release</span><p><strong>Outcome:</strong> A third party can rebuild a published Veil release and get the same bytes, so a
+signed update cannot hide code that is not in the repository.
+<strong>Status:</strong> Planned; added 27/11/2026. Updates are signed and verified; builds are not yet
+reproducible. Signal publishes a reproducible Android build process. <strong>Target:</strong> 1.0.0.
+<strong>Depends on:</strong> <a href="#DIST-01">DIST-01</a>, <a href="#SUPPLY-01">SUPPLY-01</a>.</p>
+<ul>
+<li>Pin the Rust toolchain, Android SDK/NDK and Gradle versions, vendor or lock every source,
+  and remove build paths and timestamps from binaries (<code>--remap-path-prefix</code>,
+  <code>SOURCE_DATE_EPOCH</code>).</li>
+<li>Provide a container recipe that rebuilds the Android APK and the Linux binaries, and a script
+  that compares a rebuild with the published artifact, ignoring only the signature block.</li>
+<li>Document why Windows and macOS installers are harder (code signing and notarisation embed
+  data) and what is compared for them instead.</li>
+</ul>
+<p><strong>Complete when:</strong> Two independent machines rebuild the same tagged Android and Linux
+releases byte for byte apart from signatures, the comparison runs in CI on each release,
+and the procedure is published.</p></div></details><details class="capability" id="READY-01" data-version="1.0.0" data-stream="Evidence and release" data-state="planned">
       <summary><span class="cap-id">READY-01</span><span class="cap-name">Establish a supported release<small class="cap-work-status">Planned gate</small></span>
       <span class="cap-version">1.0.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
       <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Evidence and release</span><p><strong>Outcome:</strong> Users know which experience is supported and how its security was assessed.
@@ -621,7 +784,12 @@ provider as an unauthenticated TCP service. A native FFI approach requires an ex
 design consistent with Veil's existing restriction on owned <code>unsafe</code> outside media boundaries.</p>
 <p><strong>Complete when:</strong> A non-Rust sample can complete a call, an unauthorised process is rejected,
 malformed/oversized messages are bounded, host/provider crashes release capture, and schema
-version mismatch gives a useful error. Explain process isolation's actual trust limits.</p></div></details><details class="capability" id="EMBED-01" data-version="0.4.0" data-stream="Engine and integrations" data-state="planned">
+version mismatch gives a useful error. Explain process isolation's actual trust limits.</p>
+<p><strong>Generate, do not hand-write:</strong> Describe each bridge call once in Rust and generate the IPC
+schema and the host-language stubs from it (libsignal does this with <code>#[bridge_fn]</code> for
+Java, Swift and TypeScript). Treat the generated layer as internal, not public API. Run the
+same call-journey tests through every supported language binding, because one binding can
+miss an edge case the others catch.</p></div></details><details class="capability" id="EMBED-01" data-version="0.4.0" data-stream="Engine and integrations" data-state="planned">
       <summary><span class="cap-id">EMBED-01</span><span class="cap-name">Prove Veil as another application&#x27;s call provider<small class="cap-work-status">Planned gate</small></span>
       <span class="cap-version">0.4.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
       <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Engine and integrations</span><p><strong>Outcome:</strong> A host such as Mailcraft offers calls that interoperate with standalone Veil.
@@ -710,7 +878,45 @@ injection for recovery/revocation and boundedness where practical.</p>
 ledger, with an explicit pass/fail/not-run state per scenario. Preserve TEST-5G-01 as a passed
 user-reported connection. Hardware/network tests remain explicit actions; CI must not claim
 carrier or audible-quality coverage from localhost tests. Never fabricate population success
-rates from a handful of manual calls.</p></div></details><details class="capability is-next" id="SHARE-01" data-version="0.2.0" data-stream="Media and groups" data-state="planned">
+rates from a handful of manual calls.</p></div></details><details class="capability" id="HARD-01" data-version="0.2.0" data-stream="Identity and security" data-state="planned">
+      <summary><span class="cap-id">HARD-01</span><span class="cap-name">Fuzz and harden every untrusted input<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.2.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Added 27/11/2026 from the Signal comparison; full acceptance gate open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Identity and security</span><p><strong>Outcome:</strong> Hostile bytes from a network peer, helper, invite or file cannot crash, hang or
+corrupt a Veil device.
+<strong>Status:</strong> Planned; added 27/11/2026 after the Signal comparison. Bounded parsers and negative
+tests exist; no fuzz targets exist. <strong>Target:</strong> 0.2.0. <strong>Depends on:</strong> <a href="#TRUST-02">TRUST-02</a>.</p>
+<ul>
+<li>Add <code>cargo-fuzz</code> targets for each parser that reads untrusted input: <code>veil-net</code> control
+  framing, full and short invites, rendezvous messages, roster tickets and forwarder
+  subscriptions, the sealed frame header, signed app messages, MLS message intake, LUT
+  <code>.cube</code> files and QR payloads.</li>
+<li>Keep a seed corpus per target from real messages, with no keys or invite secrets in it.
+  Every crash becomes a regression test before the fix merges.</li>
+<li>Rule: untrusted input never panics. Deny <code>unwrap</code> and <code>expect</code> in the parsing modules of
+  those crates with Clippy, and return a typed error instead. A worker panic is caught at its
+  thread boundary, logged without user data, and ends only that worker's session.</li>
+<li>Rule: logs never contain conversation content, keys, invite secrets or display names. Add a
+  test that scans log output from a loopback call for planted marker values.</li>
+</ul>
+<p><strong>Complete when:</strong> Every listed target has run for an agreed time budget with no open crash,
+a short smoke run of each target runs in CI, and the lint and log rules are enforced in CI.
+Record the run time and corpus size per target. Fuzzing does not replace the <a href="#TRUST-02">TRUST-02</a> review.</p></div></details><details class="capability" id="SUPPLY-01" data-version="0.2.0" data-stream="Evidence and release" data-state="planned">
+      <summary><span class="cap-id">SUPPLY-01</span><span class="cap-name">Check dependencies and licences in CI<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">0.2.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Added 27/11/2026 from the Signal comparison; full acceptance gate open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Evidence and release</span><p><strong>Outcome:</strong> A risky, duplicated or wrongly licensed dependency cannot reach a release unnoticed.
+<strong>Status:</strong> Planned; added 27/11/2026. Licences are recorded by <code>tools/licences.py</code>; no
+advisory, duplicate-version or source check runs in CI. <strong>Target:</strong> 0.2.0. <strong>Depends on:</strong> BASE-01.</p>
+<ul>
+<li>Add <code>cargo-deny</code> to CI: RustSec advisories, the licence allow-list (matching
+  <a href="DEPENDENCIES.md">DEPENDENCIES.md</a>), banned crates, crates.io-only sources and duplicate
+  versions in shipped binaries. Record each allowed exception with its reason.</li>
+<li>Produce a software bill of materials (SBOM) for each release artifact and attach it to the
+  GitHub release.</li>
+<li>Gradle dependencies for the Android shell get a lockfile and the same advisory check.</li>
+</ul>
+<p><strong>Complete when:</strong> CI fails on a planted vulnerable or disallowed dependency, every release
+since the change has an SBOM attached, and the exception list is reviewed before each minor
+release.</p></div></details><details class="capability is-next" id="SHARE-01" data-version="0.2.0" data-stream="Media and groups" data-state="planned">
       <summary><span class="cap-id">SHARE-01</span><span class="cap-name">Share computer sound with a screen<small class="cap-work-status">Planned gate</small></span>
       <span class="cap-version">0.2.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
       <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Requested 25 November 2026; full acceptance gate open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Media and groups</span><p><strong>Outcome:</strong> A person sharing a screen can choose to include their computer's sound, and set
@@ -820,7 +1026,8 @@ metrics without content or a company telemetry backend. Test fairness under many
 sharing a carrier NAT before changing address-block allocation.</p>
 <p><strong>Complete when:</strong> A clean machine can run a restricted node following the guide; allowed hosts
 work, strangers are refused, and their guests still require host admission. Load tests record
-bounded memory/queues and behaviour at capacity. Crash/restart and key/config errors have
+bounded memory/queues and behaviour at capacity, using the <code>veil-probe</code> load test described
+in <a href="#GROUP-01">GROUP-01</a>. Crash/restart and key/config errors have
 clear recovery. Container packaging can follow this contract; it must not imply an operated
 Veil service or unreviewed default public access.</p></div></details><details class="capability" id="ID-01" data-version="0.4.0" data-stream="Identity and security" data-state="planned">
       <summary><span class="cap-id">ID-01</span><span class="cap-name">Keep contacts and host-app identities locally controlled<small class="cap-work-status">Planned gate</small></span>
@@ -835,7 +1042,16 @@ all hosts blanket authority. Do not equate a host account ID with a verified Vei
 <p><strong>Complete when:</strong> Restart, key replacement, duplicate names, store lockout, separate host apps,
 user deletion and consent-based export tests preserve the documented identity model. There
 is no central contact lookup or automatic address-book import. Encryption/backup recovery
-and deletion limits are documented before any history/contact export feature ships.</p></div></details><details class="capability" id="MEDIA-01" data-version="0.5.0" data-stream="Media and groups" data-state="planned">
+and deletion limits are documented before any history/contact export feature ships.</p>
+<p><strong>Also in scope (from the Signal comparison):</strong>
+- Linked devices: a person can link a new device to an existing one in person (QR on both
+  screens), so contacts who verified one device see the link and need not verify again.
+  Unlinking revokes the device in future calls.
+- Identity backup: an optional export of the device key and verified contacts, sealed with a
+  user passphrase through a memory-hard key derivation, kept wherever the user chooses. No
+  server holds it. Restoring shows contacts that the key came from a backup.
+- Key-change warnings: a changed key for a verified contact is shown before the call starts,
+  not only in the roster.</p></div></details><details class="capability" id="MEDIA-01" data-version="0.5.0" data-stream="Media and groups" data-state="planned">
       <summary><span class="cap-id">MEDIA-01</span><span class="cap-name">Prioritise conversation and measure capacity<small class="cap-work-status">Planned gate</small></span>
       <span class="cap-version">0.5.0</span><span class="disclosure" aria-hidden="true">+</span></summary>
       <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Full capability acceptance gate remains open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Media and groups</span><p><strong>Outcome:</strong> Video does not make speech or call control unusable, and topology matches real resources.
@@ -952,7 +1168,28 @@ reviewed adapters, with explicit participant-visible plaintext access and policy
 <p><strong>Complete when:</strong> Personal and organisation-enabled clients interoperate using the supported
 SDK/protocol. Invalid/expired/revoked policy/attestations fail safely. No invisible recorder,
 administrator decryption key or automatic company-hosted social graph is introduced. An
-organisation's opted-in data policy must be visible, not represented as Veil's default privacy model.</p></div></details></div><p id="empty" class="empty" hidden>No capabilities match. Clear the filters or try a different term.</p></section>
+organisation's opted-in data policy must be visible, not represented as Veil's default privacy model.</p>
+<p>An organisation directory may later publish device keys through an append-only, auditable
+log (in the style of Signal's key transparency), so members can detect a substituted key
+without comparing safety codes. It must stay optional and replaceable, never a central Veil service.</p></div></details><details class="capability" id="META-01" data-version="Unassigned" data-stream="Identity and security" data-state="planned">
+      <summary><span class="cap-id">META-01</span><span class="cap-name">Reduce what networks and helpers learn from traffic<small class="cap-work-status">Planned gate</small></span>
+      <span class="cap-version">Later</span><span class="disclosure" aria-hidden="true">+</span></summary>
+      <div class="cap-body"><div class="work-record"><strong>Tracked work state</strong><p class="work-note">Added 27/11/2026 from the Signal comparison; full acceptance gate open.</p><ul class="work-evidence"></ul></div><span class="stream-label">Identity and security</span><p><strong>Outcome:</strong> A network observer or helper learns as little as possible about who is in a call
+and what they are doing, beyond the fact that a call exists.
+<strong>Status:</strong> Exploration; added 27/11/2026. Packet sizes and timing reveal activity today;
+padding is planned but cannot be turned on. <strong>Target:</strong> Unassigned extension.
+<strong>Depends on:</strong> <a href="#CC-01">CC-01</a>, <a href="#NET-01">NET-01</a>, <a href="#TRUST-02">TRUST-02</a>.</p>
+<ul>
+<li>Optional padding of video packets to fixed size buckets, and a constant-rate mode for
+  audio and control, with the bandwidth cost shown before it is turned on.</li>
+<li>Review what the rendezvous learns (room id hash, IP addresses, timing) and remove what is
+  not needed; consider rotating room lookup keys per call.</li>
+<li>Measure, with a traffic classifier, how well an observer can tell speaking, screen sharing
+  and joins apart before and after padding.</li>
+</ul>
+<p><strong>Design gate:</strong> A measured cost and benefit for each option on phone and desktop.
+<strong>Completion gate:</strong> The selected options are user choices with honest descriptions in
+TRANSPARENCY.md; no option is presented as making a call undetectable.</p></div></details></div><p id="empty" class="empty" hidden>No capabilities match. Clear the filters or try a different term.</p></section>
 <section id="ownership" class="block strategy-section"><h2>Data ownership and trust boundaries</h2><div class="prose"><p>The rule is: devices own people and conversations; helpers keep only the bounded routing
 state needed to make an authorised connection possible. "No central data company" does not
 mean helpers see no information. Their observable metadata and retention must stay explicit.</p>
@@ -1365,6 +1602,30 @@ reports to the scenarios that apply to their supported scope.</p>
 <td>Keys/contacts retained; incompatible API/wire versions fail clearly</td>
 <td>Desktop packaging exists; Android signed upgrade/SDK matrix open</td>
 </tr>
+<tr>
+<td>Congested link</td>
+<td>Scripted bandwidth drops and added delay, mesh and forwarder</td>
+<td>Speech stays clear; video steps down before freezing; no oscillation</td>
+<td><a href="#CC-01">CC-01</a> not built</td>
+</tr>
+<tr>
+<td>Hostile input</td>
+<td>Fuzzed framing, invites, tickets, headers, MLS and LUT files</td>
+<td>No panic, hang or unbounded memory</td>
+<td><a href="#HARD-01">HARD-01</a> not built</td>
+</tr>
+<tr>
+<td>Quantum downgrade</td>
+<td>Strip the hybrid suite or TLS group from a handshake</td>
+<td>Refused with a clear error</td>
+<td><a href="#PQ-01">PQ-01</a> not built</td>
+</tr>
+<tr>
+<td>Rebuild a release</td>
+<td>Two machines rebuild a tagged Android and Linux release</td>
+<td>Same bytes apart from signatures</td>
+<td><a href="#REPRO-01">REPRO-01</a> not built</td>
+</tr>
 </tbody>
 </table></div>
 <h3 id="measurements-that-inform-decisions">Measurements that inform decisions</h3>
@@ -1442,13 +1703,13 @@ evidence; it does not silently close storage, revocation, lifecycle or integrati
 </tr>
 <tr>
 <td>0.2.0</td>
-<td>Offline hardware report, integrated convenience-path review, mobile/audio scenarios, QR/manual join checks, redacted diagnostics, signed preview/upgrade record</td>
-<td>Removed-member recovery, weakened pinning/privacy, capture left running after leave or core offline call depending on WAN</td>
+<td>Offline hardware report, integrated convenience-path review, mobile/audio scenarios, QR/manual join checks, redacted diagnostics, signed preview/upgrade record, fuzz run record and <code>cargo-deny</code> in CI</td>
+<td>Removed-member recovery, weakened pinning/privacy, capture left running after leave, core offline call depending on WAN, an open fuzz crash or a known vulnerable shipped dependency</td>
 </tr>
 <tr>
 <td>0.3.0</td>
-<td>Consumable headless Rust sample, desktop/Android engine migration, full TCP joining path, independent helper tests, measured receive controls and node load limits</td>
-<td>GUI dependency in the SDK, UDP-only joining on the TCP path, unbounded retry/queue behaviour or privacy-leaking route upgrade</td>
+<td>Consumable headless Rust sample, desktop/Android engine migration, full TCP joining path, independent helper tests, measured receive controls, node load limits and a congestion-control comparison</td>
+<td>GUI dependency in the SDK, UDP-only joining on the TCP path, unbounded retry/queue behaviour, privacy-leaking route upgrade or adaptation that starves audio</td>
 </tr>
 <tr>
 <td>0.4.0</td>
@@ -1457,13 +1718,13 @@ evidence; it does not silently close storage, revocation, lifecycle or integrati
 </tr>
 <tr>
 <td>0.5.0</td>
-<td>Sender-attribution/replay review, measured group media, forwarding partial-failure decision, active-node outage results</td>
-<td>Another member accepted as a different media sender, hidden participants without media or unbounded group resource use</td>
+<td>Sender-attribution/replay review, measured group media, forwarding partial-failure decision, active-node outage results, hybrid post-quantum capture and speaker-detection capture</td>
+<td>Another member accepted as a different media sender, hidden participants without media, unbounded group resource use, silent classical-only fallback or a speech signal visible to the forwarder</td>
 </tr>
 <tr>
 <td>1.0.0</td>
-<td>Defined supported scope, independent review/findings disposition, API/protocol compatibility policy, full mandatory matrix, signed distribution and maintenance process</td>
-<td>Any unresolved issue classified as release-blocking in the reviewed threat model or a protection claim unsupported on a supported path</td>
+<td>Defined supported scope, independent review/findings disposition, API/protocol compatibility policy, full mandatory matrix, signed distribution, maintenance process and a reproducible-build procedure</td>
+<td>Any unresolved issue classified as release-blocking in the reviewed threat model, a protection claim unsupported on a supported path or a release that cannot be rebuilt to the same bytes</td>
 </tr>
 </tbody>
 </table></div>
@@ -1553,6 +1814,21 @@ If no safe enforceable scope is accepted, <a href="#TRUST-01">TRUST-01</a> moves
 <td>Attestation, policy, recording and gateways can change who is trusted</td>
 <td>Explicit role design and participant-visible policy/plaintext access</td>
 </tr>
+<tr>
+<td>Congestion controller choice</td>
+<td>A custom controller is hard to get right; quinn's BBR may not suit media</td>
+<td><a href="#CC-01">CC-01</a> prototype comparing both on the same scripted links</td>
+</tr>
+<tr>
+<td>Post-quantum library support</td>
+<td><code>openmls</code> hybrid suites and rustls hybrid groups may lag or change</td>
+<td>Track upstream support; record versions and fallback rules in a <a href="#PQ-01">PQ-01</a> ADR</td>
+</tr>
+<tr>
+<td>Padding cost</td>
+<td>Padding protects activity patterns but costs data, which matters on phones</td>
+<td><a href="#META-01">META-01</a> measured cost per option before offering it</td>
+</tr>
 </tbody>
 </table></div>
 <p>No open library or framework choice is a reason to discard the working call stack without
@@ -1594,6 +1870,8 @@ part of reaching people; it is not the whole mission.</p></div><div class="prose
 <li>Treat security fixes as immediate work across milestones. A future audit does not defer
   fixing a known weakness.</li>
 <li>Finish and validate a useful increment before widening its platform or performance scope.</li>
+<li>Keep the engine permissively licensed (MIT or Apache-2.0), so other apps can embed it.
+  A copyleft-only engine with a contributor licence agreement would block the provider goal.</li>
 </ul></div></section>
 <section id="compatibility" class="block strategy-section"><h2>Version and compatibility rules</h2><div class="prose"><ul>
 <li>Continue the existing 0.1.x preview line for consolidation/fixes; 0.1.14 is an integration
@@ -1615,7 +1893,7 @@ part of reaching people; it is not the whole mission.</p></div><div class="prose
 </ul></div></section>
 <section id="extensions" class="block strategy-section"><h2>Work after the core milestones</h2><div class="prose"><p>QR camera scanning is now in the proposed 0.2 <a href="#INVITE-01">INVITE-01</a> scope. Android screen sharing is now
 <a href="#SHARE-02">SHARE-02</a> in 0.2. <a href="#IOS-01">IOS-01</a> is conditional on hardware/tooling; <a href="#HOST-01">HOST-01</a>,
-<a href="#NEAR-01">NEAR-01</a>, <a href="#MSG-01">MSG-01</a>, <a href="#SCALE-01">SCALE-01</a>, <a href="#PERF-01">PERF-01</a> and <a href="#ORG-01">ORG-01</a> have design gates but no reserved version.
+<a href="#NEAR-01">NEAR-01</a>, <a href="#MSG-01">MSG-01</a>, <a href="#SCALE-01">SCALE-01</a>, <a href="#PERF-01">PERF-01</a>, <a href="#ORG-01">ORG-01</a> and <a href="#META-01">META-01</a> have design gates but no reserved version.
 Allocate their release numbers after feasibility and scope decisions instead of implying a
 fixed serial path to 0.7/0.8/0.9. Their absence does not remove the requirement for a reusable
 engine/provider in the core baseline.</p></div></section>
@@ -1633,7 +1911,7 @@ private keys or reusable invitation secrets.</p>
 instead of turning it back into a task. Move shipped behaviour to the changelog and refresh
 the handoff; keep capability IDs stable so older discussions remain meaningful.</p></div></section>
 <footer class="footer"><span>Veil · Modular, agnostic, shared.</span><span>Planning targets · <a href="ROADMAP.md">Read the Markdown source ↗</a></span></footer>
-</main></div><script type="application/json" id="roadmap-state">{"schema_version": 1, "revision": 43, "updated_at": "2026-11-27T14:44:54+00:00", "next_step": {"capability": "SHARE-01", "title": "Share computer sound with a screen", "why": "Jeremy prioritised screen-share sound, LUT effects and Android sharing ahead of LOCAL-01 on 25/11/2026", "checks": ["Include computer sound choice, sender level and mute, receiver volume, on Windows, macOS and Linux", "Call audio is not echoed back; hardware listening results recorded"]}, "capabilities": {"AND-02": {"status": "done", "note": "Integrated in PR #86 (f2a01a3); desktop CI and Android ARM64 artifact build green on main 816b789; lifecycle dispositions recorded", "evidence": ["main/ on codex/release-0.1.13, base c032a89; docs/ANDROID_INTEGRATION_REVIEW.md records scope, findings and actual verification. Fresh validation checkout: main/target/and-02-source-check (detached candidate overlay); no generated build inputs copied.", "https://github.com/Jeremy8776/veil/pull/86; CI run 45496676064 and Android preview run 45496676122 on 816b789; docs/ANDROID_INTEGRATION_REVIEW.md"], "updated_at": "2026-11-25T10:57:36+00:00"}, "MOB-01": {"status": "in_progress", "note": "Hardware-found pre-join background microphone retention fixed. Short foreground/background/service and destroy/relaunch checks passed on Android 17; sustained calls, lock/permission/network transitions and recovery gates remain open.", "evidence": ["docs/ANDROID_INTEGRATION_REVIEW.md connected-device increment; original settings restored exactly and identity retained. Solo call only; no new remote media/soak claim."], "updated_at": "2026-11-23T14:07:25+00:00"}, "MOB-02": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "DIST-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "NET-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "DATA-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "DESK-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "TRUST-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "GROUP-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "IOS-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "READY-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "SDK-01": {"status": "done", "note": "ADR 0006 and 20-module extraction inventory define the host/engine boundary, key custody, scoped storage/media consent, cancellable lifecycle, bounded commands/events, errors and desktop/Android/headless migration. Create/join/admit/mute/verify/reconnect/end traced against current code; SDK implementation is SDK-02.", "evidence": ["docs/adr/0006-shared-engine-provider-contract.md and docs/ENGINE_PROVIDER_INVENTORY.md; inventory checked against all 20 existing engine .rs modules. Design only; no stable or implemented public provider API claimed."], "updated_at": "2026-11-23T13:32:07+00:00"}, "SDK-02": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "BIND-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "EMBED-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "LOCAL-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "TRUST-02": {"status": "done", "note": "Merged in PR #87 (c9444cd): trust-boundary hardening", "evidence": ["https://github.com/Jeremy8776/veil/pull/87"], "updated_at": "2026-11-24T21:53:06+00:00"}, "INVITE-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "DIAG-01": {"status": "done", "note": "Merged in PR #88 (0291db5): local connection reports and previewed redacted export", "evidence": ["https://github.com/Jeremy8776/veil/pull/88"], "updated_at": "2026-11-24T21:52:11+00:00"}, "TEST-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "NET-02": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "NET-03": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "OPS-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "ID-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "MEDIA-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "HOST-01": {"status": "in_progress", "note": "First pass built on claude/host-01-handover (5f2f1d8..59ef855, unpushed). Loopback handover test and unit tests pass. Needs real-device LAN and internet evidence.", "evidence": [], "updated_at": "2026-11-27T14:44:53+00:00"}, "NEAR-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "MSG-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "SCALE-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "PERF-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "ORG-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "SHARE-01": {"status": "planned", "note": "Requested 25 November 2026; full acceptance gate open.", "evidence": [], "updated_at": "2026-11-25T11:36:35+00:00"}, "SHARE-02": {"status": "in_progress", "note": "Code complete on branch claude/hungry-bhaskara-a660c7: MediaProjection consent per share, mediaProjection service with Stop, phone sound via AudioPlaybackCapture on the shared share path. Verified: veil-media and veil-app targeted tests, desktop Clippy, Android build -Check (Android Clippy, APK checks). Needs Jeremy's phone test (SM-S9260, Android 17): start, stop (bar, notification, system indicator), denial, revoked consent, screen lock, leaving the call, picture and sound reaching a desktop receiver.", "evidence": [], "updated_at": "2026-11-25T17:12:37+00:00"}, "FX-01": {"status": "planned", "note": "Requested 25 November 2026; full acceptance gate open.", "evidence": [], "updated_at": "2026-11-25T11:36:35+00:00"}}, "sessions": {"01a207ea-e141-7ce0-953c-df660a232d9b": {"title": "Live roadmap and session startup", "status": "idle", "started_at": "2026-11-23T12:57:42+00:00", "updated_at": "2026-11-23T13:02:20+00:00", "note": "Configured roadmap-first session instructions and verified shared live updates, next-step selection, concurrency and browser behaviour. Next product step: AND-02 Android integration review/build repeatability."}, "codex-continue-20261123-a": {"title": "Reach the 0.1.14 integration and provider-design milestone", "status": "active", "started_at": "2026-11-23T13:05:24+00:00", "updated_at": "2026-11-23T14:07:25+00:00", "note": "SDK-01 design committed. Verifying the user-requested full portrait bento canvas and join/reflow animation on desktop and connected Android, including the hardware-found background pre-join microphone fix; final CI follows."}, "claude-5341dbf7": {"title": "Roadmap review", "status": "idle", "started_at": "2026-11-25T10:53:47+00:00", "updated_at": "2026-11-25T11:48:32+00:00", "note": "Handoff written in docs/HANDOFF.md (local commit on docs/share-fx-roadmap). Next session starts SHARE-01."}, "share-02-hungry-bhaskara": {"title": "SHARE-02 Android screen share", "status": "idle", "started_at": "2026-11-25T16:58:55+00:00", "updated_at": "2026-11-25T17:13:17+00:00", "note": "SHARE-02 PR #94 open; CI pending; awaiting Jeremy's phone test"}, "host-01-handover-s2": {"title": "HOST-01 host actor, successor, member, UI", "status": "idle", "started_at": "2026-11-27T14:16:50+00:00", "updated_at": "2026-11-27T14:44:54+00:00", "note": "HOST-01 steps 1-5 committed locally; next: Jeremy's real-device test, then push/PR on his yes"}}, "activity": [{"at": "2026-11-27T14:44:54+00:00", "session": "host-01-handover-s2", "note": "HOST-01 steps 1-5 committed locally; next: Jeremy's real-device test, then push/PR on his yes"}, {"at": "2026-11-27T14:44:53+00:00", "session": "host-01-handover-s2", "note": "HOST-01: in_progress — First pass built on claude/host-01-handover (5f2f1d8..59ef855, unpushed). Loopback handover test and unit tests pass. Needs real-device LAN and internet evidence."}, {"at": "2026-11-27T14:31:44+00:00", "session": "host-01-handover-s2", "note": "HOST-01: in_progress — veil-call handover done (host, successor, member, tests); starting veil-app UI"}, {"at": "2026-11-27T14:16:51+00:00", "session": "host-01-handover-s2", "note": "HOST-01: in_progress — Building host actor handover (host/handover.rs)"}, {"at": "2026-11-27T14:16:50+00:00", "session": "host-01-handover-s2", "note": "Session opened: HOST-01 host actor, successor, member, UI"}, {"at": "2026-11-25T17:13:17+00:00", "session": "share-02-hungry-bhaskara", "note": "SHARE-02 PR #94 open; CI pending; awaiting Jeremy's phone test"}, {"at": "2026-11-25T17:12:37+00:00", "session": "share-02-hungry-bhaskara", "note": "SHARE-02: in_progress — Code complete on branch claude/hungry-bhaskara-a660c7: MediaProjection consent per share, mediaProjection service with Stop, phone sound via AudioPlaybackCapture on the shared share path. Verified: veil-media and veil-app targeted tests, desktop Clippy, Android build -Check (Android Clippy, APK checks). Needs Jeremy's phone test (SM-S9260, Android 17): start, stop (bar, notification, system indicator), denial, revoked consent, screen lock, leaving the call, picture and sound reaching a desktop receiver."}, {"at": "2026-11-25T16:58:56+00:00", "session": "share-02-hungry-bhaskara", "note": "SHARE-02: in_progress — Designing MediaProjection share path into the shared encoder"}, {"at": "2026-11-25T16:58:55+00:00", "session": "share-02-hungry-bhaskara", "note": "Session opened: SHARE-02 Android screen share"}, {"at": "2026-11-25T11:48:32+00:00", "session": "claude-5341dbf7", "note": "Handoff written in docs/HANDOFF.md (local commit on docs/share-fx-roadmap). Next session starts SHARE-01."}, {"at": "2026-11-25T11:44:30+00:00", "session": "claude-5341dbf7", "note": "SHARE-01, FX-01, SHARE-02 moved ahead of LOCAL-01; SHARE-01 is next. Local commits on docs/share-fx-roadmap, unpushed."}, {"at": "2026-11-25T11:44:28+00:00", "session": "claude-5341dbf7", "note": "Next step: SHARE-01 — Share computer sound with a screen"}, {"at": "2026-11-25T11:37:10+00:00", "session": "claude-5341dbf7", "note": "Added SHARE-01, SHARE-02 and FX-01 to 0.2.0 on docs/share-fx-roadmap (local commit, stacked on PR #90). Next: LOCAL-01."}, {"at": "2026-11-25T11:36:35+00:00", "session": "claude-5341dbf7", "note": "Added SHARE-01 (share computer sound), SHARE-02 (Android screen sharing) and FX-01 (LUTs and effect strength) to 0.2.0, prioritised after LOCAL-01"}, {"at": "2026-11-25T10:57:41+00:00", "session": "claude-5341dbf7", "note": "AND-02 marked done on docs/and-02-done (local commit, not pushed). Next: LOCAL-01 WAN/DNS-off call."}, {"at": "2026-11-25T10:57:36+00:00", "session": "claude-5341dbf7", "note": "AND-02: done — Integrated in PR #86 (f2a01a3); desktop CI and Android ARM64 artifact build green on main 816b789; lifecycle dispositions recorded"}, {"at": "2026-11-25T10:56:45+00:00", "session": "claude-5341dbf7", "note": "Starting AND-02: reviewing the release-0.1.13 Android candidate against main"}, {"at": "2026-11-25T10:54:03+00:00", "session": "claude-5341dbf7", "note": "Reviewed roadmap state with user; no product changes. Next: AND-02 integration, CI and lifecycle checks."}, {"at": "2026-11-25T10:53:55+00:00", "session": "claude-5341dbf7", "note": "Session opened: Roadmap review"}, {"at": "2026-11-25T10:53:47+00:00", "session": "claude-5341dbf7", "note": "Session opened: Roadmap review"}, {"at": "2026-11-24T21:53:06+00:00", "session": null, "note": "TRUST-02: done — Merged in PR #87 (c9444cd): trust-boundary hardening"}, {"at": "2026-11-24T21:52:11+00:00", "session": null, "note": "DIAG-01: done — Merged in PR #88 (0291db5): local connection reports and previewed redacted export"}, {"at": "2026-11-24T20:19:10+00:00", "session": "claude-diag-01", "note": "DIAG-01: in_progress — Acceptance met on codex/diag-01 (PR #88); review fixes for full-call, helper, identity and screen-share evidence pushed; closes on merge"}, {"at": "2026-11-23T14:07:25+00:00", "session": "codex-continue-20261123-a", "note": "MOB-01: in_progress — Hardware-found pre-join background microphone retention fixed. Short foreground/background/service and destroy/relaunch checks passed on Android 17; sustained calls, lock/permission/network transitions and recovery gates remain open."}, {"at": "2026-11-23T13:53:42+00:00", "session": "codex-continue-20261123-a", "note": "SDK-01 design committed. Verifying the user-requested full portrait bento canvas and join/reflow animation on desktop and connected Android, including the hardware-found background pre-join microphone fix; final CI follows."}, {"at": "2026-11-23T13:32:07+00:00", "session": "codex-continue-20261123-a", "note": "SDK-01: done — ADR 0006 and 20-module extraction inventory define the host/engine boundary, key custody, scoped storage/media consent, cancellable lifecycle, bounded commands/events, errors and desktop/Android/headless migration. Create/join/admit/mute/verify/reconnect/end traced against current code; SDK implementation is SDK-02."}, {"at": "2026-11-23T13:25:12+00:00", "session": "codex-continue-20261123-a", "note": "SDK-01: in_progress — Designing the provider lifecycle, bounded commands/events, consent/storage adapters and migration inventory for the 0.1.14 milestone"}, {"at": "2026-11-23T13:23:45+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Reach the 0.1.14 integration and provider-design milestone"}, {"at": "2026-11-23T13:23:21+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Reach the 0.1.14 integration and provider-design milestone"}, {"at": "2026-11-23T13:18:02+00:00", "session": "codex-continue-20261123-a", "note": "AND-02 review/build increment verified: pinned Android tools/CI artifact, camera publication and environment-restoration fixes, fresh candidate-source APK build, Android/desktop Clippy and 810 Windows tests passed. Next: coherent integration, remote CI and lifecycle checks; see docs/ANDROID_INTEGRATION_REVIEW.md."}, {"at": "2026-11-23T13:16:06+00:00", "session": "codex-continue-20261123-a", "note": "Next step: AND-02 — Integrate the reviewed Android candidate and verify CI/lifecycle"}, {"at": "2026-11-23T13:16:05+00:00", "session": "codex-continue-20261123-a", "note": "AND-02: in_progress — Reviewed native ownership; fixed camera frame publication after close; pinned Android build and CI added. Fresh candidate-source ARM64 build/APK checks, Android Clippy and 810 Windows tests passed. Integration, remote desktop/Android CI and device lifecycle evidence remain open."}, {"at": "2026-11-23T13:09:09+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Android integration review and repeatable build"}, {"at": "2026-11-23T13:08:51+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Android integration review and repeatable build"}, {"at": "2026-11-23T13:05:58+00:00", "session": "codex-continue-20261123-a", "note": "AND-02: in_progress — Reviewing Android JNI/media ownership and reproducible build/CI requirements"}, {"at": "2026-11-23T13:05:24+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Continue the next Veil roadmap task"}, {"at": "2026-11-23T13:02:20+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Configured roadmap-first session instructions and verified shared live updates, next-step selection, concurrency and browser behaviour. Next product step: AND-02 Android integration review/build repeatability."}, {"at": "2026-11-23T13:01:08+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Browser verified live session refresh 1795438867918"}, {"at": "2026-11-23T13:01:02+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Session opened: Live roadmap and session startup"}, {"at": "2026-11-23T12:59:52+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Session startup and live-state tracking implemented; verifying concurrent writers and the browser refresh path."}, {"at": "2026-11-23T12:58:34+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Session opened: Live roadmap and session startup"}, {"at": "2026-11-23T12:57:42+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Session opened: Live roadmap and session startup"}]}</script><script>
+</main></div><script type="application/json" id="roadmap-state">{"schema_version": 1, "revision": 43, "updated_at": "2026-11-27T14:44:54+00:00", "next_step": {"capability": "SHARE-01", "title": "Share computer sound with a screen", "why": "Jeremy prioritised screen-share sound, LUT effects and Android sharing ahead of LOCAL-01 on 25/11/2026", "checks": ["Include computer sound choice, sender level and mute, receiver volume, on Windows, macOS and Linux", "Call audio is not echoed back; hardware listening results recorded"]}, "capabilities": {"AND-02": {"status": "done", "note": "Integrated in PR #86 (f2a01a3); desktop CI and Android ARM64 artifact build green on main 816b789; lifecycle dispositions recorded", "evidence": ["main/ on codex/release-0.1.13, base c032a89; docs/ANDROID_INTEGRATION_REVIEW.md records scope, findings and actual verification. Fresh validation checkout: main/target/and-02-source-check (detached candidate overlay); no generated build inputs copied.", "https://github.com/Jeremy8776/veil/pull/86; CI run 45496676064 and Android preview run 45496676122 on 816b789; docs/ANDROID_INTEGRATION_REVIEW.md"], "updated_at": "2026-11-25T10:57:36+00:00"}, "MOB-01": {"status": "in_progress", "note": "Hardware-found pre-join background microphone retention fixed. Short foreground/background/service and destroy/relaunch checks passed on Android 17; sustained calls, lock/permission/network transitions and recovery gates remain open.", "evidence": ["docs/ANDROID_INTEGRATION_REVIEW.md connected-device increment; original settings restored exactly and identity retained. Solo call only; no new remote media/soak claim."], "updated_at": "2026-11-23T14:07:25+00:00"}, "MOB-02": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "DIST-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "NET-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "DATA-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "DESK-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "TRUST-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "GROUP-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "IOS-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "READY-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "SDK-01": {"status": "done", "note": "ADR 0006 and 20-module extraction inventory define the host/engine boundary, key custody, scoped storage/media consent, cancellable lifecycle, bounded commands/events, errors and desktop/Android/headless migration. Create/join/admit/mute/verify/reconnect/end traced against current code; SDK implementation is SDK-02.", "evidence": ["docs/adr/0006-shared-engine-provider-contract.md and docs/ENGINE_PROVIDER_INVENTORY.md; inventory checked against all 20 existing engine .rs modules. Design only; no stable or implemented public provider API claimed."], "updated_at": "2026-11-23T13:32:07+00:00"}, "SDK-02": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "BIND-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "EMBED-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "LOCAL-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "TRUST-02": {"status": "done", "note": "Merged in PR #87 (c9444cd): trust-boundary hardening", "evidence": ["https://github.com/Jeremy8776/veil/pull/87"], "updated_at": "2026-11-24T21:53:06+00:00"}, "INVITE-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "DIAG-01": {"status": "done", "note": "Merged in PR #88 (0291db5): local connection reports and previewed redacted export", "evidence": ["https://github.com/Jeremy8776/veil/pull/88"], "updated_at": "2026-11-24T21:52:11+00:00"}, "TEST-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "NET-02": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "NET-03": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "OPS-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "ID-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "MEDIA-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "HOST-01": {"status": "in_progress", "note": "First pass built on claude/host-01-handover (5f2f1d8..59ef855, unpushed). Loopback handover test and unit tests pass. Needs real-device LAN and internet evidence.", "evidence": [], "updated_at": "2026-11-27T14:44:53+00:00"}, "NEAR-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "MSG-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "SCALE-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "PERF-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "ORG-01": {"status": "planned", "note": "Full capability acceptance gate remains open.", "evidence": [], "updated_at": "2026-11-23T12:57:42+00:00"}, "SHARE-01": {"status": "planned", "note": "Requested 25 November 2026; full acceptance gate open.", "evidence": [], "updated_at": "2026-11-25T11:36:35+00:00"}, "SHARE-02": {"status": "in_progress", "note": "Code complete on branch claude/hungry-bhaskara-a660c7: MediaProjection consent per share, mediaProjection service with Stop, phone sound via AudioPlaybackCapture on the shared share path. Verified: veil-media and veil-app targeted tests, desktop Clippy, Android build -Check (Android Clippy, APK checks). Needs Jeremy's phone test (SM-S9260, Android 17): start, stop (bar, notification, system indicator), denial, revoked consent, screen lock, leaving the call, picture and sound reaching a desktop receiver.", "evidence": [], "updated_at": "2026-11-25T17:12:37+00:00"}, "FX-01": {"status": "planned", "note": "Requested 25 November 2026; full acceptance gate open.", "evidence": [], "updated_at": "2026-11-25T11:36:35+00:00"}, "CC-01": {"status": "planned", "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.", "evidence": [], "updated_at": "2026-11-27T16:29:26+00:00"}, "HARD-01": {"status": "planned", "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.", "evidence": [], "updated_at": "2026-11-27T16:29:26+00:00"}, "META-01": {"status": "planned", "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.", "evidence": [], "updated_at": "2026-11-27T16:29:26+00:00"}, "PQ-01": {"status": "planned", "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.", "evidence": [], "updated_at": "2026-11-27T16:29:26+00:00"}, "REPRO-01": {"status": "planned", "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.", "evidence": [], "updated_at": "2026-11-27T16:29:26+00:00"}, "SPEAK-01": {"status": "planned", "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.", "evidence": [], "updated_at": "2026-11-27T16:29:26+00:00"}, "SUPPLY-01": {"status": "planned", "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.", "evidence": [], "updated_at": "2026-11-27T16:29:26+00:00"}}, "sessions": {"01a207ea-e141-7ce0-953c-df660a232d9b": {"title": "Live roadmap and session startup", "status": "idle", "started_at": "2026-11-23T12:57:42+00:00", "updated_at": "2026-11-23T13:02:20+00:00", "note": "Configured roadmap-first session instructions and verified shared live updates, next-step selection, concurrency and browser behaviour. Next product step: AND-02 Android integration review/build repeatability."}, "codex-continue-20261123-a": {"title": "Reach the 0.1.14 integration and provider-design milestone", "status": "active", "started_at": "2026-11-23T13:05:24+00:00", "updated_at": "2026-11-23T14:07:25+00:00", "note": "SDK-01 design committed. Verifying the user-requested full portrait bento canvas and join/reflow animation on desktop and connected Android, including the hardware-found background pre-join microphone fix; final CI follows."}, "claude-5341dbf7": {"title": "Roadmap review", "status": "idle", "started_at": "2026-11-25T10:53:47+00:00", "updated_at": "2026-11-25T11:48:32+00:00", "note": "Handoff written in docs/HANDOFF.md (local commit on docs/share-fx-roadmap). Next session starts SHARE-01."}, "share-02-hungry-bhaskara": {"title": "SHARE-02 Android screen share", "status": "idle", "started_at": "2026-11-25T16:58:55+00:00", "updated_at": "2026-11-25T17:13:17+00:00", "note": "SHARE-02 PR #94 open; CI pending; awaiting Jeremy's phone test"}, "host-01-handover-s2": {"title": "HOST-01 host actor, successor, member, UI", "status": "idle", "started_at": "2026-11-27T14:16:50+00:00", "updated_at": "2026-11-27T14:44:54+00:00", "note": "HOST-01 steps 1-5 committed locally; next: Jeremy's real-device test, then push/PR on his yes"}}, "activity": [{"at": "2026-11-27T14:44:54+00:00", "session": "host-01-handover-s2", "note": "HOST-01 steps 1-5 committed locally; next: Jeremy's real-device test, then push/PR on his yes"}, {"at": "2026-11-27T14:44:53+00:00", "session": "host-01-handover-s2", "note": "HOST-01: in_progress — First pass built on claude/host-01-handover (5f2f1d8..59ef855, unpushed). Loopback handover test and unit tests pass. Needs real-device LAN and internet evidence."}, {"at": "2026-11-27T14:31:44+00:00", "session": "host-01-handover-s2", "note": "HOST-01: in_progress — veil-call handover done (host, successor, member, tests); starting veil-app UI"}, {"at": "2026-11-27T14:16:51+00:00", "session": "host-01-handover-s2", "note": "HOST-01: in_progress — Building host actor handover (host/handover.rs)"}, {"at": "2026-11-27T14:16:50+00:00", "session": "host-01-handover-s2", "note": "Session opened: HOST-01 host actor, successor, member, UI"}, {"at": "2026-11-25T17:13:17+00:00", "session": "share-02-hungry-bhaskara", "note": "SHARE-02 PR #94 open; CI pending; awaiting Jeremy's phone test"}, {"at": "2026-11-25T17:12:37+00:00", "session": "share-02-hungry-bhaskara", "note": "SHARE-02: in_progress — Code complete on branch claude/hungry-bhaskara-a660c7: MediaProjection consent per share, mediaProjection service with Stop, phone sound via AudioPlaybackCapture on the shared share path. Verified: veil-media and veil-app targeted tests, desktop Clippy, Android build -Check (Android Clippy, APK checks). Needs Jeremy's phone test (SM-S9260, Android 17): start, stop (bar, notification, system indicator), denial, revoked consent, screen lock, leaving the call, picture and sound reaching a desktop receiver."}, {"at": "2026-11-25T16:58:56+00:00", "session": "share-02-hungry-bhaskara", "note": "SHARE-02: in_progress — Designing MediaProjection share path into the shared encoder"}, {"at": "2026-11-25T16:58:55+00:00", "session": "share-02-hungry-bhaskara", "note": "Session opened: SHARE-02 Android screen share"}, {"at": "2026-11-25T11:48:32+00:00", "session": "claude-5341dbf7", "note": "Handoff written in docs/HANDOFF.md (local commit on docs/share-fx-roadmap). Next session starts SHARE-01."}, {"at": "2026-11-25T11:44:30+00:00", "session": "claude-5341dbf7", "note": "SHARE-01, FX-01, SHARE-02 moved ahead of LOCAL-01; SHARE-01 is next. Local commits on docs/share-fx-roadmap, unpushed."}, {"at": "2026-11-25T11:44:28+00:00", "session": "claude-5341dbf7", "note": "Next step: SHARE-01 — Share computer sound with a screen"}, {"at": "2026-11-25T11:37:10+00:00", "session": "claude-5341dbf7", "note": "Added SHARE-01, SHARE-02 and FX-01 to 0.2.0 on docs/share-fx-roadmap (local commit, stacked on PR #90). Next: LOCAL-01."}, {"at": "2026-11-25T11:36:35+00:00", "session": "claude-5341dbf7", "note": "Added SHARE-01 (share computer sound), SHARE-02 (Android screen sharing) and FX-01 (LUTs and effect strength) to 0.2.0, prioritised after LOCAL-01"}, {"at": "2026-11-25T10:57:41+00:00", "session": "claude-5341dbf7", "note": "AND-02 marked done on docs/and-02-done (local commit, not pushed). Next: LOCAL-01 WAN/DNS-off call."}, {"at": "2026-11-25T10:57:36+00:00", "session": "claude-5341dbf7", "note": "AND-02: done — Integrated in PR #86 (f2a01a3); desktop CI and Android ARM64 artifact build green on main 816b789; lifecycle dispositions recorded"}, {"at": "2026-11-25T10:56:45+00:00", "session": "claude-5341dbf7", "note": "Starting AND-02: reviewing the release-0.1.13 Android candidate against main"}, {"at": "2026-11-25T10:54:03+00:00", "session": "claude-5341dbf7", "note": "Reviewed roadmap state with user; no product changes. Next: AND-02 integration, CI and lifecycle checks."}, {"at": "2026-11-25T10:53:55+00:00", "session": "claude-5341dbf7", "note": "Session opened: Roadmap review"}, {"at": "2026-11-25T10:53:47+00:00", "session": "claude-5341dbf7", "note": "Session opened: Roadmap review"}, {"at": "2026-11-24T21:53:06+00:00", "session": null, "note": "TRUST-02: done — Merged in PR #87 (c9444cd): trust-boundary hardening"}, {"at": "2026-11-24T21:52:11+00:00", "session": null, "note": "DIAG-01: done — Merged in PR #88 (0291db5): local connection reports and previewed redacted export"}, {"at": "2026-11-24T20:19:10+00:00", "session": "claude-diag-01", "note": "DIAG-01: in_progress — Acceptance met on codex/diag-01 (PR #88); review fixes for full-call, helper, identity and screen-share evidence pushed; closes on merge"}, {"at": "2026-11-23T14:07:25+00:00", "session": "codex-continue-20261123-a", "note": "MOB-01: in_progress — Hardware-found pre-join background microphone retention fixed. Short foreground/background/service and destroy/relaunch checks passed on Android 17; sustained calls, lock/permission/network transitions and recovery gates remain open."}, {"at": "2026-11-23T13:53:42+00:00", "session": "codex-continue-20261123-a", "note": "SDK-01 design committed. Verifying the user-requested full portrait bento canvas and join/reflow animation on desktop and connected Android, including the hardware-found background pre-join microphone fix; final CI follows."}, {"at": "2026-11-23T13:32:07+00:00", "session": "codex-continue-20261123-a", "note": "SDK-01: done — ADR 0006 and 20-module extraction inventory define the host/engine boundary, key custody, scoped storage/media consent, cancellable lifecycle, bounded commands/events, errors and desktop/Android/headless migration. Create/join/admit/mute/verify/reconnect/end traced against current code; SDK implementation is SDK-02."}, {"at": "2026-11-23T13:25:12+00:00", "session": "codex-continue-20261123-a", "note": "SDK-01: in_progress — Designing the provider lifecycle, bounded commands/events, consent/storage adapters and migration inventory for the 0.1.14 milestone"}, {"at": "2026-11-23T13:23:45+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Reach the 0.1.14 integration and provider-design milestone"}, {"at": "2026-11-23T13:23:21+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Reach the 0.1.14 integration and provider-design milestone"}, {"at": "2026-11-23T13:18:02+00:00", "session": "codex-continue-20261123-a", "note": "AND-02 review/build increment verified: pinned Android tools/CI artifact, camera publication and environment-restoration fixes, fresh candidate-source APK build, Android/desktop Clippy and 810 Windows tests passed. Next: coherent integration, remote CI and lifecycle checks; see docs/ANDROID_INTEGRATION_REVIEW.md."}, {"at": "2026-11-23T13:16:06+00:00", "session": "codex-continue-20261123-a", "note": "Next step: AND-02 — Integrate the reviewed Android candidate and verify CI/lifecycle"}, {"at": "2026-11-23T13:16:05+00:00", "session": "codex-continue-20261123-a", "note": "AND-02: in_progress — Reviewed native ownership; fixed camera frame publication after close; pinned Android build and CI added. Fresh candidate-source ARM64 build/APK checks, Android Clippy and 810 Windows tests passed. Integration, remote desktop/Android CI and device lifecycle evidence remain open."}, {"at": "2026-11-23T13:09:09+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Android integration review and repeatable build"}, {"at": "2026-11-23T13:08:51+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Android integration review and repeatable build"}, {"at": "2026-11-23T13:05:58+00:00", "session": "codex-continue-20261123-a", "note": "AND-02: in_progress — Reviewing Android JNI/media ownership and reproducible build/CI requirements"}, {"at": "2026-11-23T13:05:24+00:00", "session": "codex-continue-20261123-a", "note": "Session opened: Continue the next Veil roadmap task"}, {"at": "2026-11-23T13:02:20+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Configured roadmap-first session instructions and verified shared live updates, next-step selection, concurrency and browser behaviour. Next product step: AND-02 Android integration review/build repeatability."}, {"at": "2026-11-23T13:01:08+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Browser verified live session refresh 1795438867918"}, {"at": "2026-11-23T13:01:02+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Session opened: Live roadmap and session startup"}, {"at": "2026-11-23T12:59:52+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Session startup and live-state tracking implemented; verifying concurrent writers and the browser refresh path."}, {"at": "2026-11-23T12:58:34+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Session opened: Live roadmap and session startup"}, {"at": "2026-11-23T12:57:42+00:00", "session": "01a207ea-e141-7ce0-953c-df660a232d9b", "note": "Session opened: Live roadmap and session startup"}]}</script><script>
 const cards = [...document.querySelectorAll('.capability')];
 const search = document.querySelector('#search');
 const version = document.querySelector('#version');

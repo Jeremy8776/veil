@@ -261,11 +261,16 @@ capacity and continuity**. Security review, test evidence and diagnostics accomp
 | Priority | Work | Reason |
 |---|---|---|
 | Now | SHARE-01, FX-01, SHARE-02, then LOCAL-01 and immediate TRUST-01 design (AND-02, SDK-01, TRUST-02 and DIAG-01 are done) | Jeremy asked on 25 November 2026 for the sharing and camera features first; then prove the offline premise |
-| Next | MOB-01, MOB-02, INVITE-01, DIST-01 | Turn a successful connection into a usable repeatable phone/local experience |
-| Then | SDK-02, NET-01, NET-02, NET-03, DATA-01, OPS-01 | Expose the shared engine and widen permitted reach while preserving privacy choices |
+| Next | MOB-01, MOB-02, INVITE-01, DIST-01, HARD-01, SUPPLY-01 | Turn a successful connection into a usable repeatable phone/local experience, and harden the inputs that experience exposes |
+| Then | SDK-02, NET-01, NET-02, NET-03, DATA-01, CC-01, OPS-01 | Expose the shared engine, widen permitted reach and match WebRTC-class call quality on poor links |
 | Alongside platform work | DESK-01, ID-01, TEST-01, BIND-01, EMBED-01 | Stable identities, a cross-language boundary and a reference host prove shared use |
-| Before broad group claims | TRUST-01, GROUP-01, MEDIA-01 | Fix attribution and explicitly handle members a forwarder cannot serve |
-| Conditional extensions | IOS-01, HOST-01, NEAR-01, MSG-01, SCALE-01, PERF-01, ORG-01 | Extend the same model after feasibility, trust and resource limits are established |
+| Before broad group claims | TRUST-01, PQ-01, GROUP-01, MEDIA-01, SPEAK-01 | Fix attribution, protect recorded traffic and explicitly handle members a forwarder cannot serve |
+| Before 1.0 | REPRO-01 | Let others check that signed releases match the source |
+| Conditional extensions | IOS-01, HOST-01, NEAR-01, MSG-01, SCALE-01, PERF-01, ORG-01, META-01 | Extend the same model after feasibility, trust and resource limits are established |
+
+CC-01, HARD-01, SUPPLY-01, PQ-01, SPEAK-01, REPRO-01 and META-01 were added on 27/11/2026
+from a comparison with Signal's public calling and crypto code; see
+[Benchmark: Signal](#benchmark-signal).
 
 This is a dependency order, not a rule that all work must be serial. Native storage can
 advance while transport designs are reviewed. No prerequisite should falsely imply that
@@ -282,6 +287,8 @@ its own reviewable increment; no milestone requires a single enormous implementa
 - Treat security fixes as immediate work across milestones. A future audit does not defer
   fixing a known weakness.
 - Finish and validate a useful increment before widening its platform or performance scope.
+- Keep the engine permissively licensed (MIT or Apache-2.0), so other apps can embed it.
+  A copyleft-only engine with a contributor licence agreement would block the provider goal.
 
 ## Current evidence
 
@@ -301,6 +308,37 @@ The [integration review](ANDROID_INTEGRATION_REVIEW.md) records actual build, CI
 [Transparency](TRANSPARENCY.md) defines current protection limits. This roadmap owns future
 priority and completion criteria; [Handoff](HANDOFF.md) owns the current session snapshot.
 
+## Benchmark: Signal
+
+Signal is the reference point for private calling. On 27/11/2026 its public repositories
+(libsignal, RingRTC, Signal-Calling-Service) were compared with Veil. Some points come from
+Signal's published design rather than those pages.
+
+**Where Veil already leads:** no central service or phone number; calls on a LAN with no
+internet; replaceable helpers anyone can run; a signed, expiring, single-use invite plus a
+lobby; device signatures on names, chat, hands, reactions and screen pictures; a forwarder
+that cannot see who is speaking; constant-bitrate audio; a native desktop app; and a
+permissive licence suited to embedding.
+
+**Where Signal leads, and the capability that closes the gap:**
+
+| Signal strength | Veil capability |
+|---|---|
+| Delay-based congestion control (WebRTC googcc) | CC-01 |
+| TURN relays over TCP/TLS 443 when UDP is blocked | NET-01 |
+| Group calls continue when anyone leaves | HOST-01 |
+| Large group calls with active-speaker selection | GROUP-01, SPEAK-01, SCALE-01 |
+| Post-quantum key agreement | PQ-01 |
+| Fuzzing and a "never panic on untrusted input" rule | HARD-01 |
+| Duplicate-crate and dependency checks in CI | SUPPLY-01 |
+| Reproducible Android builds | REPRO-01 |
+| Durable identity, linked devices, backups, key transparency | DESK-01, ID-01, ORG-01 |
+| Generated bindings tested in every language | BIND-01 |
+| Forwarder load tests | GROUP-01, OPS-01 |
+
+Two items would put Veil ahead of Signal rather than level with it: per-sender media
+authentication in group calls (TRUST-01) and traffic padding (META-01).
+
 ## Version milestones
 
 The patch immediately after 0.1.13 consolidates the existing preview. From 0.2 onward, each
@@ -310,15 +348,15 @@ or reordered when testing exposes a dependency.
 | Target | User outcome | Required capabilities | Exit evidence |
 |---|---|---|---|
 | 0.1.14 | The preview is reproducible and the provider boundary is designed | AND-02, SDK-01 | Reviewed Android integration, clean-checkout build, green desktop CI and an agreed headless engine/provider design |
-| 0.2.0 | I can make a safe everyday call, including without internet | LOCAL-01, TRUST-02, MOB-01, MOB-02, INVITE-01, DIAG-01, DIST-01, TEST-01, SHARE-01, SHARE-02, FX-01 | WAN/DNS-off hardware call, admission/revocation checks, sustained mobile calls, usable audio, signed upgradeable preview, screen sharing with sound from desktop and Android, and LUT effects with strength |
-| 0.3.0 | Apps share a headless engine and calls find more permitted paths | SDK-02, NET-01, NET-02, NET-03, DATA-01, OPS-01 | Non-GUI SDK sample, full joining over TCP fallback, independent-helper failure tests and measured receive/data controls |
+| 0.2.0 | I can make a safe everyday call, including without internet | LOCAL-01, TRUST-02, MOB-01, MOB-02, INVITE-01, DIAG-01, DIST-01, TEST-01, SHARE-01, SHARE-02, FX-01, HARD-01, SUPPLY-01 | WAN/DNS-off hardware call, admission/revocation checks, sustained mobile calls, usable audio, signed upgradeable preview, screen sharing with sound from desktop and Android, LUT effects with strength, fuzzed parsers and dependency checks in CI |
+| 0.3.0 | Apps share a headless engine and calls find more permitted paths | SDK-02, NET-01, NET-02, NET-03, DATA-01, CC-01, OPS-01 | Non-GUI SDK sample, full joining over TCP fallback, independent-helper failure tests, measured receive/data controls and delay-based adaptation beating the current Auto |
 | 0.4.0 | Other apps can provide Veil calls while identity stays locally controlled | DESK-01, ID-01, BIND-01, EMBED-01 | Stable desktop identity/settings, scoped host storage, local IPC contract and standalone/reference-host interoperability |
-| 0.5.0 | Group calls preserve attribution, reachability and usable media | GROUP-01, TRUST-01, MEDIA-01 | Adversarial sender tests, measured five-person calls, visible partial failures and safe forwarding/recovery |
+| 0.5.0 | Group calls preserve attribution, reachability and usable media | GROUP-01, TRUST-01, MEDIA-01, PQ-01, SPEAK-01 | Adversarial sender tests, measured five-person calls, visible partial failures, safe forwarding/recovery, hybrid post-quantum keys and private speaker promotion |
 | 0.6.0, conditional | I can join from an iPhone | IOS-01 | Signed hardware build and call/lifecycle coverage; requires Mac, Xcode and iPhone access |
-| 1.0.0 | People and integrators can rely on the supported shared platform | READY-01 | Independent security review, stable provider/API contracts, supported matrix, compatibility suite and verified distribution/update paths |
+| 1.0.0 | People and integrators can rely on the supported shared platform | REPRO-01, READY-01 | Independent security review, stable provider/API contracts, supported matrix, compatibility suite, verified distribution/update paths and reproducible Android/Linux builds |
 
 The proposed 1.0 baseline requires the capabilities allocated to 0.1.14 and 0.2 through 0.5,
-plus READY-01. It does not require iOS, 4K or enterprise features. Any reduction of that baseline
+plus REPRO-01 and READY-01. It does not require iOS, 4K or enterprise features. Any reduction of that baseline
 must be recorded here before a release candidate. The conditional iOS milestone can proceed after mobile
 lifecycle and call behaviour are understood, without waiting for every desktop/group feature.
 
@@ -441,6 +479,31 @@ consent and a visible state. Test adaptation hysteresis and measured step-up pro
 brief improvement cannot repeatedly overload the link. Report measured wire bytes rather
 than estimating usage from codec bitrate alone.
 
+### CC-01 React to congestion before packets are lost
+
+**Outcome:** On busy Wi-Fi or a shared uplink, video steps down smoothly and speech stays
+clear, instead of freezing after loss has already begun.
+**Status:** Planned; added 27/11/2026. QUIC uses quinn's loss-based default and Auto has two
+steps. Signal's calls use WebRTC's delay-based estimator (googcc), which is the largest call
+quality gap found in the comparison. **Target:** 0.3.0. **Depends on:** DIAG-01, DATA-01.
+
+- Measure one-way delay trend per link from send and receive timestamps already carried in
+  media headers, or add a small authenticated feedback message if they are not enough.
+- Estimate available send rate from delay growth plus loss, and probe upward with padding or
+  redundant layers before stepping up a rung. Cap probes so they never starve audio.
+- Drive the camera and share encoders from that estimate: bitrate first, then resolution,
+  then frame rate, then the next simulcast rung. Keep the Data saver and Audio only choices
+  as hard ceilings the estimate cannot exceed.
+- Through a forwarder, the forwarder runs its own estimate per receiver and chooses layers
+  from it, without reading content. Senders get aggregated feedback, not per-receiver detail.
+- Compare quinn's BBR option against a custom media controller in a small prototype before
+  choosing; record the choice in an ADR.
+
+**Complete when:** Under scripted bandwidth drops (for example 4 to 1 to 0.5 Mbit/s) and
+added delay, measured runs show speech staying intelligible, median video recovery after a
+drop within a stated time, no oscillation over a 10-minute run, and less freezing than the
+current Auto on the same script. Record wire rate, delay and freeze time for both.
+
 ### DESK-01 Persist identity and validate native desktop behaviour
 
 **Outcome:** Restarting Veil keeps a user's verified identity and setup on every desktop OS.
@@ -471,6 +534,34 @@ and can an invalid frame change replay state before verification? Test forged co
 reordered legitimate frames, cross-room/epoch reuse and intentionally malicious participants.
 Do not treat a safety-code comparison as a substitute for media attribution.
 
+**Beyond Signal:** Signal's group calls also use symmetric per-sender frame keys, so any
+member could forge another's frames in principle. Closing this gap (for example a device
+signature per keyframe plus a signed hash chain over the frames between keyframes) would
+give Veil a stronger guarantee than Signal. Measure CPU and byte cost on a phone.
+
+### PQ-01 Protect calls against future quantum decryption
+
+**Outcome:** Recorded call traffic cannot be decrypted later by an attacker with a quantum
+computer.
+**Status:** Planned; added 27/11/2026. MLS and QUIC key exchange use classical curves today.
+Signal added post-quantum key agreement (PQXDH) and a post-quantum ratchet to its messaging.
+**Target:** 0.5.0. **Depends on:** BASE-01.
+
+- Group keys: adopt a hybrid MLS ciphersuite that combines X25519 with ML-KEM (for example
+  X-Wing) once `openmls` and its crypto provider support it, keeping Ed25519 signatures for
+  now. Check the provider stays on permissively licensed primitives.
+- Transport: enable hybrid TLS 1.3 key exchange (X25519MLKEM768) in rustls for every QUIC
+  hop, so control traffic and invite fetches gain the same protection.
+- Negotiate the suite by protocol version. An older client fails clearly, never falls back
+  silently to a classical-only call when both ends support the hybrid.
+- Record post-quantum signatures as a later step; harvest-now-decrypt-later affects key
+  exchange first, and signature keys can be replaced before such an attacker exists.
+
+**Complete when:** A call between current clients uses the hybrid suite for MLS and every
+QUIC hop, a packet capture confirms the hybrid TLS group, a downgrade attempt is refused in
+tests, and the extra join time and bytes are measured on a phone. TRANSPARENCY.md states
+exactly which layers are post-quantum.
+
 ### GROUP-01 Sustain calls beyond a small mesh
 
 **Outcome:** Adding people or losing a forwarder does not silently strand the call.
@@ -489,6 +580,29 @@ from every current member, including newcomers to an already forwarded call. Eac
 publishes mesh first; any refusal or timeout keeps it. This bounds the transition decision,
 but does not prove mesh capacity, sustained media or active-forwarder outage recovery.
 
+**Load evidence:** Extend `veil-probe` into a forwarder load test (synthetic senders and
+receivers, no cameras) that records CPU, memory, queue age and loss per receiver as call size
+grows. Signal's calling service keeps a load test beside its forwarder for the same reason.
+
+### SPEAK-01 Show who is speaking without telling the forwarder
+
+**Outcome:** In a larger call the speaker's tile is promoted and gets the larger video layer,
+and the forwarder never learns who is talking.
+**Status:** Planned; added 27/11/2026. Signal's forwarder reads audio levels to pick the
+active speaker. Veil's forwarder sees only the layer header, so detection must stay on
+devices. **Target:** 0.5.0. **Depends on:** DATA-01, TRUST-01.
+
+- Each receiver measures speech activity from the audio it already decrypts, with a
+  dominant-speaker rule that ignores short noises and back-channel ("mm", laughter).
+- Promotion changes that receiver's own subscriptions only: the speaker's larger layer, the
+  rest as thumbnails. No speaking signal is sent to the forwarder or other members.
+- Keep constant-bitrate audio, so packet sizes still do not reveal who is talking.
+- A pinned person always overrides automatic promotion.
+
+**Complete when:** In a measured five-person call, promotion follows the speaker within a
+stated delay, does not flicker during cross-talk, and a forwarder packet capture shows no
+field that changes with speech. Phone CPU cost is recorded.
+
 ### IOS-01 Bring the shared experience to iPhone
 
 **Outcome:** An iPhone can join the same calls with native permissions and lifecycle behaviour.
@@ -498,6 +612,26 @@ access to a Mac with Xcode and an iPhone.
 Implement the launcher, AVFoundation camera/audio, Keychain storage, invitation handling,
 permissions and signed distribution. Repeat the mobile call, audio and interruption checks
 on hardware. Reuse the call/security engine; do not create a separate protocol.
+
+### REPRO-01 Let anyone check that a release matches its source
+
+**Outcome:** A third party can rebuild a published Veil release and get the same bytes, so a
+signed update cannot hide code that is not in the repository.
+**Status:** Planned; added 27/11/2026. Updates are signed and verified; builds are not yet
+reproducible. Signal publishes a reproducible Android build process. **Target:** 1.0.0.
+**Depends on:** DIST-01, SUPPLY-01.
+
+- Pin the Rust toolchain, Android SDK/NDK and Gradle versions, vendor or lock every source,
+  and remove build paths and timestamps from binaries (`--remap-path-prefix`,
+  `SOURCE_DATE_EPOCH`).
+- Provide a container recipe that rebuilds the Android APK and the Linux binaries, and a script
+  that compares a rebuild with the published artifact, ignoring only the signature block.
+- Document why Windows and macOS installers are harder (code signing and notarisation embed
+  data) and what is compared for them instead.
+
+**Complete when:** Two independent machines rebuild the same tagged Android and Linux
+releases byte for byte apart from signatures, the comparison runs in CI on each release,
+and the procedure is published.
 
 ### READY-01 Establish a supported release
 
@@ -567,6 +701,12 @@ design consistent with Veil's existing restriction on owned `unsafe` outside med
 **Complete when:** A non-Rust sample can complete a call, an unauthorised process is rejected,
 malformed/oversized messages are bounded, host/provider crashes release capture, and schema
 version mismatch gives a useful error. Explain process isolation's actual trust limits.
+
+**Generate, do not hand-write:** Describe each bridge call once in Rust and generate the IPC
+schema and the host-language stubs from it (libsignal does this with `#[bridge_fn]` for
+Java, Swift and TypeScript). Treat the generated layer as internal, not public API. Run the
+same call-journey tests through every supported language binding, because one binding can
+miss an edge case the others catch.
 
 ### EMBED-01 Prove Veil as another application's call provider
 
@@ -674,6 +814,46 @@ ledger, with an explicit pass/fail/not-run state per scenario. Preserve TEST-5G-
 user-reported connection. Hardware/network tests remain explicit actions; CI must not claim
 carrier or audible-quality coverage from localhost tests. Never fabricate population success
 rates from a handful of manual calls.
+
+### HARD-01 Fuzz and harden every untrusted input
+
+**Outcome:** Hostile bytes from a network peer, helper, invite or file cannot crash, hang or
+corrupt a Veil device.
+**Status:** Planned; added 27/11/2026 after the Signal comparison. Bounded parsers and negative
+tests exist; no fuzz targets exist. **Target:** 0.2.0. **Depends on:** TRUST-02.
+
+- Add `cargo-fuzz` targets for each parser that reads untrusted input: `veil-net` control
+  framing, full and short invites, rendezvous messages, roster tickets and forwarder
+  subscriptions, the sealed frame header, signed app messages, MLS message intake, LUT
+  `.cube` files and QR payloads.
+- Keep a seed corpus per target from real messages, with no keys or invite secrets in it.
+  Every crash becomes a regression test before the fix merges.
+- Rule: untrusted input never panics. Deny `unwrap` and `expect` in the parsing modules of
+  those crates with Clippy, and return a typed error instead. A worker panic is caught at its
+  thread boundary, logged without user data, and ends only that worker's session.
+- Rule: logs never contain conversation content, keys, invite secrets or display names. Add a
+  test that scans log output from a loopback call for planted marker values.
+
+**Complete when:** Every listed target has run for an agreed time budget with no open crash,
+a short smoke run of each target runs in CI, and the lint and log rules are enforced in CI.
+Record the run time and corpus size per target. Fuzzing does not replace the TRUST-02 review.
+
+### SUPPLY-01 Check dependencies and licences in CI
+
+**Outcome:** A risky, duplicated or wrongly licensed dependency cannot reach a release unnoticed.
+**Status:** Planned; added 27/11/2026. Licences are recorded by `tools/licences.py`; no
+advisory, duplicate-version or source check runs in CI. **Target:** 0.2.0. **Depends on:** BASE-01.
+
+- Add `cargo-deny` to CI: RustSec advisories, the licence allow-list (matching
+  [DEPENDENCIES.md](DEPENDENCIES.md)), banned crates, crates.io-only sources and duplicate
+  versions in shipped binaries. Record each allowed exception with its reason.
+- Produce a software bill of materials (SBOM) for each release artifact and attach it to the
+  GitHub release.
+- Gradle dependencies for the Android shell get a lockfile and the same advisory check.
+
+**Complete when:** CI fails on a planted vulnerable or disallowed dependency, every release
+since the change has an SBOM attached, and the exception list is reviewed before each minor
+release.
 
 ### SHARE-01 Share computer sound with a screen
 
@@ -796,7 +976,8 @@ sharing a carrier NAT before changing address-block allocation.
 
 **Complete when:** A clean machine can run a restricted node following the guide; allowed hosts
 work, strangers are refused, and their guests still require host admission. Load tests record
-bounded memory/queues and behaviour at capacity. Crash/restart and key/config errors have
+bounded memory/queues and behaviour at capacity, using the `veil-probe` load test described
+in GROUP-01. Crash/restart and key/config errors have
 clear recovery. Container packaging can follow this contract; it must not imply an operated
 Veil service or unreviewed default public access.
 
@@ -815,6 +996,16 @@ all hosts blanket authority. Do not equate a host account ID with a verified Vei
 user deletion and consent-based export tests preserve the documented identity model. There
 is no central contact lookup or automatic address-book import. Encryption/backup recovery
 and deletion limits are documented before any history/contact export feature ships.
+
+**Also in scope (from the Signal comparison):**
+- Linked devices: a person can link a new device to an existing one in person (QR on both
+  screens), so contacts who verified one device see the link and need not verify again.
+  Unlinking revokes the device in future calls.
+- Identity backup: an optional export of the device key and verified contacts, sealed with a
+  user passphrase through a memory-hard key derivation, kept wherever the user chooses. No
+  server holds it. Restoring shows contacts that the key came from a backup.
+- Key-change warnings: a changed key for a verified contact is shown before the call starts,
+  not only in the roster.
 
 ### MEDIA-01 Prioritise conversation and measure capacity
 
@@ -956,6 +1147,29 @@ SDK/protocol. Invalid/expired/revoked policy/attestations fail safely. No invisi
 administrator decryption key or automatic company-hosted social graph is introduced. An
 organisation's opted-in data policy must be visible, not represented as Veil's default privacy model.
 
+An organisation directory may later publish device keys through an append-only, auditable
+log (in the style of Signal's key transparency), so members can detect a substituted key
+without comparing safety codes. It must stay optional and replaceable, never a central Veil service.
+
+### META-01 Reduce what networks and helpers learn from traffic
+
+**Outcome:** A network observer or helper learns as little as possible about who is in a call
+and what they are doing, beyond the fact that a call exists.
+**Status:** Exploration; added 27/11/2026. Packet sizes and timing reveal activity today;
+padding is planned but cannot be turned on. **Target:** Unassigned extension.
+**Depends on:** CC-01, NET-01, TRUST-02.
+
+- Optional padding of video packets to fixed size buckets, and a constant-rate mode for
+  audio and control, with the bandwidth cost shown before it is turned on.
+- Review what the rendezvous learns (room id hash, IP addresses, timing) and remove what is
+  not needed; consider rotating room lookup keys per call.
+- Measure, with a traffic classifier, how well an observer can tell speaking, screen sharing
+  and joins apart before and after padding.
+
+**Design gate:** A measured cost and benefit for each option on phone and desktop.
+**Completion gate:** The selected options are user choices with honest descriptions in
+TRANSPARENCY.md; no option is presented as making a call undetectable.
+
 ## Release gates and deliverables
 
 Every milestone has a small set of reviewable deliverables. A successful demo advances the
@@ -964,11 +1178,11 @@ evidence; it does not silently close storage, revocation, lifecycle or integrati
 | Target | Required deliverables | Explicit release blocker |
 |---|---|---|
 | 0.1.14 | Android integration reviews, pinned build instructions/CI, existing desktop checks, engine/provider ADR and API inventory | Unexplained native lifetime ownership, unreproducible build or accidental desktop regression |
-| 0.2.0 | Offline hardware report, integrated convenience-path review, mobile/audio scenarios, QR/manual join checks, redacted diagnostics, signed preview/upgrade record | Removed-member recovery, weakened pinning/privacy, capture left running after leave or core offline call depending on WAN |
-| 0.3.0 | Consumable headless Rust sample, desktop/Android engine migration, full TCP joining path, independent helper tests, measured receive controls and node load limits | GUI dependency in the SDK, UDP-only joining on the TCP path, unbounded retry/queue behaviour or privacy-leaking route upgrade |
+| 0.2.0 | Offline hardware report, integrated convenience-path review, mobile/audio scenarios, QR/manual join checks, redacted diagnostics, signed preview/upgrade record, fuzz run record and `cargo-deny` in CI | Removed-member recovery, weakened pinning/privacy, capture left running after leave, core offline call depending on WAN, an open fuzz crash or a known vulnerable shipped dependency |
+| 0.3.0 | Consumable headless Rust sample, desktop/Android engine migration, full TCP joining path, independent helper tests, measured receive controls, node load limits and a congestion-control comparison | GUI dependency in the SDK, UDP-only joining on the TCP path, unbounded retry/queue behaviour, privacy-leaking route upgrade or adaptation that starves audio |
 | 0.4.0 | Native persistence matrix, host-scoped identity design, versioned authorised local bridge, reference embedded app and standalone interop report | Silent identity regeneration, unauthorised local IPC, plugin unload leaving capture alive or required central host data upload |
-| 0.5.0 | Sender-attribution/replay review, measured group media, forwarding partial-failure decision, active-node outage results | Another member accepted as a different media sender, hidden participants without media or unbounded group resource use |
-| 1.0.0 | Defined supported scope, independent review/findings disposition, API/protocol compatibility policy, full mandatory matrix, signed distribution and maintenance process | Any unresolved issue classified as release-blocking in the reviewed threat model or a protection claim unsupported on a supported path |
+| 0.5.0 | Sender-attribution/replay review, measured group media, forwarding partial-failure decision, active-node outage results, hybrid post-quantum capture and speaker-detection capture | Another member accepted as a different media sender, hidden participants without media, unbounded group resource use, silent classical-only fallback or a speech signal visible to the forwarder |
+| 1.0.0 | Defined supported scope, independent review/findings disposition, API/protocol compatibility policy, full mandatory matrix, signed distribution, maintenance process and a reproducible-build procedure | Any unresolved issue classified as release-blocking in the reviewed threat model, a protection claim unsupported on a supported path or a release that cannot be rebuilt to the same bytes |
 
 Before a release candidate, classify findings by exploitability, exposure and user impact,
 record remediation or a justified scoped exclusion, and keep security reports private as
@@ -1011,6 +1225,10 @@ reports to the scenarios that apply to their supported scope.
 | Embedded host and standalone | Start in reference host, join from Veil; unload plugin mid-call | Same trust/permission flows; capture/tasks end correctly | EMBED-01 not built |
 | Local bridge hostile client | Wrong caller, malformed/oversized data, stale handles, version mismatch | Rejected/bounded requests; no cross-app session or capture authority | BIND-01 not built |
 | Upgrade/installation | Signed same-package upgrade; standalone and embedded compatible versions | Keys/contacts retained; incompatible API/wire versions fail clearly | Desktop packaging exists; Android signed upgrade/SDK matrix open |
+| Congested link | Scripted bandwidth drops and added delay, mesh and forwarder | Speech stays clear; video steps down before freezing; no oscillation | CC-01 not built |
+| Hostile input | Fuzzed framing, invites, tickets, headers, MLS and LUT files | No panic, hang or unbounded memory | HARD-01 not built |
+| Quantum downgrade | Strip the hybrid suite or TLS group from a handshake | Refused with a clear error | PQ-01 not built |
+| Rebuild a release | Two machines rebuild a tagged Android and Linux release | Same bytes apart from signatures | REPRO-01 not built |
 
 ### Measurements that inform decisions
 
@@ -1048,6 +1266,9 @@ decision and updated tests, not quietly lowering the bar after a failed run.
 | Carrier NAT fairness | One address block may represent many legitimate users; device keys are cheap to mint | Loaded-relay experiments before changing abuse controls |
 | Stored messages/history | New persistence and mailbox roles expand compromise, deletion and abuse scope | Separate opt-in storage/backup/retention threat model before implementation |
 | Enterprise adapters | Attestation, policy, recording and gateways can change who is trusted | Explicit role design and participant-visible policy/plaintext access |
+| Congestion controller choice | A custom controller is hard to get right; quinn's BBR may not suit media | CC-01 prototype comparing both on the same scripted links |
+| Post-quantum library support | `openmls` hybrid suites and rustls hybrid groups may lag or change | Track upstream support; record versions and fallback rules in a PQ-01 ADR |
+| Padding cost | Padding protects activity patterns but costs data, which matters on phones | META-01 measured cost per option before offering it |
 
 No open library or framework choice is a reason to discard the working call stack without
 evidence. Prefer a small isolated prototype, an interoperability comparison and a rollback
@@ -1093,7 +1314,7 @@ These are work packages, not calendar promises or authorization to implement all
 
 QR camera scanning is now in the proposed 0.2 INVITE-01 scope. Android screen sharing is now
 SHARE-02 in 0.2. IOS-01 is conditional on hardware/tooling; HOST-01,
-NEAR-01, MSG-01, SCALE-01, PERF-01 and ORG-01 have design gates but no reserved version.
+NEAR-01, MSG-01, SCALE-01, PERF-01, ORG-01 and META-01 have design gates but no reserved version.
 Allocate their release numbers after feasibility and scope decisions instead of implying a
 fixed serial path to 0.7/0.8/0.9. Their absence does not remove the requirement for a reusable
 engine/provider in the core baseline.
