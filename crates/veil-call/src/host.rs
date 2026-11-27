@@ -46,6 +46,7 @@ mod handle;
 mod hints;
 mod link;
 mod recovery;
+pub mod successor;
 
 pub(crate) use hints::checked_candidates;
 pub use hints::MAX_HINTS;

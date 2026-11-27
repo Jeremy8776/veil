@@ -13,6 +13,10 @@ pub const MAX_CONTROL_LEN: usize = 64 * 1024;
 /// The largest sealed app message (names, chat) a member or forwarder passes on. Larger ones
 /// are dropped unread.
 pub const MAX_APP_LEN: usize = 16 * 1024;
+/// The most removed or declined device keys a handover passes to the new host.
+pub const MAX_HANDOVER_REMOVED: usize = 64;
+/// The longest signed contact (the new host's addresses) a handover carries.
+pub const MAX_CONTACT_LEN: usize = 4 * 1024;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum Control {
@@ -70,6 +74,66 @@ pub enum Control {
     },
     /// Host intentionally ends this call; clients must not attempt recovery.
     Ended,
+    // Planned host handover in a persistent call (ADR 0010). New variants go last, so older
+    // peers still decode every earlier one.
+    /// Available member to host only: a coarse report of this device's own connection.
+    Availability(Availability),
+    /// Host to the chosen successor: start host roles for the call at `epoch`.
+    HandoverOffer { request: u64, epoch: u64 },
+    /// Successor to host: `contact` is the successor's signed address set, as an invite would
+    /// carry it. `None` declines or reports that host roles could not start.
+    HandoverReady { request: u64, contact: Option<Vec<u8>> },
+    /// Host to members, after the handover commit for `epoch`: dial the new host at `contact`.
+    /// `removed` holds device keys removed or declined earlier in this call, at most
+    /// [`MAX_HANDOVER_REMOVED`], so the new host's lobby can flag them.
+    HandedOver {
+        epoch: u64,
+        contact: Vec<u8>,
+        removed: Vec<[u8; 32]>,
+    },
+}
+
+/// How directly a device can be reached, reduced to three values so no address is implied.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Reachable {
+    /// Reachable without a relay or a punch: a public, mapped or IPv6 address.
+    Good,
+    /// Reachable after a hole punch.
+    Maybe,
+    /// Only through a relay.
+    No,
+}
+
+/// A member's coarse report of its own connection, sent only to the current host. It holds
+/// no address, no member list and no per-peer figure (ADR 0010 section 6).
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Availability {
+    /// "Available to host" is on and this device can run host roles.
+    pub available: bool,
+    pub reachable: Reachable,
+    /// Members this device has a direct (not relayed) media link to.
+    pub direct_links: u8,
+    /// Median round trip to those members, in 10 ms steps, at most 100 (1 second).
+    pub rtt_10ms: u8,
+    /// Recent achieved upload, in 500 kbit/s steps.
+    pub upload_500k: u16,
+}
+
+impl Control {
+    /// Checks the bounds a decoder cannot: list lengths in handover messages.
+    pub fn within_bounds(&self) -> bool {
+        match self {
+            Self::HandoverReady {
+                contact: Some(contact),
+                ..
+            } => contact.len() <= MAX_CONTACT_LEN,
+            Self::HandedOver {
+                contact, removed, ..
+            } => contact.len() <= MAX_CONTACT_LEN && removed.len() <= MAX_HANDOVER_REMOVED,
+            Self::Availability(report) => report.rtt_10ms <= 100,
+            _ => true,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +142,10 @@ pub enum RefuseReason {
     TokenUsed,
     DeclinedByHost,
     RoomFull,
+    /// The host handed the call to someone else; the invite no longer works.
+    HostChanged,
+    /// The call needs a newer Veil (for example a persistent call).
+    NeedsUpdate,
 }
 
 /// Encodes a message with its length prefix.
@@ -153,6 +221,36 @@ mod tests {
         let prefix = u32::try_from(MAX_CONTROL_LEN + 1).unwrap().to_be_bytes();
         assert!(matches!(body_len(prefix), Err(NetError::TooLarge)));
         assert!(matches!(body_len([0xff; 4]), Err(NetError::TooLarge)));
+    }
+
+    #[test]
+    fn earlier_variants_keep_their_encoding() {
+        // Older peers decode these by index, so new variants must only be appended.
+        assert_eq!(postcard::to_allocvec(&Control::Ended).unwrap(), [17]);
+        assert_eq!(postcard::to_allocvec(&RefuseReason::RoomFull).unwrap(), [3]);
+    }
+
+    #[test]
+    fn handover_bounds() {
+        let over = Control::HandedOver {
+            epoch: 3,
+            contact: vec![0; 8],
+            removed: vec![[0; 32]; MAX_HANDOVER_REMOVED + 1],
+        };
+        assert!(!over.within_bounds());
+        let ok = Control::HandedOver {
+            epoch: 3,
+            contact: vec![0; 8],
+            removed: vec![[0; 32]; MAX_HANDOVER_REMOVED],
+        };
+        assert!(ok.within_bounds());
+        let bytes = encode(&ok).unwrap();
+        assert_eq!(decode::<Control>(&bytes[4..]).unwrap(), ok);
+        let big = Control::HandoverReady {
+            request: 1,
+            contact: Some(vec![0; MAX_CONTACT_LEN + 1]),
+        };
+        assert!(!big.within_bounds());
     }
 
     #[test]

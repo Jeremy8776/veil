@@ -420,6 +420,12 @@ fn join_error(e: &CallError) -> String {
             String::from("This invite is for a call that has ended.")
         }
         CallError::Refused(RefuseReason::RoomFull) => String::from("The call is full."),
+        CallError::Refused(RefuseReason::HostChanged) => {
+            String::from("The host changed. Ask for a new link.")
+        }
+        CallError::Refused(RefuseReason::NeedsUpdate) => {
+            String::from("Update Veil to join this call.")
+        }
         CallError::Timeout => String::from("The host did not answer."),
         // Windows blocks inbound UDP for an app with no firewall rule, which looks exactly
         // like this from the guest's side; the host's own invite lists only its addresses.
