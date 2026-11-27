@@ -139,11 +139,13 @@ impl Playback {
 
     /// Records a frame the speaker has just taken; the oldest is dropped when the queue is full.
     pub fn push_reference(&self, frame: &[f32]) {
+        // Copied before locking, so the microphone thread never waits on an allocation.
+        let frame = frame.to_vec();
         let mut queue = lock(&self.reference);
         if queue.len() >= REFERENCE_FRAMES {
             queue.pop_front();
         }
-        queue.push_back(frame.to_vec());
+        queue.push_back(frame);
     }
 
     /// Empties the queue and returns what was in it, oldest first.

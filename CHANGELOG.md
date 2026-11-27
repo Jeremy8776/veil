@@ -14,9 +14,9 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ### Changed
 
-- **Windows microphone.** The microphone now opens without Windows' own voice effects, so
-  echo is not cancelled twice. If a device refuses, Veil falls back to the previous
-  communications mode.
+- **Windows microphone.** While Cancel echo is on, the microphone opens without Windows' own
+  voice effects, so echo is not cancelled twice. A device without that mode keeps its
+  effects, noted in veil.log. With Cancel echo off it opens as before.
 - Camera video is sent at up to 1080p (was 720p), so an HD tile uses about 3 Mbit/s instead
   of 1.3. A shared screen no longer pulses in and out of focus every 4 s: the periodic
   keyframe is now every 30 s, and receivers and the forwarder repeat a keyframe request that
