@@ -23,12 +23,13 @@ voice effects, so echo is not cancelled twice.
 - **Speex's canceller** (`aec-rs`, `speexdsp`). Rejected: older algorithm, weaker results.
 - **`aec3` crate.** Rejected for now: its API is still changing.
 - **`sonora`, in app, all platforms** (chosen). Plain `cargo` build everywhere, checked against
-  the C++ test suite, about 0.1–0.2% of one core at 48 kHz mono.
+  the C++ test suite. Measured in Veil: 0.5–1.1% of one core at 48 kHz mono (Ryzen 5600X;
+  the higher figure during a live call), and +0.6 MB.
 
 ## On by default
 
 Veil's rule is that the base stays light and heavier features are opt-in. Cancel echo is on by
-default anyway: its cost is a fraction of a percent of one core and no download, and echo harms
+default anyway: its cost is about 1% of one core and no download, and echo harms
 the other people on the call, not the person causing it, so an opt-in would rarely be turned on.
 
 ## Consequences

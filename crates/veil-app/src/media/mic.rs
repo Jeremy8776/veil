@@ -219,4 +219,41 @@ mod tests {
         chain.cancel_echo(&mut frame, true, 3, VecDeque::new());
         assert_eq!(chain.opens, 3);
     }
+
+    #[test]
+    fn echo_cancelling_removes_what_the_speaker_played() {
+        const FRAME: usize = 960;
+        let delay = 48 * 60;
+        let mut chain = Chain::new();
+        let mut seed = 1u32;
+        let mut line = vec![0.0f32; delay];
+        let frames = 4 * 48_000 / FRAME;
+        let tail = frames - 48_000 / FRAME;
+        let (mut before, mut after) = (0.0f32, 0.0f32);
+        for n in 0..frames {
+            // Noise with a slow syllable-like swell, from a fixed seed.
+            let played: Vec<f32> = (0..FRAME)
+                .map(|i| {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 17;
+                    seed ^= seed << 5;
+                    let noise = seed as f32 / u32::MAX as f32 * 2.0 - 1.0;
+                    let t = (n * FRAME + i) as f32 / 48_000.0;
+                    noise * 0.3 * (0.6 + 0.4 * (t * 4.0 * std::f32::consts::TAU).sin())
+                })
+                .collect();
+            line.extend_from_slice(&played);
+            let mut mic: Vec<f32> = line.drain(..FRAME).map(|e| 0.3 * e).collect();
+            if n >= tail {
+                before += mic.iter().map(|s| s * s).sum::<f32>();
+            }
+            chain.cancel_echo(&mut mic, true, 0, VecDeque::from([played]));
+            if n >= tail {
+                after += mic.iter().map(|s| s * s).sum::<f32>();
+            }
+        }
+        let drop = 10.0 * (before / after).log10();
+        eprintln!("echo drop {drop:.1} dB");
+        assert!(drop >= 20.0, "echo fell only {drop:.1} dB");
+    }
 }
