@@ -71,6 +71,8 @@ struct Shared {
     mic_gain: Gain,
     /// Remove background noise from the microphone, before the volume, meter and call.
     suppress_noise: AtomicBool,
+    /// Remove what the speakers play from the microphone, first in the chain, during a call.
+    cancel_echo: AtomicBool,
     /// Bring speech to a steady level, after noise suppression and before the volume.
     auto_gain: AtomicBool,
 }
@@ -146,6 +148,7 @@ impl LocalMedia {
             ctx,
             shared: Arc::new(Shared {
                 suppress_noise: AtomicBool::new(true),
+                cancel_echo: AtomicBool::new(true),
                 auto_gain: AtomicBool::new(true),
                 look_strength: AtomicU8::new(FULL),
                 blur_strength: AtomicU8::new(FULL),
@@ -180,6 +183,15 @@ impl LocalMedia {
     /// Takes effect on the next 20 ms of sound, for the meter and the call alike.
     pub fn set_noise_suppression(&self, on: bool) {
         self.shared.suppress_noise.store(on, Ordering::Relaxed);
+    }
+
+    pub fn cancel_echo(&self) -> bool {
+        self.shared.cancel_echo.load(Ordering::Relaxed)
+    }
+
+    /// Takes effect on the next 20 ms of sound.
+    pub fn set_cancel_echo(&self, on: bool) {
+        self.shared.cancel_echo.store(on, Ordering::Relaxed);
     }
 
     pub fn auto_gain(&self) -> bool {
@@ -238,8 +250,9 @@ impl LocalMedia {
         *lock(&self.shared.mic_error) = None;
         let (shared, ctx) = (self.shared.clone(), self.ctx.clone());
         let id = self.choice.mic.clone();
+        let playback = self.playback.clone();
         self.mic = Some(Worker::spawn(move |stop| {
-            mic::mic_loop(&shared, &ctx, &stop, id.as_deref());
+            mic::mic_loop(&shared, &playback, &ctx, &stop, id.as_deref());
         }));
     }
 

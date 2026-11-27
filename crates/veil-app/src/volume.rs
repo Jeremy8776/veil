@@ -14,8 +14,12 @@
 //!   this device only. It never mutes them for anyone else.
 //! - A speaker change bumps a counter; the playback thread compares it each 20 ms frame and
 //!   reopens the device when it moved. The lock is held only to copy the id.
+//! - The echo reference is the last 200 ms the speaker was given. The playback thread pushes
+//!   each frame after the device took it and drops the oldest when full, so it never waits; the
+//!   microphone thread takes the whole queue at once, so the lock is held for a push or a swap.
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
@@ -86,6 +90,8 @@ impl ShareLevel {
         if self.muted { 0.0 } else { self.volume }
     }
 }
+/// Frames kept for echo cancelling: 200 ms of 20 ms frames.
+const REFERENCE_FRAMES: usize = 10;
 
 /// The speaker the call plays through, and how loud.
 #[derive(Default)]
@@ -97,6 +103,10 @@ pub struct Playback {
     /// Remove background noise from everyone else's sound, one model per person.
     /// shortcut: forgotten when Veil closes; save it once the app has saved preferences.
     pub clean_others: AtomicBool,
+    /// What the speaker was given, newest last, for the microphone's echo canceller.
+    reference: Mutex<VecDeque<Vec<f32>>>,
+    /// Moves each time the speaker is opened, so the canceller can start again.
+    opened: AtomicU64,
     /// Each sharer's computer sound, by participant id; absent is [`ShareLevel::default`].
     shares: Mutex<HashMap<u32, ShareLevel>>,
     /// Each person's voice, by participant id; absent is [`ShareLevel::default`].
@@ -125,6 +135,30 @@ impl Playback {
 
     pub fn device(&self) -> Option<String> {
         lock(&self.device).clone()
+    }
+
+    /// Records a frame the speaker has just taken; the oldest is dropped when the queue is full.
+    pub fn push_reference(&self, frame: &[f32]) {
+        let mut queue = lock(&self.reference);
+        if queue.len() >= REFERENCE_FRAMES {
+            queue.pop_front();
+        }
+        queue.push_back(frame.to_vec());
+    }
+
+    /// Empties the queue and returns what was in it, oldest first.
+    pub fn take_reference(&self) -> VecDeque<Vec<f32>> {
+        std::mem::take(&mut *lock(&self.reference))
+    }
+
+    /// Called by the playback thread each time it opens a speaker.
+    pub fn speaker_opened(&self) {
+        self.opened.fetch_add(1, Ordering::Release);
+    }
+
+    /// Moves each time a speaker is opened.
+    pub fn opens(&self) -> u64 {
+        self.opened.load(Ordering::Acquire)
     }
 
     pub fn share_level(&self, id: u32) -> ShareLevel {
@@ -179,6 +213,19 @@ mod tests {
         assert_eq!(gain.get(), 0.0);
         gain.set(f32::INFINITY, MIC_MAX);
         assert_eq!(gain.get(), 0.0, "ignored");
+    }
+
+    #[test]
+    fn a_full_reference_queue_drops_the_oldest_and_does_not_block() {
+        let playback = Playback::default();
+        for i in 0..REFERENCE_FRAMES + 3 {
+            playback.push_reference(&[i as f32]);
+        }
+        let queue = playback.take_reference();
+        assert_eq!(queue.len(), REFERENCE_FRAMES);
+        assert_eq!(queue[0], [3.0], "the three oldest went");
+        assert_eq!(queue[REFERENCE_FRAMES - 1], [12.0]);
+        assert!(playback.take_reference().is_empty());
     }
 
     #[test]

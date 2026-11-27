@@ -14,8 +14,9 @@
 //! - Capture holds at most [`MAX_CAPTURE_BACKLOG`] frames; older audio is dropped so a slow
 //!   reader does not fall behind for good. Playback queues at most two frames, so its delay
 //!   stays near 40 ms at 20 ms frames.
-//! - The streams use the communications category, so Windows applies the device's voice
-//!   effects (echo cancellation and noise suppression) where its driver offers them.
+//! - The microphone opens in raw mode, so the driver's voice effects (echo cancellation,
+//!   noise suppression) are off: Veil cancels echo itself. A device without raw mode falls
+//!   back to the communications category with its effects. Playback always uses that category.
 //! - Field order matters: the client is stopped and released before its event handle is
 //!   closed, then COM is shut down.
 //!
@@ -26,9 +27,10 @@ use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::Media::Audio::{
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_SHAREMODE_SHARED,
     AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, AudioCategory_Communications, AudioClientProperties,
-    EDataFlow, IAudioCaptureClient, IAudioClient, IAudioClient2, IAudioRenderClient, WAVEFORMATEX,
-    WAVEFORMATEXTENSIBLE, WAVEFORMATEXTENSIBLE_0, eCapture, eRender,
+    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, AUDCLNT_STREAMOPTIONS_NONE, AUDCLNT_STREAMOPTIONS_RAW,
+    AudioCategory_Communications, AudioClientProperties, EDataFlow, IAudioCaptureClient,
+    IAudioClient, IAudioClient2, IAudioRenderClient, IMMDevice, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
+    WAVEFORMATEXTENSIBLE_0, eCapture, eRender,
 };
 use windows::Win32::System::Com::CLSCTX_ALL;
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
@@ -61,6 +63,55 @@ impl Drop for Event {
     }
 }
 
+/// Activates and initialises a client on `device`. `raw` asks Windows to skip the driver's
+/// voice effects. The error names the step that failed; a failed client is discarded, since
+/// it cannot be initialised twice.
+fn init_client(
+    device: &IMMDevice,
+    raw: bool,
+    flags: u32,
+    duration: i64,
+    format: &WAVEFORMATEXTENSIBLE,
+) -> Result<IAudioClient, &'static str> {
+    // SAFETY: `device` is live; no activation parameters are passed.
+    let client: IAudioClient =
+        unsafe { device.Activate(CLSCTX_ALL, None) }.map_err(|_| "activate")?;
+    if let Ok(client2) = client.cast::<IAudioClient2>() {
+        let properties = AudioClientProperties {
+            cbSize: size_of::<AudioClientProperties>() as u32,
+            eCategory: AudioCategory_Communications,
+            Options: if raw {
+                AUDCLNT_STREAMOPTIONS_RAW
+            } else {
+                AUDCLNT_STREAMOPTIONS_NONE
+            },
+            ..Default::default()
+        };
+        // SAFETY: `properties` is a valid struct of the size it states, alive for the
+        // call. Optional unless raw was asked for: a client without categories still plays.
+        let set = unsafe { client2.SetClientProperties(&properties) };
+        if raw && set.is_err() {
+            return Err("raw mode");
+        }
+    } else if raw {
+        return Err("raw mode");
+    }
+    // SAFETY: `format` is a valid WAVEFORMATEXTENSIBLE whose first member is the
+    // WAVEFORMATEX the pointer names, with `cbSize` covering the rest; it outlives the call.
+    unsafe {
+        client.Initialize(
+            AUDCLNT_SHAREMODE_SHARED,
+            flags,
+            duration,
+            0,
+            &format.Format,
+            None,
+        )
+    }
+    .map_err(|_| "audio format")?;
+    Ok(client)
+}
+
 /// One initialised audio client and what it was set up with.
 struct Endpoint {
     client: IAudioClient,
@@ -70,6 +121,8 @@ struct Endpoint {
     buffer_frames: u32,
     fail: fn(&'static str) -> MediaError,
     event: Event,
+    /// Opened in raw mode, without the driver's voice effects.
+    raw: bool,
 }
 
 impl Endpoint {
@@ -82,19 +135,6 @@ impl Endpoint {
         settings.check()?;
         let device =
             super::audio_devices::find(&super::audio_devices::enumerator()?, flow, device)?;
-        // SAFETY: `device` is live; no activation parameters are passed.
-        let client: IAudioClient =
-            unsafe { device.Activate(CLSCTX_ALL, None) }.map_err(|_| fail("activate"))?;
-        if let Ok(client2) = client.cast::<IAudioClient2>() {
-            let properties = AudioClientProperties {
-                cbSize: size_of::<AudioClientProperties>() as u32,
-                eCategory: AudioCategory_Communications,
-                ..Default::default()
-            };
-            // SAFETY: `properties` is a valid struct of the size it states, alive for the
-            // call. Optional: a client without categories still plays.
-            let _ = unsafe { client2.SetClientProperties(&properties) };
-        }
         let channels = settings.channels.count();
         let format = float_format(settings.channels);
         let flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK
@@ -102,19 +142,17 @@ impl Endpoint {
             | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
         // Three frames of buffer, in 100 ns units.
         let duration = i64::from(settings.frame_ms) * 3 * 10_000;
-        // SAFETY: `format` is a valid WAVEFORMATEXTENSIBLE whose first member is the
-        // WAVEFORMATEX the pointer names, with `cbSize` covering the rest; it outlives the call.
-        unsafe {
-            client.Initialize(
-                AUDCLNT_SHAREMODE_SHARED,
-                flags,
-                duration,
-                0,
-                &format.Format,
-                None,
-            )
-        }
-        .map_err(|_| fail("audio format"))?;
+        // The microphone asks for raw mode first (Veil cancels echo itself); a device that
+        // refuses it gets the plain communications stream instead.
+        // The app logs which one it got ([`WasapiCapture::raw`]).
+        let raw_client = (flow == eCapture)
+            .then(|| init_client(&device, true, flags, duration, &format).ok())
+            .flatten();
+        let raw = raw_client.is_some();
+        let client = match raw_client {
+            Some(client) => client,
+            None => init_client(&device, false, flags, duration, &format).map_err(fail)?,
+        };
         // SAFETY: no pointers are passed: an unnamed auto-reset event, not signalled.
         let event =
             Event(unsafe { CreateEventW(None, false, false, None) }.map_err(|_| fail("event"))?);
@@ -129,6 +167,7 @@ impl Endpoint {
             buffer_frames,
             fail,
             event,
+            raw,
         })
     }
 
@@ -214,6 +253,12 @@ impl WasapiCapture {
             out: Vec::new(),
             _runtime: runtime,
         })
+    }
+
+    /// Whether the microphone opened in raw mode. False means the device refused it and
+    /// Windows may apply its own echo cancellation and noise suppression as well as Veil's.
+    pub fn raw(&self) -> bool {
+        self.endpoint.raw
     }
 
     /// Waits for the next frame: `frame_samples` per channel, interleaved.

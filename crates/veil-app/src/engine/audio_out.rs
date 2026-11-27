@@ -25,11 +25,13 @@
 //!   played only while that person's signed screen share is showing, so a member cannot slip
 //!   sound in as someone else's share. It never lights a speaking ring.
 //!
+//! - After the speaker takes a frame, a copy of that exact frame (the final mix, after the
+//!   speaker volume) goes to [`Playback::push_reference`] for the microphone's echo canceller.
+//!   It never waits: a full queue drops its oldest frame. Each time a speaker is opened the
+//!   canceller is told ([`Playback::speaker_opened`]) so it starts again.
+//!
 //! shortcut: share sound is played in mono, as the speaker is opened for the call's mono
 //! voice. Open the speaker in stereo once stereo matters to someone.
-//!
-//! shortcut: no echo cancellation of Veil's own (Windows applies the device's where it has
-//! one, see `WasapiPlayback`). Two copies on one computer need headphones.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -253,6 +255,7 @@ impl Speaker {
                     let which = crate::media::which(device.as_deref());
                     crate::note!("speaker: opened {which}");
                     self.open = Some(output);
+                    self.playback.speaker_opened();
                 }
                 Err(e) => {
                     let which = crate::media::which(device.as_deref());
@@ -262,7 +265,13 @@ impl Speaker {
             }
         }
         let failed = match &mut self.open {
-            Some(output) => output.write(frame).is_err(),
+            Some(output) => {
+                let failed = output.write(frame).is_err();
+                if !failed {
+                    self.playback.push_reference(frame);
+                }
+                failed
+            }
             None => {
                 std::thread::sleep(Duration::from_millis(u64::from(self.settings.frame_ms)));
                 false

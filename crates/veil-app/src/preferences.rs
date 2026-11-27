@@ -63,6 +63,8 @@ pub struct Prefs {
     pub lobby_alerts: Option<bool>,
     /// Keep faces in view in cropped tiles (`framing.rs`); `None` until first changed (on).
     pub face_framing: Option<bool>,
+    /// Cancel echo on the microphone in a call (`media/mic.rs`); `None` until first changed (on).
+    pub cancel_echo: Option<bool>,
 }
 
 impl Prefs {
@@ -86,6 +88,9 @@ impl Prefs {
         }
         if let Some(on) = self.auto_gain {
             media.set_auto_gain(on);
+        }
+        if let Some(on) = self.cancel_echo {
+            media.set_cancel_echo(on);
         }
         if let Some(on) = self.clean_others {
             media.playback().clean_others.store(on, Ordering::Relaxed);
@@ -129,6 +134,7 @@ impl Prefs {
             clean_others: Some(media.playback().clean_others.load(Ordering::Relaxed)),
             lobby_alerts: saved.lobby_alerts,
             face_framing: saved.face_framing,
+            cancel_echo: Some(media.cancel_echo()),
         }
     }
 }
@@ -307,6 +313,7 @@ mod tests {
             clean_others: Some(true),
             lobby_alerts: Some(false),
             face_framing: Some(false),
+            cancel_echo: Some(true),
         }
     }
 

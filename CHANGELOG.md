@@ -4,8 +4,19 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Added
+
+- **Cancel echo.** Veil now removes echo during calls, so other people no longer hear
+  themselves when your microphone picks up Veil's sound from your speakers. It runs on this
+  device only, on every platform, before noise suppression and auto volume. It is on by
+  default; turn it off with the Cancel echo switch next to Noise suppression. It only cancels
+  Veil's own sound, not other apps.
+
 ### Changed
 
+- **Windows microphone.** The microphone now opens without Windows' own voice effects, so
+  echo is not cancelled twice. If a device refuses, Veil falls back to the previous
+  communications mode.
 - Camera video is sent at up to 1080p (was 720p), so an HD tile uses about 3 Mbit/s instead
   of 1.3. A shared screen no longer pulses in and out of focus every 4 s: the periodic
   keyframe is now every 30 s, and receivers and the forwarder repeat a keyframe request that
