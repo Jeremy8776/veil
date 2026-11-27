@@ -4,6 +4,12 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Changed
+
+- The Connection report is wider on desktop. Connection steps and media sit on the left,
+  what to include and the report text on the right, with names and values aligned in rows.
+  Phones and narrow windows keep one column.
+
 ## 0.1.16, 27/11/2026
 
 ### Added

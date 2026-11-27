@@ -85,10 +85,11 @@ impl Review {
             },
         );
     }
-    /// One centred column: the source switch, the status, the steps, media, what to include,
-    /// the exact text and the actions. Detail lives in tooltips.
+    /// The source switch and a heading, then two columns on a wide window (the evidence on
+    /// the left, what to share on the right) or one column on a narrow one. Detail lives in
+    /// tooltips.
     pub(super) fn content(&mut self, ui: &mut egui::Ui) {
-        ui.with_layout(Layout::top_down(Align::Center), |ui| self.column(ui));
+        ui.with_layout(Layout::top_down(Align::Min), |ui| self.column(ui));
     }
     fn column(&mut self, ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing.y = theme::GAP;
@@ -98,7 +99,7 @@ impl Review {
             ui.label(RichText::new("UI preview · synthetic evidence").color(theme::WARN));
         }
         if self.call.is_some() && self.check.is_some() {
-            self.source(ui, width);
+            self.source(ui, width.min(SOURCE_WIDTH));
         }
         let Some(snapshot) = self.frozen.as_ref() else {
             ui.add_space(12.0);
@@ -107,41 +108,32 @@ impl Review {
             ui.label(RichText::new("Start a call or test your connection.").color(theme::MUTED));
             return;
         };
-        ui.label(RichText::new(heading(snapshot)).font(theme::bold(20.0)))
-            .on_hover_text(SENDS_NOTHING);
-        ui.label(RichText::new(scope_label(snapshot)).color(theme::MUTED));
-        if let Some(problem) = snapshot.problem() {
-            ui.label(RichText::new(problem.label()).color(theme::WARN))
-                .on_hover_text(problem.action());
+        header(ui, snapshot);
+        if width >= TWO_COLUMNS {
+            let gutter = theme::GAP * 2.0;
+            let left = ((width - gutter) * 0.45).floor();
+            let right = width - gutter - left;
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = gutter;
+                ui.vertical(|ui| {
+                    ui.set_width(left);
+                    if let Some(snapshot) = self.frozen.as_ref() {
+                        evidence(ui, snapshot, left);
+                    }
+                });
+                ui.vertical(|ui| {
+                    ui.set_width(right);
+                    self.share(ui, right, TALL_PREVIEW);
+                });
+            });
+        } else {
+            evidence(ui, snapshot, width);
+            self.share(ui, width, SHORT_PREVIEW);
         }
-        group(ui, width, |ui| {
-            for step in Step::ALL {
-                let state = snapshot.report.steps[step as usize];
-                ui.label(pair_text(step.label(), state.label(), state_colour(state)));
-            }
-        })
-        .on_hover_text(
-            "A helper answering does not prove hosting permission, admission or media delivery.",
-        );
-        group(ui, width, |ui| {
-            ui.label(RichText::new(snapshot.media_label()).font(theme::bold(15.0)));
-            for peer in snapshot.peers.iter().take(super::MAX_PEERS) {
-                let who = format!("Participant {} · {}", peer.id, peer.route.label());
-                let media = peer_media(peer.audio_recent, peer.video_recent);
-                ui.label(pair_text(&who, media, theme::MUTED));
-            }
-            ui.label(
-                RichText::new(format!(
-                    "Camera {} · Microphone {}",
-                    capture_label(snapshot.camera),
-                    capture_label(snapshot.microphone)
-                ))
-                .color(theme::MUTED),
-            );
-        })
-        .on_hover_text(snapshot.media_action());
-        ui.add_space(4.0);
-        ui.label(RichText::new("Include").font(theme::bold(14.0)))
+    }
+    /// What to include, the exact text, and the actions.
+    fn share(&mut self, ui: &mut egui::Ui, width: f32, preview_height: f32) {
+        ui.label(RichText::new("Include").font(theme::bold(15.0)))
             .on_hover_text("Both start off. Raw logs, names, chat, invitations and private keys are never included.");
         let mut changed = toggle_row(
             ui,
@@ -157,20 +149,30 @@ impl Review {
         if changed {
             self.rebuild();
         }
-        egui::ScrollArea::vertical()
-            .id_salt("report-preview")
-            .max_height(180.0)
+        let rows = (preview_height / 16.0).floor() as usize;
+        egui::Frame::new()
+            .fill(theme::PAGE)
+            .corner_radius(egui::CornerRadius::same(theme::RADIUS))
+            .inner_margin(egui::Margin::same(8))
             .show(ui, |ui| {
-                let mut shown = self.preview.as_str();
-                let mut layouter = preview_layouter;
-                ui.add(
-                    egui::TextEdit::multiline(&mut shown)
-                        .font(egui::TextStyle::Monospace)
-                        .desired_width(ui.available_width())
-                        .desired_rows(8)
-                        .layouter(&mut layouter),
-                )
-                .on_hover_text("Exactly what Copy puts on the clipboard. A snapshot: it does not retest the network.");
+                ui.set_width(width - 16.0);
+                egui::ScrollArea::vertical()
+                    .id_salt("report-preview")
+                    .max_height(preview_height)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        let mut shown = self.preview.as_str();
+                        let mut layouter = preview_layouter;
+                        ui.add(
+                            egui::TextEdit::multiline(&mut shown)
+                                .font(egui::TextStyle::Monospace)
+                                .frame(egui::Frame::NONE)
+                                .desired_width(ui.available_width())
+                                .desired_rows(rows)
+                                .layouter(&mut layouter),
+                        )
+                        .on_hover_text("Exactly what Copy puts on the clipboard. A snapshot: it does not retest the network.");
+                    });
             });
         let copy_label = if self.copied { "Copied" } else { "Copy report" };
         let (refresh, copy) = pair(
@@ -215,7 +217,15 @@ impl Review {
     }
 }
 
-const WIDTH: f32 = 460.0;
+/// The column the desktop dialog asks for; the dialog narrows it to fit the window.
+const WIDTH: f32 = 760.0;
+/// From this column width the report splits into evidence and sharing columns.
+const TWO_COLUMNS: f32 = 600.0;
+/// The Call and Check switch never stretches wider than this.
+const SOURCE_WIDTH: f32 = 320.0;
+/// The report text's height beside the evidence, and on its own in one column.
+const TALL_PREVIEW: f32 = 300.0;
+const SHORT_PREVIEW: f32 = 180.0;
 const SENDS_NOTHING: &str = "Recorded on this device. Opening this report sends nothing.";
 
 fn heading(snapshot: &Snapshot) -> &'static str {
@@ -260,10 +270,78 @@ fn peer_media(audio: bool, video: bool) -> &'static str {
     }
 }
 
-/// `name · value` on one centred line, the value in `colour`.
+/// The heading, then the call's scope and any problem on one muted line.
+fn header(ui: &mut egui::Ui, snapshot: &Snapshot) {
+    ui.spacing_mut().item_spacing.y = 2.0;
+    ui.label(RichText::new(heading(snapshot)).font(theme::bold(20.0)))
+        .on_hover_text(SENDS_NOTHING);
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new(scope_label(snapshot)).color(theme::MUTED));
+        if let Some(problem) = snapshot.problem() {
+            ui.label(RichText::new("·").color(theme::MUTED));
+            ui.label(RichText::new(problem.label()).color(theme::WARN))
+                .on_hover_text(problem.action());
+        }
+    });
+    ui.spacing_mut().item_spacing.y = theme::GAP;
+}
+
+/// The connection steps and the media seen, as two titled panels `width` wide.
+fn evidence(ui: &mut egui::Ui, snapshot: &Snapshot, width: f32) {
+    section(ui, width, "Connection", |ui| {
+        for step in Step::ALL {
+            let state = snapshot.report.steps[step as usize];
+            row(ui, step.label(), state.label(), state_colour(state));
+        }
+    })
+    .on_hover_text(
+        "A helper answering does not prove hosting permission, admission or media delivery.",
+    );
+    section(ui, width, snapshot.media_label(), |ui| {
+        for peer in snapshot.peers.iter().take(super::MAX_PEERS) {
+            let who = format!("Participant {} · {}", peer.id, peer.route.label());
+            let media = peer_media(peer.audio_recent, peer.video_recent);
+            row(ui, &who, media, theme::MUTED);
+        }
+        row(ui, "Camera", capture_label(snapshot.camera), theme::MUTED);
+        row(
+            ui,
+            "Microphone",
+            capture_label(snapshot.microphone),
+            theme::MUTED,
+        );
+    })
+    .on_hover_text(snapshot.media_action());
+}
+
+const ROW_FONT: f32 = 13.5;
+
+/// A name at the left and its value at the right. When both do not fit on one line they
+/// become one wrapping `name · value` line, so a row never pushes past its panel.
+fn row(ui: &mut egui::Ui, name: &str, value: &str, colour: egui::Color32) {
+    let font = egui::FontId::proportional(ROW_FONT);
+    let measure = |text: &str| {
+        ui.painter()
+            .layout_no_wrap(text.to_owned(), font.clone(), theme::TEXT)
+            .size()
+            .x
+    };
+    if measure(name) + measure(value) + 16.0 <= ui.available_width() {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(name).font(font.clone()).color(theme::TEXT));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(RichText::new(value).font(font.clone()).color(colour));
+            });
+        });
+    } else {
+        ui.label(pair_text(name, value, colour));
+    }
+}
+
+/// `name · value` on one left-aligned, wrapping line, the value in `colour`.
 fn pair_text(name: &str, value: &str, colour: egui::Color32) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
-    let font = egui::FontId::proportional(13.5);
+    let font = egui::FontId::proportional(ROW_FONT);
     job.append(
         name,
         0.0,
@@ -275,20 +353,26 @@ fn pair_text(name: &str, value: &str, colour: egui::Color32) -> egui::text::Layo
         egui::TextFormat::simple(font.clone(), theme::MUTED),
     );
     job.append(value, 0.0, egui::TextFormat::simple(font, colour));
-    job.halign = Align::Center;
     job
 }
 
-/// A quiet rounded panel `width` wide holding centred lines. Its response carries the tooltip.
-fn group(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) -> egui::Response {
+/// A quiet rounded panel `width` wide with a bold title over its rows. Its response carries
+/// the tooltip.
+fn section(
+    ui: &mut egui::Ui,
+    width: f32,
+    title: &str,
+    add: impl FnOnce(&mut egui::Ui),
+) -> egui::Response {
     egui::Frame::new()
         .fill(theme::PAGE)
         .corner_radius(egui::CornerRadius::same(theme::RADIUS))
         .inner_margin(egui::Margin::same(12))
         .show(ui, |ui| {
             ui.set_width(width - 24.0);
-            ui.with_layout(Layout::top_down(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.y = 4.0;
+            ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                ui.spacing_mut().item_spacing.y = 6.0;
+                ui.label(RichText::new(title).font(theme::bold(15.0)));
                 add(ui);
             });
         })
@@ -381,7 +465,7 @@ mod tests {
         let ctx = egui::Context::default();
         theme::load_fonts(&ctx).expect("system fonts");
         theme::apply(&ctx);
-        for width in [264.0, 320.0, 540.0] {
+        for width in [264.0, 320.0, 540.0, 600.0, 760.0] {
             let mut review = Review {
                 call: Some(super::super::tests::example()),
                 ..Default::default()
