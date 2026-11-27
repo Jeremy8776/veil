@@ -2,7 +2,24 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
-## Unreleased
+## 0.1.17, 27/11/2026
+
+### Added
+
+- **Persistent calls.** A host can switch on **Persistent call** before starting. When that
+  host leaves through Veil, the call moves to a member who switched on **Available to
+  host**, instead of ending. Veil picks the member with the best connection, never a
+  relay-only member. The new host hosts with their own key and settings, and the old host
+  is removed from the call and cannot read new media. Earlier invite links stop working.
+  A relay-only member whose relay would move is asked first, and leaves after 20 seconds
+  with no answer. **Available to host** is off by default and cannot be on with Hide my
+  address. See TRANSPARENCY.md for exactly what it shares with the host.
+- **Update every device for persistent calls.** Handover uses new control messages. Older
+  versions still join ordinary calls, but cannot join a persistent call: they are refused
+  and asked to update Veil. A crash or network loss of the host still
+  ends the call.
+- Handover is tested over loopback links. It has not yet been tried between real devices,
+  and the desktop dialogs are not yet tried by people.
 
 ### Changed
 
