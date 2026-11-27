@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "revision": 41,
-  "updated_at": "2026-11-27T14:31:44+00:00",
+  "revision": 43,
+  "updated_at": "2026-11-27T14:44:54+00:00",
   "next_step": {
     "capability": "SHARE-01",
     "title": "Share computer sound with a screen",
@@ -175,9 +175,9 @@
     },
     "HOST-01": {
       "status": "in_progress",
-      "note": "veil-call handover done (host, successor, member, tests); starting veil-app UI",
+      "note": "First pass built on claude/host-01-handover (5f2f1d8..59ef855, unpushed). Loopback handover test and unit tests pass. Needs real-device LAN and internet evidence.",
       "evidence": [],
-      "updated_at": "2026-11-27T14:31:44+00:00"
+      "updated_at": "2026-11-27T14:44:53+00:00"
     },
     "NEAR-01": {
       "status": "planned",
@@ -259,13 +259,23 @@
     },
     "host-01-handover-s2": {
       "title": "HOST-01 host actor, successor, member, UI",
-      "status": "active",
+      "status": "idle",
       "started_at": "2026-11-27T14:16:50+00:00",
-      "updated_at": "2026-11-27T14:31:44+00:00",
-      "note": "Reading the roadmap and current evidence."
+      "updated_at": "2026-11-27T14:44:54+00:00",
+      "note": "HOST-01 steps 1-5 committed locally; next: Jeremy's real-device test, then push/PR on his yes"
     }
   },
   "activity": [
+    {
+      "at": "2026-11-27T14:44:54+00:00",
+      "session": "host-01-handover-s2",
+      "note": "HOST-01 steps 1-5 committed locally; next: Jeremy's real-device test, then push/PR on his yes"
+    },
+    {
+      "at": "2026-11-27T14:44:53+00:00",
+      "session": "host-01-handover-s2",
+      "note": "HOST-01: in_progress — First pass built on claude/host-01-handover (5f2f1d8..59ef855, unpushed). Loopback handover test and unit tests pass. Needs real-device LAN and internet evidence."
+    },
     {
       "at": "2026-11-27T14:31:44+00:00",
       "session": "host-01-handover-s2",
