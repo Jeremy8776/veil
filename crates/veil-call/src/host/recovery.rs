@@ -18,6 +18,10 @@ use super::{Actor, OUTBOX};
 /// A disconnected device remains a member for this bounded window. Explicit leave and
 /// removal bypass it. Replay is bounded in both count and bytes by the control frame limit.
 pub const CONTROL_RECOVERY: Duration = Duration::from_secs(20);
+/// How long a new host keeps members after a handover. A member first waits up to
+/// [`CONTROL_RECOVERY`] for the app to follow (a relay-only person may be asked first), then
+/// redials for up to [`CONTROL_RECOVERY`] more. The new host must outlast both.
+pub const FOLLOW_WINDOW: Duration = Duration::from_secs(CONTROL_RECOVERY.as_secs() * 2);
 pub(super) const REPLAY_COMMITS: usize = 64;
 
 impl Actor {

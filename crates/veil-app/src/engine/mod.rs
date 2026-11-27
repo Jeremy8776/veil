@@ -100,9 +100,12 @@ pub(crate) enum Command {
 
 /// How long leaving may hold the interface while links close.
 const CLOSE_WAIT: Duration = Duration::from_secs(1);
-/// How long quitting may wait while a persistent call is handed over (ADR 0010 §7): up to
-/// three successors' ready time, then the new host's removal commit.
-const HANDOVER_WAIT: Duration = Duration::from_secs(15);
+/// How long quitting may wait while a persistent call is handed over (ADR 0010 §7): the
+/// longest handover, then the usual close. Stopping the runtime sooner could drop the
+/// handover commit or `HandedOver` unsent, or end the call with no `Ended`, so members would
+/// sit out a recovery window for nothing. Most handovers finish in a few seconds.
+const HANDOVER_WAIT: Duration =
+    Duration::from_secs(veil_call::host::handover::HANDOVER_MAX.as_secs() + CLOSE_WAIT.as_secs());
 
 pub struct Engine {
     runtime: Option<Runtime>,

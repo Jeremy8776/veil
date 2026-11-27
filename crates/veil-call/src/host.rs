@@ -58,7 +58,7 @@ pub use hints::MAX_HINTS;
 use link::{Opened, run_link};
 pub use handover::{Choice, HandoverFailure};
 use handover::Handover;
-pub use recovery::CONTROL_RECOVERY;
+pub use recovery::{CONTROL_RECOVERY, FOLLOW_WINDOW};
 use recovery::REPLAY_COMMITS;
 
 /// Control messages queued for one link. A member that falls this far behind is dropped.

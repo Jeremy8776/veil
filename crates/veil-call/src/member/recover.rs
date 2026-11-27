@@ -7,12 +7,26 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 use veil_group::{Applied, Group};
-use veil_net::control::Control;
+use veil_net::control::{Control, RefuseReason};
 use veil_net::{FramedRecv, FramedSend, Node};
 
 use super::handover::MemberCommand;
-use super::{STEP, recv, send_control};
+use super::{MemberEvent, STEP, recv, send_control};
 use crate::CallError;
+
+/// How the session ends when the host cannot be reached again. `changing` is set while
+/// following a handover.
+pub(super) fn recovery_failed(error: CallError, changing: bool) -> MemberEvent {
+    match error {
+        CallError::Group(e) => MemberEvent::Failed(e),
+        // The old host handed over while this member was away, so it missed the handover
+        // commit. It was not removed: it needs a fresh invitation.
+        CallError::Refused(RefuseReason::HostChanged) => MemberEvent::LostInHandover,
+        CallError::Refused(_) => MemberEvent::Removed,
+        _ if changing => MemberEvent::LostInHandover,
+        _ => MemberEvent::ConnectionLost,
+    }
+}
 
 /// Waits for the app to move the node to the new host's room. `None` after the recovery
 /// window, or when the session's handle is gone.
@@ -94,5 +108,36 @@ pub(super) async fn recover_control(
             .await
             .map_err(|_| CallError::Timeout)?;
         gap = (gap * 2).min(Duration::from_secs(3));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_member_that_missed_the_handover_is_not_told_it_was_removed() {
+        let missed = CallError::Refused(RefuseReason::HostChanged);
+        assert!(matches!(
+            recovery_failed(missed, false),
+            MemberEvent::LostInHandover
+        ));
+        let declined = CallError::Refused(RefuseReason::DeclinedByHost);
+        assert!(matches!(
+            recovery_failed(declined, false),
+            MemberEvent::Removed
+        ));
+    }
+
+    #[test]
+    fn a_failed_redial_is_lost_in_handover_only_while_following() {
+        assert!(matches!(
+            recovery_failed(CallError::Timeout, true),
+            MemberEvent::LostInHandover
+        ));
+        assert!(matches!(
+            recovery_failed(CallError::Timeout, false),
+            MemberEvent::ConnectionLost
+        ));
     }
 }

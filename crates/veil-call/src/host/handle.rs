@@ -79,7 +79,7 @@ impl HostHandle {
     }
 
     /// The successor's side of a handover: hosts the call this device was a member of, with
-    /// its own key and its own group state. Every other member has [`super::CONTROL_RECOVERY`]
+    /// its own key and its own group state. Every other member has [`super::FOLLOW_WINDOW`]
     /// to resume here, and the commit that removed the old host is replayed to them.
     pub fn take_over(
         identity: &Identity,

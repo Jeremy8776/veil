@@ -32,6 +32,11 @@ use super::{Actor, HostEvent};
 pub const READY_WAIT: Duration = Duration::from_secs(10);
 /// How long the old host waits for the new host's removal commit before it closes.
 pub const LINGER_AFTER: Duration = Duration::from_secs(10);
+/// The longest a handover can take, from [`HostHandle::hand_over`](super::HostHandle::hand_over)
+/// to [`HostEvent::HandedOver`]: every successor tried runs out its ready time, then the old
+/// host lingers. A caller that must not cut a handover short (quitting) waits this long.
+pub const HANDOVER_MAX: Duration =
+    Duration::from_secs(READY_WAIT.as_secs() * MAX_ATTEMPTS as u64 + LINGER_AFTER.as_secs());
 
 /// One person the leaving host may pick, best first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,7 +134,7 @@ impl Actor {
     /// other member recovering until it resumes here, and the old host's removed list.
     pub(super) fn seed_take_over(&mut self, journal: Vec<(u64, Vec<u8>)>, removed: Vec<PublicId>) {
         self.history.extend(journal);
-        let until = Instant::now() + super::CONTROL_RECOVERY;
+        let until = Instant::now() + super::FOLLOW_WINDOW;
         for device in self.others() {
             // Link id 0 is never issued, so no stale closure matches it.
             self.recovering.insert(device, (0, until));

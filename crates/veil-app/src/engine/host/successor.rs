@@ -11,8 +11,8 @@
 //! - Host roles start only with "Available to host" on, which is the consent (§5).
 //!
 //! shortcut: helpers started for an offer that is then given to someone else keep running
-//! until the call ends. They serve only this device's own room. Stop them on a lost offer if
-//! people hand over often.
+//! until the call ends. They serve only this device's own room, and a later offer reuses them
+//! ([`Prepared::reseal`]). Stop them on a lost offer if people hand over often.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -81,15 +81,7 @@ pub(in crate::engine) async fn prepare(
         relay.addrs = hosted_addresses(rendezvous, None, config.local_only);
     }
     let addrs = advertised(config, v6, lan, port);
-    let contact = Contact {
-        room_id,
-        epoch: epoch.saturating_add(1),
-        host: identity.public(),
-        addrs: addrs.clone(),
-        relay: Some(relay.to_string()),
-    }
-    .seal(identity)
-    .map_err(|e| e.to_string())?;
+    let contact = seal(identity, room_id, epoch, &addrs, &relay)?;
     Ok(Prepared {
         contact,
         rendezvous,
@@ -99,6 +91,40 @@ pub(in crate::engine) async fn prepare(
         addrs,
         port,
     })
+}
+
+impl Prepared {
+    /// A later offer in the same call (an earlier one timed out or went elsewhere): the host
+    /// roles already run, so only the contact is sealed again, for the new epoch. Starting
+    /// them again would leave a second rendezvous and forwarder running.
+    pub(in crate::engine) fn reseal(
+        &mut self,
+        identity: &Identity,
+        room_id: [u8; 16],
+        epoch: u64,
+    ) -> Result<(), String> {
+        self.contact = seal(identity, room_id, epoch, &self.addrs, &self.relay)?;
+        Ok(())
+    }
+}
+
+/// The contact for a handover that would start epoch `epoch + 1`.
+fn seal(
+    identity: &Identity,
+    room_id: [u8; 16],
+    epoch: u64,
+    addrs: &[SocketAddr],
+    relay: &RelayAddrs,
+) -> Result<Vec<u8>, String> {
+    Contact {
+        room_id,
+        epoch: epoch.saturating_add(1),
+        host: identity.public(),
+        addrs: addrs.to_vec(),
+        relay: Some(relay.to_string()),
+    }
+    .seal(identity)
+    .map_err(|e| e.to_string())
 }
 
 /// Hosts the call from `promotion` with the roles `prepared` started. Returns the host's
@@ -188,4 +214,36 @@ pub(in crate::engine) async fn take_over(
         persistent: true,
         config,
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_later_offer_reseals_the_same_roles_for_its_epoch() {
+        let me = Identity::generate();
+        let room = [4; 16];
+        let node = NodeAddr {
+            key: Identity::generate().public(),
+            addr: "81.2.69.160:7000".parse().unwrap(),
+        };
+        let addrs: Vec<SocketAddr> = vec!["81.2.69.160:5000".parse().unwrap()];
+        let relay = RelayAddrs::from(node);
+        let mut prepared = Prepared {
+            contact: seal(&me, room, 3, &addrs, &relay).unwrap(),
+            rendezvous: node,
+            configured: None,
+            forwarder: None,
+            relay: relay.clone(),
+            addrs: addrs.clone(),
+            port: 5000,
+        };
+        prepared.reseal(&me, room, 8).unwrap();
+        let opened = Contact::open(&prepared.contact, &me.public(), room, 9).unwrap();
+        assert_eq!(opened.addrs, addrs);
+        assert_eq!(opened.relay_addrs(), Some(relay));
+        assert!(Contact::open(&prepared.contact, &me.public(), room, 4).is_err());
+    }
 }

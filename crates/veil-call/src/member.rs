@@ -21,7 +21,7 @@ mod recover;
 
 pub use handover::Promotion;
 use handover::{MemberCommand, Next, decide};
-use recover::{recover_control, wait_to_follow};
+use recover::{recover_control, recovery_failed, wait_to_follow};
 
 use crate::events::EventSender;
 use crate::node::{CallNode, Path};
@@ -267,10 +267,7 @@ pub async fn join_with(
                                 if !events.emit(done) { break MemberEvent::Overloaded; }
                                 continue;
                             }
-                            Err(CallError::Group(e)) => break MemberEvent::Failed(e),
-                            Err(CallError::Refused(_)) => break MemberEvent::Removed,
-                            Err(_) if changing.is_some() => break MemberEvent::LostInHandover,
-                            Err(_) => break MemberEvent::ConnectionLost,
+                            Err(e) => break recovery_failed(e, changing.is_some()),
                         }
                     },
                 },

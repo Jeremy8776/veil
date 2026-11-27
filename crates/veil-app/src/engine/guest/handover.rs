@@ -82,7 +82,18 @@ impl Handover {
         epoch: u64,
         member: &MemberHandle,
     ) {
-        let contact = if self.available {
+        let contact = if !self.available {
+            None
+        } else if let Some(prepared) = self.prepared.as_mut() {
+            // Offered again: reuse the roles started for the earlier offer.
+            match prepared.reseal(identity, room_id, epoch) {
+                Ok(()) => Some(prepared.contact.clone()),
+                Err(why) => {
+                    crate::note!("call: could not seal the host contact: {why}");
+                    None
+                }
+            }
+        } else {
             match prepare(identity, config, call, room_id, epoch).await {
                 Ok(prepared) => {
                     let contact = prepared.contact.clone();
@@ -94,8 +105,6 @@ impl Handover {
                     None
                 }
             }
-        } else {
-            None
         };
         let _ = member.handover_ready(request, contact).await;
     }
