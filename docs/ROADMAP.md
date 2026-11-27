@@ -507,7 +507,9 @@ current Auto on the same script. Record wire rate, delay and freeze time for bot
 ### DESK-01 Persist identity and validate native desktop behaviour
 
 **Outcome:** Restarting Veil keeps a user's verified identity and setup on every desktop OS.
-**Status:** Partial; Windows persistence exists. **Target:** 0.4.0. **Depends on:** BASE-01.
+**Status:** In progress; made priority 1 by Jeremy on 27/11/2026. Windows persistence exists;
+macOS Keychain and Linux Secret Service sealing are built on `claude/desk-01-key-sealing`
+and still need real-device runs. **Target:** 0.4.0. **Depends on:** BASE-01.
 
 - Use macOS Keychain and an appropriate Linux secret store, plus native config directories.
   Handle locked/unavailable stores visibly without silently replacing a persisted identity.

@@ -2,22 +2,24 @@
 //!
 //! Purpose: one device key for every call, so a safety number checked once still means
 //! something next time, and a list of keys you marked as verified after comparing safety
-//! numbers. Both live in `%LOCALAPPDATA%\Veil`, sealed with Windows DPAPI
-//! (`veil_media::protect`), so they open only for the same Windows user and a copied file
-//! gives nothing.
+//! numbers. Both live in [`default_dir`], sealed by [`crate::keyseal`]: Windows DPAPI, the
+//! Android Keystore, or a wrapping key in the macOS keychain or Linux keyring. They open
+//! only for the same user on the same device, and a copied file gives nothing.
 //!
 //! Invariants:
 //! - Verified never admits anyone: it is a label for the host, who still decides.
 //! - A saved file is never overwritten unless it opened, was missing, or was moved aside.
 //!   A file that does not open (another user, corrupt) is moved to `*.unreadable` (or
 //!   `*.unreadable.2` and on, never over an earlier one) and a fresh one is started. A file
-//!   that cannot be read or moved (locked, no permission) is left as it is, and that run's
-//!   key or list is kept in memory only. The reason is kept for the home screen.
+//!   that cannot be read or moved (locked, no permission), or whose keychain cannot be asked
+//!   (locked keyring, no Secret Service), is left as it is, and that run's key or list is
+//!   kept in memory only. The reason is kept for the home screen.
 //! - Files are written to a temporary name, flushed to disk and renamed, so a crash never
 //!   leaves half a key.
 //! - Opened key bytes are wiped once copied into the store.
-//! - With no `LOCALAPPDATA`, or on macOS and Linux (no sealing yet, see [`key_dir`]),
-//!   nothing is saved: the key lasts one run. Other settings still use [`default_dir`].
+//! - With no data folder, or on a system [`crate::keyseal`] cannot seal for (see
+//!   [`key_dir`]), nothing is saved: the key lasts one run. Other settings still use
+//!   [`default_dir`].
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -26,6 +28,8 @@ use std::path::{Path, PathBuf};
 
 use veil_security::{Identity, PublicId};
 use zeroize::Zeroize;
+
+use crate::keyseal::{self, Unseal};
 
 const KEY_FILE: &str = "device.key";
 const TRUSTED_FILE: &str = "verified.keys";
@@ -54,10 +58,8 @@ pub fn default_dir() -> Option<PathBuf> {
 /// seal them, otherwise nowhere, so the key lasts one run and the home screen shows no
 /// save error on every start.
 pub fn key_dir() -> Option<PathBuf> {
-    default_dir().filter(|_| CAN_SEAL)
+    default_dir().filter(|_| keyseal::CAN_SEAL)
 }
-
-const CAN_SEAL: bool = cfg!(any(windows, target_os = "android"));
 
 #[cfg(any(not(target_os = "android"), test))]
 fn dir_for(os: &str, var: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
@@ -237,9 +239,17 @@ fn load(dir: &Path, name: &str, label: &[u8]) -> Result<Option<Vec<u8>>, Problem
             });
         }
     };
-    match unseal(&sealed, label) {
+    match keyseal::unseal(&sealed, label) {
         Ok(bytes) => Ok(Some(bytes)),
-        Err(_) => Err(set_aside(dir, name, "does not open for this Windows user")),
+        Err(Unseal::WrongKey) => Err(set_aside(dir, name, keyseal::WRONG_KEY)),
+        // It may open once the keychain can be used, so it must not be replaced.
+        Err(Unseal::Unavailable(why)) => Err(Problem {
+            message: format!(
+                "{name} could not be opened because {why}. It was left as it is and \
+                 nothing will replace it this run."
+            ),
+            in_place: true,
+        }),
     }
 }
 
@@ -271,7 +281,7 @@ fn set_aside(dir: &Path, name: &str, why: &str) -> Problem {
 }
 
 fn save(dir: &Path, name: &str, bytes: &[u8], label: &[u8]) -> Result<(), String> {
-    let sealed = seal(bytes, label)?;
+    let sealed = keyseal::seal(bytes, label)?;
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let temp = dir.join(format!("{name}.new"));
     let mut file = fs::File::create(&temp).map_err(|e| e.to_string())?;
@@ -280,38 +290,6 @@ fn save(dir: &Path, name: &str, bytes: &[u8], label: &[u8]) -> Result<(), String
     file.sync_all().map_err(|e| e.to_string())?;
     drop(file);
     fs::rename(&temp, dir.join(name)).map_err(|e| e.to_string())
-}
-
-#[cfg(windows)]
-fn seal(bytes: &[u8], label: &[u8]) -> Result<Vec<u8>, String> {
-    veil_media::protect(bytes, label).map_err(|e| e.to_string())
-}
-
-#[cfg(windows)]
-fn unseal(bytes: &[u8], label: &[u8]) -> Result<Vec<u8>, String> {
-    veil_media::unprotect(bytes, label).map_err(|e| e.to_string())
-}
-
-// shortcut: no sealing off Windows, so nothing is saved there. Add the platform's keychain
-// with the macOS and Linux back ends.
-#[cfg(not(any(windows, target_os = "android")))]
-fn seal(_: &[u8], _: &[u8]) -> Result<Vec<u8>, String> {
-    Err(String::from("saving keys is built for Windows only"))
-}
-
-#[cfg(not(any(windows, target_os = "android")))]
-fn unseal(_: &[u8], _: &[u8]) -> Result<Vec<u8>, String> {
-    Err(String::from("saving keys is built for Windows only"))
-}
-
-#[cfg(target_os = "android")]
-fn seal(bytes: &[u8], label: &[u8]) -> Result<Vec<u8>, String> {
-    veil_media::ffi::android::protect(bytes, label, true).map_err(|e| e.to_string())
-}
-
-#[cfg(target_os = "android")]
-fn unseal(bytes: &[u8], label: &[u8]) -> Result<Vec<u8>, String> {
-    veil_media::ffi::android::protect(bytes, label, false).map_err(|e| e.to_string())
 }
 
 #[cfg(all(test, windows))]

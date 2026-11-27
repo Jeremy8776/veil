@@ -231,7 +231,8 @@ this repository's release workflow.
    one off as video or sound, and each is also signed with the sender's device key over its
    frame id, so no member can send one as another; forwarders pass them on unread.
 4. **Identity.** Ed25519 device keys and pair/group safety codes compared through a trusted
-   external channel. Windows persists keys with DPAPI; Linux/macOS keys last one run.
+   external channel. Windows seals saved keys with DPAPI; macOS and Linux seal them under a
+   wrapping key in the Keychain or Secret Service keyring (`veil-app/src/keyseal.rs`).
    Identity-provider attestation is planned.
 5. **Invites.** Signed by the host, with an expiry and a one-time join token. An invite carries
    no media key. The host still admits each joiner from a lobby. A short link holds the

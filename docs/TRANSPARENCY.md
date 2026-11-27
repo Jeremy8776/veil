@@ -290,24 +290,30 @@ system's notification list until then, so anyone who can see your screen can see
   (`org.freedesktop.Notifications`, through the `zbus` crate). The text is escaped, so a
   name cannot add markup.
 
-**Kept on your device** (desktop app, Windows, in `%LOCALAPPDATA%\Veil`):
+**Kept on your device** (desktop app, in `%LOCALAPPDATA%\Veil` on Windows,
+`~/Library/Application Support/Veil` on macOS, `~/.local/share/veil` or `$XDG_DATA_HOME/veil`
+on Linux):
 - `device.key`: your device key. The same key is used for every call, so a safety number
-  you checked once still holds next time. Sealed with Windows DPAPI, so the file opens only
-  for your Windows user; a copy on another computer gives nothing. Anyone who controls your
-  signed-in account can still use it. "New device key" on the home screen replaces it.
+  you checked once still holds next time. On Windows it is sealed with DPAPI, so the file
+  opens only for your Windows user. On macOS and Linux it is sealed with ChaCha20-Poly1305
+  under a random key that Veil keeps in your keychain: the login keychain on macOS, the
+  Secret Service keyring (GNOME Keyring or KWallet) on Linux, as an item named "Veil:
+  protects your device key". A copy of the file on another computer gives nothing. Anyone
+  who controls your signed-in account, or can unlock your keychain, can still use it.
+  "New device key" on the home screen replaces it.
 - `verified.keys`: the device keys you marked as verified, sealed the same way. Verified is
   a label for the host; it never lets anyone in.
-- On Linux and macOS these two files are not saved yet: the key and verified contacts last
-  only until Veil closes. Safety codes change on the next run. A node owner who allows your
-  device key must also update that allowance after you restart. Platform keychain support
-  is still needed (`crates/veil-app/src/keystore.rs`).
-- The current app also derives its settings directory only from `LOCALAPPDATA`. Without
-  that variable, as on standard Linux/macOS runs, Connection fields, Data use, device/effect
-  preferences and the update-check opt-out are not saved between runs. Native configuration
-  directories remain to be implemented. Supplying `LOCALAPPDATA` can persist non-secret
-  settings there, but does not add device-key persistence off Windows.
+- On Linux without a Secret Service (some minimal desktops and headless sessions), or when
+  the keyring stays locked, the key cannot be saved or opened. Veil then says so on the home
+  screen, leaves any saved file as it is, and uses a key for that run only. If the keychain
+  item is deleted, the old files never open again: they are kept as `*.unreadable` and a new
+  key is made. Changing to a desktop with a different keyring has the same effect.
+  Sealing code: `crates/veil-app/src/keyseal.rs`.
+- Connection fields, Data use, device and effect preferences, LUTs, logs and the
+  update-check opt-out are saved in the same folder on every desktop system. They are not
+  sealed.
 - Veil never writes over a saved file it could not open. One that does not open for your
-  user is kept as `*.unreadable` (then `.unreadable.2` and on); one that cannot be read at
+  user (or with your keychain's key) is kept as `*.unreadable` (then `.unreadable.2` and on); one that cannot be read at
   all, for example while it is locked, is left as it is, and that run's key or list is not
   saved.
 - The same key in every call means anyone who meets you in two calls can tell it is the same
