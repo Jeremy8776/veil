@@ -326,12 +326,19 @@ mod tests {
             move |name: &str| (name == key).then(|| value.clone())
         };
         assert_eq!(
-            dir_for("windows", only("LOCALAPPDATA", PathBuf::from(r"C:\Users\a\AppData\Local"))),
+            dir_for(
+                "windows",
+                only("LOCALAPPDATA", PathBuf::from(r"C:\Users\a\AppData\Local"))
+            ),
             Some(PathBuf::from(r"C:\Users\a\AppData\Local").join("Veil")),
         );
         assert_eq!(
             dir_for("macos", only("HOME", home.clone())),
-            Some(home.join("Library").join("Application Support").join("Veil")),
+            Some(
+                home.join("Library")
+                    .join("Application Support")
+                    .join("Veil")
+            ),
         );
         assert_eq!(
             dir_for("linux", only("HOME", home.clone())),

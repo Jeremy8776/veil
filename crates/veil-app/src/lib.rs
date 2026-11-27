@@ -22,6 +22,7 @@ mod demo;
 mod dev_start;
 mod devices;
 mod diagnostics;
+mod emoji_text;
 mod engine;
 mod firewall;
 mod framing;
@@ -43,7 +44,6 @@ mod nearby;
 mod preferences;
 mod screens;
 mod share;
-mod emoji_text;
 mod system_fonts;
 mod theme;
 mod update;
@@ -67,8 +67,11 @@ pub fn run() -> eframe::Result {
     }
     log::start(log::folder().as_deref());
     let mut viewport = egui::ViewportBuilder::default().with_title(WINDOW_TITLE);
+    // Inside Veil.app the bundle's Veil.icns (16 to 1024 px) is the Dock icon. eframe would
+    // replace it with this 256 px PNG, blurry on Retina, so it is only set outside a bundle.
+    let bundled = std::env::current_exe().is_ok_and(|exe| in_app_bundle(&exe));
     // A bad icon is cosmetic: the window opens with the default icon instead.
-    if let Ok(icon) = eframe::icon_data::from_png_bytes(APP_ICON_PNG) {
+    if !bundled && let Ok(icon) = eframe::icon_data::from_png_bytes(APP_ICON_PNG) {
         viewport = viewport.with_icon(icon);
     }
     let options = eframe::NativeOptions {
@@ -94,6 +97,17 @@ pub fn run() -> eframe::Result {
             Ok(Box::new(app))
         }),
     ))
+}
+
+/// True for an executable at `<name>.app/Contents/MacOS/<exe>`: a macOS app bundle, whose
+/// own icon set the Dock already shows.
+fn in_app_bundle(exe: &std::path::Path) -> bool {
+    fn up<'a>(path: Option<&'a std::path::Path>, name: &str) -> Option<&'a std::path::Path> {
+        path.filter(|p| p.file_name().is_some_and(|n| n == name))
+            .and_then(std::path::Path::parent)
+    }
+    up(up(exe.parent(), "MacOS"), "Contents")
+        .is_some_and(|bundle| bundle.extension().is_some_and(|ext| ext == "app"))
 }
 
 /// Android's activity supplies the window, input and application lifecycle.
@@ -137,5 +151,29 @@ mod tests {
     fn app_icon_decodes_at_256_px() {
         let icon = eframe::icon_data::from_png_bytes(super::APP_ICON_PNG).expect("valid png");
         assert_eq!((icon.width, icon.height), (256, 256));
+    }
+
+    #[test]
+    fn package_icon_sizes_exist_at_their_size() {
+        // packaging/linux and packaging/macos copy these; a missing one fails the package.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icons");
+        for size in [16, 24, 32, 48, 64, 128, 512, 1024] {
+            let bytes = std::fs::read(dir.join(format!("veil-{size}.png"))).expect("icon file");
+            let icon = eframe::icon_data::from_png_bytes(&bytes).expect("valid png");
+            assert_eq!((icon.width, icon.height), (size, size));
+        }
+    }
+
+    #[test]
+    fn only_an_app_bundle_counts_as_one() {
+        use super::in_app_bundle;
+        use std::path::Path;
+        assert!(in_app_bundle(Path::new(
+            "/Applications/Veil.app/Contents/MacOS/veil-app"
+        )));
+        assert!(!in_app_bundle(Path::new("/usr/local/bin/veil-app")));
+        assert!(!in_app_bundle(Path::new("/tmp/Contents/MacOS/veil-app")));
+        assert!(!in_app_bundle(Path::new("/x/Veil.app/MacOS/veil-app")));
+        assert!(!in_app_bundle(Path::new("veil-app")));
     }
 }
