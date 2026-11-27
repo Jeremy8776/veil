@@ -4,6 +4,14 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+### Changed
+
+- **Linux and macOS keep your device key.** Your device key and verified contacts are now
+  saved between runs, so safety codes stay the same after a restart. They are sealed under
+  a key kept in the macOS keychain or your Linux keyring (GNOME Keyring or KWallet). The
+  first save may ask you to allow access or unlock the keyring. Without a keyring service,
+  the key lasts one run as before, and the home screen says why.
+
 ## 0.1.16, 27/11/2026
 
 ### Added

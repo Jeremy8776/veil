@@ -92,8 +92,11 @@ group chat. Paste the others' messages into Veil. A matching code verifies only 
 who posted it; everyone must provide their own. Old codes need replacing after membership
 changes. If a short tag is ambiguous, check those people's pair codes instead.
 
-Windows saves your device key and verified contacts using DPAPI. Linux and macOS currently
-keep them only until Veil closes, so you need to check again after restarting there.
+Veil saves your device key and verified contacts, sealed so they open only for you: with
+DPAPI on Windows, and with a key kept in your keychain on macOS and in your keyring (GNOME
+Keyring or KWallet) on Linux. The first time, macOS or your Linux desktop may ask you to
+allow this or to unlock the keyring. If you refuse, or Linux has no keyring service, the
+key lasts until Veil closes and the home screen says why.
 
 ## Slow or costly connections
 

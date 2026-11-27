@@ -45,6 +45,26 @@ eframe = { version = "0.37", default-features = false, features = [
 # (Linux) glyphs. The same epaint eframe uses; this only turns the feature on.
 epaint = { version = "0.37", default-features = false, features = ["color_fonts"] }
 qrcodegen = "1.8.0"
+# Sealing the device key file on macOS and Linux (src/keystore/seal_os.rs), with a wrapping
+# key held by the OS keychain. Same versions as veil-security; tested on every platform.
+chacha20poly1305 = "0.11.0"
+getrandom = { version = "0.4.3", features = ["sys_rng"] }
+
+# The OS keychain that holds that wrapping key: Keychain on macOS, the Secret Service
+# (GNOME Keyring, KWallet) over D-Bus on Linux. Pure Rust on Linux: zbus with async-io,
+# the zbus 5 already pulled in by the desktop portal, and RustCrypto for the session.
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+keyring-core = "1.1.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store = { version = "1.0.1", default-features = false, features = [
+    "rt-async-io-crypto-rust",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1.0.3", default-features = false, features = [
+    "keychain",
+] }
 
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
 eframe = { version = "0.37", default-features = false, features = ["accesskit", "wayland", "x11"] }

@@ -30,6 +30,7 @@ mod handover_ui;
 mod icons;
 mod invite_qr;
 mod json_file;
+mod keyseal;
 mod keystore;
 mod layout;
 mod lobby_alert;
