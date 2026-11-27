@@ -293,7 +293,8 @@ impl Node {
         expected: PublicId,
     ) -> Result<Link, NetError> {
         let rejected = Arc::new(AtomicBool::new(false));
-        let crypto = tls::client_config(self.key.clone(), expected, rejected.clone())?;
+        let (key, flag) = (self.key.clone(), rejected.clone());
+        let crypto = move || tls::client_config(key.clone(), expected, flag.clone());
         let link = match self.dial(addrs, crypto).await {
             Ok(link) => link,
             Err(_) if rejected.load(Ordering::Relaxed) => return Err(NetError::Identity),
@@ -313,14 +314,15 @@ impl Node {
     /// throwaway identity, since the peer sees this node's key. Everything else uses
     /// [`Self::connect`].
     pub async fn connect_unverified(&self, addrs: &[SocketAddr]) -> Result<Link, NetError> {
-        self.dial(addrs, tls::unverified_client_config(self.key.clone())?)
+        let key = self.key.clone();
+        self.dial(addrs, move || tls::unverified_client_config(key.clone()))
             .await
     }
 
     async fn dial(
         &self,
         addrs: &[SocketAddr],
-        crypto: quinn::crypto::rustls::QuicClientConfig,
+        crypto: impl Fn() -> Result<quinn::crypto::rustls::QuicClientConfig, NetError>,
     ) -> Result<Link, NetError> {
         if self.local_policy.enabled() {
             self.local_policy.refresh();
@@ -334,14 +336,16 @@ impl Node {
         if addrs.is_empty() {
             return Err(NetError::NoAddresses);
         }
-        let mut config = quinn::ClientConfig::new(Arc::new(crypto));
-        config.transport_config(transport(self.mtu)?);
+        let transport = transport(self.mtu)?;
 
         let mut attempts = JoinSet::new();
         let mut last_error = String::new();
         for (addr, wait) in family::dial_order(&addrs, self.ipv6(), MAX_CANDIDATES) {
             let endpoint = self.endpoint.clone();
-            let config = config.clone();
+            // A config per address: the listener accepts a knock once, so two paths to one
+            // listener must not share one.
+            let mut config = quinn::ClientConfig::new(Arc::new(crypto()?));
+            config.transport_config(transport.clone());
             attempts.spawn(async move {
                 tokio::time::sleep(wait).await;
                 let connecting = endpoint

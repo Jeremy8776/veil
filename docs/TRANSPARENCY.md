@@ -84,9 +84,11 @@ invite, the roster or a nearby beacon. A port scanner does not, so its handshake
 before your key is sent and it cannot follow your device from call to call. It can still see
 that something answers QUIC on that port. Rendezvous servers stay open to everyone, because
 short invite links are fetched by guests who do not know the server's key; the one the app
-runs for a call has a throwaway key of its own. Known limit: someone who watches a real dial
-on the wire (your network, your ISP) can copy its knock and learn the key; there is no replay
-protection yet. Copies from before 22/11/2026 send no knock, so they cannot reach copies from
+runs for a call has a throwaway key of its own. Each knock opens the door once: someone who
+watches a real dial on the wire (your network, your ISP) and copies its knock is refused,
+because the real dial already used it. Known limits: an observer who blocks the real dial and
+sends the copy first, or sends it after your copy of Veil restarts, can still learn the key.
+The record holds the last 4,096 knocks, so a copy older than that also works once. Copies from before 22/11/2026 send no knock, so they cannot reach copies from
 this date on: everyone in a call needs the newer version.
 
 Media, display names and chat are encrypted on the sender's device and opened only on
