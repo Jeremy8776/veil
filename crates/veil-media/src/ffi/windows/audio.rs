@@ -14,9 +14,11 @@
 //! - Capture holds at most [`MAX_CAPTURE_BACKLOG`] frames; older audio is dropped so a slow
 //!   reader does not fall behind for good. Playback queues at most two frames, so its delay
 //!   stays near 40 ms at 20 ms frames.
-//! - The microphone opens in raw mode, so the driver's voice effects (echo cancellation,
-//!   noise suppression) are off: Veil cancels echo itself. A device without raw mode falls
-//!   back to the communications category with its effects. Playback always uses that category.
+//! - Raw mode is asked for only by the caller ([`WasapiCapture::open_with`]), when Veil cancels
+//!   echo itself, so the driver's voice effects (echo cancellation, noise suppression) are not
+//!   applied as well. It is used only on a device whose driver says it supports it; otherwise,
+//!   or if it fails, the microphone opens in the communications category with its effects and
+//!   [`WasapiCapture::raw_refused`] says why. Playback always uses that category.
 //! - Field order matters: the client is stopped and released before its event handle is
 //!   closed, then COM is shut down.
 //!
@@ -73,6 +75,9 @@ fn init_client(
     duration: i64,
     format: &WAVEFORMATEXTENSIBLE,
 ) -> Result<IAudioClient, &'static str> {
+    if raw && !super::audio_devices::raw_supported(device) {
+        return Err("raw mode not supported");
+    }
     // SAFETY: `device` is live; no activation parameters are passed.
     let client: IAudioClient =
         unsafe { device.Activate(CLSCTX_ALL, None) }.map_err(|_| "activate")?;
@@ -121,8 +126,8 @@ struct Endpoint {
     buffer_frames: u32,
     fail: fn(&'static str) -> MediaError,
     event: Event,
-    /// Opened in raw mode, without the driver's voice effects.
-    raw: bool,
+    /// Why raw mode was asked for and not used: the step that failed.
+    raw_refused: Option<&'static str>,
 }
 
 impl Endpoint {
@@ -131,6 +136,7 @@ impl Endpoint {
         device: Option<&str>,
         settings: &AudioSettings,
         fail: fn(&'static str) -> MediaError,
+        raw: bool,
     ) -> Result<Self, MediaError> {
         settings.check()?;
         let device =
@@ -142,16 +148,14 @@ impl Endpoint {
             | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
         // Three frames of buffer, in 100 ns units.
         let duration = i64::from(settings.frame_ms) * 3 * 10_000;
-        // The microphone asks for raw mode first (Veil cancels echo itself); a device that
-        // refuses it gets the plain communications stream instead.
-        // The app logs which one it got ([`WasapiCapture::raw`]).
-        let raw_client = (flow == eCapture)
-            .then(|| init_client(&device, true, flags, duration, &format).ok())
-            .flatten();
-        let raw = raw_client.is_some();
-        let client = match raw_client {
-            Some(client) => client,
-            None => init_client(&device, false, flags, duration, &format).map_err(fail)?,
+        // A device that refuses raw mode gets the plain communications stream instead.
+        let raw = raw.then(|| init_client(&device, true, flags, duration, &format));
+        let (client, raw_refused) = match raw {
+            Some(Ok(client)) => (client, None),
+            refused => (
+                init_client(&device, false, flags, duration, &format).map_err(fail)?,
+                refused.and_then(Result::err),
+            ),
         };
         // SAFETY: no pointers are passed: an unnamed auto-reset event, not signalled.
         let event =
@@ -167,7 +171,7 @@ impl Endpoint {
             buffer_frames,
             fail,
             event,
-            raw,
+            raw_refused,
         })
     }
 
@@ -240,8 +244,18 @@ impl WasapiCapture {
     /// for the default communications microphone. [`MediaError::Unavailable`] means there is
     /// no such device.
     pub fn open(settings: &AudioSettings, device: Option<&str>) -> Result<Self, MediaError> {
+        Self::open_with(settings, device, false)
+    }
+
+    /// As [`Self::open`]; `raw` asks for the stream without the driver's voice effects, for
+    /// when Veil cancels echo itself.
+    pub fn open_with(
+        settings: &AudioSettings,
+        device: Option<&str>,
+        raw: bool,
+    ) -> Result<Self, MediaError> {
         let runtime = Runtime::start()?;
-        let endpoint = Endpoint::open(eCapture, device, settings, MediaError::Capture)?;
+        let endpoint = Endpoint::open(eCapture, device, settings, MediaError::Capture, raw)?;
         // SAFETY: the client is initialised for capture.
         let capture: IAudioCaptureClient =
             unsafe { endpoint.client.GetService() }.map_err(|_| MediaError::Capture("service"))?;
@@ -255,10 +269,10 @@ impl WasapiCapture {
         })
     }
 
-    /// Whether the microphone opened in raw mode. False means the device refused it and
-    /// Windows may apply its own echo cancellation and noise suppression as well as Veil's.
-    pub fn raw(&self) -> bool {
-        self.endpoint.raw
+    /// Why raw mode was asked for and not used (the step that failed); `None` if it was used
+    /// or not asked for.
+    pub fn raw_refused(&self) -> Option<&'static str> {
+        self.endpoint.raw_refused
     }
 
     /// Waits for the next frame: `frame_samples` per channel, interleaved.
@@ -327,7 +341,7 @@ impl WasapiPlayback {
     /// communications device. Playback starts with the first frame written.
     pub fn open(settings: &AudioSettings, device: Option<&str>) -> Result<Self, MediaError> {
         let runtime = Runtime::start()?;
-        let endpoint = Endpoint::open(eRender, device, settings, MediaError::Playback)?;
+        let endpoint = Endpoint::open(eRender, device, settings, MediaError::Playback, false)?;
         // SAFETY: the client is initialised for rendering.
         let render: IAudioRenderClient =
             unsafe { endpoint.client.GetService() }.map_err(|_| MediaError::Playback("service"))?;

@@ -4,18 +4,21 @@
 //! Invariants:
 //! - Only active devices are listed (plugged in and enabled).
 //! - Every string Windows allocates (device id, friendly name) is copied and freed exactly
-//!   once, and the property value is cleared after use.
+//!   once, and each property value is cleared after use.
 //! - `None` for a device means the default communications device, which follows Windows'
 //!   own setting.
 
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
+use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::{
     DEVICE_STATE_ACTIVE, EDataFlow, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, eCapture,
     eCommunications, eRender,
 };
-use windows::Win32::System::Com::StructuredStorage::{PropVariantClear, PropVariantToStringAlloc};
+use windows::Win32::System::Com::StructuredStorage::{
+    PropVariantClear, PropVariantToBoolean, PropVariantToStringAlloc,
+};
 use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance, CoTaskMemFree, STGM_READ};
-use windows::core::{HSTRING, PWSTR};
+use windows::core::{GUID, HSTRING, PWSTR};
 
 use super::Runtime;
 use crate::MediaError;
@@ -86,6 +89,31 @@ fn device_id(device: &IMMDevice) -> Option<String> {
     // SAFETY: `device` is live. On success the id is a CoTaskMemAlloc string we own.
     let id = unsafe { device.GetId() }.ok()?;
     take_string(id)
+}
+
+/// `PKEY_Devices_AudioDevice_RawProcessingSupported`, written here to avoid a whole
+/// `windows` feature for one key.
+const RAW_SUPPORTED: PROPERTYKEY = PROPERTYKEY {
+    fmtid: GUID::from_u128(0x8943b373_388c_4395_b557_bc6dbaffafdb),
+    pid: 2,
+};
+
+/// Whether the device's driver says it offers raw mode (a stream without its voice effects).
+/// Asking for raw mode on a device without it may succeed and still apply the effects.
+pub(super) fn raw_supported(device: &IMMDevice) -> bool {
+    // SAFETY: `device` is live; read access only.
+    let Ok(store) = (unsafe { device.OpenPropertyStore(STGM_READ) }) else {
+        return false;
+    };
+    // SAFETY: `store` is live and the key is a static PROPERTYKEY.
+    let Ok(mut value) = (unsafe { store.GetValue(&RAW_SUPPORTED) }) else {
+        return false;
+    };
+    // SAFETY: `value` is a valid PROPVARIANT returned above; an empty one is an error.
+    let supported = unsafe { PropVariantToBoolean(&value) }.is_ok_and(|b| b.as_bool());
+    // SAFETY: clears the value GetValue returned, exactly once.
+    let _ = unsafe { PropVariantClear(&mut value) };
+    supported
 }
 
 fn friendly_name(device: &IMMDevice) -> Option<String> {

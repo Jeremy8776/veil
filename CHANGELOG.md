@@ -2,6 +2,15 @@
 
 All notable changes to Veil. Dates are dd/mm/yyyy.
 
+## Unreleased
+
+### Fixed
+
+- **Windows microphone with Cancel echo off.** Switching Cancel echo off now gives back
+  Windows' own voice effects, as before 0.1.17, instead of no echo cancellation at all; the
+  switch reopens the microphone. Raw mode is only asked for when the driver says it supports
+  it, so echo is not cancelled twice, and a refusal is noted in veil.log with the reason.
+
 ## 0.1.17, 27/11/2026
 
 ### Added

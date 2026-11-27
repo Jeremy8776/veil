@@ -9,8 +9,9 @@ or a leaky headset sent everyone's voice back to them.
 
 Veil now cancels echo in the microphone thread, first in the chain, using the final speaker mix
 as the reference, with `sonora` (a pure Rust port of WebRTC's AEC3, BSD-3-Clause). It is on by
-default, with a "Cancel echo" switch. On Windows the microphone opens without the driver's
-voice effects, so echo is not cancelled twice.
+default, with a "Cancel echo" switch. On Windows, while the switch is on, the microphone opens
+without the driver's voice effects (raw mode, where the driver supports it), so echo is not
+cancelled twice; switched off, it opens with them as before.
 
 ## Considered options
 

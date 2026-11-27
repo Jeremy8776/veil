@@ -13,6 +13,9 @@
 //!   of a call, or with the switch off, the queue is emptied and the frame left alone.
 //! - It starts again (forgets the echo path) when the microphone is reopened, when a speaker
 //!   is opened, and when it goes from off to on.
+//! - On Windows the microphone opens without the driver's voice effects while the switch is on,
+//!   so echo is not cancelled twice, and with them while it is off; flipping the switch
+//!   reopens it. A device that refuses is logged and keeps its effects.
 //! - The noise model runs while either is on: automatic volume learns only from frames it
 //!   scores as speech. With suppression off it scores a copy, and the frame is not changed.
 //! - Starting the model again after both were off resets it, so it starts from current sound.
@@ -103,6 +106,26 @@ impl Chain {
     }
 }
 
+/// Opens the microphone. On Windows `raw` asks for it without the driver's voice effects.
+fn open_mic(id: Option<&str>, raw: bool) -> Result<veil_media::platform::Microphone, String> {
+    use veil_media::AudioSettings;
+    use veil_media::platform::Microphone;
+    #[cfg(windows)]
+    {
+        let mic =
+            Microphone::open_with(&AudioSettings::voice(), id, raw).map_err(|e| e.to_string())?;
+        if let Some(step) = mic.raw_refused() {
+            crate::note!("microphone: no raw mode ({step}), the driver's voice effects stay on");
+        }
+        Ok(mic)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = raw;
+        Microphone::open(&AudioSettings::voice(), id).map_err(|e| e.to_string())
+    }
+}
+
 pub(super) fn mic_loop(
     shared: &Shared,
     playback: &Playback,
@@ -110,20 +133,16 @@ pub(super) fn mic_loop(
     stop: &AtomicBool,
     id: Option<&str>,
 ) {
-    use veil_media::AudioSettings;
-    use veil_media::platform::Microphone;
-    let mut mic = match Microphone::open(&AudioSettings::voice(), id) {
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut raw = shared.cancel_echo.load(Ordering::Relaxed);
+    let mut mic = match open_mic(id, raw) {
         Ok(mic) => {
             crate::note!("microphone: opened {}", which(id));
-            #[cfg(windows)]
-            if !mic.raw() {
-                crate::note!("microphone: no raw mode, so the driver's voice effects are on");
-            }
             mic
         }
         Err(e) => {
             crate::note!("microphone: cannot open {}: {e}", which(id));
-            *lock(&shared.mic_error) = Some(e.to_string());
+            *lock(&shared.mic_error) = Some(e);
             ctx.request_repaint();
             return;
         }
@@ -145,15 +164,29 @@ pub(super) fn mic_loop(
             if stop.load(Ordering::Relaxed) {
                 break;
             }
-            mic = match Microphone::open(&AudioSettings::voice(), id) {
+            mic = match open_mic(id, raw) {
                 Ok(mic) => mic,
                 Err(error) => {
-                    *lock(&shared.mic_error) = Some(error.to_string());
+                    *lock(&shared.mic_error) = Some(error);
                     ctx.request_repaint();
                     return;
                 }
             };
             chain = Chain::new();
+        }
+        #[cfg(windows)]
+        if shared.cancel_echo.load(Ordering::Relaxed) != raw {
+            raw = !raw;
+            drop(mic);
+            mic = match open_mic(id, raw) {
+                Ok(mic) => mic,
+                Err(e) => {
+                    crate::note!("microphone: cannot reopen {}: {e}", which(id));
+                    *lock(&shared.mic_error) = Some(e);
+                    ctx.request_repaint();
+                    return;
+                }
+            };
         }
         match mic.read() {
             Ok(frame) => {
@@ -212,6 +245,59 @@ mod tests {
         assert_eq!(frame, before);
     }
 
+    /// A speaker playing speech-like noise (fixed seed) into a microphone that hears it 60 ms
+    /// later at 0.3.
+    #[derive(Clone)]
+    struct Room {
+        seed: u32,
+        n: usize,
+        line: Vec<f32>,
+    }
+
+    impl Room {
+        const FRAME: usize = 960;
+
+        fn new() -> Self {
+            Self {
+                seed: 1,
+                n: 0,
+                line: vec![0.0; 48 * 60],
+            }
+        }
+
+        /// Plays one frame and runs the microphone's frame through `chain`: returns the
+        /// microphone's energy before, and the frame after.
+        fn frame(&mut self, chain: &mut Chain, opens: u64) -> (f32, Vec<f32>) {
+            let played: Vec<f32> = (0..Self::FRAME)
+                .map(|i| {
+                    self.seed ^= self.seed << 13;
+                    self.seed ^= self.seed >> 17;
+                    self.seed ^= self.seed << 5;
+                    let noise = self.seed as f32 / u32::MAX as f32 * 2.0 - 1.0;
+                    let t = (self.n * Self::FRAME + i) as f32 / 48_000.0;
+                    noise * 0.3 * (0.6 + 0.4 * (t * 4.0 * std::f32::consts::TAU).sin())
+                })
+                .collect();
+            self.n += 1;
+            self.line.extend_from_slice(&played);
+            let mut mic: Vec<f32> = self.line.drain(..Self::FRAME).map(|e| 0.3 * e).collect();
+            let before = mic.iter().map(|s| s * s).sum::<f32>();
+            chain.cancel_echo(&mut mic, true, opens, VecDeque::from([played]));
+            (before, mic)
+        }
+
+        /// Runs `frames` frames and returns how far the echo fell, in dB.
+        fn drop(&mut self, chain: &mut Chain, opens: u64, frames: usize) -> f32 {
+            let (mut before, mut after) = (0.0, 0.0);
+            for _ in 0..frames {
+                let (b, a) = self.frame(chain, opens);
+                before += b;
+                after += a.iter().map(|s| s * s).sum::<f32>();
+            }
+            10.0 * (before / after).log10()
+        }
+    }
+
     #[test]
     fn echo_cancelling_starts_again_when_switched_on_or_the_speaker_reopens() {
         let mut chain = Chain::new();
@@ -220,43 +306,27 @@ mod tests {
         assert!(chain.cancelling);
         chain.cancel_echo(&mut frame, false, 0, VecDeque::new());
         assert!(!chain.cancelling);
-        chain.cancel_echo(&mut frame, true, 3, VecDeque::new());
+        // Learn the echo path, then open another speaker: from then on the chain must behave
+        // exactly as a new one hearing the same sound.
+        let mut room = Room::new();
+        assert!(room.drop(&mut chain, 0, 200) >= 20.0);
+        let mut same_room = room.clone();
+        let mut new_chain = Chain::new();
+        for _ in 0..50 {
+            assert_eq!(
+                room.frame(&mut chain, 3).1,
+                same_room.frame(&mut new_chain, 3).1
+            );
+        }
         assert_eq!(chain.opens, 3);
     }
 
     #[test]
     fn echo_cancelling_removes_what_the_speaker_played() {
-        const FRAME: usize = 960;
-        let delay = 48 * 60;
         let mut chain = Chain::new();
-        let mut seed = 1u32;
-        let mut line = vec![0.0f32; delay];
-        let frames = 4 * 48_000 / FRAME;
-        let tail = frames - 48_000 / FRAME;
-        let (mut before, mut after) = (0.0f32, 0.0f32);
-        for n in 0..frames {
-            // Noise with a slow syllable-like swell, from a fixed seed.
-            let played: Vec<f32> = (0..FRAME)
-                .map(|i| {
-                    seed ^= seed << 13;
-                    seed ^= seed >> 17;
-                    seed ^= seed << 5;
-                    let noise = seed as f32 / u32::MAX as f32 * 2.0 - 1.0;
-                    let t = (n * FRAME + i) as f32 / 48_000.0;
-                    noise * 0.3 * (0.6 + 0.4 * (t * 4.0 * std::f32::consts::TAU).sin())
-                })
-                .collect();
-            line.extend_from_slice(&played);
-            let mut mic: Vec<f32> = line.drain(..FRAME).map(|e| 0.3 * e).collect();
-            if n >= tail {
-                before += mic.iter().map(|s| s * s).sum::<f32>();
-            }
-            chain.cancel_echo(&mut mic, true, 0, VecDeque::from([played]));
-            if n >= tail {
-                after += mic.iter().map(|s| s * s).sum::<f32>();
-            }
-        }
-        let drop = 10.0 * (before / after).log10();
+        let mut room = Room::new();
+        room.drop(&mut chain, 0, 150);
+        let drop = room.drop(&mut chain, 0, 50);
         eprintln!("echo drop {drop:.1} dB");
         assert!(drop >= 20.0, "echo fell only {drop:.1} dB");
     }
