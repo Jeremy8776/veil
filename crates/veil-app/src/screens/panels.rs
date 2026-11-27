@@ -183,6 +183,7 @@ fn people(view: &mut CallView, playback: &Playback, ui: &mut egui::Ui, now: Inst
                 .on_disabled_hover_text("Alerts are for the lobby, which is off.");
         });
     }
+    crate::handover_ui::row(view, ui);
     call_menus::divider(ui);
     let mut admit = None;
     let mut decline = None;
@@ -214,7 +215,9 @@ Compare it with them before letting them in.",
                                 .small()
                                 .color(MUTED),
                         );
-                        if waiting.verified {
+                        if view.call.handover.removed_earlier.contains(&waiting.id) {
+                            crate::handover_ui::removed_tag(ui);
+                        } else if waiting.verified {
                             verified_tag(ui).on_hover_text(
                                 "You verified this device in an earlier call. You still decide whether to let them in.",
                             );
@@ -290,7 +293,9 @@ Compare it with them before letting them in.",
     if let Some(chosen) = pick {
         person_menu::apply(view, chosen);
     }
-    if let Some(id) = admit {
+    if let Some(id) = admit
+        && crate::handover_ui::admit_clicked(view, id)
+    {
         view.admit(id);
     }
     if let Some(id) = decline {

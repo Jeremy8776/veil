@@ -109,6 +109,10 @@ pub struct View {
     pub moderators: Vec<PublicId>,
     /// The host named this device a moderator.
     pub you_moderate: bool,
+    /// This device hosts now: from the start, or since a handover named it.
+    pub hosting: bool,
+    /// A persistent call's handover, for the interface (`model/handover.rs`).
+    pub handover: crate::model::handover::Handover,
 }
 
 /// Marks a picture key as someone's shared screen rather than their camera.
@@ -187,6 +191,8 @@ impl Shared {
                 server_down: false,
                 moderators: Vec::new(),
                 you_moderate: false,
+                hosting: false,
+                handover: crate::model::handover::Handover::default(),
             }),
             pictures: Mutex::default(),
             heard: Mutex::default(),
@@ -392,6 +398,16 @@ pub fn apply(
         .map(|p| p.id)
         .collect();
     call.you_moderate = view.you_moderate;
+    call.is_host = view.hosting;
+    // The member's own switch is the interface's; everything else is the engine's.
+    // `Engine::sync` hands over notices once; a copy here would repeat them every frame.
+    let (available, notice) = (call.handover.available, call.handover.notice.take());
+    call.handover.clone_from(&view.handover);
+    call.handover.available = available;
+    call.handover.notice = notice;
+    if let Some(you) = call.you_mut() {
+        you.is_host = view.hosting;
+    }
     call.participants.retain(|p| p.is_you);
     let yours = call.you().map(|p| p.name.clone());
     let shown = labels(
@@ -490,6 +506,8 @@ mod tests {
             server_down: false,
             moderators: vec![PublicId([2; 32])],
             you_moderate: false,
+            hosting: false,
+            handover: crate::model::handover::Handover::default(),
         }
     }
 

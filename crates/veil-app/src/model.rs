@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 
 use veil_security::safety::Side;
 
+pub mod handover;
 mod moderation;
 
 /// How a member's media reaches you, as `veil-probe` prints it.
@@ -141,6 +142,15 @@ pub enum Action {
     Mute(u32),
     /// Host only: name this person a moderator (`true`) or drop them.
     Moderator(u32, bool),
+    /// Host of a persistent call: hand over to this person, or `None` for the best
+    /// connection, then leave (`model/handover.rs`).
+    HandOver(Option<u32>),
+    /// Host: end the call for everyone, also in a persistent call.
+    EndCall,
+    /// Member of a persistent call: the Available to host switch.
+    AvailableToHost(bool),
+    /// Relay-only member: stay with the new host's relay (`true`) or leave.
+    RelayChange(bool),
 }
 
 pub struct Call {
@@ -185,6 +195,8 @@ pub struct Call {
     pub you_moderate: bool,
     /// Who last asked you to mute, until the interface has muted you and said so.
     pub mute_asked: Option<String>,
+    /// A persistent call's handover (`model/handover.rs`).
+    pub handover: handover::Handover,
     pub(crate) next_id: u32,
 }
 
@@ -229,6 +241,7 @@ impl Call {
             moderators: Vec::new(),
             you_moderate: false,
             mute_asked: None,
+            handover: handover::Handover::default(),
             next_id: 1,
         }
     }

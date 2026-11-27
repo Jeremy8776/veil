@@ -69,6 +69,10 @@ pub struct CallView {
     pub(crate) lobby_alerts: bool,
     /// The warning before the host turns the lobby off is open (`lobby_gate.rs`).
     pub(crate) lobby_warning: bool,
+    /// The host's leave dialog in a persistent call (`handover_ui.rs`), while open.
+    pub(crate) leave_dialog: Option<crate::handover_ui::LeaveDialog>,
+    /// Someone removed earlier, after the first Admit click (`handover_ui.rs`).
+    pub(crate) confirm_admit: Option<u32>,
     /// The real call; `None` in a demo. Dropping it leaves the call.
     engine: Option<Engine>,
 }
@@ -94,6 +98,8 @@ impl CallView {
             reminder: crate::lobby_reminder::Reminder::default(),
             lobby_alerts: true,
             lobby_warning: false,
+            leave_dialog: None,
+            confirm_admit: None,
         }
     }
 
@@ -254,6 +260,7 @@ impl CallView {
         app.lobby_alerts = self.lobby_alerts;
         crate::lobby_reminder::show(self, ui.ctx(), now);
         crate::lobby_gate::show(self, ui.ctx());
+        crate::handover_ui::show(self, ui.ctx());
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -429,7 +436,9 @@ fn control_bar(view: &mut CallView, app: &mut VeilApp, ui: &mut egui::Ui) -> boo
                 ui.add_space(4.0);
                 panel_controls(view, ui);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if pill(ui, Some(Icon::Leave), "Leave", Tone::Danger, leave_w).clicked() {
+                    if pill(ui, Some(Icon::Leave), "Leave", Tone::Danger, leave_w).clicked()
+                        && !crate::handover_ui::leave_clicked(view)
+                    {
                         stay = false;
                     }
                 });

@@ -86,6 +86,7 @@ pub struct MemberHandle {
     /// Ordered, bounded events; dropping the receiver stops control processing.
     pub events: mpsc::Receiver<MemberEvent>,
     commands: mpsc::Sender<MemberCommand>,
+    persistent: bool,
     current: watch::Receiver<(Arc<Link>, Path)>,
     task: JoinHandle<()>,
 }
@@ -106,6 +107,11 @@ impl MemberHandle {
     /// How the control link reached the host.
     pub fn path(&self) -> Path {
         self.current.borrow().1
+    }
+
+    /// The call outlives its host (ADR 0010): show Available to host.
+    pub fn is_persistent(&self) -> bool {
+        self.persistent
     }
 
     async fn command(&self, command: MemberCommand) -> Result<(), CallError> {
@@ -203,6 +209,7 @@ pub async fn join_with(
     let (mut node, mut presence, mut relay_only) = call.redial_context();
     let mut relay_key = invite.relay.as_deref().and_then(RelayAddrs::parse).map(|r| r.key);
     let (commands_tx, mut commands) = mpsc::channel(4);
+    let persistent = group.is_persistent();
     let mut candidates = own_hints(&node, relay_only);
     out.send(&Control::Addresses(candidates.clone())).await?;
 
@@ -433,6 +440,7 @@ pub async fn join_with(
     Ok(MemberHandle {
         events: events_rx,
         commands: commands_tx,
+        persistent,
         current: current_rx,
         task,
     })

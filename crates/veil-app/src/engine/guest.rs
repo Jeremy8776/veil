@@ -27,7 +27,12 @@ use veil_rendezvous::fetch_invite;
 use veil_security::Identity;
 use veil_security::short_invite::InviteLink;
 
+mod handover;
+
+use handover::Handover;
+
 use super::helper_evidence::HelperWatch;
+use super::host::successor;
 use super::plan::{NetConfig, resolve};
 use super::session::{Pipes, Session};
 use super::view::Shared;
@@ -188,28 +193,26 @@ pub async fn run(
         pipes,
     );
     let mut held = Held::default();
+    let mut handover = Handover::new(&config);
+    shared.update(|view| {
+        view.handover.persistent = member.is_persistent();
+        view.handover.hide_address = config.relay_only;
+    });
     // The presence keeps retrying a helper that blipped at join; keep its row current.
     let mut helper_tick = tokio::time::interval(std::time::Duration::from_secs(2));
     loop {
         // What arrived during a link-up comes first, so nothing overtakes it.
-        let flow = if let Some(event) = held.events.pop_front() {
-            on_event(
-                event,
-                &mut session,
-                &mut member.events,
-                &mut commands,
-                &mut held,
-            )
-            .await?
+        let next = if let Some(event) = held.events.pop_front() {
+            Next::Event(event)
         } else if let Some(said) = held.chat.pop_front() {
             session.say(&said).await;
-            Flow::Stay
+            Next::Flow(Flow::Stay)
         } else if let Some(raised) = held.hand.take() {
             session.set_hand(raised).await;
-            Flow::Stay
+            Next::Flow(Flow::Stay)
         } else {
             tokio::select! {
-                command = commands.recv() => match command {
+                command = commands.recv() => Next::Flow(match command {
                     None | Some(Command::Leave) => Flow::Leave,
                     Some(Command::Act(said @ (Action::Chat(..) | Action::React(..)))) => {
                         session.say(&said).await;
@@ -230,19 +233,66 @@ pub async fn run(
                         session.request(&action).await;
                         Flow::Stay
                     }
+                    Some(Command::Act(Action::AvailableToHost(on))) => {
+                        handover.set_available(on, &member, &shared).await;
+                        Flow::Stay
+                    }
+                    Some(Command::Act(Action::RelayChange(stay))) => {
+                        if handover.relay_answer(stay, &call, &member, &mut session, &shared).await {
+                            Flow::Stay
+                        } else {
+                            Flow::Leave
+                        }
+                    }
                     // Only the host decides the rest.
                     Some(Command::Act(_)) => Flow::Stay,
-                },
-                event = member.events.recv() => {
-                    let event = event.unwrap_or(MemberEvent::Closed);
-                    on_event(event, &mut session, &mut member.events, &mut commands, &mut held)
-                        .await?
-                }
-                () = session.pump() => Flow::Stay,
+                }),
+                event = member.events.recv() => Next::Event(event.unwrap_or(MemberEvent::Closed)),
+                () = session.pump() => Next::Flow(Flow::Stay),
                 _ = helper_tick.tick() => {
                     helper_watch.refresh(&shared, &call);
-                    Flow::Stay
+                    handover.tick(&member, &shared).await;
+                    Next::Flow(Flow::Stay)
                 }
+            }
+        };
+        let flow = match next {
+            Next::Flow(flow) => flow,
+            Next::Event(MemberEvent::HandoverOffer { request, epoch }) => {
+                let room = invite.room_id;
+                handover.offered(&identity, &config, &call, room, request, epoch, &member).await;
+                Flow::Stay
+            }
+            Next::Event(MemberEvent::Promoted(promotion)) => {
+                let Some(prepared) = handover.prepared.take() else {
+                    return Err(LOST.into());
+                };
+                crate::note!("call: this device hosts the call now");
+                drop(member);
+                let hosting = successor::take_over(
+                    &identity,
+                    config.clone(),
+                    call,
+                    session,
+                    *promotion,
+                    prepared,
+                    shared.clone(),
+                )
+                .await?;
+                return hosting.run(&mut commands).await;
+            }
+            Next::Event(MemberEvent::HostChanging { host, relay, ask }) => {
+                handover.changing(host, relay, ask, &call, &member, &mut session, &shared).await;
+                Flow::Stay
+            }
+            Next::Event(MemberEvent::HostChanged(host)) => {
+                let name = session.name_for(&host);
+                crate::note!("call: {} is the host now", super::short(&host));
+                shared.update(|view| view.handover.notice = Some(format!("{name} is now the host.")));
+                Flow::Stay
+            }
+            Next::Event(event) => {
+                on_event(event, &mut session, &mut member.events, &mut commands, &mut held).await?
             }
         };
         if flow == Flow::Leave {
@@ -250,6 +300,17 @@ pub async fn run(
         }
     }
 }
+
+/// One turn of the guest loop: a flow decided already, or an event still to handle. It lives
+/// for one turn only, so its size does not matter.
+#[allow(clippy::large_enum_variant)]
+enum Next {
+    Flow(Flow),
+    Event(MemberEvent),
+}
+
+/// Shown when the call could not continue while the host changed.
+const LOST: &str = "The call was lost while the host changed. Ask for a new link.";
 
 /// Whether the call goes on for this guest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -316,7 +377,12 @@ fn ending(event: &MemberEvent) -> Option<String> {
         }
         MemberEvent::Failed(e) => Some(format!("The call failed: {e}")),
         MemberEvent::Closed => Some("The host ended the call.".into()),
+        MemberEvent::LostInHandover => Some(LOST.into()),
         MemberEvent::Keys(_)
+        | MemberEvent::HandoverOffer { .. }
+        | MemberEvent::Promoted(_)
+        | MemberEvent::HostChanging { .. }
+        | MemberEvent::HostChanged(_)
         | MemberEvent::Routes(_)
         | MemberEvent::PlanRefused(_)
         | MemberEvent::Reconnecting
@@ -359,11 +425,17 @@ async fn on_event(
         MemberEvent::PlanRefused(e) => crate::note!("refused the host's plan: {e}"),
         MemberEvent::Reconnecting => session.reconnecting(true),
         MemberEvent::Reconnected => session.reconnecting(false),
+        // The guest loop handles a handover's events before this.
+        MemberEvent::HandoverOffer { .. }
+        | MemberEvent::Promoted(_)
+        | MemberEvent::HostChanging { .. }
+        | MemberEvent::HostChanged(_) => {}
         // `ending` has already returned for these.
         MemberEvent::Overloaded
         | MemberEvent::Removed
         | MemberEvent::Closed
         | MemberEvent::ConnectionLost
+        | MemberEvent::LostInHandover
         | MemberEvent::Failed(_) => {}
     }
     Ok(Flow::Stay)
@@ -438,197 +510,4 @@ fn join_error(e: &CallError) -> String {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use std::future::pending;
-    use std::time::Duration;
-
-    use tokio::sync::mpsc::{Sender, UnboundedSender, channel, unbounded_channel};
-
-    use super::*;
-
-    type Channels = (
-        Sender<MemberEvent>,
-        Receiver<MemberEvent>,
-        UnboundedSender<Command>,
-        UnboundedReceiver<Command>,
-    );
-
-    fn channels() -> Channels {
-        let (event_tx, events) = channel(veil_call::EVENT_BACKLOG + 1);
-        let (command_tx, commands) = unbounded_channel();
-        (event_tx, events, command_tx, commands)
-    }
-
-    #[tokio::test]
-    async fn the_host_ending_the_call_interrupts_a_link_up() {
-        let (event_tx, mut events, _command_tx, mut commands) = channels();
-        event_tx.try_send(MemberEvent::Closed).unwrap();
-        let result = link_up(
-            pending(),
-            &mut events,
-            &mut commands,
-            &mut Held::default(),
-            None,
-        )
-        .await;
-        assert_eq!(result, Err("The host ended the call.".to_string()));
-    }
-
-    #[tokio::test]
-    async fn being_removed_interrupts_a_link_up() {
-        let (event_tx, mut events, _command_tx, mut commands) = channels();
-        event_tx.try_send(MemberEvent::Removed).unwrap();
-        let result = link_up(
-            pending(),
-            &mut events,
-            &mut commands,
-            &mut Held::default(),
-            None,
-        )
-        .await;
-        assert_eq!(
-            result,
-            Err("The host removed you from the call.".to_string())
-        );
-    }
-
-    #[tokio::test]
-    async fn leaving_interrupts_a_link_up() {
-        let (_event_tx, mut events, command_tx, mut commands) = channels();
-        command_tx
-            .send(Command::Leave)
-            .map_err(|_| "closed")
-            .unwrap();
-        let result = link_up(
-            pending(),
-            &mut events,
-            &mut commands,
-            &mut Held::default(),
-            None,
-        )
-        .await;
-        assert_eq!(result, Ok(Flow::Leave));
-    }
-
-    #[tokio::test]
-    async fn other_arrivals_wait_in_order_until_the_link_up_ends() {
-        let (event_tx, mut events, command_tx, mut commands) = channels();
-        event_tx
-            .try_send(MemberEvent::PlanRefused(CallError::Closed))
-            .unwrap();
-        event_tx
-            .try_send(MemberEvent::PlanRefused(CallError::Timeout))
-            .unwrap();
-        for text in ["first", "second"] {
-            let chat = Command::Act(Action::Chat(1, text.into()));
-            command_tx.send(chat).map_err(|_| "closed").unwrap();
-        }
-        let mut held = Held::default();
-        let linking = tokio::time::sleep(Duration::from_millis(50));
-        let result = link_up(linking, &mut events, &mut commands, &mut held, None).await;
-        assert_eq!(result, Ok(Flow::Stay));
-        assert!(matches!(
-            held.events.make_contiguous(),
-            [
-                MemberEvent::PlanRefused(CallError::Closed),
-                MemberEvent::PlanRefused(CallError::Timeout)
-            ]
-        ));
-        assert_eq!(
-            held.chat,
-            [
-                Action::Chat(1, "first".into()),
-                Action::Chat(1, "second".into())
-            ]
-        );
-    }
-
-    #[tokio::test]
-    async fn a_continuous_event_producer_cannot_grow_link_up_storage() {
-        let (event_tx, mut events, _command_tx, mut commands) = channels();
-        let producer = tokio::spawn(async move {
-            for _ in 0..10_000 {
-                if event_tx
-                    .send(MemberEvent::PlanRefused(CallError::Timeout))
-                    .await
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
-        let mut held = Held::default();
-        let result = tokio::time::timeout(
-            Duration::from_secs(1),
-            link_up(pending(), &mut events, &mut commands, &mut held, None),
-        )
-        .await
-        .unwrap();
-        assert_eq!(result, Err(LINK_UP_OVERLOAD.into()));
-        assert_eq!(held.events.len(), HELD_EVENTS);
-        drop(events);
-        producer.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn excess_chat_cannot_grow_link_up_storage() {
-        let (_event_tx, mut events, command_tx, mut commands) = channels();
-        for id in 0..=HELD_CHAT {
-            command_tx
-                .send(Command::Act(Action::Chat(id as u64, "hello".into())))
-                .map_err(|_| "closed")
-                .unwrap();
-        }
-        let mut held = Held::default();
-        let result = link_up(pending(), &mut events, &mut commands, &mut held, None).await;
-        assert_eq!(result, Err(LINK_UP_OVERLOAD.into()));
-        assert_eq!(held.chat.len(), HELD_CHAT);
-    }
-
-    #[test]
-    fn held_chat_checks_payload_limits_and_terminal_events_always_interrupt() {
-        let mut held = Held::default();
-        let limit = veil_call::app_msg::MAX_CHAT_CHARS;
-        assert!(held.said(Action::Chat(1, "🦀".repeat(limit))).is_ok());
-        assert!(held.said(Action::Chat(2, "🦀".repeat(limit + 1))).is_err());
-        assert!(
-            held.said(Action::React(3, "x".repeat(1_000), true))
-                .is_err()
-        );
-        assert_eq!(held.chat.len(), 1);
-        for _ in 0..HELD_EVENTS {
-            held.event(MemberEvent::Reconnecting).unwrap();
-        }
-        assert_eq!(
-            held.event(MemberEvent::Removed),
-            Err("The host removed you from the call.".into())
-        );
-        assert!(
-            held.event(MemberEvent::Overloaded)
-                .unwrap_err()
-                .contains("too busy")
-        );
-        assert_eq!(held.events.len(), HELD_EVENTS);
-    }
-
-    #[test]
-    fn join_errors_read_plainly() {
-        assert_eq!(join_error(&CallError::Timeout), "The host did not answer.");
-        assert!(join_error(&CallError::Closed).starts_with("Could not reach the call"));
-        let unreachable = CallError::Net(veil_net::NetError::Timeout);
-        let text = join_error(&unreachable);
-        assert!(
-            text.contains("press Allow guests"),
-            "one space at the line join: {text}"
-        );
-    }
-
-    #[test]
-    fn a_used_invite_is_not_blamed_on_the_host() {
-        let used = join_error(&CallError::Refused(RefuseReason::TokenUsed));
-        assert!(used.contains("Ask the host for a new one"), "{used}");
-        let declined = join_error(&CallError::Refused(RefuseReason::DeclinedByHost));
-        assert_eq!(declined, "The host did not let you in.");
-    }
-}
+mod tests;

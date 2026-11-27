@@ -104,7 +104,16 @@ pub(super) fn diagnose_member(shared: &Shared, event: &veil_call::MemberEvent) {
             d.end = Some(End::Failed);
             d.set(Step::Membership, State::Failed(Problem::Other));
         }
-        MemberEvent::Routes(_) | MemberEvent::PlanRefused(_) => {}
+        MemberEvent::LostInHandover => {
+            d.end = Some(End::Failed);
+            d.set(Step::HostConnection, State::Failed(Problem::Recovery));
+        }
+        MemberEvent::Routes(_)
+        | MemberEvent::PlanRefused(_)
+        | MemberEvent::HandoverOffer { .. }
+        | MemberEvent::Promoted(_)
+        | MemberEvent::HostChanging { .. }
+        | MemberEvent::HostChanged(_) => {}
     });
 }
 
@@ -199,6 +208,18 @@ impl Session {
             roles: Self::roles(host, identity.public()),
             requests: Vec::new(),
         }
+    }
+
+    /// After a handover: `host` is the host from now on. Moderators are cleared (the new
+    /// host names its own), and moderation from anyone else, the old host included, no longer
+    /// counts (`engine/moderation.rs`).
+    pub fn set_host(&mut self, host: PublicId) {
+        self.host = host;
+        self.roles = Self::roles(host, self.me);
+        self.shared.update(|view| {
+            view.moderators.clear();
+            view.you_moderate = false;
+        });
     }
 
     /// The name `device` sent, or "Host" or "Guest" and a key prefix until it does.

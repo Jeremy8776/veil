@@ -244,9 +244,19 @@ fn below(app: &mut VeilApp, ui: &mut egui::Ui, host: bool) {
     };
     ui.label(RichText::new(note).small().color(MUTED));
     if host && !app.demo {
+        persistent(app, ui);
         firewall(app, ui);
         router_question(app, ui);
     }
+}
+
+/// For a host: the Persistent call switch (ADR 0010). Short label, detail in the tooltip.
+fn persistent(app: &mut VeilApp, ui: &mut egui::Ui) {
+    ui.add_space(8.0);
+    ui.allocate_ui(vec2(280.0, 0.0), |ui| {
+        crate::screens::call_menus::switch_row(ui, &mut app.persistent_call, "Persistent call")
+            .on_hover_text(crate::handover_ui::PERSISTENT_TIP);
+    });
 }
 
 /// For a host: whether guests can reach you, and the button that lets them.
