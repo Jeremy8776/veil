@@ -63,6 +63,7 @@ pub struct Prefs {
     pub lobby_alerts: Option<bool>,
     /// Keep faces in view in cropped tiles (`framing.rs`); `None` until first changed (on).
     pub face_framing: Option<bool>,
+    /// Cancel echo on the microphone in a call (`media/mic.rs`); `None` until first changed (on).
     pub cancel_echo: Option<bool>,
 }
 

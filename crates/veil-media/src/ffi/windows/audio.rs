@@ -121,6 +121,8 @@ struct Endpoint {
     buffer_frames: u32,
     fail: fn(&'static str) -> MediaError,
     event: Event,
+    /// Opened in raw mode, without the driver's voice effects.
+    raw: bool,
 }
 
 impl Endpoint {
@@ -142,14 +144,15 @@ impl Endpoint {
         let duration = i64::from(settings.frame_ms) * 3 * 10_000;
         // The microphone asks for raw mode first (Veil cancels echo itself); a device that
         // refuses it gets the plain communications stream instead.
-        let client = match flow == eCapture {
-            true => init_client(&device, true, flags, duration, &format).or_else(|_| {
-                eprintln!("veil: microphone has no raw mode, using the driver's voice effects");
-                init_client(&device, false, flags, duration, &format)
-            }),
-            false => init_client(&device, false, flags, duration, &format),
-        }
-        .map_err(fail)?;
+        // The app logs which one it got ([`WasapiCapture::raw`]).
+        let raw_client = (flow == eCapture)
+            .then(|| init_client(&device, true, flags, duration, &format).ok())
+            .flatten();
+        let raw = raw_client.is_some();
+        let client = match raw_client {
+            Some(client) => client,
+            None => init_client(&device, false, flags, duration, &format).map_err(fail)?,
+        };
         // SAFETY: no pointers are passed: an unnamed auto-reset event, not signalled.
         let event =
             Event(unsafe { CreateEventW(None, false, false, None) }.map_err(|_| fail("event"))?);
@@ -164,6 +167,7 @@ impl Endpoint {
             buffer_frames,
             fail,
             event,
+            raw,
         })
     }
 
@@ -249,6 +253,12 @@ impl WasapiCapture {
             out: Vec::new(),
             _runtime: runtime,
         })
+    }
+
+    /// Whether the microphone opened in raw mode. False means the device refused it and
+    /// Windows may apply its own echo cancellation and noise suppression as well as Veil's.
+    pub fn raw(&self) -> bool {
+        self.endpoint.raw
     }
 
     /// Waits for the next frame: `frame_samples` per channel, interleaved.

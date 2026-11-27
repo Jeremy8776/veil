@@ -6,7 +6,7 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ### Added
 
-- **Cancel echo.** Veil now removes Echo during calls, so other people no longer hear
+- **Cancel echo.** Veil now removes echo during calls, so other people no longer hear
   themselves when your microphone picks up Veil's sound from your speakers. It runs on this
   device only, on every platform, before noise suppression and auto volume. It is on by
   default; turn it off with the Cancel echo switch next to Noise suppression. It only cancels

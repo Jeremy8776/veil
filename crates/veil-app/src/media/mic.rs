@@ -115,6 +115,10 @@ pub(super) fn mic_loop(
     let mut mic = match Microphone::open(&AudioSettings::voice(), id) {
         Ok(mic) => {
             crate::note!("microphone: opened {}", which(id));
+            #[cfg(windows)]
+            if !mic.raw() {
+                crate::note!("microphone: no raw mode, so the driver's voice effects are on");
+            }
             mic
         }
         Err(e) => {
