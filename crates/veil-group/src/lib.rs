@@ -20,11 +20,13 @@
     clippy::unreachable
 )]
 
+pub mod authority;
 pub mod error;
 pub mod group;
 pub mod lobby;
 pub mod provider;
 
+pub use authority::{AUTHORITY_EXTENSION, CallAuthority};
 pub use error::GroupError;
 pub use group::{Admission, Applied, Group, Joiner, MAX_MEMBERS};
 pub use lobby::{Knock, Knocked, Lobby};
