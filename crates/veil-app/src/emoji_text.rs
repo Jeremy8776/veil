@@ -13,6 +13,8 @@
 //! - Digits, letters and punctuation are never in an emoji run unless an emoji presentation
 //!   selector (U+FE0F) or keycap mark (U+20E3) follows them, as in "1️⃣" or "©️".
 //! - Joiners, selectors and skin tones stay in the run of the emoji they modify.
+//! - A character followed by the text presentation selector (U+FE0E) is text, with the
+//!   selector in its run, so "❤︎" draws in one colour as the sender chose.
 
 use std::ops::Range;
 
@@ -22,6 +24,8 @@ use crate::theme;
 
 /// Emoji presentation selector: the character before it is drawn as emoji.
 const EMOJI_SELECTOR: char = '\u{FE0F}';
+/// Text presentation selector: the character before it is drawn as text, as in "❤︎".
+const TEXT_SELECTOR: char = '\u{FE0E}';
 /// Combining keycap: "1" + U+FE0F + U+20E3 is the keycap emoji.
 const KEYCAP: char = '\u{20E3}';
 
@@ -46,7 +50,11 @@ fn runs(text: &str) -> Vec<(Range<usize>, bool)> {
     let mut chars = text.char_indices().peekable();
     while let Some((at, c)) = chars.next() {
         let next = chars.peek().map(|&(_, n)| n);
-        let emoji = is_emoji(c) || matches!(next, Some(EMOJI_SELECTOR | KEYCAP));
+        let emoji = match next {
+            Some(TEXT_SELECTOR) => false,
+            Some(EMOJI_SELECTOR | KEYCAP) => true,
+            _ => is_emoji(c),
+        };
         let end = at + c.len_utf8();
         match out.last_mut() {
             Some((range, was)) if *was == emoji => range.end = end,
@@ -126,6 +134,14 @@ mod tests {
         {
             assert_eq!(split(emoji), vec![(*emoji, true)], "{emoji}");
         }
+    }
+
+    #[test]
+    fn a_text_selector_keeps_the_character_as_text() {
+        assert_eq!(
+            split("I \u{2764}\u{FE0E} it \u{2764}"),
+            vec![("I \u{2764}\u{FE0E} it ", false), ("\u{2764}", true)]
+        );
     }
 
     #[test]

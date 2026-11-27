@@ -8,7 +8,8 @@
 //! second (`engine/stats.rs`).
 //!
 //! Invariants:
-//! - Off by default; the Stats button in the top bar or Ctrl+Shift+D (⇧⌘D on macOS) turns it on and off.
+//! - Off by default; the Stats button in the top bar or Ctrl+Shift+D (⇧⌘D on macOS) turns
+//!   it on and off.
 //! - It only reads. Nothing shown here is sent anywhere.
 //! - A number not measured yet shows as "-", never as zero.
 //! - A level at or below the meter's floor (-60 dBFS) shows as "quiet", not as a number.
