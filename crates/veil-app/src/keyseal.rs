@@ -105,9 +105,15 @@ mod os {
     const SERVICE: &str = "Veil";
     const ACCOUNT: &str = "file-sealing-key-v1";
 
+    /// What the keychain said this run: its key, or why it could not be used.
+    enum Cached {
+        Key([u8; 32]),
+        Failed(String),
+    }
+
     // shortcut: the cached key is a plain array that lives until the process ends, like the
     // device key it protects. Wipe it on exit if Veil ever keeps running after sign-out.
-    static CACHE: Mutex<Option<[u8; 32]>> = Mutex::new(None);
+    static CACHE: Mutex<Option<Cached>> = Mutex::new(None);
 
     #[cfg(target_os = "linux")]
     fn entry() -> Result<Entry, Error> {
@@ -124,29 +130,56 @@ mod os {
 
     /// The wrapping key, or `None` when the keychain has none. With `create`, a missing
     /// key is made and stored first. Any other keychain failure is an error, never a new key.
+    ///
+    /// A failure is kept for the rest of the run, so a refused unlock is asked once, not once
+    /// per file.
     pub(super) fn wrapping_key(create: bool) -> Result<Option<[u8; 32]>, String> {
         let mut cache = CACHE.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(key) = *cache {
-            return Ok(Some(key));
+        match &*cache {
+            Some(Cached::Key(key)) => return Ok(Some(*key)),
+            Some(Cached::Failed(why)) => return Err(why.clone()),
+            None => {}
         }
+        match ask(create) {
+            Ok(Some(key)) => {
+                *cache = Some(Cached::Key(key));
+                Ok(Some(key))
+            }
+            // Not cached: a later save may still make the key.
+            Ok(None) => Ok(None),
+            Err(why) => {
+                *cache = Some(Cached::Failed(why.clone()));
+                Err(why)
+            }
+        }
+    }
+
+    fn ask(create: bool) -> Result<Option<[u8; 32]>, String> {
         let entry = entry().map_err(|e| unavailable(&e))?;
-        let key = match entry.get_secret() {
-            Ok(mut bytes) => {
-                let key = <[u8; 32]>::try_from(bytes.as_slice());
-                bytes.zeroize();
-                key.map_err(|_| String::from("the keychain entry for Veil has the wrong length"))?
-            }
-            Err(Error::NoEntry) if create => {
-                let mut key = [0u8; 32];
-                getrandom::fill(&mut key).map_err(|e| e.to_string())?;
-                entry.set_secret(&key).map_err(|e| unavailable(&e))?;
-                key
-            }
+        match read(&entry) {
+            Err(Error::NoEntry) if create => {}
             Err(Error::NoEntry) => return Ok(None),
-            Err(e) => return Err(unavailable(&e)),
-        };
-        *cache = Some(key);
-        Ok(Some(key))
+            other => return other.map(Some).map_err(|e| unavailable(&e)),
+        }
+        let mut key = [0u8; 32];
+        getrandom::fill(&mut key).map_err(|e| e.to_string())?;
+        entry.set_secret(&key).map_err(|e| unavailable(&e))?;
+        key.zeroize();
+        // Read back rather than trust our own copy: another Veil starting at the same moment
+        // may have stored its key last, and both must seal with the one the keychain keeps.
+        read(&entry).map(Some).map_err(|e| unavailable(&e))
+    }
+
+    fn read(entry: &Entry) -> Result<[u8; 32], Error> {
+        let mut bytes = entry.get_secret()?;
+        let key = <[u8; 32]>::try_from(bytes.as_slice());
+        bytes.zeroize();
+        key.map_err(|_| {
+            Error::Invalid(
+                String::from("secret"),
+                String::from("the keychain entry for Veil has the wrong length"),
+            )
+        })
     }
 
     fn unavailable(e: &Error) -> String {
