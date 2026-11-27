@@ -19,8 +19,9 @@ use crate::dial_back::DialBacks;
 /// Whose requests this participant accepts. Shared with its `CallNode` and media session.
 #[derive(Default)]
 pub(crate) struct Consent {
-    /// The host: anyone holding the invite may be introduced or relayed to it.
-    pub open: bool,
+    /// The host: anyone holding the invite may be introduced or relayed to it. Set when this
+    /// participant becomes host by a handover.
+    pub open: AtomicBool,
     pub relay_only: AtomicBool,
     /// Peers the current routes link to.
     pub expected: Mutex<HashSet<PublicId>>,
@@ -33,7 +34,7 @@ impl Consent {
         if kind == Ask::Introduce && self.relay_only.load(Ordering::Relaxed) {
             return false;
         }
-        self.open || self.expected.lock().is_ok_and(|e| e.contains(from))
+        self.open.load(Ordering::Relaxed) || self.expected.lock().is_ok_and(|e| e.contains(from))
     }
 
     /// Whether to accept this request. Accepting an introduction allows one dial-back.
@@ -89,7 +90,7 @@ mod tests {
         );
 
         let host = Consent {
-            open: true,
+            open: AtomicBool::new(true),
             ..Consent::default()
         };
         assert!(
@@ -105,7 +106,7 @@ mod tests {
     fn only_an_agreed_introduction_allows_a_dial_back() {
         let peer = PublicId([1; 32]);
         let host = Consent {
-            open: true,
+            open: AtomicBool::new(true),
             ..Consent::default()
         };
         assert!(!host.may_dial_back(&peer, 1), "nothing was agreed");

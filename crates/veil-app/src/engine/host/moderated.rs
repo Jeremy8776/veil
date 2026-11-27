@@ -47,7 +47,12 @@ pub(super) async fn act(
         | Action::React(..)
         | Action::Hand(_)
         | Action::Verify(..)
-        | Action::InviteUntilEnd(_) => {
+        | Action::InviteUntilEnd(_)
+        // Handover choices are the host loop's (`hosting.rs`); the rest are a member's.
+        | Action::HandOver(_)
+        | Action::EndCall
+        | Action::AvailableToHost(_)
+        | Action::RelayChange(_) => {
             return;
         }
     };

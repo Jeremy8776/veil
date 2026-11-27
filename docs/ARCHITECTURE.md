@@ -219,8 +219,10 @@ this repository's release workflow.
    protected; IP addresses, packet sizes and timing remain visible to the network.
 2. **Group keys.** MLS (RFC 9420) through `openmls`. Forward secrecy and post-compromise
    security. Every join or leave starts a new epoch. Each member's MLS signature key is its
-   device key, so the roster matches the safety numbers people compare. For now the host is the
-   only member allowed to commit; members refuse commits from anyone else.
+   device key, so the roster matches the safety numbers people compare. Exactly one member may
+   commit in each epoch: the host. Members refuse commits from anyone else. A persistent call
+   names its host in a Veil group context extension (`CallAuthority`, ADR 0010), so the host
+   can change by one commit; any other call keeps the creator at leaf 0 as host.
 3. **Media.** Per-frame authenticated encryption, in the style of SFrame (RFC 9605). Each sender
    has its own key for each epoch, derived from the MLS exporter secret. Forwarders read only
    the plaintext layer header. Every member can derive every sender's key, so frame keys
@@ -253,8 +255,16 @@ member's camera/audio or disrupt media replay windows. Names, chat, hands and re
 device signatures; screen pictures are signed too, though media replay disruption still
 applies. See [TRANSPARENCY.md](TRANSPARENCY.md#2-what-other-parties-can-see).
 
-The host is the only MLS committer, so the call ends when the host leaves. Old media keys
-have a two-second grace period on ordinary rekeys, with no grace when a member is removed.
+In an ordinary call the host is the only MLS committer, so the call ends when the host
+leaves. In a persistent call (unreleased, ADR 0010) a host who leaves through Veil hands the
+call to a member who switched on **Available to host**. The host commits a group context
+change naming the successor (epoch E+1). Members check the commit came from the current host
+and names a current member, then dial the new host at an address set it signed with its own
+key. The new host commits the old host's removal (E+2), so the old host cannot read new
+media. No private key moves, removed members stay removed, and relay-only members stay
+relay-only. A crash or network loss of the host still ends the call: that is HOST-02. Old
+media keys have a two-second grace period on ordinary rekeys, with no grace when a member is
+removed.
 
 ## 6. Code layout
 
@@ -298,7 +308,8 @@ Unreleased: an unexpected host-control interruption has a 20-second recovery win
 The same transport identity can resume only while still in the current MLS roster; the
 host replays at most 64 retained commits and the latest plan. Deliberate departures and
 removal are immediate. Lost state, host restart, an expired recovery window or unavailable
-commit history still require fresh admission. This does not implement host handover.
+commit history still require fresh admission. Recovery does not move the host; only a
+planned handover in a persistent call does (section 5.1).
 Rendezvous presence reconnects with exponential backoff and restores current permissions.
 
 Forwarded plans are preflighted by every member, including the host, without registering

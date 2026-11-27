@@ -13,6 +13,8 @@ pub enum GroupError {
     NotHost,
     /// A commit came from someone other than the host.
     NotFromHost,
+    /// Only a persistent call can hand its host role to another member.
+    NotPersistent,
     /// A key package or welcome is not signed by the device it claims to be.
     WrongDevice,
     /// The device is already in the group.
@@ -49,6 +51,7 @@ impl fmt::Display for GroupError {
             Self::Refused(reason) => write!(f, "joiner refused: {reason:?}"),
             Self::NotHost => f.write_str("only the host can change the group"),
             Self::NotFromHost => f.write_str("commit was not sent by the host"),
+            Self::NotPersistent => f.write_str("this call ends with its host"),
             Self::WrongDevice => f.write_str("message is not signed by the expected device"),
             Self::AlreadyMember => f.write_str("device is already a member"),
             Self::NotMember => f.write_str("device is not a member"),

@@ -25,6 +25,7 @@
 
 mod audio_out;
 mod auto_step;
+mod availability;
 mod guest;
 mod helper_evidence;
 mod host;
@@ -99,6 +100,12 @@ pub(crate) enum Command {
 
 /// How long leaving may hold the interface while links close.
 const CLOSE_WAIT: Duration = Duration::from_secs(1);
+/// How long quitting may wait while a persistent call is handed over (ADR 0010 §7): the
+/// longest handover, then the usual close. Stopping the runtime sooner could drop the
+/// handover commit or `HandedOver` unsent, or end the call with no `Ended`, so members would
+/// sit out a recovery window for nothing. Most handovers finish in a few seconds.
+const HANDOVER_WAIT: Duration =
+    Duration::from_secs(veil_call::host::handover::HANDOVER_MAX.as_secs() + CLOSE_WAIT.as_secs());
 
 pub struct Engine {
     runtime: Option<Runtime>,
@@ -133,6 +140,7 @@ impl Engine {
             .build()
             .map_err(|e| format!("cannot start the call runtime: {e}"))?;
         let shared = Arc::new(Shared::new(ctx));
+        shared.update(|view| view.hosting = matches!(role, Role::Host));
         shared.diagnose(|report| {
             use crate::diagnostics::{Scope, State, Step};
             report.scope = Scope {
@@ -304,11 +312,18 @@ impl Engine {
 
     /// Copies the engine's view of the call into `call`.
     pub fn sync(&self, call: &mut Call, now: Instant) {
-        let view: View = lock(&self.shared.view).clone();
+        let (view, notice): (View, _) = {
+            let mut view = lock(&self.shared.view);
+            let notice = view.handover.notice.take();
+            (view.clone(), notice)
+        };
         let seen = self.shared.seen();
         let keys = lock(&self.keys);
         let shown = view::apply(&view, &seen, |d| keys.is_verified(d), call, now);
         drop(keys);
+        if notice.is_some() {
+            call.handover.notice = notice;
+        }
         for (from, said) in self.shared.take_said() {
             // Someone who left between sending and now is named by key prefix alone.
             let name = shown
@@ -405,10 +420,18 @@ impl Drop for Engine {
     fn drop(&mut self) {
         let _ = self.commands.send(Command::Leave);
         let started = Instant::now();
+        let wait = {
+            let view = lock(&self.shared.view);
+            if view.hosting && view.handover.persistent {
+                HANDOVER_WAIT
+            } else {
+                CLOSE_WAIT
+            }
+        };
         if let (Some(runtime), Some(task)) = (self.runtime.take(), self.task.take()) {
             runtime.block_on(async {
-                if tokio::time::timeout(CLOSE_WAIT, task).await.is_err() {
-                    crate::note!("call: did not close within {CLOSE_WAIT:?}; stopping it");
+                if tokio::time::timeout(wait, task).await.is_err() {
+                    crate::note!("call: did not close within {wait:?}; stopping it");
                 }
                 // Lets the endpoints send their close frames before the runtime stops.
                 tokio::time::sleep(Duration::from_millis(100)).await;

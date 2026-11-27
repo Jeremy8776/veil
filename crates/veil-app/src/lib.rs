@@ -26,6 +26,7 @@ mod emoji_text;
 mod engine;
 mod firewall;
 mod framing;
+mod handover_ui;
 mod icons;
 mod invite_qr;
 mod json_file;

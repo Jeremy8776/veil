@@ -65,7 +65,7 @@ pub async fn run(mut args: HostArgs) -> Result<(), String> {
     loop {
         tokio::select! {
             event = events.recv() => match event {
-                Some(HostEvent::Knock(device)) => {
+                Some(HostEvent::Knock(device) | HostEvent::KnockRemovedEarlier(device)) => {
                     println!("knock from {}, safety number {}", short(&device), safety_number(&identity.public(), &device));
                     host.decide(device, true).await.map_err(|e| e.to_string())?;
                 }
@@ -94,6 +94,11 @@ pub async fn run(mut args: HostArgs) -> Result<(), String> {
                 Some(HostEvent::Overloaded) => return Err("application event queue overloaded; start a new call".into()),
                 Some(HostEvent::Error(e)) => println!("group error: {e}"),
                 Some(HostEvent::Addresses { .. } | HostEvent::PlanChecked { .. }) => {},
+                // The probe hosts plain calls only, so it never hands over.
+                Some(HostEvent::HandedOver { to }) => {
+                    println!("handed the call to {}", short(&to));
+                    return Ok(());
+                }
                 None => return Err("the host session stopped".into()),
             },
             Some(incoming) = session.media.recv() => session.on_incoming(incoming).await,

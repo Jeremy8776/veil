@@ -55,6 +55,9 @@ pub struct NetConfig {
     /// (`CallNode::set_relay_only`). Not used when hosting: an invite carries the host's
     /// addresses.
     pub relay_only: bool,
+    /// Host: the call outlives its host, who hands it to an available member on leaving
+    /// (ADR 0010). Chosen on the pre-join screen for each call.
+    pub persistent: bool,
 }
 
 /// The environment variable for each setting, in the order the settings screen shows them.

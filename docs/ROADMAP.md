@@ -834,18 +834,47 @@ copies/scaling/encoding only against a measured bottleneck and preserve safety c
 
 ### HOST-01 Transfer coordination without sharing private keys
 
-**Outcome:** An explicitly authorised co-host can continue an eligible group call.
-**Status:** Not implemented; current host departure ends the call.
+**Outcome:** A "Persistent call" continues when its host leaves on purpose. The leaving host
+can pick an available member to take over; otherwise Veil picks the one with the best connection.
+**Status:** Design in [ADR 0010](adr/0010-persistent-call-planned-host-handover.md), approved
+by Jeremy on 27/11/2026. Implemented on branch `claude/host-01-handover` (not merged): group
+authority, host and member actors, the successor's take-over, the desktop switches and leave
+dialog. Tested over loopback links (`crates/veil-call/tests/handover.rs`) and in unit tests.
+Real-device evidence on a LAN and over the internet is still open, so the gate is not met.
 **Target:** Unassigned extension after core reliability. **Depends on:** GROUP-01, TRUST-01, ID-01.
 
-Start with planned handover, current roster consent/authority and an explicit epoch/ownership
-transition. Unexpected host failure and partitions need a separate authority/election design.
-No implementation may copy the host's private identity key or restore a removed participant.
+The first pass is planned handover only. Unexpected host failure and partitions need a separate
+authority/election design (HOST-02, not yet scheduled). No implementation may copy the host's
+private identity key or restore a removed participant.
 
-**Design gate:** Specify who may commit MLS changes after transfer, how stale hosts are fenced,
-how conflicting coordinators resolve, and what users see when continuity is impossible.
-**Completion gate:** Adversarial partition/rejoin/removal tests and real planned/unplanned
-outage evidence meet that design. Until then, document the ended-call behaviour honestly.
+**Design gate (answered in ADR 0010, pending Jeremy's review):**
+- Committer: exactly one per epoch, named by a signed MLS group context extension
+  (`CallAuthority`), not by leaf 0. The handover is one commit; the new host then removes the old one.
+- Fencing: the epoch. Members refuse commits, plans, tickets, moderation and `Ended` from any key
+  that is not the current epoch's host.
+- Conflicts: one successor, no backups; a forked handover is reported as a lost call, never merged.
+- Best connection: coarse self-reports to the current host only (reachability, direct link count,
+  median RTT, upload), no addresses or per-peer data; relay-only members are never eligible.
+- Consent: an "Available to host" switch, off by default, explains what hosting exposes.
+- Continuity failure: each case has a stated message (ADR 0010 section 8).
+- Rendezvous, invites, relay and forwarder: the new host brings its own; old invites stop working;
+  a relay-only member whose relay operator changes is asked before reconnecting.
+
+**Acceptance criteria for the first pass:**
+- Persistent call switch for the host; members see that the call is persistent.
+- Older Veil versions cannot join a persistent call and are told to update.
+- Leave dialog lists available members with a Good/OK/Poor bar and defaults to Automatic.
+- Quitting or closing the window during a persistent call hands over automatically.
+- Handover completes with three or more members on LAN and over the internet, with media
+  continuing on mesh paths during the change, recorded as real-device evidence.
+- Unit and actor tests listed in ADR 0010 pass, including stale-host fencing, a removed device
+  refused at the new host and relay-only members never introduced or chosen.
+- TRANSPARENCY.md and ARCHITECTURE.md describe what the new host learns and the ended-call
+  behaviour for unplanned loss.
+
+**Completion gate (full capability):** adversarial partition/rejoin/removal tests and real
+planned and unplanned outage evidence meet the design, which needs the later election step.
+Until then, document the ended-call behaviour for unplanned host loss honestly.
 
 ### NEAR-01 Explore nearby connectivity beyond an existing LAN
 

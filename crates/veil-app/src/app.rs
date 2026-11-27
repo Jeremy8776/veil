@@ -89,6 +89,9 @@ pub struct VeilApp {
     lobby_alert: crate::lobby_alert::LobbyAlert,
     /// The host's Lobby alerts switch, saved in `preferences.rs`. On by default.
     pub lobby_alerts: bool,
+    /// The pre-join Persistent call switch, for the next call you host (ADR 0010).
+    /// shortcut: not saved between runs; save it in `preferences.rs` if people want it kept.
+    pub persistent_call: bool,
     ctx: egui::Context,
 }
 
@@ -148,6 +151,7 @@ impl VeilApp {
             prefs,
             lobby_alert: crate::lobby_alert::LobbyAlert::default(),
             lobby_alerts,
+            persistent_call: false,
             ctx: ctx.clone(),
         }
     }
@@ -198,7 +202,8 @@ impl VeilApp {
             };
             let playback = self.media.playback();
             let keys = self.keys.clone();
-            let config = self.connection.config();
+            let mut config = self.connection.config();
+            config.persistent = host && self.persistent_call;
             let data = self.data_use.clone();
             data.set_auto_saving(false);
             match Engine::start(

@@ -4,8 +4,9 @@
 //! 32-byte secret to `veil-security`'s per-frame encryption.
 //!
 //! Invariants:
-//! - The host (the member who created the group, leaf 0) is the only committer. Other members
-//!   refuse commits from anyone else, so a member cannot add or remove people.
+//! - The host is the only committer. Other members refuse commits from anyone else, so a
+//!   member cannot add or remove people. The host is the creator at leaf 0, unless the call
+//!   is persistent: then the group context names it and it can change (`authority.rs`).
 //! - Every add and remove is one commit, so every join or leave starts a new epoch.
 //! - Each member's MLS signature key is its Veil device key. A key package is accepted only when
 //!   it is signed by the device key the QUIC link was pinned to.
@@ -13,14 +14,14 @@
 //!   epoch, so a reused leaf slot never reuses a key.
 //!
 //! shortcut: the host is the only committer, so the group cannot change while the host is
-//! away and the call ends when the host leaves. Upgrade to host hand-over (or MLS external
-//! commits) when calls must outlive their host.
+//! away, and an unplanned host loss still ends the call. Planned handover is in
+//! `authority.rs`; upgrade with an election design (HOST-02) for unplanned loss.
 
 use openmls::prelude::{
     BasicCredential, Credential, CredentialWithKey, GroupId, KeyPackage, KeyPackageIn,
     LeafNodeIndex, MlsGroup, MlsGroupCreateConfig, MlsGroupJoinConfig, MlsMessageBodyIn,
-    MlsMessageIn, MlsMessageOut, ProcessedMessageContent, ProtocolMessage, ProtocolVersion, Sender,
-    StagedWelcome, PURE_CIPHERTEXT_WIRE_FORMAT_POLICY,
+    MlsMessageIn, MlsMessageOut, PURE_CIPHERTEXT_WIRE_FORMAT_POLICY, ProcessedMessageContent,
+    ProtocolMessage, ProtocolVersion, Sender, StagedWelcome,
 };
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::crypto::OpenMlsCrypto as _;
@@ -33,6 +34,7 @@ use veil_security::{Identity, PublicId};
 use zeroize::Zeroizing;
 
 use crate::GroupError;
+use crate::authority::{self, CallAuthority};
 use crate::provider::{CIPHERSUITE, VeilProvider};
 
 /// Most members in one call, matching the agreed scope of about 16 people.
@@ -42,10 +44,10 @@ pub const MAX_MEMBERS: usize = 16;
 pub const MAX_KEY_PACKAGE_LEN: usize = 2_048;
 /// Exporter label for the media epoch secret.
 const EXPORTER_LABEL: &str = "veil-media-v1";
-const HOST_LEAF: u32 = 0;
+pub(crate) const HOST_LEAF: u32 = 0;
 
 /// Signs MLS messages with the Veil device key.
-struct DeviceSigner<'a>(&'a Identity);
+pub(crate) struct DeviceSigner<'a>(pub(crate) &'a Identity);
 
 impl Signer for DeviceSigner<'_> {
     fn sign(&self, payload: &[u8]) -> Result<Vec<u8>, SignerError> {
@@ -69,12 +71,17 @@ fn copy_identity(identity: &Identity) -> Identity {
     Identity::from_secret(&identity.secret_bytes())
 }
 
-fn create_config() -> MlsGroupCreateConfig {
-    MlsGroupCreateConfig::builder()
+fn create_config(authority: Option<CallAuthority>) -> Result<MlsGroupCreateConfig, GroupError> {
+    let builder = MlsGroupCreateConfig::builder()
         .ciphersuite(CIPHERSUITE)
         .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
         .use_ratchet_tree_extension(true)
-        .build()
+        .capabilities(authority::capabilities());
+    Ok(match authority {
+        Some(authority) => builder.with_group_context_extensions(authority.extensions()?),
+        None => builder,
+    }
+    .build())
 }
 
 fn join_config() -> MlsGroupJoinConfig {
@@ -84,7 +91,7 @@ fn join_config() -> MlsGroupJoinConfig {
         .build()
 }
 
-fn encode(message: &MlsMessageOut) -> Result<Vec<u8>, GroupError> {
+pub(crate) fn encode(message: &MlsMessageOut) -> Result<Vec<u8>, GroupError> {
     message
         .tls_serialize_detached()
         .map_err(|_| GroupError::Malformed("encode"))
@@ -92,8 +99,8 @@ fn encode(message: &MlsMessageOut) -> Result<Vec<u8>, GroupError> {
 
 fn decode(bytes: &[u8]) -> Result<MlsMessageBodyIn, GroupError> {
     let mut reader = bytes;
-    let message =
-        MlsMessageIn::tls_deserialize(&mut reader).map_err(|_| GroupError::Malformed("mls message"))?;
+    let message = MlsMessageIn::tls_deserialize(&mut reader)
+        .map_err(|_| GroupError::Malformed("mls message"))?;
     if !reader.is_empty() {
         return Err(GroupError::Malformed("trailing bytes"));
     }
@@ -101,7 +108,7 @@ fn decode(bytes: &[u8]) -> Result<MlsMessageBodyIn, GroupError> {
 }
 
 /// Refuses a message that could not be sent on a control stream.
-fn check_sendable(message: &Control) -> Result<(), GroupError> {
+pub(crate) fn check_sendable(message: &Control) -> Result<(), GroupError> {
     control::encode(message)
         .map(drop)
         .map_err(|_| GroupError::Malformed("message too large to send"))
@@ -129,6 +136,7 @@ impl Joiner {
     /// A fresh key package to send as `Control::KeyPackage`. Its private keys stay here.
     pub fn key_package(&self) -> Result<Vec<u8>, GroupError> {
         let bundle = KeyPackage::builder()
+            .leaf_node_capabilities(authority::capabilities())
             .build(
                 CIPHERSUITE,
                 &self.provider,
@@ -156,7 +164,7 @@ impl Joiner {
             identity: self.identity,
             mls,
         };
-        if group.device_at(HOST_LEAF) != Some(*host) {
+        if group.host() != Some(*host) {
             return Err(GroupError::WrongDevice);
         }
         Ok(group)
@@ -181,19 +189,37 @@ pub enum Applied {
 }
 
 pub struct Group {
-    provider: VeilProvider,
-    identity: Identity,
-    mls: MlsGroup,
+    pub(crate) provider: VeilProvider,
+    pub(crate) identity: Identity,
+    pub(crate) mls: MlsGroup,
 }
 
 impl Group {
     /// Creates a call's group. The creator is the host, at leaf 0.
     pub fn create(identity: &Identity, room_id: [u8; 16]) -> Result<Self, GroupError> {
+        Self::create_with(identity, room_id, None)
+    }
+
+    /// Creates a persistent call's group: the call can outlive the creator through
+    /// [`Group::hand_over`]. Only devices that support the authority extension can join.
+    pub fn create_persistent(identity: &Identity, room_id: [u8; 16]) -> Result<Self, GroupError> {
+        let authority = CallAuthority {
+            host: identity.public(),
+            persistent: true,
+        };
+        Self::create_with(identity, room_id, Some(authority))
+    }
+
+    fn create_with(
+        identity: &Identity,
+        room_id: [u8; 16],
+        authority: Option<CallAuthority>,
+    ) -> Result<Self, GroupError> {
         let provider = VeilProvider::new().map_err(GroupError::mls)?;
         let mls = MlsGroup::new_with_group_id(
             &provider,
             &DeviceSigner(identity),
-            &create_config(),
+            &create_config(authority)?,
             GroupId::from_slice(&room_id),
             credential(identity),
         )
@@ -214,8 +240,9 @@ impl Group {
         self.mls.own_leaf_index().u32()
     }
 
+    /// Whether this device may commit in the current epoch.
     pub fn is_host(&self) -> bool {
-        self.leaf_index() == HOST_LEAF
+        self.host() == Some(self.identity.public())
     }
 
     pub fn is_active(&self) -> bool {
@@ -230,13 +257,13 @@ impl Group {
             .collect()
     }
 
-    fn device_at(&self, leaf: u32) -> Option<PublicId> {
+    pub(crate) fn device_at(&self, leaf: u32) -> Option<PublicId> {
         self.members()
             .into_iter()
             .find_map(|(index, device)| (index == leaf).then_some(device))
     }
 
-    fn leaf_of(&self, device: &PublicId) -> Option<u32> {
+    pub(crate) fn leaf_of(&self, device: &PublicId) -> Option<u32> {
         self.members()
             .into_iter()
             .find_map(|(index, d)| (d == *device).then_some(index))
@@ -246,14 +273,23 @@ impl Group {
     fn check_can_encrypt_to(&self, public_key: &[u8]) -> Result<(), GroupError> {
         self.provider
             .crypto()
-            .hpke_seal(CIPHERSUITE.hpke_config(), public_key, b"veil-key-check", b"", b"")
+            .hpke_seal(
+                CIPHERSUITE.hpke_config(),
+                public_key,
+                b"veil-key-check",
+                b"",
+                b"",
+            )
             .map(drop)
             .map_err(|_| GroupError::Malformed("unusable public key"))
     }
 
     /// Moves to the pending commit's epoch only if `built` holds messages that can be sent.
     /// Otherwise the commit is dropped and the group stays in its current epoch.
-    fn finish_commit<T>(&mut self, built: Result<T, GroupError>) -> Result<T, GroupError> {
+    pub(crate) fn finish_commit<T>(
+        &mut self,
+        built: Result<T, GroupError>,
+    ) -> Result<T, GroupError> {
         match built {
             Ok(messages) => {
                 self.mls
@@ -276,7 +312,9 @@ impl Group {
             return Err(GroupError::NotHost);
         }
         if self.members().len() >= MAX_MEMBERS {
-            return Err(GroupError::Refused(veil_net::control::RefuseReason::RoomFull));
+            return Err(GroupError::Refused(
+                veil_net::control::RefuseReason::RoomFull,
+            ));
         }
         if self.leaf_of(device).is_some() {
             return Err(GroupError::AlreadyMember);
@@ -285,8 +323,8 @@ impl Group {
             return Err(GroupError::Malformed("key package too long"));
         }
         let mut reader = key_package;
-        let package =
-            KeyPackageIn::tls_deserialize(&mut reader).map_err(|_| GroupError::Malformed("key package"))?;
+        let package = KeyPackageIn::tls_deserialize(&mut reader)
+            .map_err(|_| GroupError::Malformed("key package"))?;
         if !reader.is_empty() {
             return Err(GroupError::Malformed("trailing bytes"));
         }
@@ -297,6 +335,13 @@ impl Group {
             return Err(GroupError::Malformed("ciphersuite"));
         }
         let leaf = package.leaf_node();
+        // A persistent call requires the authority capability. Say "update Veil" rather than
+        // surfacing the openmls refusal an older device's key package would cause.
+        if self.is_persistent() && !authority::supports_authority(leaf.capabilities()) {
+            return Err(GroupError::Refused(
+                veil_net::control::RefuseReason::NeedsUpdate,
+            ));
+        }
         let identity = BasicCredential::try_from(leaf.credential().clone())
             .map_err(|_| GroupError::Malformed("credential"))?;
         if leaf.signature_key().as_slice() != device.0 || identity.identity() != device.0 {
@@ -331,7 +376,8 @@ impl Group {
             return Err(GroupError::NotHost);
         }
         let leaf = self.leaf_of(device).ok_or(GroupError::NotMember)?;
-        if leaf == HOST_LEAF {
+        // MLS does not let a committer remove itself; a leaving host hands over instead.
+        if leaf == self.leaf_index() {
             return Err(GroupError::NotHost);
         }
         let (commit, _, _) = self
@@ -349,7 +395,8 @@ impl Group {
         self.finish_commit(built)
     }
 
-    /// Applies a commit received as `Control::Commit`. Refuses commits not sent by the host.
+    /// Applies a commit received as `Control::Commit`. Refuses commits not sent by the current
+    /// epoch's host, and a handover that would name a non-member or change persistence.
     pub fn apply(&mut self, commit: &[u8]) -> Result<Applied, GroupError> {
         if !self.is_active() {
             return Err(GroupError::Removed);
@@ -363,12 +410,22 @@ impl Group {
             .mls
             .process_message(&self.provider, message)
             .map_err(GroupError::mls)?;
-        if *processed.sender() != Sender::Member(LeafNodeIndex::new(HOST_LEAF)) {
+        let host_leaf = self.host_leaf().ok_or(GroupError::NotFromHost)?;
+        if *processed.sender() != Sender::Member(LeafNodeIndex::new(host_leaf)) {
             return Err(GroupError::NotFromHost);
         }
         let ProcessedMessageContent::StagedCommitMessage(staged) = processed.into_content() else {
             return Err(GroupError::Unexpected("commit"));
         };
+        let after = CallAuthority::read(staged.group_context().extensions())?;
+        let removed: Vec<u32> = staged
+            .remove_proposals()
+            .map(|p| p.remove_proposal().removed().u32())
+            .collect();
+        authority::check_transition(self.authority()?, after, |device| {
+            self.leaf_of(device)
+                .is_some_and(|leaf| !removed.contains(&leaf))
+        })?;
         let removed = staged.self_removed();
         self.mls
             .merge_staged_commit(&self.provider, *staged)
@@ -399,7 +456,11 @@ impl Group {
 
     /// Seals this member's frames for the current epoch.
     pub fn frame_sender(&self) -> Result<FrameSender, GroupError> {
-        Ok(FrameSender::new(&*self.epoch_secret()?, self.epoch(), self.leaf_index())?)
+        Ok(FrameSender::new(
+            &*self.epoch_secret()?,
+            self.epoch(),
+            self.leaf_index(),
+        )?)
     }
 
     /// Opens every member's frames for the current epoch.

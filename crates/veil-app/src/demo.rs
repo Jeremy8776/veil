@@ -86,6 +86,7 @@ pub fn call(your_name: &str, is_host: bool, now: Instant) -> Call {
         unread: 0,
         moderators: Vec::new(),
         you_moderate: false,
+        handover: crate::model::handover::Handover::default(),
         mute_asked: None,
         next_id: 10,
     }

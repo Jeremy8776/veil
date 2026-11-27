@@ -55,6 +55,14 @@ pub async fn run(args: JoinArgs) -> Result<(), String> {
                 Some(MemberEvent::Overloaded) => return Err("application event queue overloaded; rejoin with a fresh invite".into()),
                 Some(MemberEvent::Failed(e)) => return Err(format!("group failed: {e}")),
                 Some(MemberEvent::Closed) | None => return Err("the call ended".into()),
+                // The probe is never available to host, and does not follow a handover.
+                Some(MemberEvent::HandoverOffer { request, .. }) => {
+                    let _ = member.handover_ready(request, None).await;
+                }
+                Some(MemberEvent::HostChanging { .. } | MemberEvent::Promoted(_) | MemberEvent::LostInHandover) => {
+                    return Err("the host handed the call over; this probe does not follow".into());
+                }
+                Some(MemberEvent::HostChanged(_)) => {}
             },
             Some(incoming) = session.media.recv() => session.on_incoming(incoming).await,
             _ = tick.tick() => session.ping().await,
