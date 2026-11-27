@@ -4,6 +4,8 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
 
 ## Unreleased
 
+## 0.1.16, 27/11/2026
+
 ### Added
 
 - **Cancel echo.** Veil now removes echo during calls, so other people no longer hear
@@ -22,6 +24,17 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   keyframe is now every 30 s, and receivers and the forwarder repeat a keyframe request that
   went unanswered. Update self-run forwarders (`veil-node`) with the app: an older one does
   not repeat the request, so a tile switched to HD can wait up to 30 s.
+- A camera in a large tile now shows at full size. Before, any camera wider than 960 px was
+  shown at half size, so a 720p camera looked soft even in a full-screen tile. Small tiles
+  still use half size, which costs a quarter of the work.
+- **Linux and macOS.** Settings, connection settings, LUTs and logs are now kept between runs,
+  in `~/.local/share/veil` (or `$XDG_DATA_HOME/veil`) on Linux and
+  `~/Library/Application Support/Veil` on macOS. The device key still lasts one run there.
+  Your name starts as your user name, as on Windows.
+- **macOS shortcuts** use ⇧⌘ (Cmd+Shift) everywhere, and tooltips show each shortcut in the
+  system's own style.
+- **App icons on macOS and Linux** are drawn at every size, from 16 to 1024 px, so they are
+  sharp in the Dock, Finder and panels.
 
 ### Fixed
 
@@ -32,6 +45,8 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   consent and dial-back limits. Addresses that name no single host are dropped (IPv4-mapped
   ones too), and a helper on the internet cannot aim a punch at this device's loopback or
   local network.
+- Emoji in chat on Linux and Android draw in colour. Before, emoji such as ❤ ✨ ☕ came from
+  the UI font in one colour.
 
 ## 0.1.15, 26/11/2026
 
