@@ -130,7 +130,7 @@ fn detect(exe: &Path) -> Kind {
 }
 
 /// `Something.app` when `exe` is `Something.app/Contents/MacOS/<program>`.
-fn bundle_of(exe: &Path) -> Option<PathBuf> {
+pub(crate) fn bundle_of(exe: &Path) -> Option<PathBuf> {
     let macos = exe.parent()?;
     let contents = macos.parent()?;
     let bundle = contents.parent()?;

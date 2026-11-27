@@ -4,8 +4,9 @@
 //! Invariants:
 //! - Muting closes the microphone and stopping video closes the camera (see `media.rs`), so
 //!   nothing is captured while you appear off.
-//! - Shortcuts: Ctrl+Shift+M mutes or unmutes, Ctrl+Shift+O starts or stops video,
-//!   Ctrl+Shift+D shows or hides the call stats (`stats.rs`, off by default).
+//! - Shortcuts (`shortcuts.rs`; Cmd on macOS): Ctrl+Shift+M mutes or unmutes, Ctrl+Shift+O
+//!   starts or stops video, Ctrl+Shift+D shows or hides the call stats (`stats.rs`, off by
+//!   default).
 //! - A demo call always shows its banner.
 //! - The host's invite is up front: an Invite button in the top bar, and a card on the stage
 //!   while nobody else has joined.
@@ -16,7 +17,7 @@ use crate::screens::speaker::{self, Seat};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{
-    self, Align, Align2, Color32, CornerRadius, FontId, Key, Layout, Modifiers, Rect, pos2, vec2,
+    self, Align, Align2, Color32, CornerRadius, FontId, Layout, Rect, pos2, vec2,
 };
 
 use crate::app::VeilApp;
@@ -293,10 +294,13 @@ impl CallView {
     }
 
     fn shortcuts(&mut self, app: &mut VeilApp, ui: &egui::Ui) {
-        let combo = Modifiers::COMMAND | Modifiers::SHIFT;
+        use crate::shortcuts::{MUTE, STATS, VIDEO};
         let (mute, video, stats) = ui.input_mut(|i| {
-            let mut key = |k| i.consume_key(combo, k);
-            (key(Key::M), key(Key::O), key(Key::D))
+            (
+                i.consume_shortcut(&MUTE),
+                i.consume_shortcut(&VIDEO),
+                i.consume_shortcut(&STATS),
+            )
         });
         if mute {
             controls::toggle_mic(app);

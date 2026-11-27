@@ -103,13 +103,17 @@ sed "s/@VERSION@/$VERSION/g" "$HERE/Info.plist.in" >"$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist"
 cp "$WORK/bin/veil-app" "$APP/Contents/MacOS/veil-app"
 
-# The icon, drawn from the app's 256 px PNG at each size the icon set needs up to 256.
+# The icon set, every size drawn by tools/make-icons.py (never scaled here): the small form
+# at 32 px and below, as in the Windows .ico, and 512 and 1024 for Retina docks and Finder.
 ICONSET="$WORK/Veil.iconset"
 mkdir -p "$ICONSET"
-PNG="$ROOT/crates/veil-app/assets/veil-256.png"
-for entry in 16:16x16 32:16x16@2x 32:32x32 64:32x32@2x 128:128x128 256:128x128@2x 256:256x256; do
+ASSETS="$ROOT/crates/veil-app/assets"
+for entry in 16:16x16 32:16x16@2x 32:32x32 64:32x32@2x 128:128x128 256:128x128@2x \
+  256:256x256 512:256x256@2x 512:512x512 1024:512x512@2x; do
   size="${entry%%:*}"
-  sips -z "$size" "$size" "$PNG" --out "$ICONSET/icon_${entry#*:}.png" >/dev/null
+  png="$ASSETS/icons/veil-$size.png"
+  [ "$size" = 256 ] && png="$ASSETS/veil-256.png"
+  cp "$png" "$ICONSET/icon_${entry#*:}.png"
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Veil.icns"
 

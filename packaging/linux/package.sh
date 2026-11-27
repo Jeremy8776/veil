@@ -51,7 +51,14 @@ for bin in veil-app veil-node veil-probe; do
   strip "$STAGE/usr/bin/$bin"
 done
 install -Dm644 "$HERE/$APP_ID.desktop" "$STAGE/usr/share/applications/$APP_ID.desktop"
-install -Dm644 "$ROOT/crates/veil-app/assets/veil-256.png" "$STAGE/usr/share/icons/hicolor/256x256/apps/$APP_ID.png"
+# Every hicolor size Veil draws (tools/make-icons.py), so panels and docks never shrink the
+# 256 px mark: at 32 px and below it is the simpler small form, as in the Windows .ico.
+ASSETS="$ROOT/crates/veil-app/assets"
+icon_png() { if [ "$1" = 256 ]; then echo "$ASSETS/veil-256.png"; else echo "$ASSETS/icons/veil-$1.png"; fi; }
+for size in 16 24 32 48 64 128 256 512; do
+  install -Dm644 "$(icon_png "$size")" "$STAGE/usr/share/icons/hicolor/${size}x${size}/apps/$APP_ID.png"
+done
+install -Dm644 "$ASSETS/veil-logo.svg" "$STAGE/usr/share/icons/hicolor/scalable/apps/$APP_ID.svg"
 for f in LICENSE-MIT LICENSE-APACHE README.md docs/DEPENDENCIES.md crates/veil-node/veil-node.example.toml; do
   install -Dm644 "$ROOT/$f" "$STAGE/usr/share/doc/veil/$(basename "$f")"
 done
@@ -78,7 +85,7 @@ APPDIR="$WORK/Veil.AppDir"
 cp -a "$STAGE" "$APPDIR"
 install -m755 "$HERE/AppRun" "$APPDIR/AppRun"
 cp "$HERE/$APP_ID.desktop" "$APPDIR/$APP_ID.desktop"
-cp "$ROOT/crates/veil-app/assets/veil-256.png" "$APPDIR/$APP_ID.png"
+cp "$(icon_png 256)" "$APPDIR/$APP_ID.png"
 TOOL="${APPIMAGETOOL:-appimagetool}"
 runtime=()
 [ -n "${APPIMAGE_RUNTIME:-}" ] && runtime=(--runtime-file "$APPIMAGE_RUNTIME")

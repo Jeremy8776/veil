@@ -7,11 +7,14 @@ The mark is plain white.
 
 Writes:
 - crates/veil-app/assets/veil-logo.svg  the README logo (vector)
-- crates/veil-app/assets/veil-256.png   window icon; macOS and Linux packages draw from it
+- crates/veil-app/assets/veil-256.png   window icon, and the 256 px size of every package
 - crates/veil-app/assets/veil.ico       exe icon, 16 to 256 px
+- crates/veil-app/assets/icons/veil-<n>.png   the other sizes: Linux installs 16 to 512 in
+  the hicolor theme, macOS builds Veil.icns from 16 to 1024 (packaging/*/package.sh)
 
 Sizes of 32 px and below use the small form (the disc and V only, filling the square),
-because the rings blur into noise that small.
+because the rings blur into noise that small. Every size is drawn, never scaled from another,
+so the packages match the .ico at small sizes and stay sharp at Retina sizes.
 
 Run with Python 3 and Pillow:
   <python with Pillow> tools/make-icons.py
@@ -103,18 +106,29 @@ def svg():
     )
 
 
+PACKAGE_SIZES = [16, 24, 32, 48, 64, 128, 512, 1024]  # 256 is veil-256.png
+
+
+def form(size):
+    return FULL if size > 32 else SMALL
+
+
 def main():
     (ASSETS / "veil-logo.svg").write_text(svg(), encoding="utf-8", newline="\n")
     render(256, FULL).save(ASSETS / "veil-256.png", optimize=True)
+    icons = ASSETS / "icons"
+    icons.mkdir(exist_ok=True)
+    for size in PACKAGE_SIZES:
+        render(size, form(size)).save(icons / f"veil-{size}.png", optimize=True)
     sizes = [256, 128, 64, 48, 32, 24, 16]
-    frames = [render(s, FULL if s > 32 else SMALL) for s in sizes]
+    frames = [render(s, form(s)) for s in sizes]
     frames[0].save(
         ASSETS / "veil.ico",
         format="ICO",
         sizes=[(s, s) for s in sizes],
         append_images=frames[1:],
     )
-    print("wrote veil-logo.svg, veil-256.png, veil.ico")
+    print("wrote veil-logo.svg, veil-256.png, veil.ico, icons/veil-<n>.png")
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ use crate::icons::Icon;
 use crate::screens::call::CallView;
 use crate::screens::call_menus;
 use crate::screens::share::SharePicker;
+use crate::shortcuts;
 use crate::theme::{self, RAISED, RAISED_HOVER};
 use crate::volume::{MIC_MAX, SPEAKER_MAX};
 use crate::widgets::{ControlState, chevron, control, device_error, level_meter};
@@ -95,7 +96,8 @@ pub fn media(app: &mut VeilApp, ui: &mut egui::Ui) {
         ..Default::default()
     };
     let label = if mic_on { "Mute" } else { "Unmute" };
-    if control(ui, Icon::Mic, label, "Microphone (Ctrl+Shift+M)", state).clicked() {
+    let tip = shortcuts::label(ui.ctx(), "Microphone", &shortcuts::MUTE);
+    if control(ui, Icon::Mic, label, &tip, state).clicked() {
         toggle_mic(app);
     }
     let audio = menu_button(ui, "Audio settings", "Microphone, speaker and volume");
@@ -109,7 +111,8 @@ pub fn media(app: &mut VeilApp, ui: &mut egui::Ui) {
         ..Default::default()
     };
     let label = if cam_on { "Stop video" } else { "Start video" };
-    if control(ui, Icon::Video, label, "Camera (Ctrl+Shift+O)", state).clicked() {
+    let tip = shortcuts::label(ui.ctx(), "Camera", &shortcuts::VIDEO);
+    if control(ui, Icon::Video, label, &tip, state).clicked() {
         toggle_camera(app);
     }
     let video = menu_button(ui, "Video settings", "Choose a camera");

@@ -488,7 +488,8 @@ list. Where there is no system icon font (Linux, macOS), Veil uses one bundled f
 subset of the Phosphor icon font, MIT licensed, holding only the icons Veil shows
 (`crates/veil-app/assets/phosphor`, with its licence and how to rebuild it). Veil's other
 bundled image is its own app icon (`crates/veil-app/assets`), made for Veil and under Veil's
-licence. On Windows, `build.rs` embeds it in the exe with `winresource`.
+licence. On Windows, `build.rs` embeds it in the exe with `winresource`. The macOS and Linux
+packages carry the same mark at each size (`assets/icons`, drawn by `tools/make-icons.py`).
 
 **In `veil-media`:**
 - Camera capture is only available through each operating system's own APIs: Media Foundation

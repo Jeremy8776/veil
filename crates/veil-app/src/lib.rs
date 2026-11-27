@@ -22,6 +22,7 @@ mod demo;
 mod dev_start;
 mod devices;
 mod diagnostics;
+mod emoji_text;
 mod engine;
 mod firewall;
 mod framing;
@@ -43,6 +44,7 @@ mod nearby;
 mod preferences;
 mod screens;
 mod share;
+mod shortcuts;
 mod system_fonts;
 mod theme;
 mod update;
@@ -66,8 +68,11 @@ pub fn run() -> eframe::Result {
     }
     log::start(log::folder().as_deref());
     let mut viewport = egui::ViewportBuilder::default().with_title(WINDOW_TITLE);
+    // Inside Veil.app the bundle's Veil.icns (16 to 1024 px) is the Dock icon. eframe would
+    // replace it with this 256 px PNG, blurry on Retina, so it is only set outside a bundle.
+    let bundled = std::env::current_exe().is_ok_and(|exe| update::bundle_of(&exe).is_some());
     // A bad icon is cosmetic: the window opens with the default icon instead.
-    if let Ok(icon) = eframe::icon_data::from_png_bytes(APP_ICON_PNG) {
+    if !bundled && let Ok(icon) = eframe::icon_data::from_png_bytes(APP_ICON_PNG) {
         viewport = viewport.with_icon(icon);
     }
     let options = eframe::NativeOptions {
@@ -136,5 +141,16 @@ mod tests {
     fn app_icon_decodes_at_256_px() {
         let icon = eframe::icon_data::from_png_bytes(super::APP_ICON_PNG).expect("valid png");
         assert_eq!((icon.width, icon.height), (256, 256));
+    }
+
+    #[test]
+    fn package_icon_sizes_exist_at_their_size() {
+        // packaging/linux and packaging/macos copy these; a missing one fails the package.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icons");
+        for size in [16, 24, 32, 48, 64, 128, 512, 1024] {
+            let bytes = std::fs::read(dir.join(format!("veil-{size}.png"))).expect("icon file");
+            let icon = eframe::icon_data::from_png_bytes(&bytes).expect("valid png");
+            assert_eq!((icon.width, icon.height), (size, size));
+        }
     }
 }
