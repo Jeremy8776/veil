@@ -255,9 +255,9 @@ impl ClientCertVerifier for AnyDeviceKey {
     }
 }
 
-/// Listener side: shows the device key only to a dialler whose ClientHello carries a valid
-/// knock for it (`knock.rs`), or to anyone once `open` is set. Returning no key aborts the
-/// handshake before the server's key is sent.
+/// Listener side: shows the device key only to a dialler whose ClientHello carries a valid,
+/// unused knock for it (`knock.rs`), or to anyone once `open` is set. Returning no key aborts
+/// the handshake before the server's key is sent.
 #[derive(Debug)]
 struct Door {
     key: Arc<CertifiedKey>,
@@ -270,7 +270,7 @@ impl ResolvesServerCert for Door {
         let knocked = || {
             hello
                 .alpn()
-                .is_some_and(|mut entries| entries.any(|e| knock::valid(&self.id, e)))
+                .is_some_and(|mut entries| entries.any(|e| knock::admit(&self.id, e)))
         };
         (self.open.load(Ordering::Acquire) || knocked()).then(|| self.key.clone())
     }
@@ -285,16 +285,26 @@ pub(crate) fn server_config(
     id: PublicId,
     open: Arc<AtomicBool>,
 ) -> Result<QuicServerConfig, NetError> {
+    QuicServerConfig::try_from(server_tls(key, id, open)?)
+        .map_err(|e| NetError::Config(e.to_string()))
+}
+
+fn server_tls(
+    key: Arc<CertifiedKey>,
+    id: PublicId,
+    open: Arc<AtomicBool>,
+) -> Result<rustls::ServerConfig, NetError> {
     let mut config = rustls::ServerConfig::builder_with_provider(provider())
         .with_protocol_versions(&[&rustls::version::TLS13])
         .map_err(|e| NetError::Config(e.to_string()))?
         .with_client_cert_verifier(Arc::new(AnyDeviceKey))
         .with_cert_resolver(Arc::new(Door { key, id, open }));
     config.alpn_protocols = vec![ALPN.to_vec()];
-    QuicServerConfig::try_from(config).map_err(|e| NetError::Config(e.to_string()))
+    Ok(config)
 }
 
-/// A fresh config per dial: each carries its own knock nonce.
+/// A fresh config per dial attempt: each carries its own knock nonce, which the listener
+/// accepts once.
 pub(crate) fn client_config(
     key: Arc<CertifiedKey>,
     expected: PublicId,
@@ -321,6 +331,15 @@ fn client_with(
     verifier: Arc<dyn ServerCertVerifier>,
     knock: Option<Vec<u8>>,
 ) -> Result<QuicClientConfig, NetError> {
+    QuicClientConfig::try_from(client_tls(key, verifier, knock)?)
+        .map_err(|e| NetError::Config(e.to_string()))
+}
+
+fn client_tls(
+    key: Arc<CertifiedKey>,
+    verifier: Arc<dyn ServerCertVerifier>,
+    knock: Option<Vec<u8>>,
+) -> Result<rustls::ClientConfig, NetError> {
     let mut config = rustls::ClientConfig::builder_with_provider(provider())
         .with_protocol_versions(&[&rustls::version::TLS13])
         .map_err(|e| NetError::Config(e.to_string()))?
@@ -331,7 +350,7 @@ fn client_with(
         ));
     config.alpn_protocols = vec![ALPN.to_vec()];
     config.alpn_protocols.extend(knock);
-    QuicClientConfig::try_from(config).map_err(|e| NetError::Config(e.to_string()))
+    Ok(config)
 }
 
 #[cfg(test)]
@@ -374,6 +393,57 @@ mod tests {
         fn only_raw_public_keys(&self) -> bool {
             true
         }
+    }
+
+    /// Runs an in-memory handshake to the end. `Err` is the first side's error.
+    #[allow(clippy::unwrap_used)]
+    fn handshake(client: rustls::ClientConfig, server: rustls::ServerConfig) -> Result<(), Error> {
+        use rustls::{ClientConnection, ServerConnection};
+        let name = ServerName::try_from("veil").unwrap();
+        let mut c = ClientConnection::new(Arc::new(client), name).unwrap();
+        let mut s = ServerConnection::new(Arc::new(server)).unwrap();
+        for _ in 0..8 {
+            let mut buf = Vec::new();
+            c.write_tls(&mut buf).unwrap();
+            s.read_tls(&mut &buf[..]).unwrap();
+            s.process_new_packets()?;
+            buf.clear();
+            s.write_tls(&mut buf).unwrap();
+            c.read_tls(&mut &buf[..]).unwrap();
+            c.process_new_packets()?;
+            if !c.is_handshaking() && !s.is_handshaking() {
+                return Ok(());
+            }
+        }
+        Err(Error::General(String::from("handshake did not finish")))
+    }
+
+    /// A real dial completes in one ClientHello, and the same knock sent again is refused.
+    /// Fails if a key-exchange change brings in a HelloRetryRequest, which resends the knock.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn knocked_handshake_completes_and_its_copy_is_refused() {
+        let (host, guest) = (Identity::generate(), Identity::generate());
+        let host_key = certified_key(&host).unwrap();
+        let server = || server_tls(host_key.clone(), host.public(), Arc::default()).unwrap();
+        let knock = knock::make(&host.public()).unwrap();
+        let client = || {
+            let pinned = PinnedPeer {
+                expected: host.public(),
+                rejected: Arc::default(),
+            };
+            client_tls(
+                certified_key(&guest).unwrap(),
+                Arc::new(pinned),
+                Some(knock.clone()),
+            )
+            .unwrap()
+        };
+        handshake(client(), server()).unwrap();
+        assert!(
+            handshake(client(), server()).is_err(),
+            "a copied knock opened the door"
+        );
     }
 
     #[test]
