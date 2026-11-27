@@ -551,9 +551,7 @@ impl eframe::App for VeilApp {
                 }
             }
         }
-        if ctx.input_mut(|i| {
-            i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::E)
-        }) {
+        if ctx.input_mut(|i| i.consume_shortcut(&crate::shortcuts::REPORT)) {
             self.diagnostics.open();
         }
         self.diagnostics.ui(&ctx);

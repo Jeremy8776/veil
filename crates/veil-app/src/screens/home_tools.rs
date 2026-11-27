@@ -58,7 +58,14 @@ pub(super) fn show(app: &mut VeilApp, ui: &mut Ui, width: f32, help: &mut HomeHe
     }
     if ui
         .link("Connection report")
-        .on_hover_text("Review local evidence before copying a redacted report (Ctrl+Shift+E).")
+        .on_hover_text(format!(
+            "{}.",
+            crate::shortcuts::label(
+                ui.ctx(),
+                "Review local evidence before copying a redacted report",
+                &crate::shortcuts::REPORT
+            )
+        ))
         .clicked()
     {
         app.diagnostics.open();

@@ -31,6 +31,7 @@ use eframe::egui;
 use serde::Deserialize;
 
 mod apply;
+pub(crate) use apply::bundle_of;
 mod download;
 mod verify;
 

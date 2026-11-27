@@ -20,6 +20,7 @@ use crate::model::clock;
 use crate::screens::call::{CallView, View, toggle};
 use crate::screens::invite;
 use crate::screens::panels::Panel;
+use crate::shortcuts;
 use crate::theme::{self, LINE, MUTED, RAISED, RAISED_HOVER, SPEAKING, SURFACE, TEXT};
 use crate::widgets;
 
@@ -63,7 +64,8 @@ pub fn show(view: &mut CallView, app: &mut crate::app::VeilApp, ui: &mut Ui, now
 }
 
 fn right_side(view: &mut CallView, app: &mut crate::app::VeilApp, ui: &mut Ui) {
-    if widgets::icon_button(ui, Icon::Info, "Connection report (Ctrl+Shift+E)").clicked() {
+    let report = shortcuts::label(ui.ctx(), "Connection report", &shortcuts::REPORT);
+    if widgets::icon_button(ui, Icon::Info, &report).clicked() {
         app.diagnostics.open();
     }
     let (icon, label, next) = match view.view {
@@ -77,8 +79,12 @@ fn right_side(view: &mut CallView, app: &mut crate::app::VeilApp, ui: &mut Ui) {
     if widgets::icon_button(ui, icon, label).clicked() {
         view.view = next;
     }
-    let tip = "Call stats: delay, loss, bit rate (Ctrl+Shift+D)";
-    if widgets::icon_button(ui, Icon::Signal, tip).clicked() {
+    let tip = shortcuts::label(
+        ui.ctx(),
+        "Call stats: delay, loss, bit rate",
+        &shortcuts::STATS,
+    );
+    if widgets::icon_button(ui, Icon::Signal, &tip).clicked() {
         view.stats = !view.stats;
     }
     divider(ui);
