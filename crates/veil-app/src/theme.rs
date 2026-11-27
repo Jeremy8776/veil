@@ -131,6 +131,14 @@ pub fn load_fonts(ctx: &egui::Context) -> Result<FontsFound, String> {
             .filter(|f| *f != "emoji")
             .cloned(),
     );
+    // Emoji runs in chat (see `emoji_text`): the emoji font first, so a UI font's one-colour
+    // copies (DejaVu Sans, Roboto) never win. Without an emoji font it is the chat family.
+    let mut emoji_first = chat.clone();
+    if let Some(at) = emoji_first.iter().position(|f| f == "emoji") {
+        let emoji = emoji_first.remove(at);
+        emoji_first.insert(0, emoji);
+    }
+    fonts.families.insert(emoji_family(), emoji_first);
     fonts.families.insert(chat_family(), chat);
     let bold = first_readable(BOLD_FONTS);
     let mut bold_family = proportional.clone();
@@ -176,6 +184,12 @@ fn first_readable(paths: &[&str]) -> Option<Vec<u8>> {
 /// The font family for chat text and emoji: colour emoji win over one-colour symbols.
 pub fn chat_family() -> FontFamily {
     FontFamily::Name("chat".into())
+}
+
+/// The font family for emoji runs in chat: the emoji font first. Only for text that
+/// [`crate::emoji_text`] has marked as emoji, since emoji fonts also hold digits.
+pub fn emoji_family() -> FontFamily {
+    FontFamily::Name("emoji".into())
 }
 
 /// The chat font at the body text size of `ui`.

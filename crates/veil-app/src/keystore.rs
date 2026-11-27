@@ -16,7 +16,8 @@
 //! - Files are written to a temporary name, flushed to disk and renamed, so a crash never
 //!   leaves half a key.
 //! - Opened key bytes are wiped once copied into the store.
-//! - With no `LOCALAPPDATA`, or off Windows, nothing is saved: the key lasts one run.
+//! - With no `LOCALAPPDATA`, or on macOS and Linux (no sealing yet, see [`key_dir`]),
+//!   nothing is saved: the key lasts one run. Other settings still use [`default_dir`].
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -35,14 +36,44 @@ pub const MAX_TRUSTED: usize = 10_000;
 /// Set-aside copies kept per file before Veil stops moving files aside.
 const MAX_ASIDE: u32 = 20;
 
-/// Where Veil keeps its files, if anywhere.
+/// Where Veil keeps its files, if anywhere: `%LOCALAPPDATA%\Veil` on Windows,
+/// `~/Library/Application Support/Veil` on macOS, `$XDG_DATA_HOME/veil` (or
+/// `~/.local/share/veil`) on Linux.
 pub fn default_dir() -> Option<PathBuf> {
     #[cfg(target_os = "android")]
     return veil_media::ffi::android::data_dir().ok();
     #[cfg(not(target_os = "android"))]
-    std::env::var_os("LOCALAPPDATA")
-        .filter(|v| !v.is_empty())
-        .map(|base| PathBuf::from(base).join("Veil"))
+    dir_for(std::env::consts::OS, |name| {
+        std::env::var_os(name)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    })
+}
+
+/// Where the device key and verified list are kept: [`default_dir`] where this build can
+/// seal them, otherwise nowhere, so the key lasts one run and the home screen shows no
+/// save error on every start.
+pub fn key_dir() -> Option<PathBuf> {
+    default_dir().filter(|_| CAN_SEAL)
+}
+
+const CAN_SEAL: bool = cfg!(any(windows, target_os = "android"));
+
+#[cfg(any(not(target_os = "android"), test))]
+fn dir_for(os: &str, var: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    // The XDG specification says a relative path is invalid and must be ignored.
+    let absolute = |name| var(name).filter(|path: &PathBuf| path.has_root());
+    match os {
+        "windows" => var("LOCALAPPDATA").map(|base| base.join("Veil")),
+        "macos" => absolute("HOME").map(|home| {
+            home.join("Library")
+                .join("Application Support")
+                .join("Veil")
+        }),
+        _ => absolute("XDG_DATA_HOME")
+            .or_else(|| absolute("HOME").map(|home| home.join(".local").join("share")))
+            .map(|base| base.join("veil")),
+    }
 }
 
 pub struct KeyStore {
@@ -287,6 +318,36 @@ fn unseal(bytes: &[u8], label: &[u8]) -> Result<Vec<u8>, String> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn data_folder_uses_the_native_user_location() {
+        let home = PathBuf::from("/home/a");
+        let only = |key: &'static str, value: PathBuf| {
+            move |name: &str| (name == key).then(|| value.clone())
+        };
+        assert_eq!(
+            dir_for("windows", only("LOCALAPPDATA", PathBuf::from(r"C:\Users\a\AppData\Local"))),
+            Some(PathBuf::from(r"C:\Users\a\AppData\Local").join("Veil")),
+        );
+        assert_eq!(
+            dir_for("macos", only("HOME", home.clone())),
+            Some(home.join("Library").join("Application Support").join("Veil")),
+        );
+        assert_eq!(
+            dir_for("linux", only("HOME", home.clone())),
+            Some(home.join(".local").join("share").join("veil")),
+        );
+        assert_eq!(
+            dir_for("linux", only("XDG_DATA_HOME", PathBuf::from("/data"))),
+            Some(PathBuf::from("/data").join("veil")),
+        );
+        assert_eq!(
+            dir_for("linux", only("XDG_DATA_HOME", PathBuf::from("relative"))),
+            None,
+            "a relative XDG path is ignored",
+        );
+        assert_eq!(dir_for("linux", |_| None), None);
+    }
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("veil-keystore-{name}-{}", std::process::id()));

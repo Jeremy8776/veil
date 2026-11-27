@@ -43,6 +43,7 @@ mod nearby;
 mod preferences;
 mod screens;
 mod share;
+mod emoji_text;
 mod system_fonts;
 mod theme;
 mod update;

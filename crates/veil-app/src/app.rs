@@ -111,9 +111,11 @@ impl VeilApp {
         #[cfg(target_os = "android")]
         let name = prefs.saved.display_name.clone();
         #[cfg(not(target_os = "android"))]
-        let name = std::env::var("USERNAME")
-            .ok()
-            .filter(|n| !n.trim().is_empty())
+        // Windows sets USERNAME; macOS and Linux set USER.
+        let name = ["USERNAME", "USER"]
+            .iter()
+            .filter_map(|var| std::env::var(var).ok())
+            .find(|n| !n.trim().is_empty())
             .unwrap_or_default();
         Self {
             screen: Screen::Home,
@@ -137,7 +139,7 @@ impl VeilApp {
             remote: HashMap::new(),
             framing,
             firewall: crate::firewall::Firewall::new(),
-            keys: Arc::new(Mutex::new(KeyStore::open(keystore::default_dir()))),
+            keys: Arc::new(Mutex::new(KeyStore::open(keystore::key_dir()))),
             confirm_new_key: false,
             updates,
             connection,

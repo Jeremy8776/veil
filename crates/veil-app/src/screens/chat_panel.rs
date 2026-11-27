@@ -8,11 +8,13 @@
 //!   reactions, and clicking a reaction under it adds or takes back yours.
 //! - Pop-ups here open nothing of their own (see `call_menus`).
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use eframe::egui::{self, Align, Button, Key, Layout, RichText, ScrollArea, TextEdit};
 
 use crate::chat::{Message, PICKER, QUICK_REACTIONS, Reaction, Reactor};
+use crate::emoji_text;
 use crate::icons::Icon;
 use crate::model::clock;
 use crate::screens::call::CallView;
@@ -81,9 +83,11 @@ pub fn show(view: &mut CallView, ui: &mut egui::Ui, now: Instant) {
             ui.add_space(18.0);
         }
         let input_width = if PHONE { (input_width - 18.0).max(1.0) } else { input_width };
+        let mut layouter = draft_layouter;
         let mut edit = TextEdit::singleline(&mut view.draft)
             .hint_text("Type a message")
             .font(theme::chat_font(ui))
+            .layouter(&mut layouter)
             .align(egui::Align2::LEFT_CENTER)
             .char_limit(veil_call::app_msg::MAX_CHAT_CHARS)
             .desired_width(input_width);
@@ -171,8 +175,12 @@ fn message_row(ui: &mut egui::Ui, message: &Message) -> Option<(u64, String)> {
             })
             .show(ui, |ui| {
                 ui.set_max_width(max);
-                let text = RichText::new(&message.text).family(theme::chat_family());
-                ui.label(if PHONE { text.size(16.0).color(egui::Color32::WHITE) } else { text });
+                let (size, color) = if PHONE {
+                    (16.0, egui::Color32::WHITE)
+                } else {
+                    (body_size(ui), egui::Color32::PLACEHOLDER)
+                };
+                ui.label(emoji_text::job(&message.text, size, color));
             })
             .response;
         let id = message.id?;
@@ -241,18 +249,29 @@ fn picker(button: &egui::Response) -> Option<&'static str> {
     chosen
 }
 
+fn body_size(ui: &egui::Ui) -> f32 {
+    egui::TextStyle::Body.resolve(ui.style()).size
+}
+
+/// Lays out the message box like a sent message, so emoji typed or picked show in colour.
+fn draft_layouter(ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32) -> Arc<egui::Galley> {
+    let size = if PHONE { 16.0 } else { body_size(ui) };
+    let mut job = emoji_text::job(text.as_str(), size, ui.visuals().text_color());
+    job.keep_trailing_whitespace = true;
+    ui.fonts_mut(|f| f.layout_job(job))
+}
+
 fn emoji_button(ui: &mut egui::Ui, emoji: &str, size: f32) -> egui::Response {
-    let text = RichText::new(emoji).size(size).family(theme::chat_family());
-    let button = Button::new(text).frame(false);
+    let button = Button::new(emoji_text::job(emoji, size, egui::Color32::PLACEHOLDER)).frame(false);
     if cfg!(target_os = "android") { ui.add_sized([48.0, 48.0], button) } else { ui.add(button) }
 }
 
 /// A reaction under a message: the emoji and how many chose it, highlighted if you did,
 /// with who chose it on hover.
 fn chip(ui: &mut egui::Ui, reaction: &Reaction) -> egui::Response {
-    let text = RichText::new(format!("{} {}", reaction.emoji, reaction.by.len()))
-        .small()
-        .family(theme::chat_family());
+    let size = egui::TextStyle::Small.resolve(ui.style()).size;
+    let label = format!("{} {}", reaction.emoji, reaction.by.len());
+    let text = emoji_text::job(&label, size, egui::Color32::PLACEHOLDER);
     let names: Vec<&str> = reaction
         .by
         .iter()
