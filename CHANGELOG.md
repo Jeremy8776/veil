@@ -11,6 +11,9 @@ All notable changes to Veil. Dates are dd/mm/yyyy.
   a key kept in the macOS keychain or your Linux keyring (GNOME Keyring or KWallet). The
   first save may ask you to allow access or unlock the keyring. Without a keyring service,
   the key lasts one run as before, and the home screen says why.
+- The Connection report is wider on desktop. Connection steps and media sit on the left,
+  what to include and the report text on the right, with names and values aligned in rows.
+  Phones and narrow windows keep one column.
 
 ## 0.1.16, 27/11/2026
 

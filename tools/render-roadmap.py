@@ -35,7 +35,10 @@ versions = {}
 streams = {
     'SDK': 'Engine and integrations', 'BIND': 'Engine and integrations', 'EMBED': 'Engine and integrations',
     'LOCAL': 'Local and invitations', 'INVITE': 'Local and invitations', 'NEAR': 'Local and invitations',
-    'TRUST': 'Identity and security', 'ID': 'Identity and security',
+    'TRUST': 'Identity and security', 'ID': 'Identity and security', 'PQ': 'Identity and security',
+    'HARD': 'Identity and security', 'META': 'Identity and security',
+    'CC': 'Media and groups', 'SPEAK': 'Media and groups',
+    'SUPPLY': 'Evidence and release', 'REPRO': 'Evidence and release',
     'NET': 'Networks and helpers', 'OPS': 'Networks and helpers',
     'DATA': 'Media and groups', 'GROUP': 'Media and groups', 'MEDIA': 'Media and groups',
     'SCALE': 'Media and groups', 'PERF': 'Media and groups', 'HOST': 'Media and groups',
@@ -279,6 +282,7 @@ html = f'''<!doctype html>
 {section('Mission and session decisions', 'mission')}
 {section('Embeddable call platform', 'platform')}
 {section('Priority and delivery approach', 'priorities')}
+{section('Benchmark: Signal', 'benchmark-signal')}
 <section id="milestones" class="block"><div class="section-top"><h2>Version milestones</h2><small>Proposed sequence · no fixed dates</small></div>
 <p class="section-lead">Each version earns a concrete user outcome. Capability IDs connect the release to the work and evidence needed to complete it.</p>
 <div class="milestones">{''.join(milestones)}</div><div class="notes">{render(milestone_notes)}</div></section>

@@ -226,6 +226,48 @@
       "note": "Requested 25 November 2026; full acceptance gate open.",
       "evidence": [],
       "updated_at": "2026-11-25T11:36:35+00:00"
+    },
+    "CC-01": {
+      "status": "planned",
+      "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.",
+      "evidence": [],
+      "updated_at": "2026-11-27T16:29:26+00:00"
+    },
+    "HARD-01": {
+      "status": "planned",
+      "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.",
+      "evidence": [],
+      "updated_at": "2026-11-27T16:29:26+00:00"
+    },
+    "META-01": {
+      "status": "planned",
+      "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.",
+      "evidence": [],
+      "updated_at": "2026-11-27T16:29:26+00:00"
+    },
+    "PQ-01": {
+      "status": "planned",
+      "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.",
+      "evidence": [],
+      "updated_at": "2026-11-27T16:29:26+00:00"
+    },
+    "REPRO-01": {
+      "status": "planned",
+      "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.",
+      "evidence": [],
+      "updated_at": "2026-11-27T16:29:26+00:00"
+    },
+    "SPEAK-01": {
+      "status": "planned",
+      "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.",
+      "evidence": [],
+      "updated_at": "2026-11-27T16:29:26+00:00"
+    },
+    "SUPPLY-01": {
+      "status": "planned",
+      "note": "Added 27/11/2026 from the Signal comparison; full acceptance gate open.",
+      "evidence": [],
+      "updated_at": "2026-11-27T16:29:26+00:00"
     }
   },
   "sessions": {
