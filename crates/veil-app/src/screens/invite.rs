@@ -8,17 +8,16 @@
 //!   sent keeps the lifetime it was made with.
 //! - "Full link" shows only when the link on screen is a short one, and "QR code" only in a
 //!   real call.
-//! - The card is measured each frame and sits 80 points above the stage's bottom edge,
-//!   never above its top.
+//! - The stage prompt is measured each frame and centred on the stage, never above its top.
 
 use eframe::egui::{self, Rect, RichText, pos2, vec2};
 
 use crate::icons::Icon;
 use crate::model::{Action, Call};
 use crate::screens::call::CallView;
-use crate::screens::dialog::{Choice, one, pair};
+use crate::screens::dialog::{Choice, half, one, pair};
 use crate::theme::{self, MUTED};
-use crate::widgets::{Tone, card as card_frame, pill, toggle_row};
+use crate::widgets::Tone;
 
 /// How long the shown link works, for the card, People and the Invite button's tooltip.
 pub fn lifetime_text(call: &Call, now_unix: u64) -> String {
@@ -121,20 +120,22 @@ fn extras(demo: bool, short: bool) -> Extras {
     }
 }
 
-/// How far the card sits above the stage's bottom edge.
-const CARD_BOTTOM: f32 = 80.0;
-/// The card's height before it has been measured once.
-const CARD_GUESS: f32 = 300.0;
+/// The prompt's height before it has been measured once.
+const CARD_GUESS: f32 = 120.0;
+/// The prompt's widest width: room for two buttons, no more.
+const CARD_WIDTH: f32 = 320.0;
 
-/// The card's top edge for a stage ending at `bottom`: lifted clear of the bottom edge, but
-/// never above the stage's top.
+/// The prompt's top edge: centred on the stage, but never above its top.
 fn card_top(top: f32, bottom: f32, height: f32) -> f32 {
-    (bottom - CARD_BOTTOM - height).max(top + theme::GAP)
+    ((top + bottom - height) / 2.0).max(top + theme::GAP)
 }
 
-/// A card on the stage with the invite link and a copy button, while nobody has joined.
+/// A quiet prompt in the empty stage while nobody has joined: a line of text, how long the
+/// link works, and copy (plus QR in a real call). No frame and no raw link, so it reads as
+/// part of the stage rather than a dialog. Full link and "keep until the call ends" live in
+/// the People panel.
 pub fn card(view: &mut CallView, ui: &mut egui::Ui, area: Rect) {
-    let width = 460.0f32.min(area.width() - 32.0);
+    let width = CARD_WIDTH.min(area.width() - 32.0);
     let id = ui.scope_id().with("invite-card-height");
     let height = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or(CARD_GUESS);
     let rect = Rect::from_min_size(
@@ -144,29 +145,32 @@ pub fn card(view: &mut CallView, ui: &mut egui::Ui, area: Rect) {
         ),
         vec2(width, height),
     );
-    let mut copy = false;
+    let (mut copy, mut show_qr) = (false, false);
+    let hint = format!("Copy {}", view.call.invite);
     let shown = ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
-        card_frame().show(ui, |ui| {
-            ui.set_width(width - 40.0);
-            ui.vertical_centered(|ui| {
-                ui.spacing_mut().item_spacing.y = theme::GAP;
-                ui.label(RichText::new("Invite someone").font(theme::bold(16.0)));
-                let mut link = view.call.invite.as_str();
-                ui.add(
-                    egui::TextEdit::singleline(&mut link)
-                        .align(egui::Align2::CENTER_CENTER)
-                        .desired_width(f32::INFINITY),
-                );
-                let label = "Copy invite link";
-                copy = pill(ui, Some(Icon::Copy), label, Tone::Primary, width - 40.0).clicked();
-                lifetime(view, ui, |ui, on, label| toggle_row(ui, on, label, ""));
-            });
+        ui.vertical_centered(|ui| {
+            ui.spacing_mut().item_spacing.y = theme::GAP;
+            ui.label(RichText::new("Waiting for others to join").font(theme::bold(15.0)));
+            let text = lifetime_text(&view.call, now_unix());
+            ui.label(RichText::new(text).small().color(MUTED));
+            ui.add_space(theme::GAP / 2.0);
+            let copy_btn = Choice::new(Some(Icon::Copy), "Copy link", Tone::Primary).hint(&hint);
+            if view.call.demo {
+                copy = one(ui, copy_btn, half(width)).clicked();
+            } else {
+                let qr = Choice::new(None, "QR code", Tone::Quiet).hint(QR_HINT);
+                let (a, b) = pair(ui, width, qr, copy_btn);
+                (show_qr, copy) = (a.clicked(), b.clicked());
+            }
         })
     });
     let measured = shown.response.rect.height();
     if (measured - height).abs() > 0.5 {
         ui.data_mut(|d| d.insert_temp(id, measured));
         ui.ctx().request_repaint();
+    }
+    if show_qr {
+        crate::invite_qr::open(ui.ctx());
     }
     if copy {
         view.copy_invite(ui.ctx());
@@ -225,8 +229,8 @@ mod tests {
     }
 
     #[test]
-    fn the_card_sits_above_the_bottom_edge_but_never_above_the_stage() {
-        assert_eq!(card_top(0.0, 1000.0, 300.0), 620.0);
+    fn the_prompt_is_centred_but_never_above_the_stage() {
+        assert_eq!(card_top(0.0, 1000.0, 300.0), 350.0);
         assert_eq!(card_top(100.0, 400.0, 300.0), 100.0 + theme::GAP);
     }
 }
