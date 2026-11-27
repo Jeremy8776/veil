@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use getrandom::SysRng;
 use getrandom::rand_core::UnwrapErr;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use veil_net::{Node, NodeAddr};
 use veil_rendezvous::{Refusal, RendezvousError, room_tag, store_invite};
@@ -87,6 +87,8 @@ pub struct CallNode {
     helper_issue: Option<HelperIssue>,
     relay_only: bool,
     consent: Arc<Consent>,
+    /// Which host session incoming joiners reach; set when this member takes over.
+    host_slot: watch::Sender<Option<HostHandle>>,
     media: Option<mpsc::Receiver<Inbound>>,
     // Held only so dropping the node aborts them.
     _tasks: Tasks,
@@ -132,13 +134,15 @@ impl CallNode {
     ) -> Self {
         let node = Arc::new(node);
         let (media_tx, media_rx) = mpsc::channel(MEDIA_INBOX);
+        let hosting = host.is_some();
+        let (host_slot, host) = watch::channel(host);
         let router = Router {
             room_id,
             host,
             media: media_tx,
         };
         let consent = Arc::new(Consent {
-            open: router.host.is_some(),
+            open: std::sync::atomic::AtomicBool::new(hosting),
             ..Consent::default()
         });
         let mut tasks = Tasks::default();
@@ -182,6 +186,7 @@ impl CallNode {
             helper_issue,
             relay_only: false,
             consent,
+            host_slot,
             media: Some(media_rx),
             _tasks: tasks,
         }
@@ -217,6 +222,32 @@ impl CallNode {
             pass: lobby_pass(&invite.join_token),
         };
         Self::launch(identity, node, invite.room_id, rendezvous, None, seat).await
+    }
+
+    /// After a handover this member follows: its presence moves to the new host's room on
+    /// `relay`, the new host's rendezvous node. With no relay it keeps dialling directly.
+    ///
+    /// shortcut: a node that started with no rendezvous gains none here, so it reaches the
+    /// new host only at the contact's direct addresses. Start a presence here if calls that
+    /// begin without a rendezvous turn out to hand over to hosts behind routers.
+    pub async fn follow_host(&self, host: PublicId, relay: Option<RelayAddrs>) {
+        if let (Some(presence), Some(server)) = (&self.presence, relay) {
+            let _ = presence.rehome(server, host, None).await;
+        }
+    }
+
+    /// After a handover to this member: joiners and resuming members now reach `host`, and
+    /// the presence opens `host`'s room on `relay` with its allow list.
+    pub async fn promote(&self, host: HostHandle, relay: Option<RelayAddrs>) {
+        let allowed = host.allowed();
+        self.host_slot.send_replace(Some(host));
+        self.consent
+            .open
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        if let (Some(presence), Some(server)) = (&self.presence, relay) {
+            let me = self.identity.public();
+            let _ = presence.rehome(server, me, Some(allowed)).await;
+        }
     }
 
     pub fn id(&self) -> PublicId {

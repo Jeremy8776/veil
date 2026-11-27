@@ -303,3 +303,87 @@ async fn the_old_host_closes_after_the_linger_without_a_removal() {
     host.handover_tick();
     assert_eq!(host.handover.finished(), Some(members[0].id.public()));
 }
+
+#[tokio::test]
+async fn the_successor_seeds_recovery_and_flags_removed_people() {
+    let (mut host, mut members) = persistent_call(2);
+    let gone = Identity::generate().public();
+    host.handover.note_removed(gone);
+    host.availability(members[0].id.public(), report(1));
+    let (reply, _answer) = oneshot::channel();
+    host.start_handover(None, reply);
+    let request = offered(&mut members[0].inbox).unwrap();
+    let next_epoch = host.group.epoch() + 1;
+    host.ready(members[0].id.public(), request, Some(contact(&members[0].id, next_epoch)));
+    for member in &mut members {
+        for message in drain(&mut member.inbox) {
+            if let Control::Commit(commit) = message {
+                member.group.apply(&commit).unwrap();
+            }
+        }
+    }
+    let [ana, mut bob] = <[Member; 2]>::try_from(members).ok().unwrap();
+    let mut group = ana.group;
+    let removal = group.remove(&host.identity.public()).unwrap();
+    let mut new_host = crate::host::test_support::actor_in(ana.id, group, ROOM);
+    new_host.seed_take_over(vec![(new_host.group.epoch(), removal)], vec![gone]);
+    assert!(new_host.recovering.contains_key(&bob.id.public()));
+    assert!(new_host.handover.removed_earlier(&gone));
+
+    // The old host is no longer a member and cannot resume here.
+    let (out, mut input) = mpsc::channel(OUTBOX);
+    new_host.resume(host.identity.public(), 1, out, ROOM, next_epoch);
+    assert_eq!(
+        input.recv().await.unwrap(),
+        Control::Refused(RefuseReason::DeclinedByHost)
+    );
+    // Bob resumes at the handover epoch and catches up on the removal.
+    let (out, mut input) = mpsc::channel(OUTBOX);
+    new_host.resume(bob.id.public(), 2, out, ROOM, bob.group.epoch());
+    assert_eq!(
+        input.recv().await.unwrap(),
+        Control::Resumed {
+            epoch: new_host.group.epoch()
+        }
+    );
+    let Control::Commit(commit) = input.recv().await.unwrap() else {
+        panic!("the removal is replayed");
+    };
+    bob.group.apply(&commit).unwrap();
+    assert_eq!(bob.group.epoch(), new_host.group.epoch());
+    assert!(!new_host.recovering.contains_key(&bob.id.public()));
+}
+
+#[tokio::test]
+async fn a_knock_from_someone_removed_earlier_always_waits_and_is_flagged() {
+    let (events, mut rx) = crate::events::EventSender::channel();
+    let (mut host, _members) = persistent_call(0);
+    host.events = events;
+    host.lobby.set_gate(false);
+    let mut invite = veil_security::invite::Invite::new(
+        &host.identity,
+        vec![],
+        None,
+        u64::MAX,
+        &mut getrandom::rand_core::UnwrapErr(getrandom::SysRng),
+    )
+    .unwrap();
+    invite.room_id = ROOM;
+    host.lobby.add_invite(&invite).unwrap();
+    let back = Identity::generate();
+    host.handover.note_removed(back.public());
+    let (out, mut inbox) = mpsc::channel(OUTBOX);
+    host.links.insert(back.public(), (3, out));
+    host.message(
+        back.public(),
+        Control::Hello {
+            room_id: ROOM,
+            join_token: invite.join_token,
+        },
+    );
+    assert!(inbox.try_recv().is_err(), "not let straight in with the gate off");
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(HostEvent::KnockRemovedEarlier(d)) if d == back.public()
+    ));
+}

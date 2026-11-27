@@ -102,6 +102,10 @@ impl Handover {
         }
     }
 
+    pub(super) fn removed_earlier(&self, device: &PublicId) -> bool {
+        self.removed.contains(device)
+    }
+
     pub(super) fn forget(&mut self, device: &PublicId) {
         self.reports.remove(device);
         self.relayed.remove(device);
@@ -121,6 +125,20 @@ impl Handover {
 }
 
 impl Actor {
+    /// A successor's first state: the commit that removed the old host in the journal, every
+    /// other member recovering until it resumes here, and the old host's removed list.
+    pub(super) fn seed_take_over(&mut self, journal: Vec<(u64, Vec<u8>)>, removed: Vec<PublicId>) {
+        self.history.extend(journal);
+        let until = Instant::now() + super::CONTROL_RECOVERY;
+        for device in self.others() {
+            // Link id 0 is never issued, so no stale closure matches it.
+            self.recovering.insert(device, (0, until));
+        }
+        for device in removed {
+            self.handover.note_removed(device);
+        }
+    }
+
     fn candidates(&self) -> Vec<Candidate> {
         let me = self.identity.public();
         self.group

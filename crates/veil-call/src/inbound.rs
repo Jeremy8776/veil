@@ -15,7 +15,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use veil_net::control::Control;
 use veil_net::{FramedRecv, FramedSend, Link, Node};
 
@@ -36,7 +36,8 @@ pub(crate) struct Inbound {
 #[derive(Clone)]
 pub(crate) struct Router {
     pub room_id: [u8; 16],
-    pub host: Option<HostHandle>,
+    /// The host session, while this participant hosts. Set later when it takes over.
+    pub host: watch::Receiver<Option<HostHandle>>,
     pub media: mpsc::Sender<Inbound>,
 }
 
@@ -80,7 +81,8 @@ impl Router {
         };
         match &inbound.first {
             Control::Hello { .. } | Control::Resume { .. } => {
-                if let Some(host) = &self.host {
+                let host = self.host.borrow().clone();
+                if let Some(host) = host {
                     let _ = host.add_inbound(inbound).await;
                 } else {
                     inbound.link.close("not hosting");
@@ -119,7 +121,7 @@ mod tests {
         (
             Router {
                 room_id: ROOM,
-                host: None,
+                host: watch::channel(None).1,
                 media,
             },
             inbox,

@@ -82,6 +82,9 @@ pub enum HostEvent {
     Overloaded,
     /// A joiner with a valid token is waiting. Answer with [`HostHandle::decide`].
     Knock(PublicId),
+    /// As [`HostEvent::Knock`], from someone removed or declined earlier in this call. Ask
+    /// the host to confirm twice before admitting them.
+    KnockRemovedEarlier(PublicId),
     /// The gate is off and a joiner with a valid token was let in without waiting. Its join
     /// token is burnt, as with a knock. [`HostEvent::Joined`] follows once it joins.
     Entered(PublicId),
@@ -504,6 +507,11 @@ impl Actor {
             Control::HandoverReady { request, contact } => self.ready(device, request, contact),
             Control::Hello { .. } => {
                 match self.lobby.knock(&message, device, &self.group, now_unix()) {
+                    // Someone removed or declined earlier in this call always waits for the
+                    // host, gate or not, and the host is warned (ADR 0010 section 9).
+                    Ok(knock) if self.handover.removed_earlier(&knock.device) => {
+                        self.emit(HostEvent::KnockRemovedEarlier(knock.device));
+                    }
                     Ok(knock) => match self.lobby.at_gate(knock) {
                         Knocked::Waiting(knock) => self.emit(HostEvent::Knock(knock.device)),
                         Knocked::Approved(device, reply) => {

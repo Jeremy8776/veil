@@ -57,7 +57,7 @@ pub use events::EVENT_BACKLOG;
 pub use host::{Allowed, HostEvent, HostHandle};
 pub use keyring::KeyRing;
 pub use media::{Incoming, LinkEvent, LinkStats, Media, MediaSession, SEND_DEADLINE};
-pub use member::{MemberEvent, MemberHandle, join, join_with};
+pub use member::{MemberEvent, MemberHandle, Promotion, join, join_with};
 pub use node::{CallNode, Path};
 pub use relay_field::RelayAddrs;
 pub use routes::{Directory, Peer, Routes};

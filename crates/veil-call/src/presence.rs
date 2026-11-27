@@ -74,6 +74,12 @@ enum Command {
     Relay(PublicId, oneshot::Sender<Result<Arc<Node>, CallError>>),
     /// The expected peers changed: accept waiting requests that are now allowed.
     Recheck,
+    /// The call's host changed by a handover: register in the new host's room on its node.
+    Rehome {
+        server: RelayAddrs,
+        host: PublicId,
+        allowed: Option<watch::Receiver<Allowed>>,
+    },
 }
 
 /// Talks to the presence task. Cheap to clone.
@@ -180,6 +186,25 @@ impl Presence {
         }
         // A full queue already holds commands; the next recheck sees the new set.
         let _ = self.commands.try_send(Command::Recheck);
+    }
+
+    /// Moves this presence to the new host's room on `server` after a handover. A member is
+    /// on the new host's allow list, so it registers without a lobby pass. Relay sessions and
+    /// introductions on the old room end; the media redial loop opens new ones.
+    pub async fn rehome(
+        &self,
+        server: RelayAddrs,
+        host: PublicId,
+        allowed: Option<watch::Receiver<Allowed>>,
+    ) -> Result<(), CallError> {
+        self.commands
+            .send(Command::Rehome {
+                server,
+                host,
+                allowed,
+            })
+            .await
+            .map_err(|_| CallError::Closed)
     }
 
     /// Asks the server to introduce this node to `peer`. Both then dial at the given moment.
@@ -302,7 +327,7 @@ impl Actor {
                 tokio::select! {
                     () = &mut delay => break,
                     command = commands.recv() => match command {
-                        Some(command) => disconnected(command),
+                        Some(command) => { self.offline(command); }
                         None => return false,
                     },
                 }
@@ -318,15 +343,24 @@ impl Actor {
                 Ok::<_, veil_rendezvous::RendezvousError>(client)
             };
             tokio::pin!(attempt);
+            let mut rehomed = false;
             let result = loop {
                 tokio::select! {
                     result = &mut attempt => break result,
                     command = commands.recv() => match command {
-                        Some(command) => disconnected(command),
+                        Some(command) => rehomed |= self.offline(command),
                         None => return false,
                     },
                 }
             };
+            // A handover during the attempt: never keep a registration in the old room.
+            if rehomed {
+                if let Ok(client) = result {
+                    client.close();
+                }
+                gap = Duration::from_millis(100);
+                continue;
+            }
             let failed = match result {
                 Ok(mut client) => {
                     // Registration alone must not make a host visible with stale permissions.
@@ -357,6 +391,28 @@ impl Actor {
         }
     }
 
+    /// A command while disconnected. Requests fail at once; a rehome is kept for the next
+    /// attempt. True when it was a rehome.
+    fn offline(&mut self, command: Command) -> bool {
+        match command {
+            Command::Rehome {
+                server,
+                host,
+                allowed,
+            } => {
+                self.server = server;
+                self.host = host;
+                self.pass = None;
+                self.allowed = allowed;
+                true
+            }
+            other => {
+                disconnected(other);
+                false
+            }
+        }
+    }
+
     async fn command(&mut self, command: Command) {
         match command {
             Command::Introduce(peer, reply) => {
@@ -371,6 +427,13 @@ impl Actor {
             }
             Command::Relay(peer, reply) => {
                 let _ = reply.send(self.open_relay(peer).await);
+            }
+            rehome @ Command::Rehome { .. } => {
+                self.offline(rehome);
+                // The run loop reconnects and registers in the new room.
+                if let Some(client) = self.client.take() {
+                    client.close();
+                }
             }
             Command::Recheck => {
                 let now = Instant::now();
@@ -483,7 +546,7 @@ fn disconnected(command: Command) {
         Command::Relay(_, reply) => {
             let _ = reply.send(Err(CallError::Closed));
         }
-        Command::Recheck => {}
+        Command::Recheck | Command::Rehome { .. } => {}
     }
 }
 
@@ -528,11 +591,11 @@ mod tests {
         let (media, _inbox) = mpsc::channel(1);
         let router = Router {
             room_id: room,
-            host: None,
+            host: watch::channel(None).1,
             media,
         };
         let consent = Arc::new(Consent {
-            open: true,
+            open: std::sync::atomic::AtomicBool::new(true),
             ..Consent::default()
         });
         let (presence, task) =

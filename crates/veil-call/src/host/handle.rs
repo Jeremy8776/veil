@@ -17,6 +17,7 @@ use super::handover::{Choice, Handover, HandoverFailure};
 use super::{Actor, Allowed, COMMANDS, Command, HostEvent, HostHandle, Internal};
 use crate::events::EventSender;
 use crate::inbound::Inbound;
+use crate::member::Promotion;
 use crate::routes::{Directory, Routes};
 use crate::{CallError, EpochKeys};
 
@@ -59,7 +60,7 @@ impl HostHandle {
         identity: &Identity,
         room_id: [u8; 16],
     ) -> Result<(Self, mpsc::Receiver<HostEvent>), CallError> {
-        Self::run(identity, Group::create(identity, room_id)?, room_id, Vec::new())
+        Self::run(identity, Group::create(identity, room_id)?, room_id, |_| {})
     }
 
     /// [`HostHandle::start`] for a persistent call (ADR 0010): the group names its host in
@@ -73,8 +74,30 @@ impl HostHandle {
             identity,
             Group::create_persistent(identity, room_id)?,
             room_id,
-            Vec::new(),
+            |_| {},
         )
+    }
+
+    /// The successor's side of a handover: hosts the call this device was a member of, with
+    /// its own key and its own group state. Every other member has [`super::CONTROL_RECOVERY`]
+    /// to resume here, and the commit that removed the old host is replayed to them.
+    pub fn take_over(
+        identity: &Identity,
+        promotion: Promotion,
+    ) -> Result<(Self, mpsc::Receiver<HostEvent>), CallError> {
+        let Promotion {
+            group,
+            room_id,
+            journal,
+            removed,
+            ..
+        } = promotion;
+        if !group.is_host() {
+            return Err(CallError::Group(veil_group::GroupError::NotHost));
+        }
+        Self::run(identity, group, room_id, move |actor| {
+            actor.seed_take_over(journal, removed);
+        })
     }
 
     /// Starts the actor for `group`, with `journal` as the commits already made in it.
@@ -82,7 +105,7 @@ impl HostHandle {
         identity: &Identity,
         group: Group,
         room_id: [u8; 16],
-        journal: Vec<(u64, Vec<u8>)>,
+        setup: impl FnOnce(&mut Actor),
     ) -> Result<(Self, mpsc::Receiver<HostEvent>), CallError> {
         let (events, events_rx) = EventSender::channel();
         events.emit(HostEvent::Keys(EpochKeys::from_group(&group)?));
@@ -91,7 +114,7 @@ impl HostHandle {
         let (allowed_tx, allowed) = watch::channel(Allowed::default());
         let identity = Identity::from_secret(&identity.secret_bytes());
         let mut actor = Actor::new(identity, group, room_id, events, internal, allowed_tx);
-        actor.history.extend(journal);
+        setup(&mut actor);
         tokio::spawn(actor.run(commands_rx, internal_rx));
         Ok((Self { commands, allowed }, events_rx))
     }
