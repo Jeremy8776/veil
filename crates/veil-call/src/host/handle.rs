@@ -13,11 +13,42 @@ use veil_security::{Identity, PublicId};
 use veil_topology::Plan;
 
 use super::hints::checked_candidates;
-use super::{Actor, Allowed, COMMANDS, Command, HostEvent, HostHandle};
+use super::handover::{Choice, Handover, HandoverFailure};
+use super::{Actor, Allowed, COMMANDS, Command, HostEvent, HostHandle, Internal};
 use crate::events::EventSender;
 use crate::inbound::Inbound;
 use crate::routes::{Directory, Routes};
 use crate::{CallError, EpochKeys};
+
+impl Actor {
+    pub(super) fn new(
+        identity: Identity,
+        group: Group,
+        room_id: [u8; 16],
+        events: EventSender<HostEvent>,
+        internal: mpsc::Sender<Internal>,
+        allowed: watch::Sender<Allowed>,
+    ) -> Self {
+        Self {
+            identity,
+            group,
+            lobby: Lobby::new(room_id),
+            links: HashMap::new(),
+            events,
+            internal,
+            next_link: 0,
+            allowed,
+            recovering: HashMap::new(),
+            history: VecDeque::new(),
+            latest_plan: None,
+            addresses: Vec::new(),
+            hints: HashMap::new(),
+            checking: None,
+            cut_off: Vec::new(),
+            handover: Handover::default(),
+        }
+    }
+}
 
 impl HostHandle {
     /// Creates the call's group and starts the session. The first event is the epoch 0 keys.
@@ -28,29 +59,39 @@ impl HostHandle {
         identity: &Identity,
         room_id: [u8; 16],
     ) -> Result<(Self, mpsc::Receiver<HostEvent>), CallError> {
-        let group = Group::create(identity, room_id)?;
+        Self::run(identity, Group::create(identity, room_id)?, room_id, Vec::new())
+    }
+
+    /// [`HostHandle::start`] for a persistent call (ADR 0010): the group names its host in
+    /// the MLS group context, so hosting can pass to another member ([`HostHandle::hand_over`]).
+    /// A Veil too old to support this is refused with `RefuseReason::NeedsUpdate`.
+    pub fn start_persistent(
+        identity: &Identity,
+        room_id: [u8; 16],
+    ) -> Result<(Self, mpsc::Receiver<HostEvent>), CallError> {
+        Self::run(
+            identity,
+            Group::create_persistent(identity, room_id)?,
+            room_id,
+            Vec::new(),
+        )
+    }
+
+    /// Starts the actor for `group`, with `journal` as the commits already made in it.
+    pub(super) fn run(
+        identity: &Identity,
+        group: Group,
+        room_id: [u8; 16],
+        journal: Vec<(u64, Vec<u8>)>,
+    ) -> Result<(Self, mpsc::Receiver<HostEvent>), CallError> {
         let (events, events_rx) = EventSender::channel();
         events.emit(HostEvent::Keys(EpochKeys::from_group(&group)?));
         let (commands, commands_rx) = mpsc::channel(COMMANDS);
         let (internal, internal_rx) = mpsc::channel(COMMANDS);
         let (allowed_tx, allowed) = watch::channel(Allowed::default());
-        let actor = Actor {
-            identity: Identity::from_secret(&identity.secret_bytes()),
-            group,
-            lobby: Lobby::new(room_id),
-            links: HashMap::new(),
-            events,
-            internal,
-            next_link: 0,
-            allowed: allowed_tx,
-            recovering: HashMap::new(),
-            history: VecDeque::new(),
-            latest_plan: None,
-            addresses: Vec::new(),
-            hints: HashMap::new(),
-            checking: None,
-            cut_off: Vec::new(),
-        };
+        let identity = Identity::from_secret(&identity.secret_bytes());
+        let mut actor = Actor::new(identity, group, room_id, events, internal, allowed_tx);
+        actor.history.extend(journal);
         tokio::spawn(actor.run(commands_rx, internal_rx));
         Ok((Self { commands, allowed }, events_rx))
     }
@@ -154,5 +195,25 @@ impl HostHandle {
     /// Removes a member. Its link closes after it receives the commit.
     pub async fn remove(&self, device: PublicId) -> Result<(), CallError> {
         self.send(Command::Remove(device)).await
+    }
+
+    /// Available members with their Good/OK/Poor bars, best first. The first is the
+    /// automatic pick. Empty when nobody can take over.
+    pub async fn choices(&self) -> Result<Vec<Choice>, CallError> {
+        let (reply, answer) = oneshot::channel();
+        self.send(Command::Choices(reply)).await?;
+        answer.await.map_err(|_| CallError::Closed)
+    }
+
+    /// Persistent calls only: hands hosting to `pick`, or with `None` to the best available
+    /// member (Automatic). Answers with the new host once the handover is committed. This
+    /// device then waits for its removal, at most [`super::handover::LINGER_AFTER`], and the
+    /// session ends with [`HostEvent::HandedOver`]. On a failure this device is still host.
+    pub async fn hand_over(&self, pick: Option<PublicId>) -> Result<PublicId, HandoverFailure> {
+        let (reply, answer) = oneshot::channel();
+        self.send(Command::HandOver { pick, reply })
+            .await
+            .map_err(|_| HandoverFailure::Closed)?;
+        answer.await.map_err(|_| HandoverFailure::Closed)?
     }
 }

@@ -40,17 +40,24 @@ use veil_topology::Plan;
 use crate::inbound::Inbound;
 use crate::events::EventSender;
 use crate::routes::{Directory, Routes};
-use crate::{CallError, CallPlan, EpochKeys, now_unix};
+use crate::{CallError, EpochKeys, now_unix};
 
+pub mod contact;
 mod handle;
+pub mod handover;
 mod hints;
 mod link;
+mod plans;
 mod recovery;
 pub mod successor;
+#[cfg(test)]
+mod test_support;
 
 pub(crate) use hints::checked_candidates;
 pub use hints::MAX_HINTS;
 use link::{Opened, run_link};
+pub use handover::{Choice, HandoverFailure};
+use handover::Handover;
 pub use recovery::CONTROL_RECOVERY;
 use recovery::REPLAY_COMMITS;
 
@@ -99,6 +106,8 @@ pub enum HostEvent {
         request: u64,
         ok: bool,
     },
+    /// A persistent call was handed over and this session has stopped. `to` hosts now.
+    HandedOver { to: PublicId },
 }
 
 enum Command {
@@ -128,6 +137,11 @@ enum Command {
         directory: Directory,
         request: u64,
         reply: oneshot::Sender<Result<Routes, CallError>>,
+    },
+    Choices(oneshot::Sender<Vec<Choice>>),
+    HandOver {
+        pick: Option<PublicId>,
+        reply: oneshot::Sender<Result<PublicId, HandoverFailure>>,
     },
 }
 
@@ -165,6 +179,7 @@ struct Actor {
     checking: Option<(u64, std::collections::HashSet<PublicId>)>,
     /// Devices cut off for falling behind. They are removed, not offered recovery.
     cut_off: Vec<PublicId>,
+    handover: Handover,
 }
 
 impl Actor {
@@ -181,6 +196,7 @@ impl Actor {
                 _ = expiry.tick() => {
                     self.expire_recovery();
                     self.flush_hints();
+                    self.handover_tick();
                 }
                 command = commands.recv() => match command {
                     Some(command) => self.command(command),
@@ -192,16 +208,27 @@ impl Actor {
             if self.events.is_stopped() {
                 break;
             }
+            if self.handover.finished().is_some() {
+                break;
+            }
             self.remove_cut_off();
             if self.events.is_stopped() {
                 break;
             }
             self.publish_allowed();
         }
+        self.allowed.send_replace(Allowed::default());
+        if let Some(to) = self.handover.finished() {
+            // Handed over: the call goes on without this device. Never send `Ended`.
+            self.events.finish(HostEvent::HandedOver { to });
+            return;
+        }
+        if self.handover.stepped_aside() {
+            return;
+        }
         if self.events.is_stopped() {
             self.events.finish(HostEvent::Overloaded);
         }
-        self.allowed.send_replace(Allowed::default());
         // Reliable explicit goodbye is delivered before stream closure. A stream FIN alone
         // is indistinguishable from a transport interruption to the recovering member.
         for device in self.others() {
@@ -297,6 +324,7 @@ impl Actor {
                 let _ = reply.send(self.invite(addrs, relay, expires_unix));
             }
             Command::AddLink(link) => {
+                self.handover.note_path(link.peer(), false);
                 self.next_link = self.next_link.wrapping_add(1);
                 tokio::spawn(run_link(link, None, self.next_link, self.internal.clone()));
             }
@@ -309,6 +337,7 @@ impl Actor {
                     first,
                     via,
                 } = inbound;
+                self.handover.note_path(link.peer(), via.is_some());
                 let opened = Opened {
                     out,
                     input,
@@ -333,6 +362,7 @@ impl Actor {
                     let reply = self.lobby.decline(knock);
                     self.send_to(&device, reply);
                     self.links.remove(&device);
+                    self.handover.note_removed(device);
                 }
             }
             Command::Remove(device) => self.remove(device, true),
@@ -358,59 +388,11 @@ impl Actor {
             } => {
                 let _ = reply.send(self.probe(&plan, &directory, request));
             }
+            Command::Choices(reply) => {
+                let _ = reply.send(self.choices());
+            }
+            Command::HandOver { pick, reply } => self.start_handover(pick, reply),
         }
-    }
-
-    fn publish(&mut self, plan: &Plan, directory: &Directory) -> Result<Routes, CallError> {
-        let room_id = self.lobby.room_id();
-        let epoch = self.group.epoch();
-        let plan = CallPlan::from_plan(plan, directory, room_id, epoch, &self.identity)?;
-        let members: Vec<PublicId> = self.group.members().into_iter().map(|(_, d)| d).collect();
-        if !plan.covers(&members) {
-            return Err(CallError::Plan(
-                "the directory does not list this epoch's members",
-            ));
-        }
-        let sealed = plan.seal(&self.identity)?;
-        self.latest_plan = Some((epoch, sealed.clone()));
-        for device in self.others() {
-            self.send_to(&device, Control::Plan(sealed.clone()));
-        }
-        plan.routes_for(&self.identity.public())
-    }
-
-    fn probe(
-        &mut self,
-        plan: &Plan,
-        directory: &Directory,
-        request: u64,
-    ) -> Result<Routes, CallError> {
-        let proposed = CallPlan::from_plan(
-            plan,
-            directory,
-            self.lobby.room_id(),
-            self.group.epoch(),
-            &self.identity,
-        )?;
-        let members: Vec<PublicId> = self.group.members().into_iter().map(|(_, d)| d).collect();
-        if !proposed.covers(&members) {
-            return Err(CallError::Plan(
-                "the directory does not list this epoch's members",
-            ));
-        }
-        let sealed = proposed.seal(&self.identity)?;
-        // Only answers to this request, one per member asked, reach the engine.
-        self.checking = Some((request, self.others().into_iter().collect()));
-        for device in self.others() {
-            self.send_to(
-                &device,
-                Control::ProbePlan {
-                    request,
-                    sealed: sealed.clone(),
-                },
-            );
-        }
-        proposed.routes_for(&self.identity.public())
     }
 
     fn invite(
@@ -419,6 +401,9 @@ impl Actor {
         relay: Option<String>,
         expires_unix: u64,
     ) -> Result<String, CallError> {
+        if !self.group.is_host() {
+            return Err(CallError::Group(GroupError::NotHost));
+        }
         let mut invite = Invite::new(
             &self.identity,
             addrs,
@@ -438,6 +423,15 @@ impl Actor {
     /// Removes a member and starts a new epoch. `tell_them` sends the removed member the commit
     /// first, so it learns it was removed rather than seeing a dropped link.
     fn remove(&mut self, device: PublicId, tell_them: bool) {
+        if self.handover.stepped_aside() {
+            // No longer host: a closing link is just a closing link.
+            self.links.remove(&device);
+            return;
+        }
+        self.handover.forget(&device);
+        if tell_them {
+            self.handover.note_removed(device);
+        }
         self.recovering.remove(&device);
         self.hints.remove(&device);
         if let Some((_, waiting)) = self.checking.as_mut() {
@@ -495,7 +489,19 @@ impl Actor {
     }
 
     fn message(&mut self, device: PublicId, message: Control) {
+        if self.handover.stepped_aside() {
+            match message {
+                Control::Commit(commit) => self.successor_commit(device, &commit),
+                Control::Hello { .. } | Control::KeyPackage(_) => {
+                    self.refuse(&device, RefuseReason::HostChanged);
+                }
+                _ => {}
+            }
+            return;
+        }
         match message {
+            Control::Availability(report) => self.availability(device, report),
+            Control::HandoverReady { request, contact } => self.ready(device, request, contact),
             Control::Hello { .. } => {
                 match self.lobby.knock(&message, device, &self.group, now_unix()) {
                     Ok(knock) => match self.lobby.at_gate(knock) {

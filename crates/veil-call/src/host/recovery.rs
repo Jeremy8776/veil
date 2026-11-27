@@ -55,6 +55,10 @@ impl Actor {
         room: [u8; 16],
         epoch: u64,
     ) {
+        if self.handover.stepped_aside() {
+            let _ = outbox.try_send(Control::Refused(RefuseReason::HostChanged));
+            return;
+        }
         self.expire_recovery();
         let current = self.group.epoch();
         let permitted = !self.cut_off.contains(&device)
@@ -114,45 +118,15 @@ impl Actor {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::super::hints::{HINT_GAP, member_hints};
+    use super::super::test_support::{actor_for, add};
     use super::super::*;
     use super::*;
-    use veil_group::{Applied, Joiner};
+    use veil_group::Applied;
 
     fn actor() -> Actor {
         let identity = Identity::generate();
         let group = Group::create(&identity, [51; 16]).unwrap();
-        let (events, _) = EventSender::channel();
-        let (internal, _) = mpsc::channel(16);
-        let (allowed, _) = watch::channel(Allowed::default());
-        Actor {
-            identity,
-            group,
-            lobby: Lobby::new([51; 16]),
-            links: HashMap::new(),
-            events,
-            internal,
-            next_link: 0,
-            allowed,
-            recovering: HashMap::new(),
-            history: VecDeque::new(),
-            latest_plan: None,
-            addresses: Vec::new(),
-            hints: HashMap::new(),
-            checking: None,
-            cut_off: Vec::new(),
-        }
-    }
-
-    fn add(actor: &mut Actor, identity: &Identity) -> Group {
-        let joiner = Joiner::new(identity).unwrap();
-        let admitted = actor
-            .group
-            .add(&joiner.key_package().unwrap(), &identity.public())
-            .unwrap();
-        actor.broadcast_commit(&admitted.commit, &[]);
-        joiner
-            .join(&admitted.welcome, &actor.identity.public())
-            .unwrap()
+        actor_for(identity, group)
     }
 
     #[tokio::test]

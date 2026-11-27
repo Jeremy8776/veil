@@ -88,6 +88,11 @@ fn extension_type() -> ExtensionType {
     ExtensionType::Unknown(AUTHORITY_EXTENSION)
 }
 
+/// True when a leaf can join a persistent call.
+pub(crate) fn supports_authority(capabilities: &Capabilities) -> bool {
+    capabilities.extensions().contains(&extension_type())
+}
+
 /// Leaf capabilities every Veil device advertises, so it can join a persistent call.
 pub(crate) fn capabilities() -> Capabilities {
     Capabilities::new(None, None, Some(&[extension_type()]), None, None)

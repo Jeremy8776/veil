@@ -209,7 +209,9 @@ fn an_older_veil_cannot_join_a_persistent_call_but_can_join_a_plain_one() {
     let mut persistent = Call::new(1, true);
     assert!(matches!(
         persistent.groups[0].add(&old_version_key_package(&old), &old.public()),
-        Err(GroupError::Mls(_))
+        Err(GroupError::Refused(
+            veil_net::control::RefuseReason::NeedsUpdate
+        ))
     ));
     let mut plain = Call::new(1, false);
     assert!(

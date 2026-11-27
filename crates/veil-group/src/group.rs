@@ -335,6 +335,13 @@ impl Group {
             return Err(GroupError::Malformed("ciphersuite"));
         }
         let leaf = package.leaf_node();
+        // A persistent call requires the authority capability. Say "update Veil" rather than
+        // surfacing the openmls refusal an older device's key package would cause.
+        if self.is_persistent() && !authority::supports_authority(leaf.capabilities()) {
+            return Err(GroupError::Refused(
+                veil_net::control::RefuseReason::NeedsUpdate,
+            ));
+        }
         let identity = BasicCredential::try_from(leaf.credential().clone())
             .map_err(|_| GroupError::Malformed("credential"))?;
         if leaf.signature_key().as_slice() != device.0 || identity.identity() != device.0 {
