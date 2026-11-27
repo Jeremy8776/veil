@@ -103,6 +103,30 @@ see this:
 | Your router | With "Open a port on my router" on, while you host: this computer's LAN address, the ports opened for the call, and that a program called "Veil" asked for them (section 3). With IPv6, also this computer's public IPv6 address, in a PCP request to let the call's port through the router's firewall |
 | Anyone holding an invite link | The host's device key and the addresses in it: the host's LAN address and port, the router's public address and port when the router opened one, the host's public IPv6 address and port when it has one, and any public address set in `VEIL_ADVERTISE`. If the host runs its own rendezvous, also that rendezvous's LAN address and port, and its public port when the router opened one. The desktop app puts these in every invite so a guest can dial directly. Through the rendezvous they can also learn the host's public address, since joiners punch through to the host. They cannot learn any other member's address: a member accepts an introduction only from peers its current routes link to |
 
+**Persistent calls (unreleased, ADR 0010).** Off unless the host switches on **Persistent
+call** before starting. In such a call:
+
+- **Available to host** is off by default, and cannot be on with Hide my address. While it
+  is on, your Veil sends the current host, and nobody else, a small report every 10 seconds
+  at most: whether you are available, whether you look directly reachable (Good, Maybe or
+  No), how many members you have a direct media link to, the median round trip to them in
+  10 ms steps, and your recent upload in 500 kbit/s steps. It holds no address, no member
+  list and no figure for any one person. The leaving host sees only names and a Good, OK or
+  Poor bar.
+- If you become host, you host with your own device key and your own settings, exactly as
+  when you start a call: your addresses go into new invite links, Veil runs its own
+  rendezvous, relay and forwarder unless you set a `veil-node`, and it may open a router port
+  if you allowed that. The old host's key, invites, room and helpers never move to you.
+  The old host passes you the device keys it removed or declined in this call (at most 64),
+  which members could already see, so your lobby can flag them.
+- Every member dials the new host at an address set the new host signed. Members check that
+  signature against the host the MLS group names, so the old host cannot point them
+  anywhere else. Earlier invite links stop working.
+- A relay-only member whose relay would move to another machine is asked first, because that
+  machine's owner would see its IP address. With no answer in 20 seconds it leaves the call.
+- After the handover the old host is removed from the group and cannot read new media. A
+  crash or network loss of the host still ends the call.
+
 When the desktop app hosts without a configured `veil-node`, it runs a rendezvous, relay and
 forwarder of its own on extra ports for the length of the call. They see what any rendezvous,
 relay or forwarder sees (the table above), and they are the host's own machine.
@@ -558,6 +582,9 @@ grep -rn "shortcut:" crates
   remote receiver still need testing.
 - Repeatable internet tests across home routers and mobile carriers: direct, punched and
   relayed paths, Wi-Fi interruptions, and Auto data use under sustained loss or throttling.
+- Planned host handover in a persistent call between real devices, on a LAN and over the
+  internet. It is tested over loopback links in `crates/veil-call/tests/handover.rs`, and the
+  desktop dialogs are not yet tried by people.
 - A forged MLS commit from a member who is not the host. The check exists; there is no test,
   because the MLS library gives no easy way to build such a commit.
 - Live camera capture runs only on request (`cargo test -p veil-media --test camera --

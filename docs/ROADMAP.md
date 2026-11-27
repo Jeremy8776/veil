@@ -836,8 +836,11 @@ copies/scaling/encoding only against a measured bottleneck and preserve safety c
 
 **Outcome:** A "Persistent call" continues when its host leaves on purpose. The leaving host
 can pick an available member to take over; otherwise Veil picks the one with the best connection.
-**Status:** Design proposed in [ADR 0010](adr/0010-persistent-call-planned-host-handover.md),
-awaiting review. Not implemented; current host departure ends the call.
+**Status:** Design in [ADR 0010](adr/0010-persistent-call-planned-host-handover.md), approved
+by Jeremy on 27/11/2026. Implemented on branch `claude/host-01-handover` (not merged): group
+authority, host and member actors, the successor's take-over, the desktop switches and leave
+dialog. Tested over loopback links (`crates/veil-call/tests/handover.rs`) and in unit tests.
+Real-device evidence on a LAN and over the internet is still open, so the gate is not met.
 **Target:** Unassigned extension after core reliability. **Depends on:** GROUP-01, TRUST-01, ID-01.
 
 The first pass is planned handover only. Unexpected host failure and partitions need a separate

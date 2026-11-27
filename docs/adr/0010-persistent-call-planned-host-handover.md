@@ -1,6 +1,7 @@
 # A persistent call survives its host leaving, through a signed planned handover
 
-Status: proposed (2026-11-27). Design for HOST-01, first pass. Not implemented.
+Status: accepted (2026-11-27). Design for HOST-01, first pass. Implemented on branch
+`claude/host-01-handover`; real-device evidence pending.
 
 Today the host is the only MLS committer (`crates/veil-group/src/group.rs`, leaf 0). Members
 refuse any other commit, so the group cannot change without the host and the call ends when
