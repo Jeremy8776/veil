@@ -189,7 +189,8 @@ impl LocalMedia {
         self.shared.cancel_echo.load(Ordering::Relaxed)
     }
 
-    /// Takes effect on the next 20 ms of sound.
+    /// Takes effect on the next 20 ms of sound. On Windows the microphone is reopened (with or
+    /// without the driver's voice effects), so there is a short gap.
     pub fn set_cancel_echo(&self, on: bool) {
         self.shared.cancel_echo.store(on, Ordering::Relaxed);
     }

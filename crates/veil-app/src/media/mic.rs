@@ -184,9 +184,12 @@ pub(super) fn mic_loop(
                     crate::note!("microphone: cannot reopen {}: {e}", which(id));
                     *lock(&shared.mic_error) = Some(e);
                     ctx.request_repaint();
-                    return;
+                    // Not `return`: the level must still drop to zero below.
+                    break;
                 }
             };
+            // A new stream with or without the driver's effects: learn its sound afresh.
+            chain = Chain::new();
         }
         match mic.read() {
             Ok(frame) => {
@@ -298,26 +301,30 @@ mod tests {
         }
     }
 
-    #[test]
-    fn echo_cancelling_starts_again_when_switched_on_or_the_speaker_reopens() {
-        let mut chain = Chain::new();
-        let mut frame = vec![0.1f32; 960];
-        chain.cancel_echo(&mut frame, true, 0, VecDeque::new());
-        assert!(chain.cancelling);
-        chain.cancel_echo(&mut frame, false, 0, VecDeque::new());
-        assert!(!chain.cancelling);
-        // Learn the echo path, then open another speaker: from then on the chain must behave
-        // exactly as a new one hearing the same sound.
-        let mut room = Room::new();
-        assert!(room.drop(&mut chain, 0, 200) >= 20.0);
-        let mut same_room = room.clone();
+    /// From now on `chain` must behave exactly as a new chain hearing the same sound.
+    fn assert_starts_again(chain: &mut Chain, room: &Room, opens: u64) {
+        let (mut room, mut same_room) = (room.clone(), room.clone());
         let mut new_chain = Chain::new();
         for _ in 0..50 {
             assert_eq!(
-                room.frame(&mut chain, 3).1,
-                same_room.frame(&mut new_chain, 3).1
+                room.frame(chain, opens).1,
+                same_room.frame(&mut new_chain, opens).1
             );
         }
+    }
+
+    #[test]
+    fn echo_cancelling_starts_again_when_switched_on_or_the_speaker_reopens() {
+        let mut chain = Chain::new();
+        let mut room = Room::new();
+        // Learn the echo path, switch off, switch on again: the path is forgotten.
+        assert!(room.drop(&mut chain, 0, 200) >= 20.0);
+        chain.cancel_echo(&mut vec![0.1f32; 960], false, 0, VecDeque::new());
+        assert!(!chain.cancelling);
+        assert_starts_again(&mut chain, &room, 0);
+        // Learn it again, then open another speaker: forgotten too.
+        assert!(room.drop(&mut chain, 0, 200) >= 20.0);
+        assert_starts_again(&mut chain, &room, 3);
         assert_eq!(chain.opens, 3);
     }
 
